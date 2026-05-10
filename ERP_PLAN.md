@@ -253,6 +253,7 @@ Validate core assumptions with a minimal prototype before committing to the full
 - `SET LOCAL` only works inside `$transaction` — cannot use middleware pattern
 - Pure RLS overhead: ~0%. Transaction wrapping: ~0.8ms/query extra
 - MCP stdio transport validated with 3 tools (create_party, list_available_tools, get_type_table_values)
+- **BUG FIX:** `SET LOCAL` inside PL/pgSQL does NOT resolve parameter names — must use `EXECUTE format('SET LOCAL ... = %L', param)`
 
 #### Phase 0b: Core Infrastructure (Weeks 2-4) — In Progress
 
@@ -266,9 +267,9 @@ Validate core assumptions with a minimal prototype before committing to the full
 - [x] Set up vitest test framework with RLS isolation test suite
 - [x] Add `prisma generate` as postinstall hook
 - [x] Remove hardcoded credentials from source code
-- [ ] Set up Redis for caching + queues (BullMQ)
-- [ ] MCP Tool Server infrastructure (middleware pipeline, registration framework)
-- [ ] NestJS modules, guards, interceptors, Prisma Client Extension for RLS
+- [x] Set up Redis for caching + queues (BullMQ)
+- [x] MCP Tool Server infrastructure (middleware pipeline, registration framework)
+- [x] NestJS modules, guards, interceptors, Prisma Client Extension for RLS
 
 #### Phase 0c: Core Schema + Agentic Layer (Weeks 3-5)
 

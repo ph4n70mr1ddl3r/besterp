@@ -1,0 +1,93 @@
+// Prisma Client Extension for automatic Row-Level Security (RLS) tenant scoping.
+//
+// Provides `createTenantClient()` which wraps all model operations in a
+// transaction that calls `set_tenant_context()` before executing each query.
+// This ensures every database operation is scoped to a specific tenant at the
+// database level — defense-in-depth beyond application-level WHERE filters.
+//
+// IMPORTANT: RLS only works with a non-superuser database role.
+// The PrismaClient passed here MUST connect as besterp_app (not besterp).
+
+import { PrismaClient } from "@prisma/client";
+import { validateTenantId } from "@besterp/shared";
+
+// ─── Validation ───────────────────────────────────────────────────
+
+// Re-export for consumers that need the validation directly
+export { validateTenantId } from "@besterp/shared";
+
+// ─── Data-access methods to wrap with tenant context ──────────────
+
+const DATA_METHODS = new Set([
+  "findMany", "findUnique", "findFirst", "create", "update",
+  "delete", "upsert", "count", "aggregate", "groupBy",
+  "findUniqueOrThrow", "findFirstOrThrow", "updateMany", "deleteMany",
+  "createMany",
+]);
+
+/**
+ * Create a tenant-scoped Prisma client.
+ *
+ * Returns a Proxy over the PrismaClient where every model operation
+ * (`findMany`, `create`, etc.) is wrapped in a transaction that calls
+ * `set_tenant_context()` first. This enforces RLS at the database level.
+ *
+ * Usage:
+ * ```ts
+ * const prisma = new PrismaClient();  // must use non-superuser role
+ * const scoped = createTenantClient(prisma, "tenant-acme");
+ *
+ * // All queries are automatically tenant-scoped via RLS
+ * await scoped.party.findMany();
+ * await scoped.party.create({ data: { ... } });
+ * ```
+ *
+ * @param prisma   - Base PrismaClient (must connect as non-superuser for RLS)
+ * @param tenantId - The tenant ID to scope all queries to
+ * @returns A Proxy-wrapped PrismaClient with automatic RLS scoping
+ */
+export function createTenantClient(prisma: PrismaClient, tenantId: string) {
+  validateTenantId(tenantId);
+
+  return new Proxy(prisma, {
+    get(target, prop: string | symbol) {
+      if (typeof prop !== "string") return (target as any)[prop];
+
+      // Internal Prisma properties pass through ($transaction, $connect, etc.)
+      if (prop.startsWith("$") || prop.startsWith("_")) {
+        return (target as any)[prop];
+      }
+
+      // Model delegate (party, person, organization, etc.)
+      const delegate = (target as any)[prop];
+      if (!delegate || typeof delegate !== "object") return delegate;
+
+      return new Proxy(delegate, {
+        get(modelTarget, method: string | symbol) {
+          if (typeof method !== "string") return (modelTarget as any)[method];
+
+          const originalFn = (modelTarget as any)[method];
+          if (typeof originalFn !== "function") return originalFn;
+
+          if (!DATA_METHODS.has(method)) return originalFn;
+
+          // Return a wrapped function that sets tenant context
+          return async function (this: unknown, ...args: unknown[]) {
+            return prisma.$transaction(async (tx) => {
+              await tx.$executeRaw`SELECT set_tenant_context(${tenantId})`;
+              const txDelegate = (tx as any)[prop];
+              if (!txDelegate) {
+                throw new Error(`Model "${String(prop)}" not found on transaction client`);
+              }
+              const txMethod = txDelegate[method];
+              if (!txMethod || typeof txMethod !== "function") {
+                throw new Error(`Method "${method}" not found on model "${String(prop)}"`);
+              }
+              return txMethod.apply(txDelegate, args);
+            });
+          };
+        },
+      });
+    },
+  }) as any as PrismaClient;
+}

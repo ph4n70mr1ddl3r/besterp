@@ -26,7 +26,10 @@ describe("HealthController", () => {
     const module = await Test.createTestingModule({
       controllers: [HealthController],
       providers: [{ provide: PrismaService, useValue: mockPrisma }],
-    }).compile();
+    })
+      .overrideGuard(require("@nestjs/core").Reflector)
+      .useValue({ getAllAndOverride: () => true }) // make it public
+      .compile();
 
     const controller = module.get(HealthController);
     const result = await controller.ready();

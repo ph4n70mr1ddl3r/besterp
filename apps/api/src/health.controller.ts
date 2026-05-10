@@ -1,8 +1,12 @@
-// Health check endpoint for load balancers and monitoring
+// Health check endpoint for load balancers and monitoring.
+//
+// Marked @Public() so it doesn't require JWT authentication.
 
 import { Controller, Get } from "@nestjs/common";
+import { Public } from "./auth/public.decorator";
 import { PrismaService } from "./prisma/prisma.service.js";
 
+@Public()
 @Controller("health")
 export class HealthController {
   constructor(private readonly prisma: PrismaService) {}

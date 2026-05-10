@@ -1,6 +1,9 @@
 import { PrismaClient } from "@prisma/client";
 
-const prisma = new PrismaClient();
+// Seed uses admin connection to bypass RLS for creating tenant records
+const prisma = new PrismaClient({
+  datasourceUrl: process.env.DATABASE_ADMIN_URL || process.env.DATABASE_URL,
+});
 
 async function main() {
   console.log("🌱 Seeding type tables with AI-facing descriptions...\n");

@@ -13,7 +13,10 @@ CREATE EXTENSION IF NOT EXISTS vector;
 CREATE OR REPLACE FUNCTION set_tenant_context(p_tenant_id TEXT)
 RETURNS void AS $$
 BEGIN
-  SET LOCAL app.current_tenant = p_tenant_id;
+  -- Must use EXECUTE + format(%L) because SET LOCAL does not resolve
+  -- PL/pgSQL variables — a plain SET LOCAL would assign the literal
+  -- string "p_tenant_id" instead of the parameter value.
+  EXECUTE format('SET LOCAL app.current_tenant = %L', p_tenant_id);
 END;
 $$ LANGUAGE plpgsql;
 

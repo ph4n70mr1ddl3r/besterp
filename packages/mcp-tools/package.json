@@ -3,6 +3,8 @@
   "version": "0.0.1",
   "private": true,
   "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
   "scripts": {
     "build": "tsc",
     "dev": "tsx src/server.ts",
@@ -12,7 +14,8 @@
   "dependencies": {
     "@besterp/shared": "*",
     "@modelcontextprotocol/sdk": "^1.12.0",
-    "@prisma/client": "^6.8.0"
+    "@prisma/client": "^6.8.0",
+    "zod": "^3.25.76"
   },
   "devDependencies": {
     "tsx": "^4.19.0",

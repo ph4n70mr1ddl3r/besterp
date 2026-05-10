@@ -54,6 +54,18 @@ describe("hashInput", () => {
     expect(() => hashInput(42)).not.toThrow();
     expect(() => hashInput(null)).not.toThrow();
   });
+
+  it("produces the same hash regardless of key insertion order", () => {
+    const a = { x: 1, y: 2, z: 3 };
+    const b = { z: 3, y: 2, x: 1 };
+    expect(hashInput(a)).toBe(hashInput(b));
+  });
+
+  it("produces the same hash for nested objects regardless of key order", () => {
+    const a = { outer: { inner: 1, other: 2 }, value: 3 };
+    const b = { value: 3, outer: { other: 2, inner: 1 } };
+    expect(hashInput(a)).toBe(hashInput(b));
+  });
 });
 
 describe("richError", () => {
