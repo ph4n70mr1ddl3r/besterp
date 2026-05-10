@@ -17,7 +17,7 @@ datasource db {
 // ─── Type Tables (AI-facing, shared across tenants) ─────────────
 
 model PartyType {
-  partyTypeId   String   @id @default(uuid()) @map("party_id")
+  partyTypeId   String   @id @default(uuid()) @map("party_type_id")
   parentTypeId  String?  @map("parent_type_id")
   name          String   @unique
   description   String

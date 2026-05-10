@@ -15,8 +15,7 @@
     "db:seed": "npm run seed --workspace=@besterp/database",
     "db:reset": "npm run reset --workspace=@besterp/database",
     "spike:rls": "npm run spike:rls --workspace=@besterp/database",
-    "spike:mcp": "npm run dev --workspace=@besterp/api",
-    "spike:agent": "npm run spike:agent --workspace=@besterp/spike-agent"
+    "spike:mcp": "npm run spike:agent --workspace=@besterp/mcp-tools"
   },
   "engines": {
     "node": ">=20.0.0"

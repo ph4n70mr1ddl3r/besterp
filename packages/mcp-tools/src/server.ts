@@ -29,6 +29,11 @@ async function withTenant<T>(
   tenantId: string,
   fn: (tx: PrismaClient) => Promise<T>
 ): Promise<T> {
+  // Validate tenantId to prevent SQL injection (SET LOCAL doesn't support
+  // parameterized queries via Prisma tagged templates)
+  if (!/^[a-zA-Z0-9_-]+$/.test(tenantId)) {
+    throw new Error(`Invalid tenant ID: ${tenantId}`);
+  }
   return prisma.$transaction(async (tx) => {
     await tx.$executeRawUnsafe(
       `SET LOCAL app.current_tenant = '${tenantId}'`

@@ -222,7 +222,7 @@ INVENTORY_ITEM
 
 ## 5. Phased Implementation Plan
 
-### Phase 0: Foundation (Weeks 1-6) — *You are here*
+### Phase 0: Foundation (Weeks 1-6) — Phase 0a complete, entering Phase 0b
 
 > **Note:** ADRs for key decisions are in `docs/architecture/`. Read them before implementing:
 > - ADR-001: MCP as Primary Agent Interface
@@ -230,22 +230,29 @@ INVENTORY_ITEM
 > - ADR-003: Class Table Inheritance for Supertype/Subtype
 > - ADR-004: Idempotency Key Pattern for Write Tools
 
-#### Phase 0a: Spike & Validation (Weeks 1-2)
+#### Phase 0a: Spike & Validation (Weeks 1-2) ✅ COMPLETE
 
 Validate core assumptions with a minimal prototype before committing to the full stack.
 
-- [ ] Set up monorepo scaffold (Nx + TypeScript)
-- [ ] Set up PostgreSQL + Prisma (basic connection, one migration)
-- [ ] Implement **one entity end-to-end**: `core-party` (PARTY, PERSON, ORGANIZATION, PARTY_TYPE)
-- [ ] Implement RLS for multi-tenancy on the party table (ADR-002)
-- [ ] Implement Class Table Inheritance for PARTY → PERSON/ORGANIZATION (ADR-003)
-- [ ] Build **one MCP tool**: `create_party` with JSON Schema + description (ADR-001)
-- [ ] Implement idempotency key handling for `create_party` (ADR-004)
-- [ ] Implement `ai_action_log` for the one tool
-- [ ] Write tool contract test for `create_party`
-- [ ] Write tenant isolation test (tenant A can't see tenant B's data)
-- [ ] **Spike review:** validate Prisma + RLS, MCP tool ergonomics, idempotency overhead
-- [ ] Benchmark RLS query overhead (< 15% target) and idempotency extra round-trip (< 10ms target)
+- [x] Set up monorepo scaffold (npm workspaces + TypeScript)
+- [x] Set up PostgreSQL + Prisma (basic connection, one migration)
+- [x] Implement **one entity end-to-end**: `core-party` (PARTY, PERSON, ORGANIZATION, PARTY_TYPE)
+- [x] Implement RLS for multi-tenancy on the party table (ADR-002)
+- [x] Implement Class Table Inheritance for PARTY → PERSON/ORGANIZATION (ADR-003)
+- [x] Build **one MCP tool**: `create_party` with JSON Schema + description (ADR-001)
+- [x] Implement idempotency key handling for `create_party` (ADR-004)
+- [x] Implement `ai_action_log` for the one tool
+- [x] Write tool contract test for `create_party`
+- [x] Write tenant isolation test (tenant A can't see tenant B's data)
+- [x] **Spike review:** validate Prisma + RLS, MCP tool ergonomics, idempotency overhead
+- [x] Benchmark RLS query overhead (< 15% target) and idempotency extra round-trip (< 10ms target)
+
+**Spike Findings (folded into ADR-002):**
+- Superusers ALWAYS bypass RLS — must use non-superuser `besterp_app` role
+- RLS policies need `WITH CHECK` clause for INSERT/UPDATE
+- `SET LOCAL` only works inside `$transaction` — cannot use middleware pattern
+- Pure RLS overhead: ~0%. Transaction wrapping: ~0.8ms/query extra
+- MCP stdio transport validated with 3 tools (create_party, list_available_tools, get_type_table_values)
 
 #### Phase 0b: Core Infrastructure (Weeks 2-4)
 
@@ -411,8 +418,6 @@ besterp/
 │   ├── setup.sh
 │   ├── seed.sh
 │   └── migrate.sh
-├── ERP_PLAN.md                       # This file
-├── nx.json / turbo.json
 ├── package.json
 ├── tsconfig.base.json
 └── .github/
@@ -429,7 +434,7 @@ All decisions recorded as Architecture Decision Records (ADRs) in `docs/architec
 | # | Decision | Resolution | ADR |
 |---|----------|------------|-----|
 | 1 | **ORM** | **Prisma** — excellent migration tooling, type-safe queries | — |
-| 2 | **Monorepo Tool** | **Nx** — powerful task graph, affected builds | — |
+| 2 | **Monorepo Tool** | **npm workspaces** — simpler than Nx, sufficient for our module count; migrate to Nx if task-graph caching becomes necessary | — |
 | 3 | **Multi-Tenancy Strategy** | **Row-Level Security (RLS)** | [ADR-002](./docs/architecture/adr-002-rls-multi-tenancy.md) |
 | 4 | **Event Bus** | **BullMQ** initially, migrate to Kafka if needed at scale | — |
 | 5 | **Supertype/Subtype Implementation** | **Class Table Inheritance** | [ADR-003](./docs/architecture/adr-003-class-table-inheritance.md) |

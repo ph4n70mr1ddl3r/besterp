@@ -20,6 +20,15 @@ BestERP's primary users are AI agents. We need a protocol for exposing business 
 
 We adopt the **Model Context Protocol (MCP)** as the primary interface for AI agent interaction with BestERP.
 
+### Transport:
+
+| Transport | Use Case | When |
+|-----------|----------|------|
+| **stdio** | Local development, embedded agents, CLI tools | Now (spike validated) |
+| **Streamable HTTP** | Production API gateway, remote agents, multi-agent orchestration | Phase 0b |
+
+The spike validated stdio transport. For production, we'll add Streamable HTTP support so the MCP server can sit behind an API gateway and serve remote agents over HTTP.
+
 ### What this means concretely:
 
 1. **Every business operation is an MCP tool** — not a REST endpoint or GraphQL mutation

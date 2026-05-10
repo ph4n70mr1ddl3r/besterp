@@ -10,7 +10,6 @@
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { SpawnOptions } from "child_process";
 
 function assert(condition: boolean, message: string) {
   if (!condition) {
