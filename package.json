@@ -1,0 +1,24 @@
+{
+  "name": "besterp",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Agent-first ERP built on Silverstone's universal data models",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces",
+    "test": "npm run test --workspaces",
+    "lint": "npm run lint --workspaces",
+    "db:migrate": "npm run migrate --workspace=@besterp/database",
+    "db:seed": "npm run seed --workspace=@besterp/database",
+    "db:reset": "npm run reset --workspace=@besterp/database",
+    "spike:rls": "npm run spike:rls --workspace=@besterp/database",
+    "spike:mcp": "npm run dev --workspace=@besterp/api",
+    "spike:agent": "npm run spike:agent --workspace=@besterp/spike-agent"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

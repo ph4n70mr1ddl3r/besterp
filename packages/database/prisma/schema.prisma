@@ -1,0 +1,240 @@
+// BestERP — Core Party Schema (Silverstone Ch. 1-2)
+// Phase 0a Spike: Validate Prisma + RLS + Class Table Inheritance
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Tenant Management ──────────────────────────────────────────
+// The "tenant" is just an ORGANIZATION party. We use a convenience
+// view/table for tenant lookup but the real isolation is RLS.
+
+// ─── Type Tables (AI-facing, shared across tenants) ─────────────
+
+model PartyType {
+  partyTypeId   String   @id @default(uuid()) @map("party_id")
+  parentTypeId  String?  @map("parent_type_id")
+  name          String   @unique
+  description   String
+  aiPromptHint  String?  @map("ai_prompt_hint")
+  isSystem      Boolean  @default(false) @map("is_system")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  // Self-referencing hierarchy
+  parentType    PartyType?  @relation("PartyTypeHierarchy", fields: [parentTypeId], references: [partyTypeId])
+  childTypes    PartyType[] @relation("PartyTypeHierarchy")
+
+  parties       Party[]
+
+  @@map("party_type")
+}
+
+// ─── Supertype: PARTY ───────────────────────────────────────────
+
+model Party {
+  partyId       String   @id @default(uuid()) @map("party_id")
+  partyTypeId   String   @map("party_type_id")
+  tenantId      String   @map("tenant_id")
+  name          String
+  description   String?
+  version       Int      @default(1)
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  // Type relation
+  partyType     PartyType @relation(fields: [partyTypeId], references: [partyTypeId])
+
+  // Subtype relations (1:1 — at most one will be populated)
+  person        Person?
+  organization  Organization?
+
+  // Roles
+  roles         PartyRole[]
+
+  // Contact mechanisms
+  partyContacts PartyContactMechanism[]
+
+  @@map("party")
+}
+
+// ─── Subtype: PERSON ────────────────────────────────────────────
+
+model Person {
+  partyId       String   @id @map("party_id")
+  firstName     String   @map("first_name")
+  lastName      String   @map("last_name")
+  middleName    String?  @map("middle_name")
+  birthDate     DateTime? @map("birth_date")
+  gender        String?
+
+  party         Party    @relation(fields: [partyId], references: [partyId], onDelete: Cascade)
+
+  @@map("person")
+}
+
+// ─── Subtype: ORGANIZATION ──────────────────────────────────────
+
+model Organization {
+  partyId          String    @id @map("party_id")
+  legalName        String    @map("legal_name")
+  taxId            String?   @map("tax_id")
+  registrationDate DateTime? @map("registration_date")
+
+  party            Party     @relation(fields: [partyId], references: [partyId], onDelete: Cascade)
+
+  @@map("organization")
+}
+
+// ─── Party Role ─────────────────────────────────────────────────
+
+model RoleType {
+  roleTypeId    String   @id @default(uuid()) @map("role_type_id")
+  name          String   @unique
+  description   String
+  aiPromptHint  String?  @map("ai_prompt_hint")
+  parentTypeId  String?  @map("parent_type_id")
+  isSystem      Boolean  @default(false) @map("is_system")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  parentType    RoleType?  @relation("RoleTypeHierarchy", fields: [parentTypeId], references: [roleTypeId])
+  childTypes    RoleType[] @relation("RoleTypeHierarchy")
+
+  partyRoles    PartyRole[]
+
+  @@map("role_type")
+}
+
+model PartyRole {
+  partyRoleId   String   @id @default(uuid()) @map("party_role_id")
+  partyId       String   @map("party_id")
+  roleTypeId    String   @map("role_type_id")
+  fromDate      DateTime @default(now()) @map("from_date")
+  thruDate      DateTime? @map("thru_date")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  party         Party    @relation(fields: [partyId], references: [partyId], onDelete: Cascade)
+  roleType      RoleType @relation(fields: [roleTypeId], references: [roleTypeId])
+
+  @@map("party_role")
+}
+
+// ─── Contact Mechanism ──────────────────────────────────────────
+
+model ContactMechanismType {
+  contactMechanismTypeId String @id @default(uuid()) @map("contact_mechanism_type_id")
+  name                   String @unique
+  description            String
+  aiPromptHint           String? @map("ai_prompt_hint")
+  createdAt              DateTime @default(now()) @map("created_at")
+
+  contactMechanisms      ContactMechanism[]
+
+  @@map("contact_mechanism_type")
+}
+
+model ContactMechanism {
+  contactMechanismId     String @id @default(uuid()) @map("contact_mechanism_id")
+  contactMechanismTypeId String @map("contact_mechanism_type_id")
+  tenantId               String @map("tenant_id")
+  createdAt              DateTime @default(now()) @map("created_at")
+
+  contactMechanismType   ContactMechanismType @relation(fields: [contactMechanismTypeId], references: [contactMechanismTypeId])
+  partyContacts          PartyContactMechanism[]
+  postalAddress          PostalAddress?
+  telecomNumber          TelecomNumber?
+  emailAddress           EmailAddress?
+
+  @@map("contact_mechanism")
+}
+
+model PartyContactMechanism {
+  partyContactMechanismId String    @id @default(uuid()) @map("party_contact_mechanism_id")
+  partyId                 String    @map("party_id")
+  contactMechanismId      String    @map("contact_mechanism_id")
+  fromDate                DateTime  @default(now()) @map("from_date")
+  thruDate                DateTime? @map("thru_date")
+
+  party                   Party             @relation(fields: [partyId], references: [partyId], onDelete: Cascade)
+  contactMechanism        ContactMechanism  @relation(fields: [contactMechanismId], references: [contactMechanismId], onDelete: Cascade)
+
+  @@map("party_contact_mechanism")
+}
+
+// Contact subtypes
+
+model PostalAddress {
+  contactMechanismId String @id @map("contact_mechanism_id")
+  addressLine1       String @map("address_line_1")
+  addressLine2       String? @map("address_line_2")
+  city               String
+  stateProvince      String? @map("state_province")
+  postalCode         String? @map("postal_code")
+  country            String
+
+  contactMechanism   ContactMechanism @relation(fields: [contactMechanismId], references: [contactMechanismId], onDelete: Cascade)
+
+  @@map("postal_address")
+}
+
+model TelecomNumber {
+  contactMechanismId String @id @map("contact_mechanism_id")
+  countryCode        String @default("+1") @map("country_code")
+  areaCode           String @map("area_code")
+  lineNumber         String @map("line_number")
+  extension          String?
+
+  contactMechanism   ContactMechanism @relation(fields: [contactMechanismId], references: [contactMechanismId], onDelete: Cascade)
+
+  @@map("telecom_number")
+}
+
+model EmailAddress {
+  contactMechanismId String @id @map("contact_mechanism_id")
+  email              String
+
+  contactMechanism   ContactMechanism @relation(fields: [contactMechanismId], references: [contactMechanismId], onDelete: Cascade)
+
+  @@map("email_address")
+}
+
+// ─── AI Action Log ──────────────────────────────────────────────
+
+model AiActionLog {
+  id             String   @id @default(uuid()) @map("id")
+  agentId        String?  @map("agent_id")
+  conversationId String?  @map("conversation_id")
+  userId         String?  @map("user_id")
+  tenantId       String?  @map("tenant_id")
+  toolCalled     String   @map("tool_called")
+  toolInput      Json     @map("tool_input")
+  toolOutput     Json?    @map("tool_output")
+  reasoning      String?
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@map("ai_action_log")
+}
+
+// ─── Idempotency Record ─────────────────────────────────────────
+
+model IdempotencyRecord {
+  idempotencyKey String   @id @map("idempotency_key")
+  toolName       String   @map("tool_name")
+  tenantId       String   @map("tenant_id")
+  userId         String   @map("user_id")
+  agentId        String?  @map("agent_id")
+  conversationId String?  @map("conversation_id")
+  status         String   @default("pending")
+  inputHash      String   @map("input_hash")
+  result         Json?
+  error          Json?
+  createdAt      DateTime @default(now()) @map("created_at")
+  completedAt    DateTime? @map("completed_at")
+  expiresAt      DateTime @map("expires_at")
+
+  @@map("idempotency_record")
+}
