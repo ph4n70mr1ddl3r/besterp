@@ -222,36 +222,68 @@ INVENTORY_ITEM
 
 ## 5. Phased Implementation Plan
 
-### Phase 0: Foundation (Weeks 1-3) — *You are here*
+### Phase 0: Foundation (Weeks 1-6) — *You are here*
 
-**Infrastructure:**
-- [ ] Initialize monorepo (Nx)
-- [ ] Set up PostgreSQL + pgvector + Prisma
-- [ ] Set up MCP Tool Server infrastructure
+> **Note:** ADRs for key decisions are in `docs/architecture/`. Read them before implementing:
+> - ADR-001: MCP as Primary Agent Interface
+> - ADR-002: Row-Level Security for Multi-Tenancy
+> - ADR-003: Class Table Inheritance for Supertype/Subtype
+> - ADR-004: Idempotency Key Pattern for Write Tools
+
+#### Phase 0a: Spike & Validation (Weeks 1-2)
+
+Validate core assumptions with a minimal prototype before committing to the full stack.
+
+- [ ] Set up monorepo scaffold (Nx + TypeScript)
+- [ ] Set up PostgreSQL + Prisma (basic connection, one migration)
+- [ ] Implement **one entity end-to-end**: `core-party` (PARTY, PERSON, ORGANIZATION, PARTY_TYPE)
+- [ ] Implement RLS for multi-tenancy on the party table (ADR-002)
+- [ ] Implement Class Table Inheritance for PARTY → PERSON/ORGANIZATION (ADR-003)
+- [ ] Build **one MCP tool**: `create_party` with JSON Schema + description (ADR-001)
+- [ ] Implement idempotency key handling for `create_party` (ADR-004)
+- [ ] Implement `ai_action_log` for the one tool
+- [ ] Write tool contract test for `create_party`
+- [ ] Write tenant isolation test (tenant A can't see tenant B's data)
+- [ ] **Spike review:** validate Prisma + RLS, MCP tool ergonomics, idempotency overhead
+- [ ] Benchmark RLS query overhead (< 15% target) and idempotency extra round-trip (< 10ms target)
+
+#### Phase 0b: Core Infrastructure (Weeks 2-4)
+
 - [ ] CI/CD pipeline (lint, test, build, migrate)
+- [ ] Set up pgvector extension for semantic search
+- [ ] Set up Redis for caching + queues (BullMQ)
+- [ ] MCP Tool Server infrastructure (middleware pipeline, registration framework)
+- [ ] NestJS modules, guards, interceptors, Prisma Client Extension for RLS
+- [ ] Docker Compose for local development (PostgreSQL, Redis, MinIO)
 
-**Core Schema:**
-- [ ] Implement `core-party` schema (PARTY, PERSON, ORGANIZATION, PARTY_TYPE, PARTY_ROLE, CONTACT_MECHANISM)
+#### Phase 0c: Core Schema + Agentic Layer (Weeks 3-5)
+
+- [ ] Complete `core-party` schema (PARTY_ROLE, CONTACT_MECHANISM + all subtypes)
 - [ ] Implement `core-security` (USER linked to PARTY, ROLE, PERMISSION, AGENT restrictions)
-- [ ] Implement type-table infrastructure (seed scripts with AI descriptions + examples)
-- [ ] Implement multi-tenancy (tenant isolation via ORGANIZATION + row-level security)
-
-**Agentic AI Layer:**
-- [ ] Create `entity_descriptor` table and seed for core entities
+- [ ] Implement type-table infrastructure with AI-facing columns (`description`, `ai_prompt_hint`, `example`)
+- [ ] Seed scripts for all P0 type tables with AI descriptions
+- [ ] Implement multi-tenancy (RLS on all tenant-scoped tables + Prisma middleware)
+- [ ] Create `entity_descriptor` table and seed for all core entities
 - [ ] Create `ai_action_log` table and logging middleware
 - [ ] Create `confirmation_gate` table and enforcement middleware
-- [ ] Implement idempotency key middleware
-- [ ] Build discovery tools: `describe_entity`, `get_type_table_values`, `get_valid_transitions`
-- [ ] Enhance all TYPE tables with `description`, `ai_prompt_hint`, `example` columns
+- [ ] Implement idempotency key middleware (generalized for all write tools)
 - [ ] Design agent permission model (inherits user perms + agent restrictions)
+- [ ] Design agent registry (agent_id, capabilities, version, rate limits)
 
-**API Scaffold:**
-- [ ] NestJS modules, guards, interceptors
-- [ ] MCP tool registration framework
+#### Phase 0d: Discovery Tools + Testing (Weeks 5-6)
+
+- [ ] Build discovery tools: `describe_entity`, `get_type_table_values`, `get_valid_transitions`
+- [ ] Build `list_available_tools` discovery tool
 - [ ] Tool contract test framework
+- [ ] Tool contract tests for all `core-party` tools
+- [ ] End-to-end agent workflow test ("create a customer with contacts")
+- [ ] Idempotency tests (same key → same result, different input → error)
+- [ ] Confirmation gate tests
 
 **Tool-First Development Workflow Established:**
 For every entity: define descriptor → define tools → define types → define status machine → implement domain → wire tools → test
+
+
 
 ### Phase 1: Core Transactions (Weeks 3-8)
 
@@ -325,8 +357,7 @@ besterp/
 │   │   │   │   ├── agreements/       # mod-agreements
 │   │   │   │   ├── assets/           # mod-assets
 │   │   │   │   └── manufacturing/    # mod-manufacturing
-│   │   │   ├── mcp/                  # MCP Tool Server (NEW)
-│   │   │   │   ├── tools/            # Tool definitions (per module)
+│   │   │   ├── mcp/                  # MCP Tool Server (imports from packages/mcp-tools)
 │   │   │   │   ├── middleware/       # Idempotency, audit, confirmation gates
 │   │   │   │   ├── discovery/        # Entity descriptors, type table queries
 │   │   │   │   └── server.ts         # MCP server setup
@@ -357,10 +388,12 @@ besterp/
 │   │   │   │   └── entity-descriptors.seed.ts  # AI-facing descriptions
 │   │   │   └── ai-schema/            # AI action log, confirmation gates, descriptors
 │   ├── shared/                       # Shared types, DTOs, tool schemas
-│   ├── mcp-tools/                    # MCP tool definitions (NEW)
+│   ├── mcp-tools/                    # MCP tool definitions (CANONICAL SOURCE)
 │   │   ├── src/
 │   │   │   ├── schemas/              # JSON Schema for every tool
 │   │   │   ├── descriptions/         # Natural language tool descriptions
+│   │   │   ├── compound/             # Compound tool orchestrations + saga definitions
+│   │   │   ├── discovery/            # Discovery tool definitions
 │   │   │   └── registry.ts           # Tool registry
 │   ├── event-bus/                    # Domain event infrastructure
 │   └── test-utils/                   # Test factories, fixtures, agent test helpers
@@ -389,21 +422,24 @@ besterp/
 
 ---
 
-## 7. Key Design Decisions to Make
+## 7. Key Design Decisions
 
-| # | Decision | Options | Recommendation |
-|---|----------|---------|----------------|
-| 1 | **ORM** | TypeORM vs Prisma vs Kysely | **Prisma** — excellent migration tooling, type-safe queries, growing ecosystem |
-| 2 | **Monorepo Tool** | Nx vs Turborepo vs Lerna | **Nx** — powerful task graph, affected builds, code generation |
-| 3 | **Multi-tenancy Strategy** | Schema-per-tenant vs Row-Level Security vs DB-per-tenant | **Row-Level Security (RLS)** — good balance of isolation & cost |
-| 4 | **Event Bus** | BullMQ vs Kafka vs NATS | **BullMQ** initially, migrate to Kafka if needed at scale |
-| 5 | **Supertype/Subtype Implementation** | Class Table Inheritance vs Single Table | **Class Table Inheritance** — normalized, performant, Silverstone-aligned |
-| 6 | **API Style** | REST-only vs GraphQL-only vs MCP-only vs All | **All three** — MCP for AI agents, REST for writes, GraphQL for reads/reports |
-| 7 | **UI Framework** | MUI vs Ant Design vs Chakra vs shadcn/ui | **shadcn/ui** — modern, composable, Tailwind-based |
-| 8 | **Auth Provider** | Custom vs Auth0 vs Keycloak | **Keycloak** — open-source, OIDC, integrates with PARTY model |
-| 9 | **Tool Protocol** | Custom vs MCP vs OpenAI Functions | **MCP** — open standard, model-agnostic, rich tool definitions |
-| 10 | **Agent Runtime** | LangChain vs LlamaIndex vs custom | **LangChain + custom** — orchestration + domain-specific reasoning |
-| 11 | **Semantic Search** | Elasticsearch vs pgvector vs Both | **pgvector** — one less system to operate, good enough for ERP-scale |
+All decisions recorded as Architecture Decision Records (ADRs) in `docs/architecture/`.
+
+| # | Decision | Resolution | ADR |
+|---|----------|------------|-----|
+| 1 | **ORM** | **Prisma** — excellent migration tooling, type-safe queries | — |
+| 2 | **Monorepo Tool** | **Nx** — powerful task graph, affected builds | — |
+| 3 | **Multi-Tenancy Strategy** | **Row-Level Security (RLS)** | [ADR-002](./docs/architecture/adr-002-rls-multi-tenancy.md) |
+| 4 | **Event Bus** | **BullMQ** initially, migrate to Kafka if needed at scale | — |
+| 5 | **Supertype/Subtype Implementation** | **Class Table Inheritance** | [ADR-003](./docs/architecture/adr-003-class-table-inheritance.md) |
+| 6 | **API Style** | **All three** — MCP for AI agents, REST for writes, GraphQL for reads/reports | — |
+| 7 | **UI Framework** | **shadcn/ui** — modern, composable, Tailwind-based | — |
+| 8 | **Auth Provider** | **Keycloak** — open-source, OIDC, integrates with PARTY model | — |
+| 9 | **Tool Protocol** | **MCP (Model Context Protocol)** | [ADR-001](./docs/architecture/adr-001-mcp-tool-protocol.md) |
+| 10 | **Agent Runtime** | **LangChain + custom** — orchestration + domain-specific reasoning | — |
+| 11 | **Semantic Search** | **pgvector** — one less system to operate | — |
+| 12 | **Idempotency** | **Idempotency key with stored results** | [ADR-004](./docs/architecture/adr-004-idempotency-key-pattern.md) |
 
 ---
 
@@ -427,16 +463,87 @@ besterp/
 
 ## 9. Next Steps
 
-1. **Confirm tech stack** (review Section 7 decisions — now 11 decisions including MCP, agent runtime, semantic search)
+1. **Read the ADRs** in `docs/architecture/` — understand the why behind each decision
 2. **Read [AGENTIC_AI_DESIGN.md](./AGENTIC_AI_DESIGN.md) thoroughly** — this is the biggest differentiator
-3. **Initialize the monorepo** (Nx + Prisma + NestJS + Next.js + MCP)
-4. **Set up MCP Tool Server infrastructure** (the AI-facing interface — this is new)
-5. **Design & implement `core-party` schema** with enhanced TYPE tables (AI descriptions + examples)
-6. **Build seed data** for type tables WITH AI descriptions and examples
-7. **Create `entity_descriptor` entries** for all core entities
-8. **Create API scaffold** with auth, multi-tenancy, idempotency, and MCP tools for core-party
-9. **Write tool contract tests** — test the AI-facing interface first
-10. **Write agent workflow tests** — test end-to-end agent scenarios
+3. **Execute Phase 0a spike** — validate Prisma + RLS + MCP with one entity
+4. **Review spike results** — confirm or adjust tech stack before proceeding
+5. **Proceed with Phase 0b–0d** — infrastructure, schema, discovery tools, testing
+6. **Define tool contracts** for Phase 1 modules before writing domain code
+
+---
+
+## 10. Cross-Cutting Concerns
+
+### 10.1 Observability
+
+With AI agents making autonomous tool calls, observability is critical.
+
+| Concern | Solution |
+|---------|----------|
+| Distributed tracing | OpenTelemetry integration — trace every tool call from agent → MCP → domain → DB |
+| Structured logging | JSON logs with correlation IDs (conversation_id, agent_id, tenant_id) |
+| Metrics | Tool call latency, error rates, confirmation gate escalation rates, token usage |
+| AI-specific metrics | Agent retry rates, hallucination guard triggers, discovery tool usage frequency |
+| Dashboards | Grafana dashboards for tool health, agent behavior, system performance |
+| Alerting | Alert on: tool error rate > 5%, agent retry rate > 20%, confirmation gate timeout |
+
+### 10.2 Data Privacy & Classification
+
+ERP systems hold PII, financial data, and employment records.
+
+| Data Class | Examples | Handling |
+|------------|----------|----------|
+| **PII** | Names, emails, phone, addresses | Encryption at rest, access logging, GDPR right-to-delete support |
+| **Financial** | Invoice amounts, GL balances, payment info | Encryption at rest, SOX-compliant audit trail, field-level access control |
+| **Employment** | Salary, performance reviews, health data | Strictest access control, HR-role-only visibility, retention policies |
+| **System** | AI action logs, agent reasoning | Tenant-scoped, immutable, configurable retention |
+
+**Implementation:**
+- Column-level encryption for PII fields (via application-level encryption in Prisma middleware)
+- `data_classification` column on sensitive tables for policy enforcement
+- GDPR endpoints: `export_party_data`, `delete_party_data` (with cascading rules)
+- Field-level access control in the MCP tool layer (mask PII for non-privileged agents)
+
+### 10.3 API Versioning
+
+Tool schemas will evolve. Breaking changes must be managed.
+
+| Strategy | Details |
+|----------|--------|
+| **Tool versioning** | Tools are versioned: `create_order` → `create_order_v2` (old version deprecated, not removed) |
+| **Deprecation window** | Minimum 6 months of parallel operation before removing a deprecated tool |
+| **Schema evolution** | New optional fields are always backward-compatible. Required field changes = new tool version |
+| **Agent notification** | Deprecated tools return a `deprecation_warning` field with migration guidance |
+| **Version registry** | `list_available_tools` shows current + deprecated tools with deprecation dates |
+
+### 10.4 Event Model
+
+We use **traditional CRUD with event publishing** (not full event sourcing).
+
+- Every domain write publishes a domain event to BullMQ
+- Events are used for: cross-module coordination, real-time UI updates, AI agent notifications
+- Event schema is versioned and backward-compatible
+- `ai_action_log` captures the AI-specific audit trail (separate from domain events)
+- Future option: replay events for debugging AI agent sessions, but not for state reconstruction
+
+### 10.5 Concurrency Control
+
+| Concern | Solution |
+|---------|----------|
+| Optimistic locking | Every mutable entity has a `version` column incremented on update |
+| Conflict detection | If `version` mismatches, return `CONCURRENT_MODIFICATION` error with current state |
+| AI agent conflicts | AI agents get a rich error: "Order was modified by another agent. Current status: X. Re-query and retry." |
+| Migration rollback | All Prisma migrations use explicit `up` and `down` scripts; rollback tested in CI |
+| Migration locking | Migrations run with advisory locks to prevent concurrent migration execution |
+
+### 10.6 Multi-Currency Considerations
+
+> **Note:** Full multi-currency is deferred to Phase 4, but the schema must be ready.
+
+- All monetary columns use `DECIMAL(19,4)` (not FLOAT) from Day 1
+- Every monetary amount includes a `currency_id` column (defaulting to tenant's base currency)
+- GL account structure supports multi-currency revaluation entries
+- Exchange rate table seeded in Phase 0 (even if not used until Phase 4)
 
 ---
 

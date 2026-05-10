@@ -346,6 +346,47 @@ For each major entity, generate 6 standard tools:
 | `onboard_supplier` | create_party + add_role + create_contacts + setup_payment_terms |
 | `month_end_close` | post_accruals + reconcile_inventory + generate_financials |
 
+#### Compound Tool Failure Model (Saga Pattern)
+
+Compound tools orchestrate multiple domain services. Partial failure is inevitable — the system must handle it correctly.
+
+**Strategy: Orchestration-based saga with compensating transactions.**
+
+```
+fulfill_and_invoice_order({ orderId: "12345" })
+
+Step 1: reserve_inventory     → SUCCESS (checkpoint)
+Step 2: create_shipment       → SUCCESS (checkpoint)
+Step 3: create_invoice        → FAILURE (tax calculation error)
+Step 4: post_to_gl            → SKIPPED (step 3 failed)
+
+Compensation:
+  - Cancel shipment (reverse step 2)
+  - Release inventory reservation (reverse step 1)
+
+Return:
+{
+  "status": "failed",
+  "failedStep": "create_invoice",
+  "error": { ... rich error for AI ... },
+  "compensations": [
+    { "step": "cancel_shipment", "status": "completed" },
+    { "step": "release_inventory", "status": "completed" }
+  ],
+  "suggestedNextSteps": [
+    "Fix the tax configuration and retry with a new idempotency key",
+    "Or fulfill the order without invoicing using 'create_shipment_only'"
+  ]
+}
+```
+
+**Implementation rules:**
+1. Each step in a compound tool has a **compensating action** defined in the tool schema
+2. Progress is **checkpointed** in the `idempotency_record` so retries resume from the failure point
+3. Compensation actions are **best-effort** — if compensation fails, alert humans (don't silently fail)
+4. All compound tool executions are logged to `ai_action_log` with full step-by-step detail
+5. The AI agent receives a rich failure response with the system state after compensation
+
 ### 5.4 Discovery Tools (AI self-service)
 
 | Tool | Purpose |
@@ -355,6 +396,31 @@ For each major entity, generate 6 standard tools:
 | `get_type_table_values` | What are valid values for ORDER_TYPE? |
 | `search_across_entities` | Universal search |
 | `explain_error` | Given an error code, explain how to fix it |
+
+#### Token Budget Awareness
+
+Discovery tools can return large payloads that exceed an agent's context window. All discovery tools must support **response scoping**:
+
+```
+describe_entity_type({
+  type: "order",
+  detail: "summary"   // summary | full | schema_only
+})
+
+get_type_table_values({
+  type: "PARTY_TYPE",
+  limit: 10,          // max rows to return
+  filter: { "name": { "startsWith": "C" } }
+})
+```
+
+| Detail level | Token estimate | When to use |
+|-------------|---------------|-------------|
+| `schema_only` | ~200 tokens | Agent just needs field names/types |
+| `summary` | ~500 tokens | Agent needs overview + key relationships |
+| `full` | ~2000 tokens | Agent is about to create/update the entity |
+
+All discovery tool responses include a `truncated` flag and `totalAvailable` count so the agent knows if it's seeing partial data.
 
 ---
 
@@ -385,6 +451,40 @@ Traditional ERP testing is `input → assertion`. Agentic testing is `intent →
 | **End-to-End Agent Tests** | AI agent completes full workflows (e.g., "create an order for Acme Corp") |
 | **Hallucination Guard Tests** | AI cannot call tools that don't exist or create invalid entity types |
 | **Multi-step Reasoning Tests** | Compound tools return correct intermediate states |
+
+#### Hallucination Guard Implementation
+
+AI agents may fabricate tool names, entity IDs, or type values. The system must detect and reject these.
+
+**Layer 1: Tool name validation** — The MCP server rejects calls to undefined tools with a rich error:
+```json
+{
+  "error": "UNKNOWN_TOOL",
+  "message": "Tool 'create_purchase_requisition' does not exist. Similar tools: ['create_purchase_order', 'create_order']. Use 'list_available_tools' to see all available tools.",
+  "suggestedTools": ["create_purchase_order", "create_order", "list_available_tools"]
+}
+```
+
+**Layer 2: Entity ID validation** — Every tool that accepts entity IDs validates them against the database:
+```json
+{
+  "error": "ENTITY_NOT_FOUND",
+  "message": "Party with ID 'abc-fake-123' does not exist. Use 'search_parties' to find valid parties.",
+  "suggestedTools": ["search_parties", "get_party"]
+}
+```
+
+**Layer 3: Type value validation** — All type references are validated against TYPE tables. The agent receives the valid alternatives:
+```json
+{
+  "error": "INVALID_TYPE_VALUE",
+  "message": "ORDER_TYPE 'rush_order' is not a valid type. Valid types: ['sales_order', 'purchase_order', 'return_order'].",
+  "validValues": ["sales_order", "purchase_order", "return_order"],
+  "suggestedTool": "get_type_table_values"
+}
+```
+
+**Layer 4: Semantic similarity check** — For common hallucinations, use embedding similarity to suggest the correct tool or value.
 
 ---
 
@@ -420,6 +520,71 @@ Traditional ERP testing is `input → assertion`. Agentic testing is `intent →
 
 Key rule: **The AI agent never has MORE permission than the human it acts on behalf of.** It may have LESS (agent restrictions), but never more.
 
+### 8.1 Agent Registry
+
+Every AI agent must be registered before it can use the system.
+
+```sql
+CREATE TABLE agent_registry (
+  agent_id TEXT PRIMARY KEY,              -- e.g., "sales-assistant-v1"
+  display_name TEXT NOT NULL,             -- e.g., "Sales Assistant"
+  description TEXT NOT NULL,              -- AI-readable description of this agent's purpose
+  capabilities TEXT[],                    -- ["create_order", "search_customers", ...]
+  max_tool_calls_per_conversation INT DEFAULT 100,
+  max_concurrent_conversations INT DEFAULT 5,
+  max_transaction_amount DECIMAL(19,4),  -- per-operation financial limit
+  allowed_entity_types TEXT[],            -- ["order", "party", "invoice"]
+  rate_limit_per_minute INT DEFAULT 30,
+  version TEXT NOT NULL,                 -- semantic version
+  is_active BOOLEAN DEFAULT TRUE,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+```
+
+### 8.2 Rate Limiting & Cost Control
+
+AI agents can call tools thousands of times. Controls are essential.
+
+| Control | Default | Configurable per agent | Purpose |
+|---------|---------|----------------------|----------|
+| Tool calls per conversation | 100 | Yes | Prevent infinite loops |
+| Tool calls per minute | 30 | Yes | Prevent flooding |
+| Concurrent conversations | 5 | Yes | Prevent resource exhaustion |
+| Max transaction amount | $10,000 | Yes | Limit financial exposure |
+| Conversation timeout | 30 min | Yes | Abandon stale sessions |
+
+**Cost tracking:**
+
+```sql
+CREATE TABLE agent_usage (
+  id UUID PRIMARY KEY,
+  agent_id TEXT NOT NULL REFERENCES agent_registry(agent_id),
+  conversation_id TEXT NOT NULL,
+  tenant_id UUID NOT NULL,
+  user_id UUID NOT NULL,
+  tool_called TEXT NOT NULL,
+  tokens_used INT,                    -- estimated tokens consumed
+  latency_ms INT,                     -- tool execution time
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+```
+
+Dashboard: total tool calls per agent per day, average latency, error rate, estimated token cost. Alert if any agent exceeds 80% of its rate limit budget.
+
+### 8.3 Embedding Strategy
+
+pgvector is used for semantic search. The embedding strategy:
+
+| What gets embedded | When | Model | Purpose |
+|-------------------|------|-------|----------|
+| Entity name + description | On create/update | text-embedding-3-small (or local) | Semantic entity search |
+| Type table name + ai_prompt_hint | On seed/update | text-embedding-3-small (or local) | Type discovery via meaning |
+| Tool name + description | On registration | text-embedding-3-small (or local) | Tool suggestion for hallucinated tool names |
+
+Embeddings are stored in the entity's table (e.g., `party.embedding VECTOR(1536)`) and queried with cosine similarity.
+
+**Key rule:** Embeddings are generated server-side (never by the agent) and are tenant-scoped.
+
 ---
 
 ## 9. Summary: What Changes from the Original Plan
@@ -442,24 +607,9 @@ Key rule: **The AI agent never has MORE permission than the human it acts on beh
 
 ---
 
-## 10. Implications for Phase 0 (What to Build First)
+## 10. Implementation Plan
 
-The original Phase 0 needs these additions:
-
-### New Phase 0 Tasks
-- [ ] Set up MCP Tool Server infrastructure
-- [ ] Create `entity_descriptor` table and seed for core entities
-- [ ] Create `ai_action_log` table and logging middleware
-- [ ] Create `confirmation_gate` table and enforcement middleware
-- [ ] Enhance all TYPE tables with `description`, `ai_prompt_hint`, `example`
-- [ ] Enhance `status_valid_change` with `ai_instructions`, `required_fields`, `trigger_tool`
-- [ ] Implement idempotency key middleware
-- [ ] Build `describe_entity` discovery tool
-- [ ] Build `get_type_table_values` discovery tool
-- [ ] Build `get_valid_transitions` discovery tool
-- [ ] Add pgvector extension for semantic search
-- [ ] Create tool contract test framework
-- [ ] Design agent permission model (inherits user perms + agent restrictions)
+The full phased implementation plan, including the agentic AI layer tasks, is in [ERP_PLAN.md](./ERP_PLAN.md) — Section 5 (Phase 0, now split into Phase 0a–0d).
 
 ### Tool-First Development Workflow
 
@@ -468,9 +618,19 @@ For every new entity/module:
 2. **Define the tools** (names, input/output schemas, descriptions)
 3. **Define the type table values** (with AI descriptions)
 4. **Define the status machine** (with AI instructions)
-5. **Implement the domain service** (pure business logic)
-6. **Wire the tools** to the domain service
-7. **Write tool contract tests**
-8. **Write agent workflow tests**
+5. **Define compound tool sagas** (steps + compensating actions)
+6. **Implement the domain service** (pure business logic)
+7. **Wire the tools** to the domain service
+8. **Write tool contract tests**
+9. **Write agent workflow tests**
+10. **Write hallucination guard tests**
 
 This is **tool-design-first development** — before writing a single line of domain code, you define how an AI agent would interact with it.
+
+### Architecture Decision Records
+
+Key decisions are documented in `docs/architecture/`:
+- [ADR-001: MCP as Primary Agent Interface](./docs/architecture/adr-001-mcp-tool-protocol.md)
+- [ADR-002: Row-Level Security for Multi-Tenancy](./docs/architecture/adr-002-rls-multi-tenancy.md)
+- [ADR-003: Class Table Inheritance for Supertype/Subtype](./docs/architecture/adr-003-class-table-inheritance.md)
+- [ADR-004: Idempotency Key Pattern for Write Tools](./docs/architecture/adr-004-idempotency-key-pattern.md)
