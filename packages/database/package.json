@@ -11,11 +11,11 @@
     "reset": "prisma migrate reset --force",
     "studio": "prisma studio",
     "spike:rls": "tsx src/spike-rls.ts",
-    "generate": "prisma generate",
     "postinstall": "prisma generate",
     "build": "tsc",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "lint": "tsc --noEmit"
   },
   "dependencies": {
     "@besterp/shared": "*",

@@ -15,9 +15,17 @@ import { withTenant, richError, hashInput } from "@besterp/shared";
 
 // ─── Database ────────────────────────────────────────────────
 
+// App client (non-superuser, subject to RLS)
+// Used for ALL tenant-scoped operations: creating parties, querying
+// tenant data via withTenant(). This is the primary client.
 const prisma = new PrismaClient({ log: ["error"] });
 
-// Admin client for operations that bypass RLS (migrations, cleanup)
+// Admin client (superuser, BYPASSES RLS)
+// Used ONLY for operations that require cross-tenant access:
+//   1. Idempotency record lookups (need to find by key across tenants)
+//   2. Type table queries (PARTY_TYPE, ROLE_TYPE etc. — not tenant-scoped)
+//   3. AI action log writes (audit-level, admin context)
+// NEVER use adminPrisma for tenant-scoped data reads/writes — it bypasses RLS.
 const adminPrisma = new PrismaClient({
   datasourceUrl: process.env.DATABASE_ADMIN_URL || process.env.DATABASE_URL,
   log: ["error"],

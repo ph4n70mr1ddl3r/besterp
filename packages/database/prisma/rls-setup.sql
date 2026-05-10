@@ -4,6 +4,19 @@
 -- Enable pgvector extension
 CREATE EXTENSION IF NOT EXISTS vector;
 
+-- ─── Tenant Context Function ────────────────────────────────
+-- Parameterized function for setting tenant context, avoiding
+-- string interpolation in application code. Eliminates the SQL
+-- injection surface area of SET LOCAL with concatenated values.
+-- Called via Prisma's $executeRaw tagged template (parameterized).
+
+CREATE OR REPLACE FUNCTION set_tenant_context(p_tenant_id TEXT)
+RETURNS void AS $$
+BEGIN
+  SET LOCAL app.current_tenant = p_tenant_id;
+END;
+$$ LANGUAGE plpgsql;
+
 -- ─── Force RLS even for table owner ──────────────────────────
 -- By default, table OWNERS bypass RLS. We need FORCE ROW LEVEL SECURITY
 -- so that even the application role (non-owner) is properly restricted.
@@ -17,6 +30,9 @@ ALTER TABLE contact_mechanism FORCE ROW LEVEL SECURITY;
 
 ALTER TABLE party_contact_mechanism ENABLE ROW LEVEL SECURITY;
 ALTER TABLE party_contact_mechanism FORCE ROW LEVEL SECURITY;
+
+ALTER TABLE party_role ENABLE ROW LEVEL SECURITY;
+ALTER TABLE party_role FORCE ROW LEVEL SECURITY;
 
 ALTER TABLE ai_action_log ENABLE ROW LEVEL SECURITY;
 ALTER TABLE ai_action_log FORCE ROW LEVEL SECURITY;
@@ -41,6 +57,21 @@ CREATE POLICY tenant_isolation_contact_mechanism ON contact_mechanism
 
 -- Party Contact Mechanism (via party)
 CREATE POLICY tenant_isolation_party_contact_mechanism ON party_contact_mechanism
+  USING (
+    party_id IN (
+      SELECT party_id FROM party
+      WHERE tenant_id = current_setting('app.current_tenant', TRUE)
+    )
+  )
+  WITH CHECK (
+    party_id IN (
+      SELECT party_id FROM party
+      WHERE tenant_id = current_setting('app.current_tenant', TRUE)
+    )
+  );
+
+-- Party Role (via party subquery — party_role has no tenant_id column)
+CREATE POLICY tenant_isolation_party_role ON party_role
   USING (
     party_id IN (
       SELECT party_id FROM party

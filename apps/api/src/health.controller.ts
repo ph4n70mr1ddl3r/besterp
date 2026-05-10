@@ -1,9 +1,12 @@
 // Health check endpoint for load balancers and monitoring
 
 import { Controller, Get } from "@nestjs/common";
+import { PrismaService } from "./prisma/prisma.service.js";
 
 @Controller("health")
 export class HealthController {
+  constructor(private readonly prisma: PrismaService) {}
+
   @Get()
   health() {
     return {
@@ -15,8 +18,9 @@ export class HealthController {
   }
 
   @Get("ready")
-  ready() {
-    // TODO: Check database connectivity, Redis, etc.
+  async ready() {
+    // Verify database connectivity
+    await this.prisma.$queryRaw`SELECT 1`;
     return { status: "ready" };
   }
 }

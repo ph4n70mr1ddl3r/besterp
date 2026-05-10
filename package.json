@@ -8,10 +8,9 @@
     "apps/*"
   ],
   "scripts": {
-    "postinstall": "npm run generate --workspace=@besterp/database",
     "build": "npm run build --workspaces",
     "test": "npm run test --workspaces",
-    "lint": "npm run lint --workspaces",
+    "lint": "npm run lint --workspaces --if-present",
     "db:migrate": "npm run migrate --workspace=@besterp/database",
     "db:seed": "npm run seed --workspace=@besterp/database",
     "db:reset": "npm run reset --workspace=@besterp/database",

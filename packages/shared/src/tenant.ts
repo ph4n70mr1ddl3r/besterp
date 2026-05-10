@@ -3,6 +3,12 @@
 // IMPORTANT: RLS only works with a non-superuser role.
 // SET LOCAL only persists within the current transaction.
 // The validated pattern wraps SET LOCAL + query in the same $transaction.
+//
+// SECURITY: Uses the set_tenant_context() PostgreSQL function (defined in
+// rls-setup.sql) called via Prisma's tagged template $executeRaw, which
+// sends the tenant ID as a parameterized query ($1). This eliminates the
+// SQL injection surface area of string interpolation. validateTenantId()
+// is retained as defense-in-depth.
 
 import type { PrismaClient, Prisma } from "@prisma/client";
 
@@ -14,8 +20,9 @@ const TENANT_ID_PATTERN = /^[a-zA-Z0-9_-]+$/;
 /**
  * Validates a tenant ID to prevent SQL injection.
  *
- * SET LOCAL doesn't support parameterized queries via Prisma tagged templates,
- * so we validate the tenant ID format before interpolation.
+ * Defense-in-depth: the actual SQL call uses parameterized queries via
+ * set_tenant_context(), but we validate the format upfront to catch
+ * obviously invalid tenant IDs early with a clear error message.
  */
 export function validateTenantId(tenantId: string): void {
   if (!TENANT_ID_PATTERN.test(tenantId)) {
@@ -29,8 +36,10 @@ export function validateTenantId(tenantId: string): void {
 /**
  * Execute a function within a tenant-scoped database transaction.
  *
- * Sets `app.current_tenant` via SET LOCAL so that PostgreSQL RLS policies
- * filter rows to only those belonging to the specified tenant.
+ * Calls the `set_tenant_context()` PostgreSQL function (defined in
+ * packages/database/prisma/rls-setup.sql) via Prisma's $executeRaw
+ * tagged template, which uses parameterized queries — safe from SQL
+ * injection without relying solely on regex validation.
  *
  * The callback receives a fully-typed Prisma transaction client, so
  * `tx.party.findMany()`, etc. all resolve correctly.
@@ -54,11 +63,9 @@ export async function withTenant<T>(
 ): Promise<T> {
   validateTenantId(tenantId);
   return prisma.$transaction(async (tx) => {
-    // $executeRawUnsafe exists at runtime but isn't in the
-    // TransactionClient type definition — cast is necessary.
-    await (tx as any).$executeRawUnsafe(
-      `SET LOCAL app.current_tenant = '${tenantId}'`
-    );
+    // Parameterized query via tagged template — tenant ID is sent as $1,
+    // not interpolated into the SQL string. No string-concat injection risk.
+    await tx.$executeRaw`SELECT set_tenant_context(${tenantId})`;
     return fn(tx);
   });
 }

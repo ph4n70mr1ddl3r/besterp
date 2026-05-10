@@ -6,7 +6,8 @@
   "scripts": {
     "build": "tsc",
     "dev": "tsx src/server.ts",
-    "spike:agent": "tsx src/test-agent.ts"
+    "spike:agent": "tsx src/test-agent.ts",
+    "lint": "tsc --noEmit"
   },
   "dependencies": {
     "@besterp/shared": "*",

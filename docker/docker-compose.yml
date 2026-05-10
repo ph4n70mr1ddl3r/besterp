@@ -16,6 +16,8 @@ services:
       timeout: 5s
       retries: 5
 
+  # Redis — Used for session storage, caching, and rate limiting.
+  # Not yet wired in application code. Needed for Phase 0b+.
   redis:
     image: redis:7-alpine
     container_name: besterp-redis
@@ -27,6 +29,8 @@ services:
       timeout: 5s
       retries: 5
 
+  # MinIO — S3-compatible object storage for file attachments, exports.
+  # Not yet wired in application code. Needed for Phase 1+.
   minio:
     image: minio/minio:latest
     container_name: besterp-minio
