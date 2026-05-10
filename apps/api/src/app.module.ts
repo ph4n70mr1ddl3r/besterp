@@ -8,7 +8,7 @@
 // - QueueModule: Redis/BullMQ for domain events & async jobs
 
 import { Module } from "@nestjs/common";
-import { APP_GUARD } from "@nestjs/core";
+import { APP_FILTER, APP_GUARD } from "@nestjs/core";
 import { AuthModule } from "./auth/auth.module";
 import { JwtAuthGuard } from "./auth/jwt-auth.guard";
 import { TenantGuard } from "./auth/tenant.guard";
@@ -17,6 +17,7 @@ import { PartyModule } from "./modules/core/party/party.module";
 import { McpModule } from "./mcp/mcp.module";
 import { QueueModule } from "./queue/queue.module";
 import { HealthController } from "./health.controller";
+import { DomainExceptionFilter } from "./common/domain-exception.filter";
 
 @Module({
   imports: [
@@ -28,6 +29,9 @@ import { HealthController } from "./health.controller";
   ],
   controllers: [HealthController],
   providers: [
+    // Global exception filter — catches DomainError and maps to HTTP responses
+    { provide: APP_FILTER, useClass: DomainExceptionFilter },
+
     // Global guards — applied to ALL controllers in order:
     // 1. JwtAuthGuard: Validates JWT token, populates req.user
     // 2. TenantGuard: Extracts tenant context from req.user → req.tenantContext

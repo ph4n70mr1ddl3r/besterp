@@ -193,7 +193,7 @@ Example: Make a party a customer
   add_party_role({ partyId: "abc-123", roleType: "Customer" })`,
 
   inputSchema: z.object({
-    idempotencyKey: z.string().optional().describe("Idempotency key to prevent duplicate role assignment"),
+    idempotencyKey: z.string().describe("Idempotency key to prevent duplicate role assignment. Format: role-{partyId}-{roleType}-{date}"),
     partyId: z.string().describe("The party to assign the role to"),
     roleType: z.string().describe("Role type name (e.g., 'Customer', 'Supplier', 'Employee')"),
     fromDate: z.string().optional().describe("Start date for the role (ISO 8601, default: now)"),
@@ -234,7 +234,7 @@ A party can have multiple contacts of each type.
 Use 'get_type_table_values' with typeName "CONTACT_MECHANISM_TYPE" to see available types.`,
 
   inputSchema: z.object({
-    idempotencyKey: z.string().optional().describe("Idempotency key to prevent duplicate contact creation"),
+    idempotencyKey: z.string().describe("Idempotency key to prevent duplicate contact creation. Format: contact-{partyId}-{type}-{date}"),
     partyId: z.string().describe("The party to add the contact to"),
     contactMechanismType: z.enum(["POSTAL_ADDRESS", "TELECOM_NUMBER", "EMAIL_ADDRESS"])
       .describe("Type of contact mechanism"),

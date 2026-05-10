@@ -8,12 +8,9 @@
 // for write operations that bypass RLS. The tenant-scoped client connects
 // as the app role (DATABASE_URL) where RLS is enforced.
 
-import { Injectable, OnModuleInit, OnModuleDestroy, Inject, Scope, Optional } from "@nestjs/common";
+import { Injectable, OnModuleInit, OnModuleDestroy } from "@nestjs/common";
 import { PrismaClient } from "@prisma/client";
 import { createTenantClient } from "@besterp/database";
-import { TenantContext } from "../common/tenant-context";
-import { REQUEST } from "@nestjs/core";
-import { Request } from "express";
 
 @Injectable()
 export class PrismaService
@@ -70,16 +67,3 @@ export class PrismaService
     return createTenantClient(this.appClient, tenantId);
   }
 }
-
-/**
- * Request-scoped factory that provides a tenant-scoped PrismaClient.
- *
- * Inject this in services that need per-request tenant isolation:
- * ```ts
- * constructor(@Inject(TENANT_PRISMA) private readonly prisma: PrismaClient) {}
- * ```
- *
- * The returned client is already scoped to the current request's tenant
- * via RLS — no manual `where: { tenantId }` needed (but kept as defense-in-depth).
- */
-export const TENANT_PRISMA = "TENANT_PRISMA";

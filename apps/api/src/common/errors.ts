@@ -2,6 +2,10 @@
 //
 // Application-specific error classes can be added here for NestJS
 // HTTP status mapping (e.g., NotFoundException → 404).
+//
+// The DomainExceptionFilter (domain-exception.filter.ts) handles
+// DomainError → HTTP response mapping globally. The domainErrorToHttp()
+// function is retained for explicit use in controllers if needed.
 
 export {
   DomainError,
@@ -13,12 +17,18 @@ export {
   isDomainError,
 } from "@besterp/shared";
 
-import { DomainError, InvalidTypeValueError } from "@besterp/shared";
-import { NotFoundException, ConflictException } from "@nestjs/common";
+import { DomainError } from "@besterp/shared";
+import {
+  NotFoundException,
+  ConflictException,
+  UnprocessableEntityException,
+} from "@nestjs/common";
 
 /**
  * Map a DomainError to the appropriate NestJS HTTP exception.
- * Used by REST controllers to return correct status codes.
+ *
+ * This is used by the global DomainExceptionFilter to determine status codes.
+ * Can also be called explicitly in controllers for fine-grained error handling.
  */
 export function domainErrorToHttp(error: DomainError) {
   switch (error.code) {
@@ -27,11 +37,12 @@ export function domainErrorToHttp(error: DomainError) {
     case "DUPLICATE_ENTITY":
     case "DUPLICATE_ROLE":
       return new ConflictException(error.message);
-    case "MISSING_SUBTYPE_DATA":
-    case "INVALID_TYPE_VALUE":
     case "CONCURRENCY_CONFLICT":
       return new ConflictException(error.message);
+    case "MISSING_SUBTYPE_DATA":
+    case "INVALID_TYPE_VALUE":
+      return new UnprocessableEntityException(error.message);
     default:
-      return new ConflictException(error.message);
+      return new UnprocessableEntityException(error.message);
   }
 }

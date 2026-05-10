@@ -1,6 +1,143 @@
 # BestERP — Security & Architecture Fixes
 
-## Changes Applied (2026-05-11)
+## Changes Applied (2026-05-11) — Review Recommendations
+
+### 🔴 Critical: RLS Proxy `$transaction` Bug Fixed
+
+**Problem:** `createTenantClient()` returned a Proxy that passed `$transaction` through
+to the raw PrismaClient without intercepting it. When `PartyService` called
+`db.$transaction(async (tx) => { tx.party.create(...) })`, the transaction
+callback received the raw `tx` — `SET LOCAL` was never called, so RLS policies
+were not active inside transactions.
+
+**Fix:**
+- The Proxy now intercepts `$transaction(fn)` and `$transaction(fn, options)` calls
+- Before invoking the user's callback, it executes `SET LOCAL app.current_tenant`
+- The transaction client (`tx`) inherits the tenant context for all its queries
+- Batch `$transaction([...promises])` calls pass through (use interactive transactions for tenant-scoped ops)
+
+### 🔴 Critical: Global Domain Exception Filter Added
+
+**Problem:** Domain errors (EntityNotFoundError, InvalidTypeValueError, etc.) thrown
+in services resulted in raw 500 Internal Server Errors. The `domainErrorToHttp()`
+function existed but was never wired up.
+
+**Fix:**
+- New `DomainExceptionFilter` registered globally via `APP_FILTER` in AppModule
+- Catches `DomainError` and maps to appropriate HTTP status codes:
+  - `ENTITY_NOT_FOUND` → 404
+  - `DUPLICATE_ENTITY`, `CONCURRENCY_CONFLICT` → 409
+  - `MISSING_SUBTYPE_DATA`, `INVALID_TYPE_VALUE` → 422
+- Returns structured JSON with `error`, `message`, `suggestedTools`, and `context`
+
+### 🔴 Critical: Input Validation DTOs Added
+
+**Problem:** The global `ValidationPipe` was configured but all controller methods used
+plain TypeScript interfaces as body types. `class-validator` had no decorators to validate
+against — all request bodies passed through unvalidated.
+
+**Fix:**
+- New `party.dto.ts` with class-validator DTOs for all party endpoints
+- `CreatePartyDto`, `SearchPartiesDto`, `AddPartyRoleDto`, `AddContactMechanismDto`
+- Subtype DTOs: `CreatePersonDto`, `CreateOrganizationDto`, `PostalAddressDto`, etc.
+- `@ValidateNested()` + `@Type()` for nested object validation
+- `SearchPartiesDto` replaces manual `parseInt` query parameter parsing with `@IsInt()` + `@Type()`
+- Added `class-validator` and `class-transformer` as dependencies
+
+### 🟡 Significant: TenantGuard Changed from Request-Scoped to Singleton
+
+**Problem:** `TenantGuard` was annotated with `@Injectable({ scope: Scope.REQUEST })`,
+which forces the entire injection chain to become request-scoped — a known NestJS
+performance anti-pattern.
+
+**Fix:**
+- Removed `Scope.REQUEST` — guard is now singleton (default)
+- Uses `context.switchToHttp().getRequest<Request>()` instead of `@Inject(REQUEST)`
+- Accesses `req.user` via the ExecutionContext, which is always request-specific
+
+### 🟡 Significant: `toPartyResult` Typed Properly
+
+**Problem:** `toPartyResult(party: any)` used `any`, losing type safety at the
+mapping boundary. Renaming a Prisma field would not cause a compile error.
+
+**Fix:**
+- Extracted `PartyWithIncludes` type alias using `Prisma.PartyGetPayload<{include: ...}>`
+- `toPartyResult(party: PartyWithIncludes)` is now fully typed
+- Removed all `any` casts in `searchParties` mapping
+
+### 🟡 Significant: Missing Database Indexes Added
+
+**Problem:** `party_role` had no index on `partyId` or `roleTypeId`. RLS policies
+query `party_role` by `partyId IN (subquery)` — without an index, this becomes
+a sequential scan as data grows.
+
+**Fix:**
+- Added `@@index([partyId])` and `@@index([roleTypeId])` on `PartyRole` model
+- Added `@@index([contactMechanismId])` on `PartyContactMechanism` model
+- Requires `npm run db:migrate` to apply
+
+### 🟡 Significant: Idempotency Keys Now Required on All Write Tools
+
+**Problem:** `add_party_role` and `add_contact_mechanism` MCP tools had
+`idempotencyKey` as optional, inconsistent with ADR-004 which states "every
+write tool must accept an idempotency key."
+
+**Fix:**
+- `idempotencyKey` is now required on `add_party_role` and `add_contact_mechanism`
+- Updated descriptions with format guidance
+
+### 🟡 Significant: Environment Variable Validation at Startup
+
+**Problem:** `DATABASE_URL` and other critical env vars were not validated at startup.
+Missing values caused confusing runtime errors deep in Prisma connection logic.
+
+**Fix:**
+- Added startup validation in `main.ts` for `DATABASE_URL` and `JWT_SECRET`
+- Missing vars log a warning in development, exit with error in production
+
+### 🟢 Cleanup: Removed Unused `TENANT_PRISMA` Token
+
+- `TENANT_PRISMA` injection token was declared in `PrismaService` but never used
+- Removed the unused export and cleaned up imports (`REQUEST`, `Scope`, `Inject`, etc.)
+
+### 🟢 Cleanup: Idempotency Cleanup Script
+
+- New `packages/database/scripts/cleanup-expired-idempotency.ts`
+- Deletes expired idempotency records to prevent unbounded table growth
+- Added `npm run db:cleanup` root script
+- Should be run as a scheduled job (cron) in production
+
+### 🟢 Cleanup: Fixed Health Controller Test
+
+- Simplified from NestJS Test module to direct construction
+- Removed fragile guard override that wasn't working
+
+## New Files
+
+- `apps/api/src/common/domain-exception.filter.ts` — Global DomainError → HTTP filter
+- `apps/api/src/modules/core/party/party.dto.ts` — class-validator DTOs for party endpoints
+- `packages/database/scripts/cleanup-expired-idempotency.ts` — Expired record cleanup
+
+## Modified Files
+
+- `packages/database/src/rls-extension.ts` — Intercept `$transaction` to inject SET LOCAL
+- `apps/api/src/app.module.ts` — Added APP_FILTER registration
+- `apps/api/src/main.ts` — Added env var validation
+- `apps/api/src/modules/core/party/party.controller.ts` — Uses DTOs instead of plain types
+- `apps/api/src/modules/core/party/party.service.ts` — Typed `toPartyResult`, removed `any`
+- `apps/api/src/auth/tenant.guard.ts` — Singleton scope, uses ExecutionContext
+- `apps/api/src/prisma/prisma.service.ts` — Removed unused TENANT_PRISMA + imports
+- `apps/api/src/common/errors.ts` — Fixed MISSING_SUBTYPE_DATA → 422, added docs
+- `apps/api/src/mcp/tools/party-tools.ts` — Required idempotencyKey on write tools
+- `packages/database/prisma/schema.prisma` — Added indexes on party_role, party_contact_mechanism
+- `apps/api/src/health.controller.spec.ts` — Simplified test construction
+- `package.json` — Added `db:cleanup` script
+
+## New Dependencies
+
+- `apps/api`: class-validator, class-transformer
+
+---
 
 ### 🔒 Critical: RLS Wired Into the Application
 

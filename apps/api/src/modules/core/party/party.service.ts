@@ -37,11 +37,30 @@ import {
   ContactMechanismResult,
 } from "./party.types";
 
+// Prisma return type for party queries with standard includes
+type PartyWithIncludes = Prisma.PartyGetPayload<{
+  include: {
+    person: true;
+    organization: true;
+    partyType: true;
+    roles: { include: { roleType: true } };
+  };
+}>;
+
 @Injectable()
 export class PartyService {
   private readonly logger = new Logger(PartyService.name);
 
   constructor(private readonly prisma: PrismaService) {}
+
+  // ─── Prisma return type for party queries with standard includes ──
+
+  private static readonly PARTY_INCLUDE = {
+    person: true,
+    organization: true,
+    partyType: true,
+    roles: { include: { roleType: true } },
+  } as const;
 
   // ─── Create Party ─────────────────────────────────────────────
 
@@ -186,7 +205,7 @@ export class PartyService {
     ]);
 
     return {
-      items: items.map((p: any) => this.toPartyResult(p)),
+      items: items.map((p) => this.toPartyResult(p as PartyWithIncludes)),
       total,
       limit,
       offset,
@@ -409,7 +428,7 @@ export class PartyService {
 
   // ─── Private Helpers ──────────────────────────────────────────
 
-  private toPartyResult(party: any): PartyResult {
+  private toPartyResult(party: PartyWithIncludes): PartyResult {
     return {
       partyId: party.partyId,
       name: party.name,
@@ -432,7 +451,7 @@ export class PartyService {
             registrationDate: party.organization.registrationDate?.toISOString() ?? null,
           }
         : null,
-      roles: (party.roles ?? []).map((r: any) => ({
+      roles: (party.roles ?? []).map((r) => ({
         partyRoleId: r.partyRoleId,
         roleTypeName: r.roleType?.name ?? "UNKNOWN",
         fromDate: r.fromDate.toISOString(),

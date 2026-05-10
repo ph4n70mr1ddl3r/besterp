@@ -3,27 +3,20 @@
 // Runs AFTER JwtAuthGuard. Reads the validated user from `req.user`
 // and attaches a TenantContext to the request for downstream services.
 //
-// Services inject REQUEST and read the TenantContext to get the
-// tenant-scoped PrismaClient with RLS enforcement.
+// Note: This guard is registered as a SINGLETON (default scope), not
+// request-scoped. It accesses the request via the ExecutionContext,
+// which is safe because NestJS provides a fresh ExecutionContext per request.
 
-import {
-  Injectable,
-  ExecutionContext,
-  CanActivate,
-  Inject,
-  Scope,
-} from "@nestjs/common";
-import { REQUEST } from "@nestjs/core";
+import { Injectable, ExecutionContext, CanActivate } from "@nestjs/common";
 import { Request } from "express";
 import { JwtValidatedUser } from "./jwt.strategy";
 import { TenantContext } from "../common/tenant-context";
 
-@Injectable({ scope: Scope.REQUEST })
+@Injectable()
 export class TenantGuard implements CanActivate {
-  constructor(@Inject(REQUEST) private readonly request: Request) {}
-
   canActivate(context: ExecutionContext): boolean {
-    const user = this.request.user as JwtValidatedUser | undefined;
+    const request = context.switchToHttp().getRequest<Request>();
+    const user = request.user as JwtValidatedUser | undefined;
 
     if (!user) {
       // This shouldn't happen if JwtAuthGuard ran first, but defense-in-depth
@@ -37,7 +30,7 @@ export class TenantGuard implements CanActivate {
       agentId: user.agentId,
     };
 
-    (this.request as any).tenantContext = tenantContext;
+    (request as any).tenantContext = tenantContext;
     return true;
   }
 }

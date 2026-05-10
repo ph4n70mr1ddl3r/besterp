@@ -7,6 +7,15 @@
 //
 // IMPORTANT: RLS only works with a non-superuser database role.
 // The PrismaClient passed here MUST connect as besterp_app (not besterp).
+//
+// TRANSACTION HANDLING:
+// - `$transaction(fn)` calls are intercepted to inject `SET LOCAL` at the
+//   start of the callback. The transaction client (`tx`) receives the tenant
+//   context automatically — callers don't need to do anything special.
+// - Individual model operations outside `$transaction` (e.g., `db.party.findMany()`)
+//   are wrapped in their own transaction with `SET LOCAL`.
+// - Batch `$transaction([...promises])` calls pass through without tenant
+//   context. Use interactive transactions for tenant-scoped batch operations.
 
 import { PrismaClient } from "@prisma/client";
 import { validateTenantId } from "@besterp/shared";
@@ -32,14 +41,24 @@ const DATA_METHODS = new Set([
  * (`findMany`, `create`, etc.) is wrapped in a transaction that calls
  * `set_tenant_context()` first. This enforces RLS at the database level.
  *
+ * **`$transaction` support:**
+ * Interactive transactions (`$transaction(fn)`) are intercepted to inject
+ * `SET LOCAL` at the start of the callback. The transaction client (`tx`)
+ * inherits the tenant context for all its queries.
+ *
  * Usage:
  * ```ts
  * const prisma = new PrismaClient();  // must use non-superuser role
  * const scoped = createTenantClient(prisma, "tenant-acme");
  *
- * // All queries are automatically tenant-scoped via RLS
+ * // Standalone queries — automatically wrapped with RLS
  * await scoped.party.findMany();
- * await scoped.party.create({ data: { ... } });
+ *
+ * // Interactive transactions — SET LOCAL injected automatically
+ * await scoped.$transaction(async (tx) => {
+ *   await tx.party.create({ data: { ... } });
+ *   await tx.partyRole.create({ data: { ... } });
+ * });
  * ```
  *
  * @param prisma   - Base PrismaClient (must connect as non-superuser for RLS)
@@ -53,7 +72,40 @@ export function createTenantClient(prisma: PrismaClient, tenantId: string) {
     get(target, prop: string | symbol) {
       if (typeof prop !== "string") return (target as any)[prop];
 
-      // Internal Prisma properties pass through ($transaction, $connect, etc.)
+      // ─── Intercept $transaction to inject SET LOCAL ────────────
+      // This is the critical fix: previously, $transaction passed through
+      // to the raw client, so SET LOCAL was never called inside callbacks.
+      // Now, interactive transactions get SET LOCAL injected at the start,
+      // and the transaction client (tx) inherits the tenant context.
+      if (prop === "$transaction") {
+        return (...args: unknown[]) => {
+          const [first, second] = args;
+
+          // Interactive transaction: $transaction(fn) or $transaction(fn, options)
+          if (typeof first === "function") {
+            const options = (typeof second === "object" && second !== null) ? second : undefined;
+            const wrappedFn = async (tx: any) => {
+              await tx.$executeRaw`SELECT set_tenant_context(${tenantId})`;
+              return first(tx);
+            };
+            return options
+              ? (target as any).$transaction(wrappedFn, options)
+              : (target as any).$transaction(wrappedFn);
+          }
+
+          // Batch transaction: $transaction([...promises])
+          // These pass through without tenant context. Use interactive
+          // transactions for tenant-scoped batch operations.
+          if (Array.isArray(first)) {
+            return (target as any).$transaction(first);
+          }
+
+          // Fallback — unknown overload, pass through
+          return (target as any).$transaction(...args);
+        };
+      }
+
+      // Other internal Prisma properties pass through ($connect, $disconnect, etc.)
       if (prop.startsWith("$") || prop.startsWith("_")) {
         return (target as any)[prop];
       }
@@ -71,7 +123,8 @@ export function createTenantClient(prisma: PrismaClient, tenantId: string) {
 
           if (!DATA_METHODS.has(method)) return originalFn;
 
-          // Return a wrapped function that sets tenant context
+          // Return a wrapped function that sets tenant context for standalone queries.
+          // Note: Queries inside $transaction use the intercepted $transaction path above.
           return async function (this: unknown, ...args: unknown[]) {
             return prisma.$transaction(async (tx) => {
               await tx.$executeRaw`SELECT set_tenant_context(${tenantId})`;

@@ -5,6 +5,9 @@
 //
 // Auth: Requires JWT with tenantId claim. The TenantGuard extracts the
 // tenant context and attaches it to the request. No x-tenant-id header needed.
+//
+// Validation: All request bodies are validated by class-validator DTOs via
+// the global ValidationPipe (configured in main.ts).
 
 import {
   Controller,
@@ -14,17 +17,16 @@ import {
   Param,
   Query,
   Req,
-  UseGuards,
 } from "@nestjs/common";
 import { Request } from "express";
 import { JwtValidatedUser } from "../../../auth/jwt.strategy";
 import { PartyService } from "./party.service";
 import {
-  CreatePartyInput,
-  SearchPartiesInput,
-  AddPartyRoleInput,
-  AddContactMechanismInput,
-} from "./party.types";
+  CreatePartyDto,
+  SearchPartiesDto,
+  AddPartyRoleDto,
+  AddContactMechanismDto,
+} from "./party.dto";
 
 @Controller("parties")
 export class PartyController {
@@ -41,7 +43,7 @@ export class PartyController {
   @Post()
   async create(
     @Req() req: Request,
-    @Body() body: Omit<CreatePartyInput, "tenantId">
+    @Body() body: CreatePartyDto
   ) {
     const { tenantId } = this.getTenantUser(req);
     return this.partyService.createParty({ ...body, tenantId });
@@ -50,20 +52,14 @@ export class PartyController {
   @Get()
   async search(
     @Req() req: Request,
-    @Query("name") name?: string,
-    @Query("partyType") partyType?: string,
-    @Query("roleType") roleType?: string,
-    @Query("limit") limit?: string,
-    @Query("offset") offset?: string
+    @Query() query: SearchPartiesDto
   ) {
     const { tenantId } = this.getTenantUser(req);
     return this.partyService.searchParties({
       tenantId,
-      name,
-      partyType,
-      roleType,
-      limit: limit ? Math.max(1, parseInt(limit, 10) || 50) : 50,
-      offset: offset ? Math.max(0, parseInt(offset, 10) || 0) : 0,
+      ...query,
+      limit: query.limit ?? 50,
+      offset: query.offset ?? 0,
     });
   }
 
@@ -80,7 +76,7 @@ export class PartyController {
   async addRole(
     @Req() req: Request,
     @Param("id") partyId: string,
-    @Body() body: Omit<AddPartyRoleInput, "tenantId" | "partyId">
+    @Body() body: AddPartyRoleDto
   ) {
     const { tenantId } = this.getTenantUser(req);
     return this.partyService.addPartyRole({
@@ -94,7 +90,7 @@ export class PartyController {
   async addContact(
     @Req() req: Request,
     @Param("id") partyId: string,
-    @Body() body: Omit<AddContactMechanismInput, "tenantId" | "partyId">
+    @Body() body: AddContactMechanismDto
   ) {
     const { tenantId } = this.getTenantUser(req);
     return this.partyService.addContactMechanism({

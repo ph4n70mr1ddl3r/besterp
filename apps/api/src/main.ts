@@ -22,6 +22,21 @@ async function bootstrap() {
     );
   }
 
+  // Validate required environment variables
+  const requiredInProduction = ["DATABASE_URL", "JWT_SECRET"];
+  const missing = requiredInProduction.filter((v) => !process.env[v]);
+  if (missing.length > 0 && process.env.NODE_ENV === "production") {
+    console.error(
+      `❌ FATAL: Missing required environment variables: ${missing.join(", ")}. Exiting.`
+    );
+    process.exit(1);
+  }
+  if (missing.length > 0) {
+    console.warn(
+      `⚠️  Missing optional environment variables: ${missing.join(", ")}. Defaults will be used.`
+    );
+  }
+
   const app = await NestFactory.create(AppModule);
 
   // Global prefix for REST endpoints
