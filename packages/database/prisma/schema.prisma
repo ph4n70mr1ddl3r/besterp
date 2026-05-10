@@ -17,19 +17,19 @@ datasource db {
 // ─── Type Tables (AI-facing, shared across tenants) ─────────────
 
 model PartyType {
-  partyTypeId   String   @id @default(uuid()) @map("party_type_id")
-  parentTypeId  String?  @map("parent_type_id")
-  name          String   @unique
-  description   String
-  aiPromptHint  String?  @map("ai_prompt_hint")
-  isSystem      Boolean  @default(false) @map("is_system")
-  createdAt     DateTime @default(now()) @map("created_at")
+  partyTypeId  String   @id @default(uuid()) @map("party_type_id")
+  parentTypeId String?  @map("parent_type_id")
+  name         String   @unique
+  description  String
+  aiPromptHint String?  @map("ai_prompt_hint")
+  isSystem     Boolean  @default(false) @map("is_system")
+  createdAt    DateTime @default(now()) @map("created_at")
 
   // Self-referencing hierarchy
-  parentType    PartyType?  @relation("PartyTypeHierarchy", fields: [parentTypeId], references: [partyTypeId])
-  childTypes    PartyType[] @relation("PartyTypeHierarchy")
+  parentType PartyType?  @relation("PartyTypeHierarchy", fields: [parentTypeId], references: [partyTypeId])
+  childTypes PartyType[] @relation("PartyTypeHierarchy")
 
-  parties       Party[]
+  parties Party[]
 
   @@map("party_type")
 }
@@ -37,42 +37,43 @@ model PartyType {
 // ─── Supertype: PARTY ───────────────────────────────────────────
 
 model Party {
-  partyId       String   @id @default(uuid()) @map("party_id")
-  partyTypeId   String   @map("party_type_id")
-  tenantId      String   @map("tenant_id")
-  name          String
-  description   String?
-  version       Int      @default(1)
-  createdAt     DateTime @default(now()) @map("created_at")
-  updatedAt     DateTime @updatedAt @map("updated_at")
+  partyId     String   @id @default(uuid()) @map("party_id")
+  partyTypeId String   @map("party_type_id")
+  tenantId    String   @map("tenant_id")
+  name        String
+  description String?
+  version     Int      @default(1)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
 
   // Type relation
-  partyType     PartyType @relation(fields: [partyTypeId], references: [partyTypeId])
+  partyType PartyType @relation(fields: [partyTypeId], references: [partyTypeId])
 
   // Subtype relations (1:1 — at most one will be populated)
-  person        Person?
-  organization  Organization?
+  person       Person?
+  organization Organization?
 
   // Roles
-  roles         PartyRole[]
+  roles PartyRole[]
 
   // Contact mechanisms
   partyContacts PartyContactMechanism[]
 
+  @@index([tenantId])
   @@map("party")
 }
 
 // ─── Subtype: PERSON ────────────────────────────────────────────
 
 model Person {
-  partyId       String   @id @map("party_id")
-  firstName     String   @map("first_name")
-  lastName      String   @map("last_name")
-  middleName    String?  @map("middle_name")
-  birthDate     DateTime? @map("birth_date")
-  gender        String?
+  partyId    String    @id @map("party_id")
+  firstName  String    @map("first_name")
+  lastName   String    @map("last_name")
+  middleName String?   @map("middle_name")
+  birthDate  DateTime? @map("birth_date")
+  gender     String?
 
-  party         Party    @relation(fields: [partyId], references: [partyId], onDelete: Cascade)
+  party Party @relation(fields: [partyId], references: [partyId], onDelete: Cascade)
 
   @@map("person")
 }
@@ -85,7 +86,7 @@ model Organization {
   taxId            String?   @map("tax_id")
   registrationDate DateTime? @map("registration_date")
 
-  party            Party     @relation(fields: [partyId], references: [partyId], onDelete: Cascade)
+  party Party @relation(fields: [partyId], references: [partyId], onDelete: Cascade)
 
   @@map("organization")
 }
@@ -93,32 +94,32 @@ model Organization {
 // ─── Party Role ─────────────────────────────────────────────────
 
 model RoleType {
-  roleTypeId    String   @id @default(uuid()) @map("role_type_id")
-  name          String   @unique
-  description   String
-  aiPromptHint  String?  @map("ai_prompt_hint")
-  parentTypeId  String?  @map("parent_type_id")
-  isSystem      Boolean  @default(false) @map("is_system")
-  createdAt     DateTime @default(now()) @map("created_at")
+  roleTypeId   String   @id @default(uuid()) @map("role_type_id")
+  name         String   @unique
+  description  String
+  aiPromptHint String?  @map("ai_prompt_hint")
+  parentTypeId String?  @map("parent_type_id")
+  isSystem     Boolean  @default(false) @map("is_system")
+  createdAt    DateTime @default(now()) @map("created_at")
 
-  parentType    RoleType?  @relation("RoleTypeHierarchy", fields: [parentTypeId], references: [roleTypeId])
-  childTypes    RoleType[] @relation("RoleTypeHierarchy")
+  parentType RoleType?  @relation("RoleTypeHierarchy", fields: [parentTypeId], references: [roleTypeId])
+  childTypes RoleType[] @relation("RoleTypeHierarchy")
 
-  partyRoles    PartyRole[]
+  partyRoles PartyRole[]
 
   @@map("role_type")
 }
 
 model PartyRole {
-  partyRoleId   String   @id @default(uuid()) @map("party_role_id")
-  partyId       String   @map("party_id")
-  roleTypeId    String   @map("role_type_id")
-  fromDate      DateTime @default(now()) @map("from_date")
-  thruDate      DateTime? @map("thru_date")
-  createdAt     DateTime @default(now()) @map("created_at")
+  partyRoleId String    @id @default(uuid()) @map("party_role_id")
+  partyId     String    @map("party_id")
+  roleTypeId  String    @map("role_type_id")
+  fromDate    DateTime  @default(now()) @map("from_date")
+  thruDate    DateTime? @map("thru_date")
+  createdAt   DateTime  @default(now()) @map("created_at")
 
-  party         Party    @relation(fields: [partyId], references: [partyId], onDelete: Cascade)
-  roleType      RoleType @relation(fields: [roleTypeId], references: [roleTypeId])
+  party    Party    @relation(fields: [partyId], references: [partyId], onDelete: Cascade)
+  roleType RoleType @relation(fields: [roleTypeId], references: [roleTypeId])
 
   @@map("party_role")
 }
@@ -126,29 +127,30 @@ model PartyRole {
 // ─── Contact Mechanism ──────────────────────────────────────────
 
 model ContactMechanismType {
-  contactMechanismTypeId String @id @default(uuid()) @map("contact_mechanism_type_id")
-  name                   String @unique
+  contactMechanismTypeId String   @id @default(uuid()) @map("contact_mechanism_type_id")
+  name                   String   @unique
   description            String
-  aiPromptHint           String? @map("ai_prompt_hint")
+  aiPromptHint           String?  @map("ai_prompt_hint")
   createdAt              DateTime @default(now()) @map("created_at")
 
-  contactMechanisms      ContactMechanism[]
+  contactMechanisms ContactMechanism[]
 
   @@map("contact_mechanism_type")
 }
 
 model ContactMechanism {
-  contactMechanismId     String @id @default(uuid()) @map("contact_mechanism_id")
-  contactMechanismTypeId String @map("contact_mechanism_type_id")
-  tenantId               String @map("tenant_id")
+  contactMechanismId     String   @id @default(uuid()) @map("contact_mechanism_id")
+  contactMechanismTypeId String   @map("contact_mechanism_type_id")
+  tenantId               String   @map("tenant_id")
   createdAt              DateTime @default(now()) @map("created_at")
 
-  contactMechanismType   ContactMechanismType @relation(fields: [contactMechanismTypeId], references: [contactMechanismTypeId])
-  partyContacts          PartyContactMechanism[]
-  postalAddress          PostalAddress?
-  telecomNumber          TelecomNumber?
-  emailAddress           EmailAddress?
+  contactMechanismType ContactMechanismType    @relation(fields: [contactMechanismTypeId], references: [contactMechanismTypeId])
+  partyContacts        PartyContactMechanism[]
+  postalAddress        PostalAddress?
+  telecomNumber        TelecomNumber?
+  emailAddress         EmailAddress?
 
+  @@index([tenantId])
   @@map("contact_mechanism")
 }
 
@@ -159,36 +161,37 @@ model PartyContactMechanism {
   fromDate                DateTime  @default(now()) @map("from_date")
   thruDate                DateTime? @map("thru_date")
 
-  party                   Party             @relation(fields: [partyId], references: [partyId], onDelete: Cascade)
-  contactMechanism        ContactMechanism  @relation(fields: [contactMechanismId], references: [contactMechanismId], onDelete: Cascade)
+  party            Party            @relation(fields: [partyId], references: [partyId], onDelete: Cascade)
+  contactMechanism ContactMechanism @relation(fields: [contactMechanismId], references: [contactMechanismId], onDelete: Cascade)
 
+  @@index([partyId])
   @@map("party_contact_mechanism")
 }
 
 // Contact subtypes
 
 model PostalAddress {
-  contactMechanismId String @id @map("contact_mechanism_id")
-  addressLine1       String @map("address_line_1")
+  contactMechanismId String  @id @map("contact_mechanism_id")
+  addressLine1       String  @map("address_line_1")
   addressLine2       String? @map("address_line_2")
   city               String
   stateProvince      String? @map("state_province")
   postalCode         String? @map("postal_code")
   country            String
 
-  contactMechanism   ContactMechanism @relation(fields: [contactMechanismId], references: [contactMechanismId], onDelete: Cascade)
+  contactMechanism ContactMechanism @relation(fields: [contactMechanismId], references: [contactMechanismId], onDelete: Cascade)
 
   @@map("postal_address")
 }
 
 model TelecomNumber {
-  contactMechanismId String @id @map("contact_mechanism_id")
-  countryCode        String @default("+1") @map("country_code")
-  areaCode           String @map("area_code")
-  lineNumber         String @map("line_number")
+  contactMechanismId String  @id @map("contact_mechanism_id")
+  countryCode        String  @default("+1") @map("country_code")
+  areaCode           String  @map("area_code")
+  lineNumber         String  @map("line_number")
   extension          String?
 
-  contactMechanism   ContactMechanism @relation(fields: [contactMechanismId], references: [contactMechanismId], onDelete: Cascade)
+  contactMechanism ContactMechanism @relation(fields: [contactMechanismId], references: [contactMechanismId], onDelete: Cascade)
 
   @@map("telecom_number")
 }
@@ -197,7 +200,7 @@ model EmailAddress {
   contactMechanismId String @id @map("contact_mechanism_id")
   email              String
 
-  contactMechanism   ContactMechanism @relation(fields: [contactMechanismId], references: [contactMechanismId], onDelete: Cascade)
+  contactMechanism ContactMechanism @relation(fields: [contactMechanismId], references: [contactMechanismId], onDelete: Cascade)
 
   @@map("email_address")
 }
@@ -216,25 +219,28 @@ model AiActionLog {
   reasoning      String?
   createdAt      DateTime @default(now()) @map("created_at")
 
+  @@index([tenantId])
   @@map("ai_action_log")
 }
 
 // ─── Idempotency Record ─────────────────────────────────────────
 
 model IdempotencyRecord {
-  idempotencyKey String   @id @map("idempotency_key")
-  toolName       String   @map("tool_name")
-  tenantId       String   @map("tenant_id")
-  userId         String   @map("user_id")
-  agentId        String?  @map("agent_id")
-  conversationId String?  @map("conversation_id")
-  status         String   @default("pending")
-  inputHash      String   @map("input_hash")
+  idempotencyKey String    @id @map("idempotency_key")
+  toolName       String    @map("tool_name")
+  tenantId       String    @map("tenant_id")
+  userId         String    @map("user_id")
+  agentId        String?   @map("agent_id")
+  conversationId String?   @map("conversation_id")
+  status         String    @default("pending")
+  inputHash      String    @map("input_hash")
   result         Json?
   error          Json?
-  createdAt      DateTime @default(now()) @map("created_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
   completedAt    DateTime? @map("completed_at")
-  expiresAt      DateTime @map("expires_at")
+  expiresAt      DateTime  @map("expires_at")
 
+  @@index([tenantId])
+  @@index([expiresAt])
   @@map("idempotency_record")
 }

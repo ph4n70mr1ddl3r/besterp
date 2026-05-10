@@ -11,6 +11,7 @@
 // Use: DATABASE_URL="postgresql://besterp_app:besterp_app_dev@localhost:5434/besterp"
 
 import { PrismaClient } from "@prisma/client";
+import { withTenant } from "@besterp/shared";
 
 // ─── Helpers ──────────────────────────────────────────────────
 
@@ -31,34 +32,7 @@ async function timeMs(fn: () => Promise<void>): Promise<number> {
 }
 
 // ─── Tenant context helper ───────────────────────────────────
-// The validated pattern is withTenant() below, which wraps SET LOCAL
-// and the query in the same $transaction.
-//
-// NOTE: Prisma Client Extensions approach was tested but doesn't work
-// because SET LOCAL only persists within the current transaction.
-// The extension runs per-operation but the SET LOCAL needs to be in
-// the same transaction as the query.
-
-// ─── Alternative: explicit tenant context per operation ───────
-// Without client extensions, using interactive transactions
-
-async function withTenant<T>(
-  prisma: PrismaClient,
-  tenantId: string,
-  fn: (tx: PrismaClient) => Promise<T>
-): Promise<T> {
-  // Validate tenantId to prevent SQL injection (SET LOCAL doesn't support
-  // parameterized queries via Prisma tagged templates)
-  if (!/^[a-zA-Z0-9_-]+$/.test(tenantId)) {
-    throw new Error(`Invalid tenant ID: ${tenantId}`);
-  }
-  return prisma.$transaction(async (tx) => {
-    await tx.$executeRawUnsafe(
-      `SET LOCAL app.current_tenant = '${tenantId}'`
-    );
-    return fn(tx as unknown as PrismaClient);
-  });
-}
+// Now imported from @besterp/shared. See packages/shared/src/tenant.ts
 
 // ─── Main Spike ──────────────────────────────────────────────
 

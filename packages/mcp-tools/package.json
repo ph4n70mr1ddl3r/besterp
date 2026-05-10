@@ -9,6 +9,7 @@
     "spike:agent": "tsx src/test-agent.ts"
   },
   "dependencies": {
+    "@besterp/shared": "*",
     "@modelcontextprotocol/sdk": "^1.12.0",
     "@prisma/client": "^6.8.0"
   },

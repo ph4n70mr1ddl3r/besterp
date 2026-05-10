@@ -1,0 +1,19 @@
+{
+  "name": "@besterp/shared",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "peerDependencies": {
+    "@prisma/client": "^6.8.0"
+  },
+  "devDependencies": {
+    "@prisma/client": "^6.8.0",
+    "typescript": "^5.8.0"
+  }
+}

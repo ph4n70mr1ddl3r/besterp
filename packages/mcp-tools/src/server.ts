@@ -11,7 +11,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import { PrismaClient } from "@prisma/client";
-import crypto from "crypto";
+import { withTenant, richError, hashInput } from "@besterp/shared";
 
 // ─── Database ────────────────────────────────────────────────
 
@@ -24,51 +24,13 @@ const adminPrisma = new PrismaClient({
 });
 
 // ─── Tenant context helper ───────────────────────────────────
-
-async function withTenant<T>(
-  tenantId: string,
-  fn: (tx: PrismaClient) => Promise<T>
-): Promise<T> {
-  // Validate tenantId to prevent SQL injection (SET LOCAL doesn't support
-  // parameterized queries via Prisma tagged templates)
-  if (!/^[a-zA-Z0-9_-]+$/.test(tenantId)) {
-    throw new Error(`Invalid tenant ID: ${tenantId}`);
-  }
-  return prisma.$transaction(async (tx) => {
-    await tx.$executeRawUnsafe(
-      `SET LOCAL app.current_tenant = '${tenantId}'`
-    );
-    return fn(tx as unknown as PrismaClient);
-  });
-}
+// Imported from @besterp/shared. See packages/shared/src/tenant.ts
 
 // ─── Rich error formatter ────────────────────────────────────
-
-function richError(
-  code: string,
-  message: string,
-  suggestedTools: string[] = [],
-  context: Record<string, unknown> = {}
-) {
-  return {
-    isError: true,
-    content: [
-      {
-        type: "text" as const,
-        text: JSON.stringify({ error: code, message, suggestedTools, context }),
-      },
-    ],
-  };
-}
+// Imported from @besterp/shared. See packages/shared/src/errors.ts
 
 // ─── Input hashing for idempotency ──────────────────────────
-
-function hashInput(input: unknown): string {
-  return crypto
-    .createHash("sha256")
-    .update(JSON.stringify(input))
-    .digest("hex");
-}
+// Imported from @besterp/shared. See packages/shared/src/crypto.ts
 
 // ─── MCP Server ──────────────────────────────────────────────
 
@@ -228,7 +190,7 @@ Example: Create a supplier organization
       }
 
       // ─── Create Party ───────────────────────────────────────
-      const party = await withTenant(tenantId, async (tx) => {
+      const party = await withTenant(prisma, tenantId, async (tx) => {
         return tx.party.create({
           data: {
             partyTypeId: partyTypeRecord.partyTypeId,

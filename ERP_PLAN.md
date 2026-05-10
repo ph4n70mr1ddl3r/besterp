@@ -254,14 +254,21 @@ Validate core assumptions with a minimal prototype before committing to the full
 - Pure RLS overhead: ~0%. Transaction wrapping: ~0.8ms/query extra
 - MCP stdio transport validated with 3 tools (create_party, list_available_tools, get_type_table_values)
 
-#### Phase 0b: Core Infrastructure (Weeks 2-4)
+#### Phase 0b: Core Infrastructure (Weeks 2-4) — In Progress
 
-- [ ] CI/CD pipeline (lint, test, build, migrate)
-- [ ] Set up pgvector extension for semantic search
+- [x] CI/CD pipeline (lint, test, build, migrate) — `.github/workflows/ci.yml`
+- [x] Set up pgvector extension for semantic search — included in docker-compose.yml
+- [x] Docker Compose for local development (PostgreSQL, Redis, MinIO)
+- [x] NestJS scaffold (`apps/api`) with Prisma module and health check
+- [x] Extract shared utilities to `@besterp/shared` (`withTenant`, `richError`, `hashInput`)
+- [x] Squash migrations into one clean initial migration
+- [x] Add performance indexes for RLS tenant isolation (`tenant_id`, `party_id`)
+- [x] Set up vitest test framework with RLS isolation test suite
+- [x] Add `prisma generate` as postinstall hook
+- [x] Remove hardcoded credentials from source code
 - [ ] Set up Redis for caching + queues (BullMQ)
 - [ ] MCP Tool Server infrastructure (middleware pipeline, registration framework)
 - [ ] NestJS modules, guards, interceptors, Prisma Client Extension for RLS
-- [ ] Docker Compose for local development (PostgreSQL, Redis, MinIO)
 
 #### Phase 0c: Core Schema + Agentic Layer (Weeks 3-5)
 

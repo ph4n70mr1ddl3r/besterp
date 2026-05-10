@@ -20,6 +20,13 @@ function assert(condition: boolean, message: string) {
   }
 }
 
+/** Extract text content from an MCP tool result (works around SDK type issues). */
+function extractContent(result: unknown): string {
+  const r = result as Record<string, unknown>;
+  const content = r.content as Array<Record<string, unknown>>;
+  return content?.[0]?.text as string;
+}
+
 async function main() {
   console.log("═".repeat(60));
   console.log("BestERP Phase 0a Spike: MCP Tool Agent Test");
@@ -33,8 +40,8 @@ async function main() {
     args: ["tsx", "src/server.ts"],
     env: {
       ...process.env,
-      DATABASE_URL: "postgresql://besterp_app:besterp_app_dev@localhost:5434/besterp",
-      DATABASE_ADMIN_URL: "postgresql://besterp:besterp_dev@localhost:5434/besterp",
+      DATABASE_URL: process.env.DATABASE_URL || "",
+      DATABASE_ADMIN_URL: process.env.DATABASE_ADMIN_URL || "",
     } as Record<string, string>,
   });
 
@@ -77,7 +84,7 @@ async function main() {
     arguments: { typeName: "PARTY_TYPE" },
   });
 
-  const typeData = JSON.parse((typeResult.content?.[0] as any).text);
+  const typeData = JSON.parse(extractContent(typeResult));
   console.log(`  Found ${typeData.totalAvailable} party types:`);
   for (const v of typeData.values) {
     console.log(`    - ${v.name}: ${v.description.substring(0, 50)}...`);
@@ -112,7 +119,7 @@ async function main() {
     },
   });
 
-  const createData = JSON.parse((createResult.content?.[0] as any).text);
+  const createData = JSON.parse(extractContent(createResult));
   console.log(`  Status: ${createData.status}`);
   console.log(`  Party ID: ${createData.party?.partyId}`);
   console.log(`  Name: ${createData.party?.name}`);
@@ -146,7 +153,7 @@ async function main() {
   // Second call with SAME key and SAME input: should replay
   const replayResult = await client.callTool({ name: "create_party", arguments: freshArgs });
 
-  const replayData = JSON.parse((replayResult.content?.[0] as any).text);
+  const replayData = JSON.parse(extractContent(replayResult));
   console.log(`  Status: ${replayData.status}`);
   if (replayData.party) console.log(`  Party ID: ${replayData.party.partyId}`);
 
@@ -171,7 +178,7 @@ async function main() {
     },
   });
 
-  const orgData = JSON.parse((orgResult.content?.[0] as any).text);
+  const orgData = JSON.parse(extractContent(orgResult));
   console.log(`  Status: ${orgData.status}`);
   console.log(`  Name: ${orgData.party.name}`);
   console.log(`  Legal Name: ${orgData.party.organization?.legalName}`);
@@ -196,7 +203,7 @@ async function main() {
     },
   });
 
-  const errorData = JSON.parse((errorResult.content?.[0] as any).text);
+  const errorData = JSON.parse(extractContent(errorResult));
   console.log(`  Error: ${errorData.error}`);
   console.log(`  Message: ${errorData.message}`);
 
