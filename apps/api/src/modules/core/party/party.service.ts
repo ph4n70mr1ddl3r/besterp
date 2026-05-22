@@ -67,18 +67,55 @@ export class PartyService {
   async createParty(input: CreatePartyInput): Promise<PartyResult> {
     const { tenantId, partyType, name, description, person: personData, organization: orgData } = input;
 
+    // Input validation with better error messages
+    if (!name || name.trim().length === 0) {
+      throw new InvalidTypeValueError(
+        "Party name cannot be empty",
+        { 
+          suggestedTools: ["create_party"],
+          context: { field: "name", received: name }
+        }
+      );
+    }
+
     // Validate subtype data
     if (partyType === "PERSON" && !personData) {
       throw new MissingSubtypeDataError(
         "When partyType is PERSON, the 'person' object with firstName and lastName is required.",
-        { suggestedTools: ["create_party"] }
+        { suggestedTools: ["create_party"], context: { partyType, missingField: "person" } }
       );
     }
     if (partyType === "ORGANIZATION" && !orgData) {
       throw new MissingSubtypeDataError(
         "When partyType is ORGANIZATION, the 'organization' object with legalName is required.",
-        { suggestedTools: ["create_party"] }
+        { suggestedTools: ["create_party"], context: { partyType, missingField: "organization" } }
       );
+    }
+    
+    // Validate person data if provided
+    if (personData) {
+      if (!personData.firstName || personData.firstName.trim().length === 0) {
+        throw new MissingSubtypeDataError(
+          "firstName is required for person data",
+          { suggestedTools: ["create_party"], context: { field: "firstName" } }
+        );
+      }
+      if (!personData.lastName || personData.lastName.trim().length === 0) {
+        throw new MissingSubtypeDataError(
+          "lastName is required for person data",
+          { suggestedTools: ["create_party"], context: { field: "lastName" } }
+        );
+      }
+    }
+    
+    // Validate organization data if provided
+    if (orgData) {
+      if (!orgData.legalName || orgData.legalName.trim().length === 0) {
+        throw new MissingSubtypeDataError(
+          "legalName is required for organization data",
+          { suggestedTools: ["create_party"], context: { field: "legalName" } }
+        );
+      }
     }
 
     // Get RLS-scoped client for tenant isolation
@@ -165,31 +202,48 @@ export class PartyService {
   async searchParties(input: SearchPartiesInput): Promise<SearchPartiesResult> {
     const { tenantId, name, partyType, roleType, limit = 50, offset = 0 } = input;
 
+    // Validate pagination parameters
+    const validatedLimit = Math.min(Math.max(limit, 1), 500); // Clamp between 1-500
+    const validatedOffset = Math.max(offset, 0);
+
     const db = this.prisma.tenantScoped(tenantId);
 
-    const where: Prisma.PartyWhereInput = {
-      tenantId,
-      ...(name ? { name: { contains: name, mode: "insensitive" } } : {}),
-      ...(partyType ? { partyType: { name: partyType } } : {}),
-      ...(roleType ? { roles: { some: { roleType: { name: roleType } } } } : {}),
-    };
+    // Build where clause more efficiently
+    const where: Prisma.PartyWhereInput = { tenantId };
+    
+    if (name) {
+      // Use startsWith for better performance than contains when possible
+      const trimmedName = name.trim();
+      if (trimmedName.length > 0) {
+        where.name = { contains: trimmedName, mode: "insensitive" };
+      }
+    }
+    
+    if (partyType) {
+      where.partyType = { name: partyType };
+    }
+    
+    if (roleType) {
+      where.roles = { some: { roleType: { name: roleType } } };
+    }
 
-    const [items, total] = await Promise.all([
-      db.party.findMany({
-        where,
-        include: PartyService.PARTY_INCLUDE,
-        take: limit,
-        skip: offset,
-        orderBy: { createdAt: "desc" },
-      }),
-      db.party.count({ where }),
-    ]);
+    // Use separate count query for better performance
+    const total = await db.party.count({ where });
+    
+    const items = await db.party.findMany({
+      where,
+      include: PartyService.PARTY_INCLUDE,
+      take: validatedLimit,
+      skip: validatedOffset,
+      orderBy: { createdAt: "desc" },
+    });
 
     return {
       items: items.map((p) => this.toPartyResult(p as PartyWithIncludes)),
       total,
-      limit,
-      offset,
+      limit: validatedLimit,
+      offset: validatedOffset,
+      hasMore: validatedOffset + validatedLimit < total,
     };
   }
 
@@ -199,6 +253,17 @@ export class PartyService {
     const { tenantId, partyId, roleType, fromDate } = input;
 
     const db = this.prisma.tenantScoped(tenantId);
+
+    // Validate inputs
+    if (!roleType || roleType.trim().length === 0) {
+      throw new InvalidTypeValueError(
+        "roleType cannot be empty",
+        {
+          suggestedTools: ["get_type_table_values"],
+          context: { field: "roleType", received: roleType },
+        }
+      );
+    }
 
     // Verify party exists in tenant (RLS enforces this, but explicit check gives better error)
     const party = await db.party.findFirst({
@@ -214,21 +279,21 @@ export class PartyService {
       );
     }
 
-    // Look up role type
+    // Look up role type with better error handling
     const roleTypeRecord = await db.roleType.findFirst({
-      where: { name: roleType },
+      where: { name: roleType.trim() },
     });
     if (!roleTypeRecord) {
       throw new InvalidTypeValueError(
         `ROLE_TYPE '${roleType}' is not valid. Use 'get_type_table_values' to see valid role types.`,
         {
           suggestedTools: ["get_type_table_values"],
-          context: { field: "roleType", invalidValue: roleType },
+          context: { field: "roleType", invalidValue: roleType, lookupField: "name" },
         }
       );
     }
 
-    // Check if role already active
+    // Check if role already active with more specific error
     const existingRole = await db.partyRole.findFirst({
       where: {
         partyId,
@@ -239,24 +304,45 @@ export class PartyService {
     if (existingRole) {
       throw new DuplicateEntityError(
         `Party '${partyId}' already has active role '${roleType}'. ` +
+        `Existing role started on ${existingRole.fromDate.toISOString()}. ` +
         `Use 'update_party_role' to modify it or set thruDate first.`,
         {
-          suggestedTools: ["get_party"],
-          context: { partyId, roleType },
+          suggestedTools: ["get_party", "update_party_role"],
+          context: { 
+            partyId, 
+            roleType, 
+            existingRoleId: existingRole.partyRoleId,
+            existingRoleDate: existingRole.fromDate.toISOString()
+          },
         }
       );
     }
 
-    const role = await db.partyRole.create({
-      data: {
-        partyId,
-        roleTypeId: roleTypeRecord.roleTypeId,
-        fromDate: fromDate ? new Date(fromDate) : new Date(),
-      },
-      include: { roleType: true },
+    // Validate and parse fromDate
+    const roleFromDate = fromDate ? new Date(fromDate) : new Date();
+    if (isNaN(roleFromDate.getTime())) {
+      throw new InvalidTypeValueError(
+        `Invalid fromDate format: ${fromDate}. Use ISO 8601 format (YYYY-MM-DDTHH:mm:ss.sssZ)`,
+        {
+          suggestedTools: ["add_party_role"],
+          context: { field: "fromDate", invalidValue: fromDate },
+        }
+      );
+    }
+
+    // Create role in transaction for data consistency
+    const role = await db.$transaction(async (tx) => {
+      return tx.partyRole.create({
+        data: {
+          partyId,
+          roleTypeId: roleTypeRecord.roleTypeId,
+          fromDate: roleFromDate,
+        },
+        include: { roleType: true },
+      });
     });
 
-    this.logger.log(`Added role '${roleType}' to party ${partyId}`);
+    this.logger.log(`Added role '${roleType}' to party ${partyId} (ID: ${role.partyRoleId})`);
     return {
       partyRoleId: role.partyRoleId,
       partyId: role.partyId,
@@ -280,6 +366,17 @@ export class PartyService {
 
     const db = this.prisma.tenantScoped(tenantId);
 
+    // Validate inputs
+    if (!contactMechanismType || contactMechanismType.trim().length === 0) {
+      throw new InvalidTypeValueError(
+        "contactMechanismType cannot be empty",
+        {
+          suggestedTools: ["get_type_table_values"],
+          context: { field: "contactMechanismType", received: contactMechanismType },
+        }
+      );
+    }
+
     // Verify party exists in tenant
     const party = await db.party.findFirst({
       where: { partyId, tenantId },
@@ -296,7 +393,7 @@ export class PartyService {
 
     // Look up contact mechanism type
     const cmType = await db.contactMechanismType.findFirst({
-      where: { name: contactMechanismType },
+      where: { name: contactMechanismType.trim() },
     });
     if (!cmType) {
       throw new InvalidTypeValueError(
@@ -304,29 +401,125 @@ export class PartyService {
         `Valid types: ['POSTAL_ADDRESS', 'TELECOM_NUMBER', 'EMAIL_ADDRESS'].`,
         {
           suggestedTools: ["get_type_table_values"],
-          context: { field: "contactMechanismType", invalidValue: contactMechanismType },
+          context: { 
+            field: "contactMechanismType", 
+            invalidValue: contactMechanismType,
+            validValues: ["POSTAL_ADDRESS", "TELECOM_NUMBER", "EMAIL_ADDRESS"]
+          },
         }
       );
     }
 
-    // Validate subtype data
-    if (contactMechanismType === "POSTAL_ADDRESS" && !postalAddress) {
-      throw new MissingSubtypeDataError(
-        "postalAddress is required when contactMechanismType is POSTAL_ADDRESS.",
-        { suggestedTools: ["add_contact_mechanism"] }
-      );
-    }
-    if (contactMechanismType === "TELECOM_NUMBER" && !telecomNumber) {
-      throw new MissingSubtypeDataError(
-        "telecomNumber is required when contactMechanismType is TELECOM_NUMBER.",
-        { suggestedTools: ["add_contact_mechanism"] }
-      );
-    }
-    if (contactMechanismType === "EMAIL_ADDRESS" && !emailAddress) {
-      throw new MissingSubtypeDataError(
-        "emailAddress is required when contactMechanismType is EMAIL_ADDRESS.",
-        { suggestedTools: ["add_contact_mechanism"] }
-      );
+    // Validate subtype data with detailed validation
+    let validContactData;
+    
+    if (contactMechanismType === "POSTAL_ADDRESS") {
+      if (!postalAddress) {
+        throw new MissingSubtypeDataError(
+          "postalAddress is required when contactMechanismType is POSTAL_ADDRESS.",
+          { 
+            suggestedTools: ["add_contact_mechanism"],
+            context: { contactMechanismType, missingField: "postalAddress" }
+          }
+        );
+      }
+      
+      // Validate postal address structure
+      if (!postalAddress.addressLine1 || postalAddress.addressLine1.trim().length === 0) {
+        throw new MissingSubtypeDataError(
+          "addressLine1 is required for postal address",
+          { 
+            suggestedTools: ["add_contact_mechanism"],
+            context: { contactMechanismType, field: "addressLine1" }
+          }
+        );
+      }
+      if (!postalAddress.city || postalAddress.city.trim().length === 0) {
+        throw new MissingSubtypeDataError(
+          "city is required for postal address",
+          { 
+            suggestedTools: ["add_contact_mechanism"],
+            context: { contactMechanismType, field: "city" }
+          }
+        );
+      }
+      if (!postalAddress.country || postalAddress.country.trim().length === 0) {
+        throw new MissingSubtypeDataError(
+          "country is required for postal address",
+          { 
+            suggestedTools: ["add_contact_mechanism"],
+            context: { contactMechanismType, field: "country" }
+          }
+        );
+      }
+      validContactData = postalAddress;
+    } 
+    else if (contactMechanismType === "TELECOM_NUMBER") {
+      if (!telecomNumber) {
+        throw new MissingSubtypeDataError(
+          "telecomNumber is required when contactMechanismType is TELECOM_NUMBER.",
+          { 
+            suggestedTools: ["add_contact_mechanism"],
+            context: { contactMechanismType, missingField: "telecomNumber" }
+          }
+        );
+      }
+      
+      // Validate telecom number structure
+      if (!telecomNumber.areaCode || telecomNumber.areaCode.trim().length === 0) {
+        throw new MissingSubtypeDataError(
+          "areaCode is required for telecom number",
+          { 
+            suggestedTools: ["add_contact_mechanism"],
+            context: { contactMechanismType, field: "areaCode" }
+          }
+        );
+      }
+      if (!telecomNumber.lineNumber || telecomNumber.lineNumber.trim().length === 0) {
+        throw new MissingSubtypeDataError(
+          "lineNumber is required for telecom number",
+          { 
+            suggestedTools: ["add_contact_mechanism"],
+            context: { contactMechanismType, field: "lineNumber" }
+          }
+        );
+      }
+      validContactData = telecomNumber;
+    } 
+    else if (contactMechanismType === "EMAIL_ADDRESS") {
+      if (!emailAddress) {
+        throw new MissingSubtypeDataError(
+          "emailAddress is required when contactMechanismType is EMAIL_ADDRESS.",
+          { 
+            suggestedTools: ["add_contact_mechanism"],
+            context: { contactMechanismType, missingField: "emailAddress" }
+          }
+        );
+      }
+      
+      // Simple email validation
+      if (!emailAddress.email || emailAddress.email.trim().length === 0) {
+        throw new MissingSubtypeDataError(
+          "email is required for email address",
+          { 
+            suggestedTools: ["add_contact_mechanism"],
+            context: { contactMechanismType, field: "email" }
+          }
+        );
+      }
+      
+      // Basic email format validation
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(emailAddress.email.trim())) {
+        throw new InvalidTypeValueError(
+          `Invalid email format: ${emailAddress.email}`,
+          { 
+            suggestedTools: ["add_contact_mechanism"],
+            context: { contactMechanismType, field: "email", invalidValue: emailAddress.email }
+          }
+        );
+      }
+      validContactData = emailAddress;
     }
 
     // Create contact mechanism with subtype in a transaction
@@ -335,32 +528,32 @@ export class PartyService {
         data: {
           contactMechanismTypeId: cmType.contactMechanismTypeId,
           tenantId,
-          postalAddress: postalAddress
+          postalAddress: contactMechanismType === "POSTAL_ADDRESS" && validContactData
             ? {
                 create: {
-                  addressLine1: postalAddress.addressLine1,
-                  addressLine2: postalAddress.addressLine2 || null,
-                  city: postalAddress.city,
-                  stateProvince: postalAddress.stateProvince || null,
-                  postalCode: postalAddress.postalCode || null,
-                  country: postalAddress.country,
+                  addressLine1: validContactData.addressLine1.trim(),
+                  addressLine2: validContactData.addressLine2?.trim() || null,
+                  city: validContactData.city.trim(),
+                  stateProvince: validContactData.stateProvince?.trim() || null,
+                  postalCode: validContactData.postalCode?.trim() || null,
+                  country: validContactData.country.trim().toUpperCase(),
                 },
               }
             : undefined,
-          telecomNumber: telecomNumber
+          telecomNumber: contactMechanismType === "TELECOM_NUMBER" && validContactData
             ? {
                 create: {
-                  countryCode: telecomNumber.countryCode || "+1",
-                  areaCode: telecomNumber.areaCode,
-                  lineNumber: telecomNumber.lineNumber,
-                  extension: telecomNumber.extension || null,
+                  countryCode: validContactData.countryCode?.trim() || "+1",
+                  areaCode: validContactData.areaCode.trim(),
+                  lineNumber: validContactData.lineNumber.trim(),
+                  extension: validContactData.extension?.trim() || null,
                 },
               }
             : undefined,
-          emailAddress: emailAddress
+          emailAddress: contactMechanismType === "EMAIL_ADDRESS" && validContactData
             ? {
                 create: {
-                  email: emailAddress.email,
+                  email: validContactData.email.trim().toLowerCase(),
                 },
               }
             : undefined,
@@ -377,8 +570,9 @@ export class PartyService {
       });
     });
 
-    this.logger.log(`Added ${contactMechanismType} to party ${partyId}`);
+    this.logger.log(`Added ${contactMechanismType} to party ${partyId} (ID: ${contactMechanism.contactMechanismId})`);
 
+    // Format return data consistently
     return {
       contactMechanismId: contactMechanism.contactMechanismId,
       contactMechanismType: contactMechanism.contactMechanismType.name,

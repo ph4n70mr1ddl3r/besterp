@@ -19,11 +19,59 @@
 
 import { PrismaClient } from "@prisma/client";
 import { validateTenantId } from "@besterp/shared";
+import { InvalidTypeValueError } from "@besterp/shared";
 
 // ─── Validation ───────────────────────────────────────────────────
 
 // Re-export for consumers that need the validation directly
 export { validateTenantId } from "@besterp/shared";
+
+// ─── Enhanced Validation Functions ────────────────────────────────
+
+/**
+ * Enhanced tenant ID validation with additional security checks.
+ * Extends the basic validation with more comprehensive security checks.
+ */
+export function validateTenantIdEnhanced(tenantId: string): void {
+  validateTenantId(tenantId);
+  
+  // Additional security checks
+  if (tenantId.length > 100) {
+    throw new InvalidTypeValueError(
+      "Tenant ID is too long (max 100 characters)",
+      { context: { field: "tenantId", received: tenantId, maxLength: 100 } }
+    );
+  }
+  
+  // Check for potentially dangerous patterns
+  const dangerousPatterns = [
+    /\b(drop|delete|truncate|alter|create|insert|update|select|exec|execute)\b/i,
+    /;\s*\n?\s*(drop|delete|truncate|alter|create|insert|update|select|exec|execute)/i,
+    /\b(benchmark|sleep|waitfor)\b/i,
+    /--|\/\*|\*\//
+  ];
+  
+  for (const pattern of dangerousPatterns) {
+    if (pattern.test(tenantId)) {
+      throw new InvalidTypeValueError(
+        "Tenant ID contains potentially dangerous patterns",
+        { context: { field: "tenantId", received: tenantId, pattern: pattern.toString() } }
+      );
+    }
+  }
+}
+
+/**
+ * Validate that a Prisma client has the required methods for RLS.
+ */
+export function validatePrismaClientForRls(prisma: PrismaClient): void {
+  if (!prisma || typeof prisma.$executeRaw !== "function") {
+    throw new InvalidTypeValueError(
+      "Prisma client does not support RLS operations. Make sure it's connected with the correct role.",
+      { context: { provided: typeof prisma } }
+    );
+  }
+}
 
 // ─── Data-access methods to wrap with tenant context ──────────────
 
@@ -66,7 +114,11 @@ const DATA_METHODS = new Set([
  * @returns A Proxy-wrapped PrismaClient with automatic RLS scoping
  */
 export function createTenantClient(prisma: PrismaClient, tenantId: string) {
-  validateTenantId(tenantId);
+  // Use enhanced validation with security checks
+  validateTenantIdEnhanced(tenantId);
+  
+  // Validate that the Prisma client supports RLS operations
+  validatePrismaClientForRls(prisma);
 
   return new Proxy(prisma, {
     get(target, prop: string | symbol) {
