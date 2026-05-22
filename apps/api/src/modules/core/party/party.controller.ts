@@ -19,7 +19,7 @@ import {
   Req,
 } from "@nestjs/common";
 import { Request } from "express";
-import { JwtValidatedUser } from "../../../auth/jwt.strategy";
+import { TenantContext } from "../../../common/tenant-context";
 import { PartyService } from "./party.service";
 import {
   CreatePartyDto,
@@ -32,12 +32,8 @@ import {
 export class PartyController {
   constructor(private readonly partyService: PartyService) {}
 
-  /**
-   * Extract tenant context from the authenticated user on the request.
-   */
-  private getTenantUser(req: Request): { tenantId: string; userId: string } {
-    const user = req.user as JwtValidatedUser;
-    return { tenantId: user.tenantId, userId: user.userId };
+  private getTenantContext(req: Request): TenantContext {
+    return (req as any).tenantContext;
   }
 
   @Post()
@@ -45,7 +41,7 @@ export class PartyController {
     @Req() req: Request,
     @Body() body: CreatePartyDto
   ) {
-    const { tenantId } = this.getTenantUser(req);
+    const { tenantId } = this.getTenantContext(req);
     return this.partyService.createParty({ ...body, tenantId });
   }
 
@@ -54,7 +50,7 @@ export class PartyController {
     @Req() req: Request,
     @Query() query: SearchPartiesDto
   ) {
-    const { tenantId } = this.getTenantUser(req);
+    const { tenantId } = this.getTenantContext(req);
     return this.partyService.searchParties({
       tenantId,
       ...query,
@@ -68,7 +64,7 @@ export class PartyController {
     @Req() req: Request,
     @Param("id") partyId: string
   ) {
-    const { tenantId } = this.getTenantUser(req);
+    const { tenantId } = this.getTenantContext(req);
     return this.partyService.getParty(tenantId, partyId);
   }
 
@@ -78,7 +74,7 @@ export class PartyController {
     @Param("id") partyId: string,
     @Body() body: AddPartyRoleDto
   ) {
-    const { tenantId } = this.getTenantUser(req);
+    const { tenantId } = this.getTenantContext(req);
     return this.partyService.addPartyRole({
       ...body,
       tenantId,
@@ -92,7 +88,7 @@ export class PartyController {
     @Param("id") partyId: string,
     @Body() body: AddContactMechanismDto
   ) {
-    const { tenantId } = this.getTenantUser(req);
+    const { tenantId } = this.getTenantContext(req);
     return this.partyService.addContactMechanism({
       ...body,
       tenantId,

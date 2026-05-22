@@ -129,14 +129,7 @@ export class PartyService {
               }
             : undefined,
         },
-        include: {
-          person: true,
-          organization: true,
-          partyType: true,
-          roles: {
-            include: { roleType: true },
-          },
-        },
+        include: PartyService.PARTY_INCLUDE,
       });
     });
 
@@ -151,14 +144,7 @@ export class PartyService {
 
     const party = await db.party.findFirst({
       where: { partyId, tenantId },
-      include: {
-        person: true,
-        organization: true,
-        partyType: true,
-        roles: {
-          include: { roleType: true },
-        },
-      },
+      include: PartyService.PARTY_INCLUDE,
     });
 
     if (!party) {
@@ -191,12 +177,7 @@ export class PartyService {
     const [items, total] = await Promise.all([
       db.party.findMany({
         where,
-        include: {
-          person: true,
-          organization: true,
-          partyType: true,
-          roles: { include: { roleType: true } },
-        },
+        include: PartyService.PARTY_INCLUDE,
         take: limit,
         skip: offset,
         orderBy: { createdAt: "desc" },

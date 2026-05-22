@@ -18,14 +18,10 @@ import { ToolMiddleware, ToolDefinition, ToolResult } from "../schema/tool-defin
  */
 export function auditLogMiddleware(prisma: PrismaClient): ToolMiddleware {
   return async (input, context, definition, next) => {
-    const startTime = Date.now();
-
-    // Execute the tool first, then log
     let result: ToolResult;
     try {
       result = await next(input, context);
     } catch (error: any) {
-      // Log the error case, then re-throw
       await logAction(prisma, {
         agentId: context.agentId,
         conversationId: context.conversationId,
@@ -35,13 +31,11 @@ export function auditLogMiddleware(prisma: PrismaClient): ToolMiddleware {
         toolInput: input as any,
         toolOutput: { error: { message: error.message, code: error.code } },
         reasoning: undefined,
-        latencyMs: Date.now() - startTime,
-      }).catch(() => {}); // never fail on audit errors
+      }).catch(() => {});
 
       throw error;
     }
 
-    // Log the successful case
     await logAction(prisma, {
       agentId: context.agentId,
       conversationId: context.conversationId,
@@ -51,8 +45,7 @@ export function auditLogMiddleware(prisma: PrismaClient): ToolMiddleware {
       toolInput: input as any,
       toolOutput: result.data ?? null,
       reasoning: undefined,
-      latencyMs: Date.now() - startTime,
-    }).catch(() => {}); // never fail on audit errors
+    }).catch(() => {});
 
     return result;
   };
@@ -67,7 +60,6 @@ interface AuditLogEntry {
   toolInput: unknown;
   toolOutput: unknown;
   reasoning?: string;
-  latencyMs: number;
 }
 
 async function logAction(prisma: PrismaClient, entry: AuditLogEntry): Promise<void> {

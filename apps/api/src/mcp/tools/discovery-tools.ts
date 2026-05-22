@@ -64,7 +64,8 @@ Type tables are the ERP's vocabulary — they define what classifications are av
     tags: ["discovery", "type-table"],
 
     handler: async (input: { typeName: string }, _context: any) => {
-      let values: any[];
+      type TypeTableRow = { name: string; description: string | null; aiPromptHint: string | null };
+      let values: TypeTableRow[];
 
       switch (input.typeName) {
         case "PARTY_TYPE":

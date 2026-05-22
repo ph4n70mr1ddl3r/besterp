@@ -11,11 +11,13 @@ import { PassportModule } from "@nestjs/passport";
 import { JwtStrategy } from "./jwt.strategy";
 import { JwtAuthGuard } from "./jwt-auth.guard";
 
+const DEV_SECRET = "besterp-dev-secret-change-me";
+
 @Module({
   imports: [
     PassportModule.register({ defaultStrategy: "jwt" }),
     JwtModule.register({
-      secret: process.env.JWT_SECRET || "besterp-dev-secret-change-me",
+      secret: process.env.JWT_SECRET || (process.env.NODE_ENV !== "production" ? DEV_SECRET : undefined),
       signOptions: { expiresIn: "24h" },
     }),
   ],

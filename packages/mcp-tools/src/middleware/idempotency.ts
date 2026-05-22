@@ -65,15 +65,6 @@ export function idempotencyMiddleware(prisma: PrismaClient): ToolMiddleware {
       return next(input, context);
     }
 
-    // If WE created the pending record, proceed to execute.
-    // The inputHash matches because we just set it in create.
-    if (existing.status === "pending" && existing.inputHash === inputHash) {
-      // Check if someone else created it with different input (unlikely but safe)
-      // Actually, since we did upsert with create:{ inputHash }, if it was
-      // our create, inputHash matches. If it was an existing record, we
-      // need to check its status.
-    }
-
     if (existing.status === "completed") {
       // Input hash mismatch — agent reused key with different input
       if (existing.inputHash !== inputHash) {

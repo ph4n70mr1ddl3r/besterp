@@ -4,7 +4,7 @@
 
 import { Controller, Get } from "@nestjs/common";
 import { Public } from "./auth/public.decorator";
-import { PrismaService } from "./prisma/prisma.service.js";
+import { PrismaService } from "./prisma/prisma.service";
 
 @Public()
 @Controller("health")

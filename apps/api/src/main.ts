@@ -42,8 +42,13 @@ async function bootstrap() {
   // Global prefix for REST endpoints
   app.setGlobalPrefix("api");
 
-  // CORS for development
-  app.enableCors();
+  // CORS — configurable via CORS_ORIGINS env var (comma-separated)
+  const corsOrigins = process.env.CORS_ORIGINS;
+  app.enableCors(
+    corsOrigins
+      ? { origin: corsOrigins.split(",").map((o) => o.trim()), credentials: true }
+      : { origin: true, credentials: true }
+  );
 
   // Global validation pipe — strips unknown properties, validates DTOs
   app.useGlobalPipes(

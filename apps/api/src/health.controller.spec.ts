@@ -2,7 +2,7 @@
 // Uses direct construction — no NestJS module overhead needed for simple controllers.
 
 import { describe, it, expect, vi } from "vitest";
-import { HealthController } from "./health.controller.js";
+import { HealthController } from "./health.controller";
 
 describe("HealthController", () => {
   it('returns ok status from health()', () => {

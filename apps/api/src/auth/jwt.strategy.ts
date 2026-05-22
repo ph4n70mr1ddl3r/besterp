@@ -31,7 +31,9 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   constructor() {
     const secret = process.env.JWT_SECRET;
     if (!secret) {
-      // In development, use a default secret. Production MUST set JWT_SECRET.
+      if (process.env.NODE_ENV === "production") {
+        throw new Error("JWT_SECRET must be set in production. Refusing to start with insecure default.");
+      }
       console.warn(
         "⚠️  JWT_SECRET not set — using insecure default. Set JWT_SECRET in production!"
       );
