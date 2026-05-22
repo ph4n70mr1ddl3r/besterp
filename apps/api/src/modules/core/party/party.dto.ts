@@ -12,6 +12,7 @@ import {
   IsOptional,
   IsEnum,
   IsDateString,
+  IsEmail,
   ValidateNested,
   IsInt,
   Min,
@@ -162,7 +163,7 @@ export class TelecomNumberDto {
 }
 
 export class EmailAddressDto {
-  @IsString()
+  @IsEmail()
   email!: string;
 }
 

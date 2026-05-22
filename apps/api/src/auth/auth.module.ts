@@ -9,19 +9,17 @@ import { Module } from "@nestjs/common";
 import { JwtModule } from "@nestjs/jwt";
 import { PassportModule } from "@nestjs/passport";
 import { JwtStrategy } from "./jwt.strategy";
-import { JwtAuthGuard } from "./jwt-auth.guard";
-
-const DEV_SECRET = "besterp-dev-secret-change-me";
+import { JWT_DEV_SECRET } from "./jwt.strategy";
 
 @Module({
   imports: [
     PassportModule.register({ defaultStrategy: "jwt" }),
     JwtModule.register({
-      secret: process.env.JWT_SECRET || (process.env.NODE_ENV !== "production" ? DEV_SECRET : undefined),
+      secret: process.env.JWT_SECRET || (process.env.NODE_ENV !== "production" ? JWT_DEV_SECRET : undefined),
       signOptions: { expiresIn: "24h" },
     }),
   ],
-  providers: [JwtStrategy, JwtAuthGuard],
-  exports: [JwtModule, JwtAuthGuard],
+  providers: [JwtStrategy],
+  exports: [JwtModule],
 })
 export class AuthModule {}

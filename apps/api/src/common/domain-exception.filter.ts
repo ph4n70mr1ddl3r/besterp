@@ -42,6 +42,10 @@ export class DomainExceptionFilter implements ExceptionFilter {
     const ctx = host.switchToHttp();
     const response = ctx.getResponse<Response>();
 
+    if (response.headersSent) {
+      return;
+    }
+
     if (isDomainError(exception)) {
       const status = domainErrorToStatus(exception);
       this.logger.warn(
@@ -62,8 +66,6 @@ export class DomainExceptionFilter implements ExceptionFilter {
       return;
     }
 
-    // Re-throw non-domain errors for NestJS's default exception handling
-    // (handles HttpException, validation errors, etc.)
     throw exception;
   }
 }

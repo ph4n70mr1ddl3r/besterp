@@ -162,7 +162,7 @@ Use this to find customers, suppliers, or any party by name, type, or role.`,
     name: z.string().optional().describe("Filter by name (case-insensitive partial match)"),
     partyType: z.enum(["PERSON", "ORGANIZATION"]).optional().describe("Filter by party type"),
     roleType: z.string().optional().describe("Filter by role type name (e.g., 'Customer', 'Supplier')"),
-    limit: z.number().optional().default(50).describe("Maximum results to return"),
+    limit: z.number().int().min(1).max(500).optional().default(50).describe("Maximum results to return (max 500)"),
     offset: z.number().optional().default(0).describe("Number of results to skip"),
   }),
 

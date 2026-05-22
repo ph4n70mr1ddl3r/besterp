@@ -34,10 +34,7 @@ export function idempotencyMiddleware(prisma: PrismaClient): ToolMiddleware {
     const toolInput = input as Record<string, unknown>;
     const inputHash = hashInput(toolInput);
 
-    // ─── Atomic upsert: avoids the check-then-insert race condition ────
-    // If the key doesn't exist, we insert a "pending" row.
-    // If it does exist, we do nothing and read it below.
-    const upserted = await prisma.idempotencyRecord.upsert({
+    const existing = await prisma.idempotencyRecord.upsert({
       where: { idempotencyKey },
       create: {
         idempotencyKey,
@@ -50,23 +47,10 @@ export function idempotencyMiddleware(prisma: PrismaClient): ToolMiddleware {
         inputHash,
         expiresAt: new Date(Date.now() + 86400000), // 24h TTL
       },
-      update: {}, // no-op on existing record — we read it below
+      update: {},
     });
-
-    // ─── Handle existing records ───────────────────────────────────
-    // Only the first upsert creates; subsequent ones hit update: {} (no-op).
-    // Re-read to get the actual status (another request may have completed it).
-    const existing = await prisma.idempotencyRecord.findUnique({
-      where: { idempotencyKey },
-    });
-
-    if (!existing) {
-      // Should never happen — we just upserted
-      return next(input, context);
-    }
 
     if (existing.status === "completed") {
-      // Input hash mismatch — agent reused key with different input
       if (existing.inputHash !== inputHash) {
         return {
           success: false,
@@ -78,7 +62,6 @@ export function idempotencyMiddleware(prisma: PrismaClient): ToolMiddleware {
           },
         };
       }
-      // Replay the stored result
       return {
         success: true,
         data: existing.result,
@@ -88,9 +71,7 @@ export function idempotencyMiddleware(prisma: PrismaClient): ToolMiddleware {
     }
 
     if (existing.status === "pending") {
-      // Check if it's OUR pending record (inputHash matches) or someone else's
       if (existing.inputHash !== inputHash) {
-        // Different input with same key — reject
         return {
           success: false,
           error: {
@@ -100,13 +81,7 @@ export function idempotencyMiddleware(prisma: PrismaClient): ToolMiddleware {
           },
         };
       }
-      // Same input — if the record was created by us, proceed.
-      // If created by another concurrent request, it's in progress.
-      // We can't distinguish, so let the first one win: proceed.
-      // The upsert guarantees only one record exists.
     }
-
-    // status === 'failed' or our 'pending' — (re-)execute
 
     // ─── Execute the tool ─────────────────────────────────────────
     try {

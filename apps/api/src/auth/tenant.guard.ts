@@ -8,22 +8,32 @@
 // which is safe because NestJS provides a fresh ExecutionContext per request.
 
 import { Injectable, ExecutionContext, CanActivate } from "@nestjs/common";
+import { Reflector } from "@nestjs/core";
 import { Request } from "express";
 import { JwtValidatedUser } from "./jwt.strategy";
 import { TenantContext } from "../common/tenant-context";
+import { IS_PUBLIC_KEY } from "./public.decorator";
 
 @Injectable()
 export class TenantGuard implements CanActivate {
+  constructor(private reflector: Reflector) {}
+
   canActivate(context: ExecutionContext): boolean {
+    const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
+    if (isPublic) {
+      return true;
+    }
+
     const request = context.switchToHttp().getRequest<Request>();
     const user = request.user as JwtValidatedUser | undefined;
 
     if (!user) {
-      // This shouldn't happen if JwtAuthGuard ran first, but defense-in-depth
       return false;
     }
 
-    // Attach TenantContext to the request for service-layer consumption
     const tenantContext: TenantContext = {
       tenantId: user.tenantId,
       userId: user.userId,

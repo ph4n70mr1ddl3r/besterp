@@ -26,6 +26,8 @@ export interface JwtValidatedUser {
   agentId?: string;
 }
 
+export const JWT_DEV_SECRET = "besterp-dev-secret-change-me";
+
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
   constructor() {
@@ -42,7 +44,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
-      secretOrKey: secret || "besterp-dev-secret-change-me",
+      secretOrKey: secret || JWT_DEV_SECRET,
       passReqToCallback: true,
     });
   }

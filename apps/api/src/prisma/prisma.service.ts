@@ -8,7 +8,7 @@
 // for write operations that bypass RLS. The tenant-scoped client connects
 // as the app role (DATABASE_URL) where RLS is enforced.
 
-import { Injectable, OnModuleInit, OnModuleDestroy } from "@nestjs/common";
+import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from "@nestjs/common";
 import { PrismaClient } from "@prisma/client";
 import { createTenantClient } from "@besterp/database";
 
@@ -17,10 +17,7 @@ export class PrismaService
   extends PrismaClient
   implements OnModuleInit, OnModuleDestroy
 {
-  /**
-   * The app-role PrismaClient used for RLS-scoped operations.
-   * Connects as besterp_app (non-superuser) so RLS policies are enforced.
-   */
+  private readonly logger = new Logger(PrismaService.name);
   private readonly appClient: PrismaClient;
 
   constructor() {
@@ -36,8 +33,14 @@ export class PrismaService
   }
 
   async onModuleInit() {
-    await this.$connect();
-    await this.appClient.$connect();
+    try {
+      await this.$connect();
+      await this.appClient.$connect();
+      this.logger.log("Database connections established (admin + app)");
+    } catch (error: any) {
+      this.logger.error(`Failed to connect to database: ${error.message}`);
+      throw error;
+    }
   }
 
   async onModuleDestroy() {
