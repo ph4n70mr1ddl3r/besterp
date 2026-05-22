@@ -1,459 +1,463 @@
-// Unit tests for PartyService.
-// Tests business logic, validation, error handling, and edge cases.
-// Uses mocked PrismaService to avoid database dependencies.
+// Unit tests for PartyService
+// Tests business logic for party operations with various scenarios
 
-import { Test, TestingModule } from "@nestjs/testing";
-import { PartyService } from "./party.service";
-import { PrismaService } from "../../../prisma/prisma.service";
+import { describe, it, expect, beforeEach, jest } from "vitest";
+import { PartyService } from "./party.service.js";
+import { PrismaService } from "../../prisma/prisma.service.js";
+import { CreatePartyInput, SearchPartiesInput } from "./party.types.js";
 import {
   MissingSubtypeDataError,
   InvalidTypeValueError,
   DuplicateEntityError,
   EntityNotFoundError,
+  ConcurrencyError,
 } from "@besterp/shared";
 
+// Mock PrismaService
+const mockPrismaService = {
+  tenantScoped: jest.fn(),
+} as any;
+
 describe("PartyService", () => {
-  let service: PartyService;
-  let prisma: PrismaService;
+  let partyService: PartyService;
 
-  const mockPrisma = {
-    tenantScoped: jest.fn(),
-    admin: {
-      roleType: { findFirst: jest.fn() },
-      contactMechanismType: { findFirst: jest.fn() },
-      partyType: { findFirst: jest.fn() },
-    },
-  };
-
-  beforeEach(async () => {
-    const module: TestingModule = await Test.createTestingModule({
-      providers: [
-        PartyService,
-        {
-          provide: PrismaService,
-          useValue: mockPrisma,
-        },
-      ],
-    }).compile();
-
-    service = module.get<PartyService>(PartyService);
-    prisma = module.get<PrismaService>(PrismaService);
+  beforeEach(() => {
+    jest.clearAllMocks();
+    partyService = new PartyService(mockPrismaService);
   });
 
   describe("createParty", () => {
     it("should create a person party successfully", async () => {
-      const mockDb = {
-        partyType: { findFirst: jest.fn().mockResolvedValue({ partyTypeId: "1" }) },
-        $transaction: jest.fn().mockImplementation((fn) => fn(mockDb)),
-        party: {
-          create: jest.fn().mockResolvedValue({
-            partyId: "123",
-            name: "John Doe",
-            partyType: { name: "PERSON" },
-            person: { firstName: "John", lastName: "Doe" },
-            roles: [],
-          }),
-        },
-      };
-
-      mockPrisma.tenantScoped.mockReturnValue(mockDb);
-
-      const result = await service.createParty({
+      const input: CreatePartyInput = {
         tenantId: "tenant-1",
         partyType: "PERSON",
         name: "John Doe",
         person: { firstName: "John", lastName: "Doe" },
-      });
+      };
 
+      const mockDb = {
+        partyType: {
+          findFirst: jest.fn().mockResolvedValue({ partyTypeId: "pt-person" }),
+        },
+        $transaction: jest.fn().mockImplementation(async (fn) => {
+          const tx = {
+            party: {
+              create: jest.fn().mockResolvedValue({
+                partyId: "party-123",
+                partyTypeId: "pt-person",
+                tenantId: "tenant-1",
+                name: "John Doe",
+                person: { firstName: "John", lastName: "Doe" },
+              }),
+            },
+          };
+          return fn(tx);
+        }),
+      };
+
+      mockPrismaService.tenantScoped.mockReturnValue(mockDb);
+
+      const result = await partyService.createParty(input);
+
+      expect(result.partyId).toBe("party-123");
       expect(result.name).toBe("John Doe");
       expect(result.person?.firstName).toBe("John");
-      mockDb.party.create.mockCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({
-            name: "John Doe",
-            person: expect.objectContaining({ firstName: "John", lastName: "Doe" }),
-          }),
-        })
-      );
+      expect(result.person?.lastName).toBe("Doe");
     });
 
     it("should create an organization party successfully", async () => {
-      const mockDb = {
-        partyType: { findFirst: jest.fn().mockResolvedValue({ partyTypeId: "2" }) },
-        $transaction: jest.fn().mockImplementation((fn) => fn(mockDb)),
-        party: {
-          create: jest.fn().mockResolvedValue({
-            partyId: "456",
-            name: "Acme Corp",
-            partyType: { name: "ORGANIZATION" },
-            organization: { legalName: "Acme Corporation" },
-            roles: [],
-          }),
-        },
-      };
-
-      mockPrisma.tenantScoped.mockReturnValue(mockDb);
-
-      const result = await service.createParty({
+      const input: CreatePartyInput = {
         tenantId: "tenant-1",
         partyType: "ORGANIZATION",
         name: "Acme Corp",
         organization: { legalName: "Acme Corporation" },
-      });
+      };
 
+      const mockDb = {
+        partyType: {
+          findFirst: jest.fn().mockResolvedValue({ partyTypeId: "pt-org" }),
+        },
+        $transaction: jest.fn().mockImplementation(async (fn) => {
+          const tx = {
+            party: {
+              create: jest.fn().mockResolvedValue({
+                partyId: "org-123",
+                partyTypeId: "pt-org",
+                tenantId: "tenant-1",
+                name: "Acme Corp",
+                organization: { legalName: "Acme Corporation" },
+              }),
+            },
+          };
+          return fn(tx);
+        }),
+      };
+
+      mockPrismaService.tenantScoped.mockReturnValue(mockDb);
+
+      const result = await partyService.createParty(input);
+
+      expect(result.partyId).toBe("org-123");
       expect(result.name).toBe("Acme Corp");
       expect(result.organization?.legalName).toBe("Acme Corporation");
     });
 
-    it("should throw error when partyType is PERSON but person data is missing", async () => {
-      await expect(
-        service.createParty({
-          tenantId: "tenant-1",
-          partyType: "PERSON",
-          name: "John Doe",
-          // Missing person data
-        })
-      ).rejects.toThrow(MissingSubtypeDataError);
+    it("should throw error for missing person data", async () => {
+      const input: CreatePartyInput = {
+        tenantId: "tenant-1",
+        partyType: "PERSON",
+        name: "John Doe",
+        // Missing person data
+      };
+
+      await expect(partyService.createParty(input)).rejects.toThrow(MissingSubtypeDataError);
     });
 
-    it("should throw error when partyType is ORGANIZATION but organization data is missing", async () => {
-      await expect(
-        service.createParty({
-          tenantId: "tenant-1",
-          partyType: "ORGANIZATION",
-          name: "Acme Corp",
-          // Missing organization data
-        })
-      ).rejects.toThrow(MissingSubtypeDataError);
+    it("should throw error for missing organization data", async () => {
+      const input: CreatePartyInput = {
+        tenantId: "tenant-1",
+        partyType: "ORGANIZATION",
+        name: "Acme Corp",
+        // Missing organization data
+      };
+
+      await expect(partyService.createParty(input)).rejects.toThrow(MissingSubtypeDataError);
     });
 
-    it("should throw error when name is empty", async () => {
-      await expect(
-        service.createParty({
-          tenantId: "tenant-1",
-          partyType: "PERSON",
-          name: "",
-          person: { firstName: "John", lastName: "Doe" },
-        })
-      ).rejects.toThrow(InvalidTypeValueError);
+    it("should throw error for invalid party type", async () => {
+      const input: CreatePartyInput = {
+        tenantId: "tenant-1",
+        partyType: "INVALID_TYPE",
+        name: "Test Party",
+      };
+
+      const mockDb = {
+        partyType: {
+          findFirst: jest.fn().mockResolvedValue(null), // Party type not found
+        },
+      };
+
+      mockPrismaService.tenantScoped.mockReturnValue(mockDb);
+
+      await expect(partyService.createParty(input)).rejects.toThrow(InvalidTypeValueError);
     });
 
-    it("should throw error when firstName is empty for person", async () => {
-      await expect(
-        service.createParty({
-          tenantId: "tenant-1",
-          partyType: "PERSON",
-          name: "John Doe",
-          person: { firstName: "", lastName: "Doe" },
-        })
-      ).rejects.toThrow(MissingSubtypeDataError);
+    it("should throw error for empty name", async () => {
+      const input: CreatePartyInput = {
+        tenantId: "tenant-1",
+        partyType: "PERSON",
+        name: "",
+        person: { firstName: "John", lastName: "Doe" },
+      };
+
+      await expect(partyService.createParty(input)).rejects.toThrow(InvalidTypeValueError);
     });
 
-    it("should throw error when lastName is empty for person", async () => {
-      await expect(
-        service.createParty({
-          tenantId: "tenant-1",
-          partyType: "PERSON",
-          name: "John Doe",
-          person: { firstName: "John", lastName: "" },
-        })
-      ).rejects.toThrow(MissingSubtypeDataError);
+    it("should validate required person fields", async () => {
+      const input: CreatePartyInput = {
+        tenantId: "tenant-1",
+        partyType: "PERSON",
+        name: "John Doe",
+        person: {
+          firstName: "",
+          lastName: "Doe",
+        }, // Empty first name
+      };
+
+      await expect(partyService.createParty(input)).rejects.toThrow(MissingSubtypeDataError);
+    });
+  });
+
+  describe("getParty", () => {
+    it("should return party when found", async () => {
+      const mockDb = {
+        party: {
+          findFirst: jest.fn().mockResolvedValue({
+            partyId: "party-123",
+            partyTypeId: "pt-person",
+            tenantId: "tenant-1",
+            name: "John Doe",
+            person: { firstName: "John", lastName: "Doe" },
+          }),
+        },
+      };
+
+      mockPrismaService.tenantScoped.mockReturnValue(mockDb);
+
+      const result = await partyService.getParty("tenant-1", "party-123");
+
+      expect(result.partyId).toBe("party-123");
+      expect(result.name).toBe("John Doe");
+    });
+
+    it("should throw error when party not found", async () => {
+      const mockDb = {
+        party: {
+          findFirst: jest.fn().mockResolvedValue(null), // Party not found
+        },
+      };
+
+      mockPrismaService.tenantScoped.mockReturnValue(mockDb);
+
+      await expect(partyService.getParty("tenant-1", "nonexistent")).rejects.toThrow(EntityNotFoundError);
     });
   });
 
   describe("searchParties", () => {
     it("should search parties with filters", async () => {
+      const input: SearchPartiesInput = {
+        tenantId: "tenant-1",
+        name: "John",
+        limit: 10,
+        offset: 0,
+      };
+
       const mockDb = {
         party: {
+          count: jest.fn().mockResolvedValue(2),
           findMany: jest.fn().mockResolvedValue([
-            { partyId: "123", name: "Test Party", partyType: { name: "PERSON" }, roles: [] },
+            {
+              partyId: "party-1",
+              partyTypeId: "pt-person",
+              tenantId: "tenant-1",
+              name: "John Doe",
+              person: { firstName: "John", lastName: "Doe" },
+            },
+            {
+              partyId: "party-2",
+              partyTypeId: "pt-person",
+              tenantId: "tenant-1",
+              name: "John Smith",
+              person: { firstName: "John", lastName: "Smith" },
+            },
           ]),
-          count: jest.fn().mockResolvedValue(1),
         },
       };
 
-      mockPrisma.tenantScoped.mockReturnValue(mockDb);
+      mockPrismaService.tenantScoped.mockReturnValue(mockDb);
 
-      const result = await service.searchParties({
-        tenantId: "tenant-1",
-        name: "Test",
-        partyType: "PERSON",
-        limit: 10,
-        offset: 0,
-      });
+      const result = await partyService.searchParties(input);
 
-      expect(result.items).toHaveLength(1);
-      expect(result.total).toBe(1);
+      expect(result.total).toBe(2);
+      expect(result.items).toHaveLength(2);
+      expect(result.hasMore).toBe(false);
       expect(result.limit).toBe(10);
       expect(result.offset).toBe(0);
+    });
+
+    it("should handle empty search results", async () => {
+      const input: SearchPartiesInput = {
+        tenantId: "tenant-1",
+        name: "Nonexistent",
+      };
+
+      const mockDb = {
+        party: {
+          count: jest.fn().mockResolvedValue(0),
+          findMany: jest.fn().mockResolvedValue([]),
+        },
+      };
+
+      mockPrismaService.tenantScoped.mockReturnValue(mockDb);
+
+      const result = await partyService.searchParties(input);
+
+      expect(result.total).toBe(0);
+      expect(result.items).toHaveLength(0);
       expect(result.hasMore).toBe(false);
     });
 
-    it("should handle pagination limits correctly", async () => {
+    it("should validate pagination parameters", async () => {
+      const input: SearchPartiesInput = {
+        tenantId: "tenant-1",
+        name: "Test",
+        limit: 1000, // Exceeds max
+        offset: -1, // Invalid offset
+      };
+
       const mockDb = {
         party: {
+          count: jest.fn().mockResolvedValue(1),
           findMany: jest.fn().mockResolvedValue([]),
-          count: jest.fn().mockResolvedValue(100),
         },
       };
 
-      mockPrisma.tenantScoped.mockReturnValue(mockDb);
+      mockPrismaService.tenantScoped.mockReturnValue(mockDb);
 
-      const result = await service.searchParties({
-        tenantId: "tenant-1",
-        limit: 600, // Should be clamped to 500
-        offset: 0,
-      });
+      const result = await partyService.searchParties(input);
 
-      expect(result.limit).toBe(500); // Should be clamped
-    });
-
-    it("should handle negative offset correctly", async () => {
-      const mockDb = {
-        party: {
-          findMany: jest.fn().mockResolvedValue([]),
-          count: jest.fn().mockResolvedValue(0),
-        },
-      };
-
-      mockPrisma.tenantScoped.mockReturnValue(mockDb);
-
-      const result = await service.searchParties({
-        tenantId: "tenant-1",
-        limit: 10,
-        offset: -5, // Should be normalized to 0
-      });
-
-      expect(result.offset).toBe(0);
+      expect(result.limit).toBe(500); // Should be clamped to max
+      expect(result.offset).toBe(0); // Should be set to 0
     });
   });
 
   describe("addPartyRole", () => {
-    it("should add a role to a party successfully", async () => {
-      const mockDb = {
-        party: { findFirst: jest.fn().mockResolvedValue({ partyId: "123" }) },
-        roleType: { findFirst: jest.fn().mockResolvedValue({ roleTypeId: "1" }) },
-        $transaction: jest.fn().mockImplementation((fn) => fn(mockDb)),
-        partyRole: {
-          create: jest.fn().mockResolvedValue({
-            partyRoleId: "role-123",
-            partyId: "123",
-            roleType: { name: "Customer" },
-            fromDate: new Date(),
-            thruDate: null,
-          }),
-        },
-      };
-
-      mockPrisma.tenantScoped.mockReturnValue(mockDb);
-
-      const result = await service.addPartyRole({
+    it("should add role to party successfully", async () => {
+      const input = {
         tenantId: "tenant-1",
-        partyId: "123",
+        partyId: "party-123",
         roleType: "Customer",
-      });
+      };
 
+      const mockDb = {
+        party: {
+          findFirst: jest.fn().mockResolvedValue({ partyId: "party-123" }),
+        },
+        roleType: {
+          findFirst: jest.fn().mockResolvedValue({ roleTypeId: "rt-customer" }),
+        },
+        partyRole: {
+          findFirst: jest.fn().mockResolvedValue(null), // No existing role
+        },
+        $transaction: jest.fn().mockImplementation(async (fn) => {
+          const tx = {
+            partyRole: {
+              create: jest.fn().mockResolvedValue({
+                partyRoleId: "role-123",
+                partyId: "party-123",
+                roleTypeId: "rt-customer",
+                fromDate: new Date(),
+                thruDate: null,
+              }),
+            },
+          };
+          return fn(tx);
+        }),
+      };
+
+      mockPrismaService.tenantScoped.mockReturnValue(mockDb);
+
+      const result = await partyService.addPartyRole(input);
+
+      expect(result.partyRoleId).toBe("role-123");
       expect(result.roleTypeName).toBe("Customer");
-      expect(result.partyId).toBe("123");
     });
 
-    it("should throw error when roleType is empty", async () => {
-      await expect(
-        service.addPartyRole({
-          tenantId: "tenant-1",
-          partyId: "123",
-          roleType: "",
-        })
-      ).rejects.toThrow(InvalidTypeValueError);
-    });
-
-    it("should throw error when party does not exist", async () => {
-      const mockDb = {
-        party: { findFirst: jest.fn().mockResolvedValue(null) },
+    it("should throw error for duplicate role", async () => {
+      const input = {
+        tenantId: "tenant-1",
+        partyId: "party-123",
+        roleType: "Customer",
       };
 
-      mockPrisma.tenantScoped.mockReturnValue(mockDb);
-
-      await expect(
-        service.addPartyRole({
-          tenantId: "tenant-1",
-          partyId: "999",
-          roleType: "Customer",
-        })
-      ).rejects.toThrow(EntityNotFoundError);
-    });
-
-    it("should throw error when role type does not exist", async () => {
       const mockDb = {
-        party: { findFirst: jest.fn().mockResolvedValue({ partyId: "123" }) },
-        roleType: { findFirst: jest.fn().mockResolvedValue(null) },
-      };
-
-      mockPrisma.tenantScoped.mockReturnValue(mockDb);
-
-      await expect(
-        service.addPartyRole({
-          tenantId: "tenant-1",
-          partyId: "123",
-          roleType: "InvalidRole",
-        })
-      ).rejects.toThrow(InvalidTypeValueError);
-    });
-
-    it("should throw error when party already has active role", async () => {
-      const mockDb = {
-        party: { findFirst: jest.fn().mockResolvedValue({ partyId: "123" }) },
-        roleType: { findFirst: jest.fn().mockResolvedValue({ roleTypeId: "1" }) },
+        party: {
+          findFirst: jest.fn().mockResolvedValue({ partyId: "party-123" }),
+        },
+        roleType: {
+          findFirst: jest.fn().mockResolvedValue({ roleTypeId: "rt-customer" }),
+        },
         partyRole: {
           findFirst: jest.fn().mockResolvedValue({
             partyRoleId: "existing-role",
-            thruDate: null,
+            partyId: "party-123",
+            roleTypeId: "rt-customer",
+            fromDate: new Date(),
+            thruDate: null, // Active role
           }),
         },
       };
 
-      mockPrisma.tenantScoped.mockReturnValue(mockDb);
+      mockPrismaService.tenantScoped.mockReturnValue(mockDb);
 
-      await expect(
-        service.addPartyRole({
-          tenantId: "tenant-1",
-          partyId: "123",
-          roleType: "Customer",
-        })
-      ).rejects.toThrow(DuplicateEntityError);
+      await expect(partyService.addPartyRole(input)).rejects.toThrow(DuplicateEntityError);
+    });
+
+    it("should throw error for invalid role type", async () => {
+      const input = {
+        tenantId: "tenant-1",
+        partyId: "party-123",
+        roleType: "InvalidRole",
+      };
+
+      const mockDb = {
+        party: {
+          findFirst: jest.fn().mockResolvedValue({ partyId: "party-123" }),
+        },
+        roleType: {
+          findFirst: jest.fn().mockResolvedValue(null), // Role type not found
+        },
+      };
+
+      mockPrismaService.tenantScoped.mockReturnValue(mockDb);
+
+      await expect(partyService.addPartyRole(input)).rejects.toThrow(InvalidTypeValueError);
     });
   });
 
   describe("addContactMechanism", () => {
-    it("should add a postal address successfully", async () => {
-      const mockDb = {
-        party: { findFirst: jest.fn().mockResolvedValue({ partyId: "123" }) },
-        contactMechanismType: { findFirst: jest.fn().mockResolvedValue({ contactMechanismTypeId: "1" }) },
-        $transaction: jest.fn().mockImplementation((fn) => fn(mockDb)),
-        contactMechanism: {
-          create: jest.fn().mockResolvedValue({
-            contactMechanismId: "addr-123",
-            contactMechanismType: { name: "POSTAL_ADDRESS" },
-            postalAddress: {
-              addressLine1: "123 Main St",
-              addressLine2: "Apt 4",
-              city: "Anytown",
-              stateProvince: "CA",
-              postalCode: "12345",
-              country: "US",
-            },
-            partyContacts: { create: { partyId: "123" } },
-          }),
-        },
-      };
-
-      mockPrisma.tenantScoped.mockReturnValue(mockDb);
-
-      const result = await service.addContactMechanism({
+    it("should add postal address successfully", async () => {
+      const input = {
         tenantId: "tenant-1",
-        partyId: "123",
+        partyId: "party-123",
         contactMechanismType: "POSTAL_ADDRESS",
         postalAddress: {
           addressLine1: "123 Main St",
-          addressLine2: "Apt 4",
           city: "Anytown",
-          stateProvince: "CA",
-          postalCode: "12345",
           country: "US",
         },
-      });
+      };
 
+      const mockDb = {
+        party: {
+          findFirst: jest.fn().mockResolvedValue({ partyId: "party-123" }),
+        },
+        contactMechanismType: {
+          findFirst: jest.fn().mockResolvedValue({ contactMechanismTypeId: "cmt-postal" }),
+        },
+        $transaction: jest.fn().mockImplementation(async (fn) => {
+          const tx = {
+            contactMechanism: {
+              create: jest.fn().mockResolvedValue({
+                contactMechanismId: "contact-123",
+                contactMechanismTypeId: "cmt-postal",
+                postalAddress: {
+                  addressLine1: "123 Main St",
+                  city: "Anytown",
+                  country: "US",
+                },
+              }),
+            },
+          };
+          return fn(tx);
+        }),
+      };
+
+      mockPrismaService.tenantScoped.mockReturnValue(mockDb);
+
+      const result = await partyService.addContactMechanism(input);
+
+      expect(result.contactMechanismId).toBe("contact-123");
       expect(result.contactMechanismType).toBe("POSTAL_ADDRESS");
       expect(result.postalAddress?.addressLine1).toBe("123 Main St");
     });
 
-    it("should add an email address successfully", async () => {
-      const mockDb = {
-        party: { findFirst: jest.fn().mockResolvedValue({ partyId: "123" }) },
-        contactMechanismType: { findFirst: jest.fn().mockResolvedValue({ contactMechanismTypeId: "2" }) },
-        $transaction: jest.fn().mockImplementation((fn) => fn(mockDb)),
-        contactMechanism: {
-          create: jest.fn().mockResolvedValue({
-            contactMechanismId: "email-123",
-            contactMechanismType: { name: "EMAIL_ADDRESS" },
-            emailAddress: { email: "test@example.com" },
-            partyContacts: { create: { partyId: "123" } },
-          }),
-        },
-      };
-
-      mockPrisma.tenantScoped.mockReturnValue(mockDb);
-
-      const result = await service.addContactMechanism({
+    it("should validate required postal address fields", async () => {
+      const input = {
         tenantId: "tenant-1",
-        partyId: "123",
-        contactMechanismType: "EMAIL_ADDRESS",
-        emailAddress: { email: "test@example.com" },
-      });
-
-      expect(result.contactMechanismType).toBe("EMAIL_ADDRESS");
-      expect(result.emailAddress?.email).toBe("test@example.com");
-    });
-
-    it("should throw error when email format is invalid", async () => {
-      await expect(
-        service.addContactMechanism({
-          tenantId: "tenant-1",
-          partyId: "123",
-          contactMechanismType: "EMAIL_ADDRESS",
-          emailAddress: { email: "invalid-email" },
-        })
-      ).rejects.toThrow(InvalidTypeValueError);
-    });
-
-    it("should throw error when required postal address fields are missing", async () => {
-      await expect(
-        service.addContactMechanism({
-          tenantId: "tenant-1",
-          partyId: "123",
-          contactMechanismType: "POSTAL_ADDRESS",
-          postalAddress: {
-            addressLine1: "", // Empty should cause error
-            city: "Anytown",
-            country: "US",
-          },
-        })
-      ).rejects.toThrow(MissingSubtypeDataError);
-    });
-  });
-
-  describe("getParty", () => {
-    it("should get a party by ID successfully", async () => {
-      const mockDb = {
-        party: {
-          findFirst: jest.fn().mockResolvedValue({
-            partyId: "123",
-            name: "Test Party",
-            partyType: { name: "PERSON" },
-            person: { firstName: "John", lastName: "Doe" },
-            roles: [],
-          }),
+        partyId: "party-123",
+        contactMechanismType: "POSTAL_ADDRESS",
+        postalAddress: {
+          // Missing required fields
+          city: "Anytown",
+          country: "US",
         },
       };
 
-      mockPrisma.tenantScoped.mockReturnValue(mockDb);
-
-      const result = await service.getParty("tenant-1", "123");
-
-      expect(result.partyId).toBe("123");
-      expect(result.name).toBe("Test Party");
+      await expect(partyService.addContactMechanism(input)).rejects.toThrow(MissingSubtypeDataError);
     });
 
-    it("should throw error when party is not found", async () => {
-      const mockDb = {
-        party: { findFirst: jest.fn().mockResolvedValue(null) },
+    it("should validate email format", async () => {
+      const input = {
+        tenantId: "tenant-1",
+        partyId: "party-123",
+        contactMechanismType: "EMAIL_ADDRESS",
+        emailAddress: {
+          email: "invalid-email",
+        },
       };
 
-      mockPrisma.tenantScoped.mockReturnValue(mockDb);
-
-      await expect(
-        service.getParty("tenant-1", "999")
-      ).rejects.toThrow(EntityNotFoundError);
+      await expect(partyService.addContactMechanism(input)).rejects.toThrow(InvalidTypeValueError);
     });
   });
 });

@@ -6,18 +6,20 @@
 // - PartyModule: Core party domain service + REST endpoints
 // - McpModule: MCP tool server with middleware pipeline
 // - QueueModule: Redis/BullMQ for domain events & async jobs
+// - HealthModule: Health check endpoints
 
+import "reflect-metadata";
 import { Module } from "@nestjs/common";
 import { APP_FILTER, APP_GUARD } from "@nestjs/core";
-import { AuthModule } from "./auth/auth.module";
-import { JwtAuthGuard } from "./auth/jwt-auth.guard";
-import { TenantGuard } from "./auth/tenant.guard";
-import { PrismaModule } from "./prisma/prisma.module";
-import { PartyModule } from "./modules/core/party/party.module";
-import { McpModule } from "./mcp/mcp.module";
-import { QueueModule } from "./queue/queue.module";
-import { HealthController } from "./health.controller";
-import { DomainExceptionFilter } from "./common/domain-exception.filter";
+import { AuthModule } from "./auth/auth.module.js";
+import { JwtAuthGuard } from "./auth/jwt-auth.guard.js";
+import { TenantGuard } from "./auth/tenant.guard.js";
+import { PrismaModule } from "./prisma/prisma.module.js";
+import { PartyModule } from "./modules/core/party/party.module.js";
+import { McpModule } from "./mcp/mcp.module.js";
+import { QueueModule } from "./queue/queue.module.js";
+import { HealthModule } from "./health.module.js";
+import { DomainExceptionFilter } from "./common/domain-exception.filter.js";
 
 @Module({
   imports: [
@@ -26,8 +28,9 @@ import { DomainExceptionFilter } from "./common/domain-exception.filter";
     PartyModule,          // Core party domain (imports PrismaModule)
     McpModule.forRoot(),  // MCP tool server (imports PartyModule + PrismaModule)
     QueueModule.forRoot(), // Redis/BullMQ — domain events & async jobs
+    HealthModule,        // Health check endpoints
   ],
-  controllers: [HealthController],
+  controllers: [],
   providers: [
     // Global exception filter — catches DomainError and maps to HTTP responses
     { provide: APP_FILTER, useClass: DomainExceptionFilter },

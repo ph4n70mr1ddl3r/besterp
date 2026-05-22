@@ -10,9 +10,9 @@
 import { Injectable, ExecutionContext, CanActivate } from "@nestjs/common";
 import { Reflector } from "@nestjs/core";
 import { Request } from "express";
-import { JwtValidatedUser } from "./jwt.strategy";
-import { TenantContext } from "../common/tenant-context";
-import { IS_PUBLIC_KEY } from "./public.decorator";
+import { JwtValidatedUser } from "./jwt.strategy.js";
+import { TenantContext } from "../common/tenant-context.js";
+import { IS_PUBLIC_KEY } from "./public.decorator.js";
 
 @Injectable()
 export class TenantGuard implements CanActivate {

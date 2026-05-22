@@ -14,18 +14,18 @@
 // - HTTP/SSE transport (for remote agents) — future
 
 import { DynamicModule, Logger, Module, OnModuleInit } from "@nestjs/common";
-import { PrismaService } from "../prisma/prisma.service";
-import { PrismaModule } from "../prisma/prisma.module";
-import { PartyService } from "../modules/core/party/party.service";
-import { PartyModule } from "../modules/core/party/party.module";
+import { PrismaService } from "../prisma/prisma.service.js";
+import { PrismaModule } from "../prisma/prisma.module.js";
+import { PartyService } from "../modules/core/party/party.service.js";
+import { PartyModule } from "../modules/core/party/party.module.js";
 import {
   ToolRegistry,
   errorHandlerMiddleware,
   idempotencyMiddleware,
   auditLogMiddleware,
 } from "@besterp/mcp-tools";
-import { registerPartyTools } from "./tools/party-tools";
-import { registerDiscoveryTools } from "./tools/discovery-tools";
+import { registerPartyTools } from "./tools/party-tools.js";
+import { registerDiscoveryTools } from "./tools/discovery-tools.js";
 
 @Module({})
 export class McpModule implements OnModuleInit {

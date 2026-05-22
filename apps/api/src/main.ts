@@ -6,9 +6,10 @@
 // - Request validation pipe
 // - JWT secret check (warns in dev, fails in production)
 
+import "reflect-metadata";
 import { NestFactory } from "@nestjs/core";
 import { ValidationPipe } from "@nestjs/common";
-import { AppModule } from "./app.module";
+import { AppModule } from "./app.module.js";
 
 async function bootstrap() {
   // Warn if JWT_SECRET is not set

@@ -3,8 +3,8 @@
 // Marked @Public() so it doesn't require JWT authentication.
 
 import { Controller, Get } from "@nestjs/common";
-import { Public } from "./auth/public.decorator";
-import { PrismaService } from "./prisma/prisma.service";
+import { Public } from "./auth/public.decorator.js";
+import { PrismaService } from "./prisma/prisma.service.js";
 
 @Public()
 @Controller("health")

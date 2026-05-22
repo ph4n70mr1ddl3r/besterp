@@ -19,14 +19,14 @@ import {
   Req,
 } from "@nestjs/common";
 import { Request } from "express";
-import { TenantContext } from "../../../common/tenant-context";
-import { PartyService } from "./party.service";
+import { TenantContext } from "../../../common/tenant-context.js";
+import { PartyService } from "./party.service.js";
 import {
   CreatePartyDto,
   SearchPartiesDto,
   AddPartyRoleDto,
   AddContactMechanismDto,
-} from "./party.dto";
+} from "./party.dto.js";
 
 @Controller("parties")
 export class PartyController {

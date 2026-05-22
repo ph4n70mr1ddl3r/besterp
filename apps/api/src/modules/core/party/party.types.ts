@@ -75,6 +75,7 @@ export interface SearchPartiesResult {
   total: number;
   limit: number;
   offset: number;
+  hasMore: boolean;
 }
 
 // ─── Add Party Role ───────────────────────────────────────────────

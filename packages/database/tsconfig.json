@@ -5,5 +5,8 @@
     "rootDir": "src"
   },
   "include": ["src"],
-  "exclude": ["src/spike-rls.ts"]
+  "exclude": [
+    "src/spike-rls.ts",
+    "src/__tests__/**/*"
+  ]
 }

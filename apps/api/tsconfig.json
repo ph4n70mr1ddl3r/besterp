@@ -3,10 +3,14 @@
   "compilerOptions": {
     "outDir": "dist",
     "rootDir": "src",
-    "emitDecoratorMetadata": true,
+    "paths": {
+      "@besterp/*": ["../../packages/*/src"]
+    },
     "experimentalDecorators": true,
-    "module": "CommonJS",
-    "moduleResolution": "node"
+    "emitDecoratorMetadata": true
   },
-  "include": ["src"]
+  "include": ["src"],
+  "exclude": [
+    "src/__tests__/**/*"
+  ]
 }

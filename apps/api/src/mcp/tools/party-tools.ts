@@ -15,7 +15,7 @@ import type {
   SearchPartiesInput,
   AddPartyRoleInput,
   AddContactMechanismInput,
-} from "../../modules/core/party/party.types";
+} from "../../modules/core/party/party.types.js";
 
 // Services are accessed via context.services — this is the contract
 // the MCP module must satisfy when building ToolContext.

@@ -12,6 +12,7 @@ export class DomainError extends Error {
   readonly code: string;
   readonly suggestedTools: string[];
   readonly context: Record<string, unknown>;
+  readonly cause?: Error;
 
   constructor(
     code: string,
@@ -22,7 +23,10 @@ export class DomainError extends Error {
       cause?: Error;
     }
   ) {
-    super(message, { cause: options?.cause });
+    super(message);
+    if (options?.cause) {
+      this.cause = options.cause;
+    }
     this.name = this.constructor.name;
     this.code = code;
     this.suggestedTools = options?.suggestedTools ?? [];

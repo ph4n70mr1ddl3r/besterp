@@ -4,8 +4,8 @@
 // Imports PrismaModule (global) for database access.
 
 import { Module } from "@nestjs/common";
-import { PartyService } from "./party.service";
-import { PartyController } from "./party.controller";
+import { PartyService } from "./party.service.js";
+import { PartyController } from "./party.controller.js";
 
 @Module({
   controllers: [PartyController],

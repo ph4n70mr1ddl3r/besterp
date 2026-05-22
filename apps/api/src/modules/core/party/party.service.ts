@@ -17,7 +17,7 @@
 // lost updates when multiple agents modify the same entity concurrently.
 
 import { Injectable, Logger } from "@nestjs/common";
-import { PrismaService } from "../../../prisma/prisma.service";
+import { PrismaService } from "../../../prisma/prisma.service.js";
 import { Prisma } from "@prisma/client";
 import {
   MissingSubtypeDataError,
@@ -35,7 +35,10 @@ import {
   PartyRoleResult,
   AddContactMechanismInput,
   ContactMechanismResult,
-} from "./party.types";
+  PostalAddressInput,
+  TelecomNumberInput,
+  EmailAddressInput,
+} from "./party.types.js";
 
 // Prisma return type for party queries with standard includes
 type PartyWithIncludes = Prisma.PartyGetPayload<{
@@ -411,7 +414,7 @@ export class PartyService {
     }
 
     // Validate subtype data with detailed validation
-    let validContactData;
+    let validContactData: PostalAddressInput | TelecomNumberInput | EmailAddressInput;
     
     if (contactMechanismType === "POSTAL_ADDRESS") {
       if (!postalAddress) {
@@ -531,29 +534,29 @@ export class PartyService {
           postalAddress: contactMechanismType === "POSTAL_ADDRESS" && validContactData
             ? {
                 create: {
-                  addressLine1: validContactData.addressLine1.trim(),
-                  addressLine2: validContactData.addressLine2?.trim() || null,
-                  city: validContactData.city.trim(),
-                  stateProvince: validContactData.stateProvince?.trim() || null,
-                  postalCode: validContactData.postalCode?.trim() || null,
-                  country: validContactData.country.trim().toUpperCase(),
+                  addressLine1: (validContactData as PostalAddressInput).addressLine1.trim(),
+                  addressLine2: (validContactData as PostalAddressInput).addressLine2?.trim() || null,
+                  city: (validContactData as PostalAddressInput).city.trim(),
+                  stateProvince: (validContactData as PostalAddressInput).stateProvince?.trim() || null,
+                  postalCode: (validContactData as PostalAddressInput).postalCode?.trim() || null,
+                  country: (validContactData as PostalAddressInput).country.trim().toUpperCase(),
                 },
               }
             : undefined,
           telecomNumber: contactMechanismType === "TELECOM_NUMBER" && validContactData
             ? {
                 create: {
-                  countryCode: validContactData.countryCode?.trim() || "+1",
-                  areaCode: validContactData.areaCode.trim(),
-                  lineNumber: validContactData.lineNumber.trim(),
-                  extension: validContactData.extension?.trim() || null,
+                  countryCode: (validContactData as TelecomNumberInput).countryCode?.trim() || "+1",
+                  areaCode: (validContactData as TelecomNumberInput).areaCode.trim(),
+                  lineNumber: (validContactData as TelecomNumberInput).lineNumber.trim(),
+                  extension: (validContactData as TelecomNumberInput).extension?.trim() || null,
                 },
               }
             : undefined,
           emailAddress: contactMechanismType === "EMAIL_ADDRESS" && validContactData
             ? {
                 create: {
-                  email: validContactData.email.trim().toLowerCase(),
+                  email: (validContactData as EmailAddressInput).email.trim().toLowerCase(),
                 },
               }
             : undefined,
