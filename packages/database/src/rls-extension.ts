@@ -23,9 +23,6 @@ import { InvalidTypeValueError } from "@besterp/shared";
 
 // ─── Validation ───────────────────────────────────────────────────
 
-// Re-export for consumers that need the validation directly
-export { validateTenantId } from "@besterp/shared";
-
 // ─── Enhanced Validation Functions ────────────────────────────────
 
 /**

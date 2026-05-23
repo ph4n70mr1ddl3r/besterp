@@ -34,53 +34,74 @@ export function idempotencyMiddleware(prisma: PrismaClient): ToolMiddleware {
     const toolInput = input as Record<string, unknown>;
     const inputHash = hashInput(toolInput);
 
-    const existing = await prisma.idempotencyRecord.upsert({
+    // Check for an existing record first
+    const existing = await prisma.idempotencyRecord.findUnique({
       where: { idempotencyKey },
-      create: {
-        idempotencyKey,
-        toolName: definition.name,
-        tenantId,
-        userId,
-        agentId: agentId || null,
-        conversationId: conversationId || null,
-        status: "pending",
-        inputHash,
-        expiresAt: new Date(Date.now() + 86400000), // 24h TTL
-      },
-      update: {},
     });
 
-    if (existing.status === "completed") {
-      if (existing.inputHash !== inputHash) {
+    if (existing) {
+      if (existing.status === "completed") {
+        if (existing.inputHash !== inputHash) {
+          return {
+            success: false,
+            error: {
+              code: "IDEMPOTENCY_KEY_MISMATCH",
+              message: `Idempotency key '${idempotencyKey}' was already used with different input. Use a new idempotency key for a different operation.`,
+              suggestedTools: [definition.name],
+              context: { originalInputHash: existing.inputHash },
+            },
+          };
+        }
         return {
-          success: false,
-          error: {
-            code: "IDEMPOTENCY_KEY_MISMATCH",
-            message: `Idempotency key '${idempotencyKey}' was already used with different input. Use a new idempotency key for a different operation.`,
-            suggestedTools: [definition.name],
-            context: { originalInputHash: existing.inputHash },
-          },
+          success: true,
+          data: existing.result,
+          replayed: true,
+          nextActions: [`This is a replay of a previous '${definition.name}' call. No action needed.`],
         };
       }
-      return {
-        success: true,
-        data: existing.result,
-        replayed: true,
-        nextActions: [`This is a replay of a previous '${definition.name}' call. No action needed.`],
-      };
-    }
 
-    if (existing.status === "pending") {
-      if (existing.inputHash !== inputHash) {
+      if (existing.status === "pending") {
+        if (existing.inputHash !== inputHash) {
+          return {
+            success: false,
+            error: {
+              code: "IDEMPOTENCY_KEY_MISMATCH",
+              message: `Idempotency key '${idempotencyKey}' is in use with different input. Use a new idempotency key.`,
+              suggestedTools: [definition.name],
+            },
+          };
+        }
+        // Same input, still pending — another request is processing this key
         return {
           success: false,
           error: {
-            code: "IDEMPOTENCY_KEY_MISMATCH",
-            message: `Idempotency key '${idempotencyKey}' is in use with different input. Use a new idempotency key.`,
+            code: "REQUEST_IN_PROGRESS",
+            message: `A request with idempotency key '${idempotencyKey}' is already in progress. Wait and retry.`,
             suggestedTools: [definition.name],
           },
         };
       }
+
+      // status === 'failed' — re-execute by updating to pending
+      await prisma.idempotencyRecord.update({
+        where: { idempotencyKey },
+        data: { status: "pending", inputHash },
+      });
+    } else {
+      // No existing record — create a new pending record
+      await prisma.idempotencyRecord.create({
+        data: {
+          idempotencyKey,
+          toolName: definition.name,
+          tenantId,
+          userId,
+          agentId: agentId || null,
+          conversationId: conversationId || null,
+          status: "pending",
+          inputHash,
+          expiresAt: new Date(Date.now() + 86400000), // 24h TTL
+        },
+      });
     }
 
     // ─── Execute the tool ─────────────────────────────────────────

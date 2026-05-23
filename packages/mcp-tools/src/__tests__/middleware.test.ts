@@ -16,7 +16,6 @@ const mockPrisma = {
     findUnique: vi.fn(),
     create: vi.fn(),
     update: vi.fn(),
-    upsert: vi.fn(),
   },
   aiActionLog: {
     create: vi.fn(),
@@ -69,28 +68,25 @@ describe("Idempotency Middleware", () => {
     const idempotencyKey = "test-key";
     const contextWithKey = { ...mockContext, idempotencyKey };
 
-    // Compute the actual hash the middleware will generate
-    // We don't need to match it exactly — we just need upsert to return a pending record
-    mockPrisma.idempotencyRecord.upsert.mockImplementation(async ({ create }) => ({
-      ...create,
+    // No existing record found — first execution
+    mockPrisma.idempotencyRecord.findUnique.mockResolvedValue(null);
+    mockPrisma.idempotencyRecord.create.mockResolvedValue({
+      idempotencyKey,
       status: "pending",
-    }));
-
+    });
     mockPrisma.idempotencyRecord.update.mockResolvedValue({});
 
     const middleware = idempotencyMiddleware(mockPrisma as any);
     const result = await middleware(input, contextWithKey, mockDefinition, successNext({ success: true, data: "created" }));
 
-    expect(mockPrisma.idempotencyRecord.upsert).toHaveBeenCalledWith(
+    expect(mockPrisma.idempotencyRecord.create).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { idempotencyKey },
-        create: expect.objectContaining({
+        data: expect.objectContaining({
           idempotencyKey,
           toolName: "test_tool",
           tenantId: "test-tenant",
           status: "pending",
         }),
-        update: {},
       })
     );
     expect(result.success).toBe(true);
@@ -106,7 +102,7 @@ describe("Idempotency Middleware", () => {
     const { hashInput } = await import("@besterp/shared");
     const inputHash = hashInput(input);
 
-    mockPrisma.idempotencyRecord.upsert.mockResolvedValue({
+    mockPrisma.idempotencyRecord.findUnique.mockResolvedValue({
       idempotencyKey,
       status: "completed",
       inputHash, // exact hash match
@@ -126,13 +122,52 @@ describe("Idempotency Middleware", () => {
     const idempotencyKey = "test-key";
     const contextWithKey = { ...mockContext, idempotencyKey };
 
-    // Simulate upsert returning a completed record with a DIFFERENT hash
-    // We need to control the hash precisely, so we mock the upsert
-    mockPrisma.idempotencyRecord.upsert.mockResolvedValue({
+    // Simulate findUnique returning a completed record with a DIFFERENT hash
+    mockPrisma.idempotencyRecord.findUnique.mockResolvedValue({
       idempotencyKey,
       status: "completed",
       inputHash: "sha256:original",
       result: { success: true },
+    });
+
+    const middleware = idempotencyMiddleware(mockPrisma as any);
+    const result = await middleware(input, contextWithKey, mockDefinition, successNext());
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe("IDEMPOTENCY_KEY_MISMATCH");
+  });
+
+  it("should return REQUEST_IN_PROGRESS for pending record with matching hash", async () => {
+    const input = { test: "value" };
+    const idempotencyKey = "test-key";
+    const contextWithKey = { ...mockContext, idempotencyKey };
+
+    // Compute the actual hash so it matches what the middleware generates
+    const { hashInput } = await import("@besterp/shared");
+    const inputHash = hashInput(input);
+
+    mockPrisma.idempotencyRecord.findUnique.mockResolvedValue({
+      idempotencyKey,
+      status: "pending",
+      inputHash,
+    });
+
+    const middleware = idempotencyMiddleware(mockPrisma as any);
+    const result = await middleware(input, contextWithKey, mockDefinition, successNext());
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe("REQUEST_IN_PROGRESS");
+  });
+
+  it("should reject input hash mismatch for pending record", async () => {
+    const input = { test: "different value" };
+    const idempotencyKey = "test-key";
+    const contextWithKey = { ...mockContext, idempotencyKey };
+
+    mockPrisma.idempotencyRecord.findUnique.mockResolvedValue({
+      idempotencyKey,
+      status: "pending",
+      inputHash: "sha256:original",
     });
 
     const middleware = idempotencyMiddleware(mockPrisma as any);
@@ -148,7 +183,7 @@ describe("Idempotency Middleware", () => {
     const middleware = idempotencyMiddleware(mockPrisma as any);
     const result = await middleware(input, mockContext, mockDefinition, successNext({ success: true, data: "passed through" }));
 
-    expect(mockPrisma.idempotencyRecord.upsert).not.toHaveBeenCalled();
+    expect(mockPrisma.idempotencyRecord.findUnique).not.toHaveBeenCalled();
     expect(result.success).toBe(true);
     expect(result.data).toBe("passed through");
   });

@@ -66,7 +66,7 @@ export class DomainExceptionFilter implements ExceptionFilter {
     }
 
     // Pass through NestJS HttpExceptions (NotFoundException, BadRequestException, etc.)
-    // so that the default NestJS exception filter can handle them.
+    // by serializing them the same way NestJS's default filter would.
     if (exception instanceof HttpException) {
       const status = exception.getStatus();
       const exceptionResponse = exception.getResponse();

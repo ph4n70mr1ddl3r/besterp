@@ -9,6 +9,7 @@
 
 import {
   IsString,
+  IsNotEmpty,
   IsOptional,
   IsEnum,
   IsDateString,
@@ -24,9 +25,11 @@ import { Type } from "class-transformer";
 
 export class CreatePersonDto {
   @IsString()
+  @IsNotEmpty()
   firstName!: string;
 
   @IsString()
+  @IsNotEmpty()
   lastName!: string;
 
   @IsOptional()
@@ -46,6 +49,7 @@ export class CreatePersonDto {
 
 export class CreateOrganizationDto {
   @IsString()
+  @IsNotEmpty()
   legalName!: string;
 
   @IsOptional()
@@ -64,6 +68,7 @@ export class CreatePartyDto {
   partyType!: "PERSON" | "ORGANIZATION";
 
   @IsString()
+  @IsNotEmpty()
   name!: string;
 
   @IsOptional()
@@ -114,6 +119,7 @@ export class SearchPartiesDto {
 
 export class AddPartyRoleDto {
   @IsString()
+  @IsNotEmpty()
   roleType!: string;
 
   @IsOptional()
@@ -125,6 +131,7 @@ export class AddPartyRoleDto {
 
 export class PostalAddressDto {
   @IsString()
+  @IsNotEmpty()
   addressLine1!: string;
 
   @IsOptional()
@@ -132,6 +139,7 @@ export class PostalAddressDto {
   addressLine2?: string;
 
   @IsString()
+  @IsNotEmpty()
   city!: string;
 
   @IsOptional()
@@ -143,6 +151,7 @@ export class PostalAddressDto {
   postalCode?: string;
 
   @IsString()
+  @IsNotEmpty()
   country!: string;
 }
 
@@ -152,9 +161,11 @@ export class TelecomNumberDto {
   countryCode?: string;
 
   @IsString()
+  @IsNotEmpty()
   areaCode!: string;
 
   @IsString()
+  @IsNotEmpty()
   lineNumber!: string;
 
   @IsOptional()
@@ -164,6 +175,7 @@ export class TelecomNumberDto {
 
 export class EmailAddressDto {
   @IsEmail()
+  @IsNotEmpty()
   email!: string;
 }
 

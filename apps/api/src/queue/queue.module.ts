@@ -24,17 +24,22 @@ export interface QueueModuleOptions {
 export class QueueModule {
   static forRoot(options?: Partial<QueueModuleOptions>): DynamicModule {
     const redisHost = options?.redis?.host || process.env.REDIS_HOST || "localhost";
-    const redisPort = options?.redis?.port || parseInt(process.env.REDIS_PORT || "6380", 10);
+    const redisPort = options?.redis?.port || parseInt(process.env.REDIS_PORT || "6379", 10);
+    const redisPassword = options?.redis?.password || process.env.REDIS_PASSWORD;
+
+    const connection: Record<string, unknown> = {
+      host: redisHost,
+      port: redisPort,
+    };
+    if (redisPassword) {
+      connection.password = redisPassword;
+    }
 
     return {
       module: QueueModule,
       imports: [
         BullModule.forRoot({
-          connection: {
-            host: redisHost,
-            port: redisPort,
-            password: options?.redis?.password,
-          },
+          connection,
         }),
       ],
       exports: [BullModule],

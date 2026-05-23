@@ -123,7 +123,7 @@ describe("HealthController", () => {
       expect(result).toEqual({ status: "ready" });
     });
 
-    it("should return not ready when database is disconnected", async () => {
+    it("should throw ServiceUnavailableException when database is disconnected", async () => {
       const mockHealthService = {
         getHealth: vi.fn().mockResolvedValue({
           status: "error",
@@ -137,9 +137,8 @@ describe("HealthController", () => {
       };
 
       const controller = new HealthController(mockHealthService as any);
-      const result = await controller.ready();
 
-      expect(result).toEqual({ status: "not ready" });
+      await expect(controller.ready()).rejects.toThrow("not ready");
     });
   });
 });
