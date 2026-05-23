@@ -49,6 +49,16 @@ const mockContext: ToolContext = {
   },
 };
 
+/** Helper: create a next function that returns a known result. */
+function successNext(result?: ToolResult): (input: unknown, ctx: ToolContext) => Promise<ToolResult> {
+  return async () => result ?? { success: true, data: "ok" };
+}
+
+/** Helper: create a next function that throws. */
+function throwingNext(error: unknown): (input: unknown, ctx: ToolContext) => Promise<ToolResult> {
+  return async () => { throw error; };
+}
+
 describe("Idempotency Middleware", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -56,94 +66,91 @@ describe("Idempotency Middleware", () => {
 
   it("should create idempotency record on first execution", async () => {
     const input = { test: "value" };
-    const inputHash = "sha256:abc123";
     const idempotencyKey = "test-key";
-    
     const contextWithKey = { ...mockContext, idempotencyKey };
-    
-    mockPrisma.idempotencyRecord.upsert.mockResolvedValue({
-      idempotencyKey,
-      toolName: "test_tool",
-      tenantId: "test-tenant",
-      userId: "test-user",
-      agentId: "test-agent",
-      conversationId: "test-conversation",
-      status: "completed",
-      inputHash,
-      result: { success: true, data: "stored result" },
-    });
 
-    const wrappedHandler = idempotencyMiddleware(mockPrisma);
-    const result = await wrappedHandler(input, contextWithKey, mockDefinition, mockDefinition.handler);
+    // Compute the actual hash the middleware will generate
+    // We don't need to match it exactly — we just need upsert to return a pending record
+    mockPrisma.idempotencyRecord.upsert.mockImplementation(async ({ create }) => ({
+      ...create,
+      status: "pending",
+    }));
 
-    expect(mockPrisma.idempotencyRecord.upsert).toHaveBeenCalledWith({
-      where: { idempotencyKey },
-      create: expect.objectContaining({
-        idempotencyKey,
-        toolName: "test_tool",
-        tenantId: "test-tenant",
-        status: "pending",
-        inputHash,
-      }),
-      update: {},
-    });
+    mockPrisma.idempotencyRecord.update.mockResolvedValue({});
+
+    const middleware = idempotencyMiddleware(mockPrisma as any);
+    const result = await middleware(input, contextWithKey, mockDefinition, successNext({ success: true, data: "created" }));
+
+    expect(mockPrisma.idempotencyRecord.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { idempotencyKey },
+        create: expect.objectContaining({
+          idempotencyKey,
+          toolName: "test_tool",
+          tenantId: "test-tenant",
+          status: "pending",
+        }),
+        update: {},
+      })
+    );
     expect(result.success).toBe(true);
+    expect(result.data).toBe("created");
   });
 
-  it("should return existing result for duplicate input", async () => {
+  it("should return existing result for completed record with matching hash", async () => {
     const input = { test: "value" };
-    const inputHash = "sha256:abc123";
     const idempotencyKey = "test-key";
-    
     const contextWithKey = { ...mockContext, idempotencyKey };
-    
+
+    // Compute the actual hash so it matches what the middleware generates
+    const { hashInput } = await import("@besterp/shared");
+    const inputHash = hashInput(input);
+
     mockPrisma.idempotencyRecord.upsert.mockResolvedValue({
       idempotencyKey,
-      toolName: "test_tool",
-      tenantId: "test-tenant",
       status: "completed",
-      inputHash,
+      inputHash, // exact hash match
       result: { success: true, data: "existing result" },
     });
 
-    const wrappedHandler = idempotencyMiddleware(mockPrisma);
-    const result = await wrappedHandler(input, contextWithKey, mockDefinition, mockDefinition.handler);
+    const middleware = idempotencyMiddleware(mockPrisma as any);
+    const result = await middleware(input, contextWithKey, mockDefinition, successNext());
 
     expect(result.success).toBe(true);
-    expect(result.data).toBe("existing result");
+    expect(result.data).toEqual({ success: true, data: "existing result" });
+    expect(result.replayed).toBe(true);
   });
 
-  it("should reject input hash mismatch", async () => {
+  it("should reject input hash mismatch for completed record", async () => {
     const input = { test: "different value" };
-    const inputHash = "sha256:different";
     const idempotencyKey = "test-key";
-    
     const contextWithKey = { ...mockContext, idempotencyKey };
-    
+
+    // Simulate upsert returning a completed record with a DIFFERENT hash
+    // We need to control the hash precisely, so we mock the upsert
     mockPrisma.idempotencyRecord.upsert.mockResolvedValue({
       idempotencyKey,
-      toolName: "test_tool",
-      tenantId: "test-tenant",
       status: "completed",
       inputHash: "sha256:original",
       result: { success: true },
     });
 
-    const wrappedHandler = idempotencyMiddleware(mockPrisma);
-    const result = await wrappedHandler(input, contextWithKey, mockDefinition, mockDefinition.handler);
+    const middleware = idempotencyMiddleware(mockPrisma as any);
+    const result = await middleware(input, contextWithKey, mockDefinition, successNext());
 
     expect(result.success).toBe(false);
-    expect(result.error?.code).toBe("IDEMPOTENCY_MISMATCH");
+    expect(result.error?.code).toBe("IDEMPOTENCY_KEY_MISMATCH");
   });
 
   it("should pass through when no idempotency key", async () => {
     const input = { test: "value" };
-    
-    const wrappedHandler = idempotencyMiddleware(mockPrisma);
-    const result = await wrappedHandler(input, mockContext, mockDefinition, mockDefinition.handler);
+
+    const middleware = idempotencyMiddleware(mockPrisma as any);
+    const result = await middleware(input, mockContext, mockDefinition, successNext({ success: true, data: "passed through" }));
 
     expect(mockPrisma.idempotencyRecord.upsert).not.toHaveBeenCalled();
     expect(result.success).toBe(true);
+    expect(result.data).toBe("passed through");
   });
 });
 
@@ -152,23 +159,14 @@ describe("Audit Log Middleware", () => {
     vi.clearAllMocks();
   });
 
-  it("should log tool execution", async () => {
+  it("should log successful tool execution", async () => {
     const input = { test: "value" };
-    const result = { success: true, data: "test result" };
-    
-    mockPrisma.aiActionLog.create.mockResolvedValue({
-      id: "log-id",
-      agentId: "test-agent",
-      conversationId: "test-conversation",
-      userId: "test-user",
-      tenantId: "test-tenant",
-      toolCalled: "test_tool",
-      toolInput: input,
-      toolOutput: result,
-    });
+    const toolResult: ToolResult = { success: true, data: "test result" };
 
-    const wrappedHandler = auditLogMiddleware(mockDefinition.handler, mockDefinition);
-    const executionResult = await wrappedHandler(input, mockContext);
+    mockPrisma.aiActionLog.create.mockResolvedValue({ id: "log-id" });
+
+    const middleware = auditLogMiddleware(mockPrisma as any);
+    const result = await middleware(input, mockContext, mockDefinition, successNext(toolResult));
 
     expect(mockPrisma.aiActionLog.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
@@ -178,35 +176,31 @@ describe("Audit Log Middleware", () => {
         tenantId: "test-tenant",
         toolCalled: "test_tool",
         toolInput: input,
-        toolOutput: result,
+        toolOutput: toolResult.data,
       }),
     });
-    expect(executionResult).toEqual(result);
+    expect(result).toEqual(toolResult);
   });
 
   it("should log tool execution even when handler throws", async () => {
     const input = { test: "value" };
     const error = new Error("Test error");
-    
-    mockPrisma.aiActionLog.create.mockResolvedValue({
-      id: "log-id",
-      agentId: "test-agent",
-      conversationId: "test-conversation",
-      userId: "test-user",
-      tenantId: "test-tenant",
-      toolCalled: "test_tool",
-      toolInput: input,
-      toolOutput: null,
-      error: error.message,
-    });
 
-    const wrappedHandler = auditLogMiddleware(
-      () => Promise.reject(error), 
-      mockDefinition
+    mockPrisma.aiActionLog.create.mockResolvedValue({ id: "log-id" });
+
+    const middleware = auditLogMiddleware(mockPrisma as any);
+    await expect(
+      middleware(input, mockContext, mockDefinition, throwingNext(error))
+    ).rejects.toThrow(error);
+
+    expect(mockPrisma.aiActionLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          toolCalled: "test_tool",
+          toolOutput: { error: { message: "Test error", code: undefined } },
+        }),
+      })
     );
-
-    await expect(wrappedHandler(input, mockContext)).rejects.toThrow(error);
-    expect(mockPrisma.aiActionLog.create).toHaveBeenCalled();
   });
 });
 
@@ -217,17 +211,13 @@ describe("Error Handler Middleware", () => {
 
   it("should format domain errors correctly", async () => {
     const domainError = new DomainError(
-      "TEST_ERROR", 
+      "TEST_ERROR",
       "Test error message",
       { suggestedTools: ["test_tool"] }
     );
-    
-    const wrappedHandler = errorHandlerMiddleware(
-      () => Promise.reject(domainError),
-      mockDefinition
-    );
 
-    const result = await wrappedHandler({}, mockContext);
+    const middleware = errorHandlerMiddleware;
+    const result = await middleware({}, mockContext, mockDefinition, throwingNext(domainError));
 
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe("TEST_ERROR");
@@ -236,17 +226,10 @@ describe("Error Handler Middleware", () => {
   });
 
   it("should handle Prisma unique constraint violations", async () => {
-    const prismaError = {
-      code: "P2002",
-      message: "Unique constraint violation",
-    };
-    
-    const wrappedHandler = errorHandlerMiddleware(
-      () => Promise.reject(prismaError),
-      mockDefinition
-    );
+    const prismaError: any = new Error("Unique constraint violation");
+    prismaError.code = "P2002";
 
-    const result = await wrappedHandler({}, mockContext);
+    const result = await errorHandlerMiddleware({}, mockContext, mockDefinition, throwingNext(prismaError));
 
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe("DUPLICATE_ENTITY");
@@ -254,17 +237,10 @@ describe("Error Handler Middleware", () => {
   });
 
   it("should handle Prisma not found errors", async () => {
-    const prismaError = {
-      code: "P2025",
-      message: "Record not found",
-    };
-    
-    const wrappedHandler = errorHandlerMiddleware(
-      () => Promise.reject(prismaError),
-      mockDefinition
-    );
+    const prismaError: any = new Error("Record not found");
+    prismaError.code = "P2025";
 
-    const result = await wrappedHandler({}, mockContext);
+    const result = await errorHandlerMiddleware({}, mockContext, mockDefinition, throwingNext(prismaError));
 
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe("ENTITY_NOT_FOUND");
@@ -273,13 +249,8 @@ describe("Error Handler Middleware", () => {
 
   it("should handle generic errors with fallback", async () => {
     const genericError = new Error("Unexpected error");
-    
-    const wrappedHandler = errorHandlerMiddleware(
-      () => Promise.reject(genericError),
-      mockDefinition
-    );
 
-    const result = await wrappedHandler({}, mockContext);
+    const result = await errorHandlerMiddleware({}, mockContext, mockDefinition, throwingNext(genericError));
 
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe("INTERNAL_ERROR");
@@ -287,14 +258,9 @@ describe("Error Handler Middleware", () => {
   });
 
   it("should return success handler result unchanged", async () => {
-    const successResult = { success: true, data: "test" };
-    
-    const wrappedHandler = errorHandlerMiddleware(
-      () => Promise.resolve(successResult),
-      mockDefinition
-    );
+    const successResult: ToolResult = { success: true, data: "test" };
 
-    const result = await wrappedHandler({}, mockContext);
+    const result = await errorHandlerMiddleware({}, mockContext, mockDefinition, successNext(successResult));
 
     expect(result).toEqual(successResult);
   });

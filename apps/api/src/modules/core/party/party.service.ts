@@ -40,16 +40,6 @@ import {
   EmailAddressInput,
 } from "./party.types.js";
 
-// Prisma return type for party queries with standard includes
-type PartyWithIncludes = Prisma.PartyGetPayload<{
-  include: {
-    person: true;
-    organization: true;
-    partyType: true;
-    roles: { include: { roleType: true } };
-  };
-}>;
-
 @Injectable()
 export class PartyService {
   private readonly logger = new Logger(PartyService.name);
@@ -242,7 +232,7 @@ export class PartyService {
     });
 
     return {
-      items: items.map((p) => this.toPartyResult(p as PartyWithIncludes)),
+      items: items.map((p) => this.toPartyResult(p)),
       total,
       limit: validatedLimit,
       offset: validatedOffset,
@@ -606,7 +596,7 @@ export class PartyService {
 
   // ─── Private Helpers ──────────────────────────────────────────
 
-  private toPartyResult(party: PartyWithIncludes): PartyResult {
+  private toPartyResult(party: any): PartyResult {
     return {
       partyId: party.partyId,
       name: party.name,
@@ -629,7 +619,7 @@ export class PartyService {
             registrationDate: party.organization.registrationDate?.toISOString() ?? null,
           }
         : null,
-      roles: (party.roles ?? []).map((r) => ({
+      roles: (party.roles ?? []).map((r: any) => ({
         partyRoleId: r.partyRoleId,
         roleTypeName: r.roleType?.name ?? "UNKNOWN",
         fromDate: r.fromDate.toISOString(),

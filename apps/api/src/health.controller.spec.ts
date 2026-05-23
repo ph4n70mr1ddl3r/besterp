@@ -1,95 +1,83 @@
 // Unit tests for HealthController
-// Tests the health check endpoint and environment validation
+// Tests the health check endpoints that delegate to HealthService
 
-import { Test, TestingModule } from "@nestjs/testing";
+import { describe, it, expect, vi } from "vitest";
 import { HealthController } from "./health.controller.js";
-import { HealthService } from "./health.service.js";
+import { HealthStatus, VersionInfo } from "./health.service.js";
 
 describe("HealthController", () => {
-  let controller: HealthController;
-  let healthService: HealthService;
-
-  beforeEach(async () => {
-    const module: TestingModule = await Test.createTestingModule({
-      controllers: [HealthController],
-      providers: [
-        {
-          provide: HealthService,
-          useValue: {
-            getHealth: jest.fn(),
-            getVersion: jest.fn(),
-          },
-        },
-      ],
-    }).compile();
-
-    controller = module.get<HealthController>(HealthController);
-    healthService = module.get<HealthService>(HealthService);
-  });
-
   describe("getHealth", () => {
     it("should return health status", async () => {
-      const expectedResponse = {
+      const expectedResponse: HealthStatus = {
         status: "ok",
-        timestamp: expect.any(String),
-        uptime: expect.any(Number),
+        timestamp: new Date().toISOString(),
+        uptime: 1000,
         environment: "test",
         database: "connected",
-        memory: expect.objectContaining({
-          used: expect.any(Number),
-          total: expect.any(Number),
-          percentage: expect.any(Number),
-        }),
+        memory: { used: 100, total: 200, percentage: 50 },
       };
 
-      jest.spyOn(healthService, "getHealth").mockResolvedValue(expectedResponse);
+      const mockHealthService = {
+        getHealth: vi.fn().mockResolvedValue(expectedResponse),
+        getVersion: vi.fn(),
+      };
 
+      const controller = new HealthController(mockHealthService as any);
       const result = await controller.getHealth();
+
       expect(result).toEqual(expectedResponse);
-      expect(healthService.getHealth).toHaveBeenCalled();
+      expect(mockHealthService.getHealth).toHaveBeenCalled();
     });
 
     it("should handle database connection errors", async () => {
-      jest.spyOn(healthService, "getHealth").mockResolvedValue({
+      const errorResponse: HealthStatus = {
         status: "error",
-        timestamp: expect.any(String),
-        uptime: expect.any(Number),
+        timestamp: new Date().toISOString(),
+        uptime: 500,
         environment: "test",
         database: "disconnected",
-        memory: expect.objectContaining({
-          used: expect.any(Number),
-          total: expect.any(Number),
-          percentage: expect.any(Number),
-        }),
-      });
+        memory: { used: 100, total: 200, percentage: 50 },
+      };
 
+      const mockHealthService = {
+        getHealth: vi.fn().mockResolvedValue(errorResponse),
+        getVersion: vi.fn(),
+      };
+
+      const controller = new HealthController(mockHealthService as any);
       const result = await controller.getHealth();
+
       expect(result.status).toBe("error");
       expect(result.database).toBe("disconnected");
     });
   });
 
   describe("getVersion", () => {
-    it("should return version information", async () => {
-      const expectedResponse = {
+    it("should return version information", () => {
+      const expectedResponse: VersionInfo = {
         version: "0.0.1",
         name: "@besterp/api",
         nodeVersion: process.version,
         environment: "test",
       };
 
-      jest.spyOn(healthService, "getVersion").mockResolvedValue(expectedResponse);
+      const mockHealthService = {
+        getHealth: vi.fn(),
+        getVersion: vi.fn().mockReturnValue(expectedResponse),
+      };
 
-      const result = await controller.getVersion();
+      const controller = new HealthController(mockHealthService as any);
+      const result = controller.getVersion();
+
       expect(result).toEqual(expectedResponse);
-      expect(healthService.getVersion).toHaveBeenCalled();
+      expect(mockHealthService.getVersion).toHaveBeenCalled();
     });
 
-    it("should include additional build information when available", async () => {
+    it("should include build information when available", () => {
       process.env.BUILD_NUMBER = "123";
       process.env.BUILD_DATE = "2024-01-01";
 
-      const expectedResponse = {
+      const expectedResponse: VersionInfo = {
         version: "0.0.1",
         name: "@besterp/api",
         nodeVersion: process.version,
@@ -100,14 +88,58 @@ describe("HealthController", () => {
         },
       };
 
-      jest.spyOn(healthService, "getVersion").mockResolvedValue(expectedResponse);
+      const mockHealthService = {
+        getHealth: vi.fn(),
+        getVersion: vi.fn().mockReturnValue(expectedResponse),
+      };
 
-      const result = await controller.getVersion();
+      const controller = new HealthController(mockHealthService as any);
+      const result = controller.getVersion();
+
       expect(result.build).toEqual(expectedResponse.build);
 
-      // Clean up environment variables
       delete process.env.BUILD_NUMBER;
       delete process.env.BUILD_DATE;
+    });
+  });
+
+  describe("ready", () => {
+    it("should return ready when database is connected", async () => {
+      const mockHealthService = {
+        getHealth: vi.fn().mockResolvedValue({
+          status: "ok",
+          timestamp: new Date().toISOString(),
+          uptime: 1000,
+          environment: "test",
+          database: "connected",
+          memory: { used: 100, total: 200, percentage: 50 },
+        }),
+        getVersion: vi.fn(),
+      };
+
+      const controller = new HealthController(mockHealthService as any);
+      const result = await controller.ready();
+
+      expect(result).toEqual({ status: "ready" });
+    });
+
+    it("should return not ready when database is disconnected", async () => {
+      const mockHealthService = {
+        getHealth: vi.fn().mockResolvedValue({
+          status: "error",
+          timestamp: new Date().toISOString(),
+          uptime: 1000,
+          environment: "test",
+          database: "disconnected",
+          memory: { used: 100, total: 200, percentage: 50 },
+        }),
+        getVersion: vi.fn(),
+      };
+
+      const controller = new HealthController(mockHealthService as any);
+      const result = await controller.ready();
+
+      expect(result).toEqual({ status: "not ready" });
     });
   });
 });

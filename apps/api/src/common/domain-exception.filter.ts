@@ -10,7 +10,7 @@
 // Response shape:
 //   { statusCode, error: "CODE", message, suggestedTools, context }
 
-import { ExceptionFilter, Catch, ArgumentsHost, Logger } from "@nestjs/common";
+import { ExceptionFilter, Catch, ArgumentsHost, Logger, HttpException } from "@nestjs/common";
 import { Response } from "express";
 import { DomainError, isDomainError } from "@besterp/shared";
 
@@ -66,6 +66,28 @@ export class DomainExceptionFilter implements ExceptionFilter {
       return;
     }
 
-    throw exception;
+    // Pass through NestJS HttpExceptions (NotFoundException, BadRequestException, etc.)
+    // so that the default NestJS exception filter can handle them.
+    if (exception instanceof HttpException) {
+      const status = exception.getStatus();
+      const exceptionResponse = exception.getResponse();
+
+      response.status(status).json(
+        typeof exceptionResponse === "string"
+          ? { statusCode: status, message: exceptionResponse }
+          : exceptionResponse
+      );
+      return;
+    }
+
+    // Unexpected errors — return 500 to avoid leaking internals
+    this.logger.error(
+      `Unhandled exception: ${exception instanceof Error ? exception.message : exception}`,
+      exception instanceof Error ? exception.stack : undefined
+    );
+    response.status(500).json({
+      statusCode: 500,
+      message: "Internal server error",
+    });
   }
 }

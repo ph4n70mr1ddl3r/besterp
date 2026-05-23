@@ -6,6 +6,9 @@
 // Run: DATABASE_URL="..." DATABASE_ADMIN_URL="..." npx vitest run
 
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
+
+// Skip all integration tests when DATABASE_URL is not set
+const describeIntegration = process.env.DATABASE_URL ? describe : describe.skip;
 import { PrismaClient } from "@prisma/client";
 import { withTenant } from "@besterp/shared";
 import {
@@ -19,12 +22,15 @@ import {
   uniqueId,
 } from "./helpers.js";
 
-describe("RLS Tenant Isolation", () => {
+describeIntegration("RLS Tenant Isolation", () => {
   let app: PrismaClient;
   let admin: PrismaClient;
   const prefix = "test-rls";
 
   beforeAll(async () => {
+    // Skip integration tests when DATABASE_URL is not set
+    if (!process.env.DATABASE_URL) return;
+
     app = createAppClient();
     admin = createAdminClient();
     await cleanupTestData(admin, prefix);
@@ -157,12 +163,13 @@ describe("RLS Tenant Isolation", () => {
   });
 });
 
-describe("Class Table Inheritance", () => {
+describeIntegration("Class Table Inheritance", () => {
   let app: PrismaClient;
   let admin: PrismaClient;
   const prefix = "test-cti";
 
   beforeAll(async () => {
+    if (!process.env.DATABASE_URL) return;
     app = createAppClient();
     admin = createAdminClient();
     await cleanupTestData(admin, prefix);
@@ -219,12 +226,13 @@ describe("Class Table Inheritance", () => {
   });
 });
 
-describe("Idempotency", () => {
+describeIntegration("Idempotency", () => {
   let app: PrismaClient;
   let admin: PrismaClient;
   const prefix = "test-idem";
 
   beforeAll(async () => {
+    if (!process.env.DATABASE_URL) return;
     app = createAppClient();
     admin = createAdminClient();
     await cleanupTestData(admin, prefix);

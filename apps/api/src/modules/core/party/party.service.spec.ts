@@ -1,28 +1,45 @@
 // Unit tests for PartyService
 // Tests business logic for party operations with various scenarios
 
-import { describe, it, expect, beforeEach, jest } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import { PartyService } from "./party.service.js";
-import { PrismaService } from "../../prisma/prisma.service.js";
-import { CreatePartyInput, SearchPartiesInput } from "./party.types.js";
+import { CreatePartyInput, SearchPartiesInput, AddContactMechanismInput } from "./party.types.js";
 import {
   MissingSubtypeDataError,
   InvalidTypeValueError,
   DuplicateEntityError,
   EntityNotFoundError,
-  ConcurrencyError,
 } from "@besterp/shared";
+
+/** Create a mock Prisma return object with all fields toPartyResult needs. */
+function mockParty(overrides: Record<string, any> = {}) {
+  return {
+    partyId: "party-123",
+    partyTypeId: "pt-person",
+    tenantId: "tenant-1",
+    name: "Test Party",
+    description: null,
+    version: 1,
+    createdAt: new Date("2024-01-01"),
+    updatedAt: new Date("2024-01-01"),
+    partyType: { name: "PERSON", partyTypeId: "pt-person" },
+    person: null,
+    organization: null,
+    roles: [],
+    ...overrides,
+  };
+}
 
 // Mock PrismaService
 const mockPrismaService = {
-  tenantScoped: jest.fn(),
+  tenantScoped: vi.fn(),
 } as any;
 
 describe("PartyService", () => {
   let partyService: PartyService;
 
   beforeEach(() => {
-    jest.clearAllMocks();
+    vi.clearAllMocks();
     partyService = new PartyService(mockPrismaService);
   });
 
@@ -37,18 +54,17 @@ describe("PartyService", () => {
 
       const mockDb = {
         partyType: {
-          findFirst: jest.fn().mockResolvedValue({ partyTypeId: "pt-person" }),
+          findFirst: vi.fn().mockResolvedValue({ partyTypeId: "pt-person" }),
         },
-        $transaction: jest.fn().mockImplementation(async (fn) => {
+        $transaction: vi.fn().mockImplementation(async (fn) => {
           const tx = {
             party: {
-              create: jest.fn().mockResolvedValue({
-                partyId: "party-123",
-                partyTypeId: "pt-person",
-                tenantId: "tenant-1",
-                name: "John Doe",
-                person: { firstName: "John", lastName: "Doe" },
-              }),
+              create: vi.fn().mockResolvedValue(
+                mockParty({
+                  name: "John Doe",
+                  person: { firstName: "John", lastName: "Doe" },
+                })
+              ),
             },
           };
           return fn(tx);
@@ -75,18 +91,20 @@ describe("PartyService", () => {
 
       const mockDb = {
         partyType: {
-          findFirst: jest.fn().mockResolvedValue({ partyTypeId: "pt-org" }),
+          findFirst: vi.fn().mockResolvedValue({ partyTypeId: "pt-org" }),
         },
-        $transaction: jest.fn().mockImplementation(async (fn) => {
+        $transaction: vi.fn().mockImplementation(async (fn) => {
           const tx = {
             party: {
-              create: jest.fn().mockResolvedValue({
-                partyId: "org-123",
-                partyTypeId: "pt-org",
-                tenantId: "tenant-1",
-                name: "Acme Corp",
-                organization: { legalName: "Acme Corporation" },
-              }),
+              create: vi.fn().mockResolvedValue(
+                mockParty({
+                  partyTypeId: "pt-org",
+                  name: "Acme Corp",
+                  partyType: { name: "ORGANIZATION", partyTypeId: "pt-org" },
+                  person: null,
+                  organization: { legalName: "Acme Corporation" },
+                })
+              ),
             },
           };
           return fn(tx);
@@ -97,7 +115,7 @@ describe("PartyService", () => {
 
       const result = await partyService.createParty(input);
 
-      expect(result.partyId).toBe("org-123");
+      expect(result.partyId).toBe("party-123");
       expect(result.name).toBe("Acme Corp");
       expect(result.organization?.legalName).toBe("Acme Corporation");
     });
@@ -107,7 +125,6 @@ describe("PartyService", () => {
         tenantId: "tenant-1",
         partyType: "PERSON",
         name: "John Doe",
-        // Missing person data
       };
 
       await expect(partyService.createParty(input)).rejects.toThrow(MissingSubtypeDataError);
@@ -118,7 +135,6 @@ describe("PartyService", () => {
         tenantId: "tenant-1",
         partyType: "ORGANIZATION",
         name: "Acme Corp",
-        // Missing organization data
       };
 
       await expect(partyService.createParty(input)).rejects.toThrow(MissingSubtypeDataError);
@@ -127,13 +143,13 @@ describe("PartyService", () => {
     it("should throw error for invalid party type", async () => {
       const input: CreatePartyInput = {
         tenantId: "tenant-1",
-        partyType: "INVALID_TYPE",
+        partyType: "INVALID_TYPE" as any,
         name: "Test Party",
       };
 
       const mockDb = {
         partyType: {
-          findFirst: jest.fn().mockResolvedValue(null), // Party type not found
+          findFirst: vi.fn().mockResolvedValue(null),
         },
       };
 
@@ -161,7 +177,7 @@ describe("PartyService", () => {
         person: {
           firstName: "",
           lastName: "Doe",
-        }, // Empty first name
+        },
       };
 
       await expect(partyService.createParty(input)).rejects.toThrow(MissingSubtypeDataError);
@@ -172,13 +188,9 @@ describe("PartyService", () => {
     it("should return party when found", async () => {
       const mockDb = {
         party: {
-          findFirst: jest.fn().mockResolvedValue({
-            partyId: "party-123",
-            partyTypeId: "pt-person",
-            tenantId: "tenant-1",
-            name: "John Doe",
-            person: { firstName: "John", lastName: "Doe" },
-          }),
+          findFirst: vi.fn().mockResolvedValue(
+            mockParty({ name: "John Doe", person: { firstName: "John", lastName: "Doe" } })
+          ),
         },
       };
 
@@ -193,7 +205,7 @@ describe("PartyService", () => {
     it("should throw error when party not found", async () => {
       const mockDb = {
         party: {
-          findFirst: jest.fn().mockResolvedValue(null), // Party not found
+          findFirst: vi.fn().mockResolvedValue(null),
         },
       };
 
@@ -214,22 +226,14 @@ describe("PartyService", () => {
 
       const mockDb = {
         party: {
-          count: jest.fn().mockResolvedValue(2),
-          findMany: jest.fn().mockResolvedValue([
-            {
-              partyId: "party-1",
-              partyTypeId: "pt-person",
-              tenantId: "tenant-1",
-              name: "John Doe",
-              person: { firstName: "John", lastName: "Doe" },
-            },
-            {
+          count: vi.fn().mockResolvedValue(2),
+          findMany: vi.fn().mockResolvedValue([
+            mockParty({ name: "John Doe", person: { firstName: "John", lastName: "Doe" } }),
+            mockParty({
               partyId: "party-2",
-              partyTypeId: "pt-person",
-              tenantId: "tenant-1",
               name: "John Smith",
               person: { firstName: "John", lastName: "Smith" },
-            },
+            }),
           ]),
         },
       };
@@ -253,8 +257,8 @@ describe("PartyService", () => {
 
       const mockDb = {
         party: {
-          count: jest.fn().mockResolvedValue(0),
-          findMany: jest.fn().mockResolvedValue([]),
+          count: vi.fn().mockResolvedValue(0),
+          findMany: vi.fn().mockResolvedValue([]),
         },
       };
 
@@ -271,14 +275,14 @@ describe("PartyService", () => {
       const input: SearchPartiesInput = {
         tenantId: "tenant-1",
         name: "Test",
-        limit: 1000, // Exceeds max
-        offset: -1, // Invalid offset
+        limit: 1000,
+        offset: -1,
       };
 
       const mockDb = {
         party: {
-          count: jest.fn().mockResolvedValue(1),
-          findMany: jest.fn().mockResolvedValue([]),
+          count: vi.fn().mockResolvedValue(1),
+          findMany: vi.fn().mockResolvedValue([]),
         },
       };
 
@@ -286,8 +290,8 @@ describe("PartyService", () => {
 
       const result = await partyService.searchParties(input);
 
-      expect(result.limit).toBe(500); // Should be clamped to max
-      expect(result.offset).toBe(0); // Should be set to 0
+      expect(result.limit).toBe(500);
+      expect(result.offset).toBe(0);
     });
   });
 
@@ -301,23 +305,24 @@ describe("PartyService", () => {
 
       const mockDb = {
         party: {
-          findFirst: jest.fn().mockResolvedValue({ partyId: "party-123" }),
+          findFirst: vi.fn().mockResolvedValue({ partyId: "party-123" }),
         },
         roleType: {
-          findFirst: jest.fn().mockResolvedValue({ roleTypeId: "rt-customer" }),
+          findFirst: vi.fn().mockResolvedValue({ roleTypeId: "rt-customer" }),
         },
         partyRole: {
-          findFirst: jest.fn().mockResolvedValue(null), // No existing role
+          findFirst: vi.fn().mockResolvedValue(null),
         },
-        $transaction: jest.fn().mockImplementation(async (fn) => {
+        $transaction: vi.fn().mockImplementation(async (fn) => {
           const tx = {
             partyRole: {
-              create: jest.fn().mockResolvedValue({
+              create: vi.fn().mockResolvedValue({
                 partyRoleId: "role-123",
                 partyId: "party-123",
                 roleTypeId: "rt-customer",
                 fromDate: new Date(),
                 thruDate: null,
+                roleType: { name: "Customer", roleTypeId: "rt-customer" },
               }),
             },
           };
@@ -342,18 +347,18 @@ describe("PartyService", () => {
 
       const mockDb = {
         party: {
-          findFirst: jest.fn().mockResolvedValue({ partyId: "party-123" }),
+          findFirst: vi.fn().mockResolvedValue({ partyId: "party-123" }),
         },
         roleType: {
-          findFirst: jest.fn().mockResolvedValue({ roleTypeId: "rt-customer" }),
+          findFirst: vi.fn().mockResolvedValue({ roleTypeId: "rt-customer" }),
         },
         partyRole: {
-          findFirst: jest.fn().mockResolvedValue({
+          findFirst: vi.fn().mockResolvedValue({
             partyRoleId: "existing-role",
             partyId: "party-123",
             roleTypeId: "rt-customer",
             fromDate: new Date(),
-            thruDate: null, // Active role
+            thruDate: null,
           }),
         },
       };
@@ -372,10 +377,10 @@ describe("PartyService", () => {
 
       const mockDb = {
         party: {
-          findFirst: jest.fn().mockResolvedValue({ partyId: "party-123" }),
+          findFirst: vi.fn().mockResolvedValue({ partyId: "party-123" }),
         },
         roleType: {
-          findFirst: jest.fn().mockResolvedValue(null), // Role type not found
+          findFirst: vi.fn().mockResolvedValue(null),
         },
       };
 
@@ -387,7 +392,7 @@ describe("PartyService", () => {
 
   describe("addContactMechanism", () => {
     it("should add postal address successfully", async () => {
-      const input = {
+      const input: AddContactMechanismInput = {
         tenantId: "tenant-1",
         partyId: "party-123",
         contactMechanismType: "POSTAL_ADDRESS",
@@ -400,22 +405,28 @@ describe("PartyService", () => {
 
       const mockDb = {
         party: {
-          findFirst: jest.fn().mockResolvedValue({ partyId: "party-123" }),
+          findFirst: vi.fn().mockResolvedValue({ partyId: "party-123" }),
         },
         contactMechanismType: {
-          findFirst: jest.fn().mockResolvedValue({ contactMechanismTypeId: "cmt-postal" }),
+          findFirst: vi.fn().mockResolvedValue({ contactMechanismTypeId: "cmt-postal" }),
         },
-        $transaction: jest.fn().mockImplementation(async (fn) => {
+        $transaction: vi.fn().mockImplementation(async (fn) => {
           const tx = {
             contactMechanism: {
-              create: jest.fn().mockResolvedValue({
+              create: vi.fn().mockResolvedValue({
                 contactMechanismId: "contact-123",
                 contactMechanismTypeId: "cmt-postal",
+                contactMechanismType: { name: "POSTAL_ADDRESS", contactMechanismTypeId: "cmt-postal" },
                 postalAddress: {
                   addressLine1: "123 Main St",
+                  addressLine2: null,
                   city: "Anytown",
+                  stateProvince: null,
+                  postalCode: null,
                   country: "US",
                 },
+                telecomNumber: null,
+                emailAddress: null,
               }),
             },
           };
@@ -436,19 +447,18 @@ describe("PartyService", () => {
       const input = {
         tenantId: "tenant-1",
         partyId: "party-123",
-        contactMechanismType: "POSTAL_ADDRESS",
+        contactMechanismType: "POSTAL_ADDRESS" as const,
         postalAddress: {
-          // Missing required fields
           city: "Anytown",
           country: "US",
         },
-      };
+      } as any;
 
       await expect(partyService.addContactMechanism(input)).rejects.toThrow(MissingSubtypeDataError);
     });
 
     it("should validate email format", async () => {
-      const input = {
+      const input: AddContactMechanismInput = {
         tenantId: "tenant-1",
         partyId: "party-123",
         contactMechanismType: "EMAIL_ADDRESS",
