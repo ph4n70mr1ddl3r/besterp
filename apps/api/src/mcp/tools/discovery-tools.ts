@@ -9,6 +9,7 @@ import { PrismaClient } from "@prisma/client";
 import {
   ToolRegistry,
   ToolDefinition,
+  ToolContext,
 } from "@besterp/mcp-tools";
 
 // ─── Tool: list_available_tools ───────────────────────────────────
@@ -28,7 +29,7 @@ Each tool listing includes its risk level and confirmation requirements.`,
     riskLevel: "none",
     tags: ["discovery", "meta"],
 
-    handler: async (input: { entity?: string }, _context: any) => {
+    handler: async (input: { entity?: string }, _context: ToolContext) => {
       let tools = registry.getDiscoveryInfo();
       if (input.entity) {
         tools = tools.filter((t: any) => t.entity === input.entity);
@@ -63,7 +64,7 @@ Type tables are the ERP's vocabulary — they define what classifications are av
     riskLevel: "none",
     tags: ["discovery", "type-table"],
 
-    handler: async (input: { typeName: string }, _context: any) => {
+    handler: async (input: { typeName: string }, _context: ToolContext) => {
       type TypeTableRow = { name: string; description: string | null; aiPromptHint: string | null };
       let values: TypeTableRow[];
 

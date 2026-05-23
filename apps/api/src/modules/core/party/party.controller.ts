@@ -33,7 +33,11 @@ export class PartyController {
   constructor(private readonly partyService: PartyService) {}
 
   private getTenantContext(req: Request): TenantContext {
-    return (req as any).tenantContext;
+    const ctx = (req as any).tenantContext as TenantContext | undefined;
+    if (!ctx?.tenantId) {
+      throw new Error("Tenant context not found on request. Ensure TenantGuard is registered.");
+    }
+    return ctx;
   }
 
   @Post()

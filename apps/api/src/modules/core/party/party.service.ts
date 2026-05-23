@@ -404,7 +404,7 @@ export class PartyService {
     }
 
     // Validate subtype data with detailed validation
-    let validContactData: PostalAddressInput | TelecomNumberInput | EmailAddressInput;
+    let validContactData: PostalAddressInput | TelecomNumberInput | EmailAddressInput | undefined;
     
     if (contactMechanismType === "POSTAL_ADDRESS") {
       if (!postalAddress) {
@@ -513,6 +513,16 @@ export class PartyService {
         );
       }
       validContactData = emailAddress;
+    }
+
+    if (!validContactData) {
+      throw new MissingSubtypeDataError(
+        `No contact data provided for contactMechanismType '${contactMechanismType}'.`,
+        {
+          suggestedTools: ["add_contact_mechanism"],
+          context: { contactMechanismType },
+        }
+      );
     }
 
     // Create contact mechanism with subtype in a transaction

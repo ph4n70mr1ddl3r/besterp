@@ -9,6 +9,7 @@ import { z } from "zod";
 import {
   ToolRegistry,
   ToolDefinition,
+  ToolContext,
 } from "@besterp/mcp-tools";
 import type {
   CreatePartyInput,
@@ -29,7 +30,7 @@ interface PartyServices {
   };
 }
 
-function getPartyService(ctx: { services: Record<string, unknown> }) {
+function getPartyService(ctx: ToolContext) {
   return (ctx.services as unknown as PartyServices).partyService;
 }
 
@@ -104,7 +105,7 @@ Example: Create a supplier organization
   entity: "party",
   tags: ["party", "create", "core"],
 
-  handler: async (input: any, context: any) => {
+  handler: async (input: any, context: ToolContext) => {
     const svc = getPartyService(context);
     const party = await svc.createParty({
       tenantId: context.tenantId,
@@ -142,7 +143,7 @@ Returns full party details. Use this to inspect a specific party's information.`
   entity: "party",
   tags: ["party", "read", "core"],
 
-  handler: async (input: any, context: any) => {
+  handler: async (input: any, context: ToolContext) => {
     const svc = getPartyService(context);
     const party = await svc.getParty(context.tenantId, input.partyId);
     return { success: true, data: party };
@@ -170,7 +171,7 @@ Use this to find customers, suppliers, or any party by name, type, or role.`,
   entity: "party",
   tags: ["party", "search", "core"],
 
-  handler: async (input: any, context: any) => {
+  handler: async (input: any, context: ToolContext) => {
     const svc = getPartyService(context);
     const result = await svc.searchParties({
       tenantId: context.tenantId,
@@ -203,7 +204,7 @@ Example: Make a party a customer
   entity: "party",
   tags: ["party", "role", "update"],
 
-  handler: async (input: any, context: any) => {
+  handler: async (input: any, context: ToolContext) => {
     const svc = getPartyService(context);
     const result = await svc.addPartyRole({
       tenantId: context.tenantId,
@@ -250,7 +251,7 @@ Use 'get_type_table_values' with typeName "CONTACT_MECHANISM_TYPE" to see availa
   entity: "party",
   tags: ["party", "contact", "create"],
 
-  handler: async (input: any, context: any) => {
+  handler: async (input: any, context: ToolContext) => {
     const svc = getPartyService(context);
     const result = await svc.addContactMechanism({
       tenantId: context.tenantId,

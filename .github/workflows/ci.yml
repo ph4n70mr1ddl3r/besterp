@@ -88,6 +88,9 @@ jobs:
       - name: Run shared package tests
         run: npm run test --workspace=@besterp/shared
 
+      - name: Run MCP tools unit tests
+        run: npm run test --workspace=@besterp/mcp-tools
+
       - name: Run database integration tests
         env:
           DATABASE_URL: postgresql://besterp_app:besterp_app_dev@localhost:5434/besterp

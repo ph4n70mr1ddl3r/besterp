@@ -22,7 +22,6 @@ function domainErrorToStatus(error: DomainError): number {
     case "ENTITY_NOT_FOUND":
       return 404;
     case "DUPLICATE_ENTITY":
-    case "DUPLICATE_ROLE":
       return 409;
     case "MISSING_SUBTYPE_DATA":
     case "INVALID_TYPE_VALUE":

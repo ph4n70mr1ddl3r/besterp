@@ -1,11 +1,14 @@
 // Unit tests for HealthController
 // Tests the health check endpoints that delegate to HealthService
 
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import { HealthController } from "./health.controller.js";
 import { HealthStatus, VersionInfo } from "./health.service.js";
 
 describe("HealthController", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
   describe("getHealth", () => {
     it("should return health status", async () => {
       const expectedResponse: HealthStatus = {
@@ -74,8 +77,8 @@ describe("HealthController", () => {
     });
 
     it("should include build information when available", () => {
-      process.env.BUILD_NUMBER = "123";
-      process.env.BUILD_DATE = "2024-01-01";
+      vi.stubEnv("BUILD_NUMBER", "123");
+      vi.stubEnv("BUILD_DATE", "2024-01-01");
 
       const expectedResponse: VersionInfo = {
         version: "0.0.1",
@@ -97,9 +100,6 @@ describe("HealthController", () => {
       const result = controller.getVersion();
 
       expect(result.build).toEqual(expectedResponse.build);
-
-      delete process.env.BUILD_NUMBER;
-      delete process.env.BUILD_DATE;
     });
   });
 

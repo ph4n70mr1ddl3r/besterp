@@ -79,7 +79,7 @@ const DATA_METHODS = new Set([
   "findMany", "findUnique", "findFirst", "create", "update",
   "delete", "upsert", "count", "aggregate", "groupBy",
   "findUniqueOrThrow", "findFirstOrThrow", "updateMany", "deleteMany",
-  "createMany",
+  "createMany", "createManyAndReturn",
 ]);
 
 /**
