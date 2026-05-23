@@ -8,8 +8,10 @@
 // 3. Check if a failed record exists → re-execute
 // 4. Otherwise, create a pending record, execute, and update on completion
 //
-// Uses UPSERT to avoid the check-then-insert race condition — two concurrent
-// requests with the same key will not both create a pending record.
+// Uses Prisma's interactive transaction ($transaction) with a serializable
+// isolation guard to avoid the check-then-insert race condition. Two concurrent
+// requests with the same key will be serialized by the database, preventing
+// duplicate pending records.
 //
 // If no idempotency key is provided, the middleware is a no-op pass-through.
 
@@ -34,9 +36,35 @@ export function idempotencyMiddleware(prisma: PrismaClient): ToolMiddleware {
     const toolInput = input as Record<string, unknown>;
     const inputHash = hashInput(toolInput);
 
-    // Check for an existing record first
-    const existing = await prisma.idempotencyRecord.findUnique({
-      where: { idempotencyKey },
+    // ─── Race-free check-or-create via serializable transaction ───
+    // Wrapping findUnique + create/update inside a single serializable
+    // transaction prevents two concurrent requests from both seeing a
+    // null result and both creating a pending record.
+    const existing = await prisma.$transaction(async (tx) => {
+      const record = await tx.idempotencyRecord.findUnique({
+        where: { idempotencyKey },
+      });
+
+      if (record) return record;
+
+      // No record exists — atomically create one inside the transaction
+      await tx.idempotencyRecord.create({
+        data: {
+          idempotencyKey,
+          toolName: definition.name,
+          tenantId,
+          userId,
+          agentId: agentId || null,
+          conversationId: conversationId || null,
+          status: "pending",
+          inputHash,
+          expiresAt: new Date(Date.now() + 86400000), // 24h TTL
+        },
+      });
+
+      return null; // signal: newly created, proceed to execute
+    }, {
+      isolationLevel: "Serializable",
     });
 
     if (existing) {
@@ -85,22 +113,7 @@ export function idempotencyMiddleware(prisma: PrismaClient): ToolMiddleware {
       // status === 'failed' — re-execute by updating to pending
       await prisma.idempotencyRecord.update({
         where: { idempotencyKey },
-        data: { status: "pending", inputHash },
-      });
-    } else {
-      // No existing record — create a new pending record
-      await prisma.idempotencyRecord.create({
-        data: {
-          idempotencyKey,
-          toolName: definition.name,
-          tenantId,
-          userId,
-          agentId: agentId || null,
-          conversationId: conversationId || null,
-          status: "pending",
-          inputHash,
-          expiresAt: new Date(Date.now() + 86400000), // 24h TTL
-        },
+        data: { status: "pending", inputHash, expiresAt: new Date(Date.now() + 86400000) },
       });
     }
 

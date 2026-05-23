@@ -15,7 +15,7 @@ import { JWT_DEV_SECRET } from "./jwt.strategy.js";
   imports: [
     PassportModule.register({ defaultStrategy: "jwt" }),
     JwtModule.register({
-      secret: process.env.JWT_SECRET || (process.env.NODE_ENV !== "production" ? JWT_DEV_SECRET : undefined),
+      secret: process.env.JWT_SECRET || (process.env.NODE_ENV !== "production" ? JWT_DEV_SECRET : ""),
       signOptions: { expiresIn: "24h" },
     }),
   ],

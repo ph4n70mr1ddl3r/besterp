@@ -20,6 +20,9 @@ const mockPrisma = {
   aiActionLog: {
     create: vi.fn(),
   },
+  // $transaction wraps a callback and provides a tx client that mirrors the parent mock.
+  // The idempotency middleware now uses $transaction with Serializable isolation for race-free check-or-create.
+  $transaction: vi.fn(),
 };
 
 const mockDefinition: ToolDefinition = {
@@ -63,13 +66,27 @@ describe("Idempotency Middleware", () => {
     vi.clearAllMocks();
   });
 
+  /** Setup $transaction mock: when tx has a record, return it; when null, create it. */
+  function mockFindInTransaction(record: any | null) {
+    mockPrisma.$transaction.mockImplementation(async (fn: Function, _opts?: any) => {
+      const tx = {
+        idempotencyRecord: {
+          findUnique: vi.fn().mockResolvedValue(record),
+          create: mockPrisma.idempotencyRecord.create,
+        },
+      };
+      return fn(tx);
+    });
+  }
+
   it("should create idempotency record on first execution", async () => {
     const input = { test: "value" };
     const idempotencyKey = "test-key";
     const contextWithKey = { ...mockContext, idempotencyKey };
 
-    // No existing record found — first execution
-    mockPrisma.idempotencyRecord.findUnique.mockResolvedValue(null);
+    // No existing record found — first execution. The tx.findUnique returns null,
+    // then tx.create runs, and the callback returns null → middleware proceeds.
+    mockFindInTransaction(null);
     mockPrisma.idempotencyRecord.create.mockResolvedValue({
       idempotencyKey,
       status: "pending",
@@ -102,7 +119,7 @@ describe("Idempotency Middleware", () => {
     const { hashInput } = await import("@besterp/shared");
     const inputHash = hashInput(input);
 
-    mockPrisma.idempotencyRecord.findUnique.mockResolvedValue({
+    mockFindInTransaction({
       idempotencyKey,
       status: "completed",
       inputHash, // exact hash match
@@ -122,8 +139,7 @@ describe("Idempotency Middleware", () => {
     const idempotencyKey = "test-key";
     const contextWithKey = { ...mockContext, idempotencyKey };
 
-    // Simulate findUnique returning a completed record with a DIFFERENT hash
-    mockPrisma.idempotencyRecord.findUnique.mockResolvedValue({
+    mockFindInTransaction({
       idempotencyKey,
       status: "completed",
       inputHash: "sha256:original",
@@ -146,7 +162,7 @@ describe("Idempotency Middleware", () => {
     const { hashInput } = await import("@besterp/shared");
     const inputHash = hashInput(input);
 
-    mockPrisma.idempotencyRecord.findUnique.mockResolvedValue({
+    mockFindInTransaction({
       idempotencyKey,
       status: "pending",
       inputHash,
@@ -164,7 +180,7 @@ describe("Idempotency Middleware", () => {
     const idempotencyKey = "test-key";
     const contextWithKey = { ...mockContext, idempotencyKey };
 
-    mockPrisma.idempotencyRecord.findUnique.mockResolvedValue({
+    mockFindInTransaction({
       idempotencyKey,
       status: "pending",
       inputHash: "sha256:original",

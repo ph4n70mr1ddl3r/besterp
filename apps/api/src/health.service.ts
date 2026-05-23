@@ -14,9 +14,10 @@ export interface HealthStatus {
   environment: string;
   database: "connected" | "disconnected";
   memory: {
-    used: number;
-    total: number;
-    percentage: number;
+    heapUsed: number;
+    heapTotal: number;
+    rss: number;
+    heapPercentage: number;
   };
 }
 
@@ -57,11 +58,12 @@ export class HealthService {
       databaseStatus = "disconnected";
     }
 
-    // Get memory usage
+    // Get memory usage — track heap metrics consistently
     const memoryUsage = process.memoryUsage();
-    const usedMemory = Math.round(memoryUsage.rss / 1024 / 1024); // MB
-    const totalMemory = Math.round(memoryUsage.heapTotal / 1024 / 1024); // MB
-    const memoryPercentage = Math.round((usedMemory / totalMemory) * 100);
+    const heapUsed = Math.round(memoryUsage.heapUsed / 1024 / 1024);      // MB
+    const heapTotal = Math.round(memoryUsage.heapTotal / 1024 / 1024);    // MB
+    const rss = Math.round(memoryUsage.rss / 1024 / 1024);                // MB (total OS memory)
+    const heapPercentage = heapTotal > 0 ? Math.round((heapUsed / heapTotal) * 100) : 0;
 
     const overallStatus: "ok" | "error" = databaseStatus === "connected" ? "ok" : "error";
 
@@ -72,9 +74,10 @@ export class HealthService {
       environment,
       database: databaseStatus,
       memory: {
-        used: usedMemory,
-        total: totalMemory,
-        percentage: memoryPercentage,
+        heapUsed,
+        heapTotal,
+        rss,
+        heapPercentage,
       },
     };
   }

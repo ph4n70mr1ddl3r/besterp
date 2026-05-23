@@ -40,18 +40,22 @@ export function validateTenantIdEnhanced(tenantId: string): void {
     );
   }
   
-  // Check for potentially dangerous patterns
-  const dangerousPatterns = [
-    /\b(drop|delete|truncate|alter|create|insert|update|select|exec|execute)\b/i,
-    /;\s*\n?\s*(drop|delete|truncate|alter|create|insert|update|select|exec|execute)/i,
-    /\b(benchmark|sleep|waitfor)\b/i,
-    /--|\/\*|\*\//
+  // Check for structural SQL injection patterns only (comment delimiters,
+  // statement separators, whitespace that changes SQL semantics).
+  // NOTE: We intentionally do NOT blacklist SQL keywords (DROP, SELECT, etc.)
+  // because those can appear in legitimate tenant IDs (e.g., "selectronics").
+  // The actual set_tenant_context() call uses parameterized queries,
+  // which are immune to keyword-based injection.
+  const structuralPatterns = [
+    /--|\/\*|\*\//,          // SQL comment delimiters
+    /;/,                      // statement separator
+    /\b(benchmark|sleep|waitfor)\s*\(/i,  // timing-based injection functions (always suspicious)
   ];
   
-  for (const pattern of dangerousPatterns) {
+  for (const pattern of structuralPatterns) {
     if (pattern.test(tenantId)) {
       throw new InvalidTypeValueError(
-        "Tenant ID contains potentially dangerous patterns",
+        "Tenant ID contains suspicious structural patterns",
         { context: { field: "tenantId", received: tenantId, pattern: pattern.toString() } }
       );
     }

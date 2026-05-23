@@ -17,7 +17,7 @@ describe("HealthController", () => {
         uptime: 1000,
         environment: "test",
         database: "connected",
-        memory: { used: 100, total: 200, percentage: 50 },
+        memory: { heapUsed: 100, heapTotal: 200, rss: 150, heapPercentage: 50 },
       };
 
       const mockHealthService = {
@@ -39,7 +39,7 @@ describe("HealthController", () => {
         uptime: 500,
         environment: "test",
         database: "disconnected",
-        memory: { used: 100, total: 200, percentage: 50 },
+        memory: { heapUsed: 100, heapTotal: 200, rss: 150, heapPercentage: 50 },
       };
 
       const mockHealthService = {
@@ -112,7 +112,7 @@ describe("HealthController", () => {
           uptime: 1000,
           environment: "test",
           database: "connected",
-          memory: { used: 100, total: 200, percentage: 50 },
+          memory: { heapUsed: 100, heapTotal: 200, rss: 150, heapPercentage: 50 },
         }),
         getVersion: vi.fn(),
       };
@@ -131,7 +131,7 @@ describe("HealthController", () => {
           uptime: 1000,
           environment: "test",
           database: "disconnected",
-          memory: { used: 100, total: 200, percentage: 50 },
+          memory: { heapUsed: 100, heapTotal: 200, rss: 150, heapPercentage: 50 },
         }),
         getVersion: vi.fn(),
       };

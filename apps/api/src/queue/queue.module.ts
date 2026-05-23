@@ -30,6 +30,9 @@ export class QueueModule {
     const connection: Record<string, unknown> = {
       host: redisHost,
       port: redisPort,
+      maxRetriesPerRequest: null, // required by BullMQ for sticky connections
+      retryStrategy: (times: number) => Math.min(times * 200, 5000),
+      connectTimeout: 10000,
     };
     if (redisPassword) {
       connection.password = redisPassword;
