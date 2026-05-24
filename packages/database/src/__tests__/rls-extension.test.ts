@@ -180,12 +180,15 @@ describe("RLS Extension", () => {
       expect(mockPrisma.$transaction).toHaveBeenCalled();
     });
 
-    it("should pass through non-data methods", () => {
+    it("should block dangerous methods on tenant-scoped client", () => {
       const client = createTenantClient(mockPrisma, "tenant-1");
       
-      // These methods should pass through directly
-      expect(client.$connect).toBeDefined();
-      expect(client.$disconnect).toBeDefined();
+      // These methods are blocked to prevent connection lifecycle changes
+      // and RLS bypass via raw SQL on the tenant-scoped proxy
+      expect(() => client.$connect).toThrow(/Cannot call/);
+      expect(() => client.$disconnect).toThrow(/Cannot call/);
+      expect(() => client.$queryRaw).toThrow(/Cannot call/);
+      expect(() => client.$executeRaw).toThrow(/Cannot call/);
     });
 
     it("should handle batch transactions (pass through without tenant context)", async () => {

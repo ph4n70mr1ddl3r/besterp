@@ -156,7 +156,19 @@ export function createTenantClient(prisma: PrismaClient, tenantId: string) {
         );
       }
 
-      // Other internal Prisma properties pass through ($queryRaw, $executeRaw, etc.)
+      // Block operations that bypass RLS scoping.
+      // $queryRawTyped/$queryRaw would execute without SET LOCAL.
+      // $executeRaw/$executeRawTyped could mutate outside tenant context.
+      const BLOCKED_RAW = new Set([
+        "$queryRaw", "$queryRawTyped", "$executeRaw", "$executeRawTyped",
+      ]);
+      if (BLOCKED_RAW.has(prop)) {
+        throw new Error(
+          `Cannot call '${prop}' on a tenant-scoped client. Raw SQL bypasses RLS. Use the base PrismaClient.`
+        );
+      }
+
+      // Other internal Prisma properties pass through safely
       if (prop.startsWith("$") || prop.startsWith("_")) {
         return (target as any)[prop];
       }

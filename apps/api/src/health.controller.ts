@@ -34,10 +34,20 @@ export class HealthController {
 
     try {
       const result = await Promise.race([healthPromise, timeoutPromise]);
-      if (result === "timeout" || result.database !== "connected") {
+      if (result === "timeout") {
+        throw new ServiceUnavailableException("health check timed out");
+      }
+      if (result.database !== "connected") {
         throw new ServiceUnavailableException("not ready");
       }
       return { status: "ready" };
+    } catch (error) {
+      // Re-throw ServiceUnavailableException as-is
+      if (error instanceof ServiceUnavailableException) throw error;
+      // Wrap unexpected errors (e.g., health check threw)
+      throw new ServiceUnavailableException(
+        error instanceof Error ? error.message : "not ready"
+      );
     } finally {
       clearTimeout(timeoutId);
     }

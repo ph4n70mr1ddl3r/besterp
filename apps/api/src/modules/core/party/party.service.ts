@@ -548,15 +548,14 @@ export class PartyService {
     value: string | undefined | null,
     field: string,
     parentType: string,
-  tool: string = "add_contact_mechanism",
-  ): string {
+    tool = "add_contact_mechanism",
+  ): void {
     if (!value || value.trim().length === 0) {
       throw new MissingSubtypeDataError(
         `${field} is required for ${parentType}`,
         { suggestedTools: [tool], context: { parentType, field } }
       );
     }
-    return value;
   }
 
   private toPartyResult(party: PartyWithIncludes): PartyResult {
