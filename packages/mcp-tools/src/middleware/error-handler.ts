@@ -18,7 +18,7 @@ import { ToolMiddleware, ToolDefinition, ToolResult } from "../schema/tool-defin
 export const errorHandlerMiddleware: ToolMiddleware = async (input, context, definition, next) => {
   try {
     return await next(input, context);
-  } catch (error: any) {
+  } catch (error: unknown) {
     // ─── Domain errors (our structured error classes) ──────────────
     if (isDomainError(error)) {
       return {
@@ -34,10 +34,11 @@ export const errorHandlerMiddleware: ToolMiddleware = async (input, context, def
       };
     }
 
-    const message = error.message || "Unknown error";
+    const message = error instanceof Error ? error.message : "Unknown error";
+    const prismaCode = (error as Record<string, unknown>).code as string | undefined;
 
     // ─── Prisma unique constraint violation ────────────────────────
-    if (error.code === "P2002") {
+    if (prismaCode === "P2002") {
       return {
         success: false,
         error: {
@@ -49,7 +50,7 @@ export const errorHandlerMiddleware: ToolMiddleware = async (input, context, def
     }
 
     // ─── Prisma not found ─────────────────────────────────────────
-    if (error.code === "P2025") {
+    if (prismaCode === "P2025") {
       return {
         success: false,
         error: {
@@ -62,7 +63,7 @@ export const errorHandlerMiddleware: ToolMiddleware = async (input, context, def
 
     // ─── Prisma optimistic concurrency / version mismatch ─────────
     // P2034: Transaction failed due to a write conflict or a deadlock
-    if (error.code === "P2034") {
+    if (prismaCode === "P2034") {
       return {
         success: false,
         error: {

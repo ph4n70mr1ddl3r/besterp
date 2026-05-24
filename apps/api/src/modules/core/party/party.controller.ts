@@ -17,6 +17,7 @@ import {
   Param,
   Query,
   Req,
+  UnauthorizedException,
 } from "@nestjs/common";
 import { Request } from "express";
 import { TenantContext } from "../../../common/tenant-context.js";
@@ -35,7 +36,11 @@ export class PartyController {
   private getTenantContext(req: Request): TenantContext {
     const ctx = (req as any).tenantContext as TenantContext | undefined;
     if (!ctx?.tenantId) {
-      throw new Error("Tenant context not found on request. Ensure TenantGuard is registered.");
+      // This should never happen if TenantGuard is properly registered.
+      // Throwing UnauthorizedException returns a 401 instead of a 500.
+      throw new UnauthorizedException(
+        "Tenant context not found on request. Ensure TenantGuard is registered."
+      );
     }
     return ctx;
   }

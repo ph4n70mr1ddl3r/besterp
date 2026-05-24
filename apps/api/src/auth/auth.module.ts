@@ -15,7 +15,11 @@ import { JWT_DEV_SECRET } from "./jwt.strategy.js";
   imports: [
     PassportModule.register({ defaultStrategy: "jwt" }),
     JwtModule.register({
-      secret: process.env.JWT_SECRET || (process.env.NODE_ENV !== "production" ? JWT_DEV_SECRET : ""),
+      // In production, JwtStrategy throws if JWT_SECRET is missing, preventing
+      // the app from starting. Here we provide the dev default only in non-prod.
+      // Using undefined (instead of empty string) in prod ensures the JWT module
+      // itself will throw if somehow the strategy check is bypassed.
+      secret: process.env.JWT_SECRET || (process.env.NODE_ENV !== "production" ? JWT_DEV_SECRET : undefined!),
       signOptions: { expiresIn: "24h" },
     }),
   ],

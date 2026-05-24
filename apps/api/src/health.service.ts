@@ -53,8 +53,8 @@ export class HealthService {
       await this.prisma.$queryRaw`SELECT 1`;
       databaseStatus = "connected";
       this.logger.debug("Database health check passed");
-    } catch (error: any) {
-      this.logger.error(`Database health check failed: ${error.message}`);
+    } catch (error) {
+      this.logger.error(`Database health check failed: ${(error as Error).message}`);
       databaseStatus = "disconnected";
     }
 

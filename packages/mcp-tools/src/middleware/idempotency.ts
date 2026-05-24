@@ -132,13 +132,13 @@ export function idempotencyMiddleware(prisma: PrismaClient): ToolMiddleware {
       });
 
       return result;
-    } catch (error: any) {
+    } catch (error: unknown) {
       // Mark as failed
       await prisma.idempotencyRecord.update({
         where: { idempotencyKey },
         data: {
           status: "failed",
-          error: { message: error.message, code: error.code },
+          error: { message: error instanceof Error ? error.message : String(error), code: (error as Record<string, unknown>).code as string | undefined },
         },
       }).catch(() => {}); // ignore update errors
 

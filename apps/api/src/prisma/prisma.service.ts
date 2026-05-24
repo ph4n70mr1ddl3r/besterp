@@ -37,8 +37,11 @@ export class PrismaService
       await this.$connect();
       await this.appClient.$connect();
       this.logger.log("Database connections established (admin + app)");
-    } catch (error: any) {
-      this.logger.error(`Failed to connect to database: ${error.message}`);
+    } catch (error) {
+      this.logger.error(
+        `Failed to connect to database: ${(error as Error).message}`,
+        (error as Error).stack
+      );
       throw error;
     }
   }

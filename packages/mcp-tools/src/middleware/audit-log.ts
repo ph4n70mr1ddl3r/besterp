@@ -21,7 +21,7 @@ export function auditLogMiddleware(prisma: PrismaClient): ToolMiddleware {
     let result: ToolResult;
     try {
       result = await next(input, context);
-    } catch (error: any) {
+    } catch (error: unknown) {
       await logAction(prisma, {
         agentId: context.agentId,
         conversationId: context.conversationId,
@@ -29,7 +29,7 @@ export function auditLogMiddleware(prisma: PrismaClient): ToolMiddleware {
         tenantId: context.tenantId,
         toolCalled: definition.name,
         toolInput: input as any,
-        toolOutput: { error: { message: error.message, code: error.code } },
+        toolOutput: { error: { message: error instanceof Error ? error.message : String(error), code: (error as Record<string, unknown>).code as string | undefined } },
         reasoning: undefined,
       }).catch(() => {});
 
