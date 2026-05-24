@@ -29,11 +29,18 @@ import { validateTenantId, InvalidTypeValueError } from "@besterp/shared";
  * Extends the basic validation with more comprehensive security checks.
  */
 export function validateTenantIdEnhanced(tenantId: string): void {
-  // Base validation already enforces /^[a-zA-Z0-9_-]+$/ which rejects
+  // Base validation enforces /^[a-zA-Z0-9_-]+$/ which rejects
   // all special characters (semicolons, quotes, comment delimiters, etc.).
-  // No additional structural pattern checks are needed — they would be
-  // dead code since the base regex is strictly alphanumeric + dash/underscore.
-  validateTenantId(tenantId);
+  try {
+    validateTenantId(tenantId);
+  } catch (e) {
+    // Re-throw as a structured DomainError so callers only need to
+    // catch InvalidTypeValueError instead of plain Error.
+    throw new InvalidTypeValueError(
+      (e as Error).message,
+      { context: { field: "tenantId", received: tenantId } }
+    );
+  }
 
   if (tenantId.length > 100) {
     throw new InvalidTypeValueError(
@@ -139,7 +146,17 @@ export function createTenantClient(prisma: PrismaClient, tenantId: string) {
         };
       }
 
-      // Other internal Prisma properties pass through ($connect, $disconnect, etc.)
+      // Block operations that should never be called on a tenant-scoped proxy.
+      // $connect/$disconnect affect the underlying client's connection pool;
+      // $extends would bypass the Proxy's RLS wrapping.
+      const BLOCKED_METHODS = new Set(["$connect", "$disconnect", "$extends", "$on", "$use"]);
+      if (BLOCKED_METHODS.has(prop)) {
+        throw new Error(
+          `Cannot call '${prop}' on a tenant-scoped client. Use the base PrismaClient directly.`
+        );
+      }
+
+      // Other internal Prisma properties pass through ($queryRaw, $executeRaw, etc.)
       if (prop.startsWith("$") || prop.startsWith("_")) {
         return (target as any)[prop];
       }

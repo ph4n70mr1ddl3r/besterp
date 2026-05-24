@@ -411,115 +411,55 @@ export class PartyService {
     }
 
     // Validate subtype data with detailed validation
-    let validContactData: PostalAddressInput | TelecomNumberInput | EmailAddressInput | undefined;
+    let validContactData: PostalAddressInput | TelecomNumberInput | EmailAddressInput;
     
     if (contactMechanismType === "POSTAL_ADDRESS") {
       if (!postalAddress) {
         throw new MissingSubtypeDataError(
           "postalAddress is required when contactMechanismType is POSTAL_ADDRESS.",
-          { 
-            suggestedTools: ["add_contact_mechanism"],
-            context: { contactMechanismType, missingField: "postalAddress" }
-          }
+          { suggestedTools: ["add_contact_mechanism"], context: { contactMechanismType, missingField: "postalAddress" } }
         );
       }
-      
-      // Validate postal address structure
-      if (!postalAddress.addressLine1 || postalAddress.addressLine1.trim().length === 0) {
-        throw new MissingSubtypeDataError(
-          "addressLine1 is required for postal address",
-          { 
-            suggestedTools: ["add_contact_mechanism"],
-            context: { contactMechanismType, field: "addressLine1" }
-          }
-        );
-      }
-      if (!postalAddress.city || postalAddress.city.trim().length === 0) {
-        throw new MissingSubtypeDataError(
-          "city is required for postal address",
-          { 
-            suggestedTools: ["add_contact_mechanism"],
-            context: { contactMechanismType, field: "city" }
-          }
-        );
-      }
-      if (!postalAddress.country || postalAddress.country.trim().length === 0) {
-        throw new MissingSubtypeDataError(
-          "country is required for postal address",
-          { 
-            suggestedTools: ["add_contact_mechanism"],
-            context: { contactMechanismType, field: "country" }
-          }
-        );
-      }
+      this.requireNonEmpty(postalAddress.addressLine1, "addressLine1", "postal address");
+      this.requireNonEmpty(postalAddress.city, "city", "postal address");
+      this.requireNonEmpty(postalAddress.country, "country", "postal address");
       validContactData = postalAddress;
     } 
     else if (contactMechanismType === "TELECOM_NUMBER") {
       if (!telecomNumber) {
         throw new MissingSubtypeDataError(
           "telecomNumber is required when contactMechanismType is TELECOM_NUMBER.",
-          { 
-            suggestedTools: ["add_contact_mechanism"],
-            context: { contactMechanismType, missingField: "telecomNumber" }
-          }
+          { suggestedTools: ["add_contact_mechanism"], context: { contactMechanismType, missingField: "telecomNumber" } }
         );
       }
-      
-      // Validate telecom number structure
-      if (!telecomNumber.areaCode || telecomNumber.areaCode.trim().length === 0) {
-        throw new MissingSubtypeDataError(
-          "areaCode is required for telecom number",
-          { 
-            suggestedTools: ["add_contact_mechanism"],
-            context: { contactMechanismType, field: "areaCode" }
-          }
-        );
-      }
-      if (!telecomNumber.lineNumber || telecomNumber.lineNumber.trim().length === 0) {
-        throw new MissingSubtypeDataError(
-          "lineNumber is required for telecom number",
-          { 
-            suggestedTools: ["add_contact_mechanism"],
-            context: { contactMechanismType, field: "lineNumber" }
-          }
-        );
-      }
+      this.requireNonEmpty(telecomNumber.areaCode, "areaCode", "telecom number");
+      this.requireNonEmpty(telecomNumber.lineNumber, "lineNumber", "telecom number");
       validContactData = telecomNumber;
     } 
     else if (contactMechanismType === "EMAIL_ADDRESS") {
       if (!emailAddress) {
         throw new MissingSubtypeDataError(
           "emailAddress is required when contactMechanismType is EMAIL_ADDRESS.",
-          { 
-            suggestedTools: ["add_contact_mechanism"],
-            context: { contactMechanismType, missingField: "emailAddress" }
-          }
+          { suggestedTools: ["add_contact_mechanism"], context: { contactMechanismType, missingField: "emailAddress" } }
         );
       }
+      this.requireNonEmpty(emailAddress.email, "email", "email address");
       
-      // Simple email validation
-      if (!emailAddress.email || emailAddress.email.trim().length === 0) {
-        throw new MissingSubtypeDataError(
-          "email is required for email address",
-          { 
-            suggestedTools: ["add_contact_mechanism"],
-            context: { contactMechanismType, field: "email" }
-          }
-        );
-      }
-      
-      // Basic email format validation
+      // Email format validation
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
       if (!emailRegex.test(emailAddress.email.trim())) {
         throw new InvalidTypeValueError(
           `Invalid email format: ${emailAddress.email}`,
-          { 
-            suggestedTools: ["add_contact_mechanism"],
-            context: { contactMechanismType, field: "email", invalidValue: emailAddress.email }
-          }
+          { suggestedTools: ["add_contact_mechanism"], context: { contactMechanismType, field: "email", invalidValue: emailAddress.email } }
         );
       }
       validContactData = emailAddress;
+    } else {
+      // Exhaustiveness check — the enum validation in the DTO should prevent this.
+      throw new InvalidTypeValueError(
+        `Unsupported contactMechanismType: ${contactMechanismType}`,
+        { suggestedTools: ["get_type_table_values"], context: { field: "contactMechanismType", invalidValue: contactMechanismType } }
+      );
     }
 
     // Create contact mechanism with subtype in a transaction
@@ -602,6 +542,22 @@ export class PartyService {
   }
 
   // ─── Private Helpers ──────────────────────────────────────────
+
+  /** Validate a non-empty required string field, throwing MissingSubtypeDataError. */
+  private requireNonEmpty(
+    value: string | undefined | null,
+    field: string,
+    parentType: string,
+  tool: string = "add_contact_mechanism",
+  ): string {
+    if (!value || value.trim().length === 0) {
+      throw new MissingSubtypeDataError(
+        `${field} is required for ${parentType}`,
+        { suggestedTools: [tool], context: { parentType, field } }
+      );
+    }
+    return value;
+  }
 
   private toPartyResult(party: PartyWithIncludes): PartyResult {
     return {

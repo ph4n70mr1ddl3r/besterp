@@ -22,7 +22,7 @@ import {
   ValidatorConstraintInterface,
   Validate,
 } from "class-validator";
-import { Type } from "class-transformer";
+import { Type, Transform } from "class-transformer";
 
 // ─── Cross-field validators ──────────────────────────────────────
 
@@ -113,6 +113,7 @@ export class CreatePartyDto {
   @IsEnum(["PERSON", "ORGANIZATION"])
   partyType!: "PERSON" | "ORGANIZATION";
 
+  @Transform(({ value }: { value: string }) => (typeof value === "string" ? value.trim() : value))
   @IsString()
   @IsNotEmpty()
   name!: string;
@@ -141,6 +142,7 @@ export class CreatePartyDto {
 // ─── Search Parties ──────────────────────────────────────────────
 
 export class SearchPartiesDto {
+  @Transform(({ value }: { value: string }) => (typeof value === "string" ? value.trim() : value))
   @IsOptional()
   @IsString()
   name?: string;
@@ -258,6 +260,24 @@ class ContactSubtypeMatchConstraint implements ValidatorConstraintInterface {
   }
 }
 
+/**
+ * Validates that only the matching subtype is provided (no extra data).
+ */
+@ValidatorConstraint({ name: "contactSubtypeExclusive", async: false })
+class ContactSubtypeExclusiveConstraint implements ValidatorConstraintInterface {
+  validate(_value: unknown, args: any): boolean {
+    const obj = args.object as AddContactMechanismDto;
+    if (obj.contactMechanismType === "POSTAL_ADDRESS" && (obj.telecomNumber || obj.emailAddress)) return false;
+    if (obj.contactMechanismType === "TELECOM_NUMBER" && (obj.postalAddress || obj.emailAddress)) return false;
+    if (obj.contactMechanismType === "EMAIL_ADDRESS" && (obj.postalAddress || obj.telecomNumber)) return false;
+    return true;
+  }
+
+  defaultMessage(): string {
+    return "Only the subtype matching contactMechanismType should be provided";
+  }
+}
+
 export class AddContactMechanismDto {
   @IsEnum(["POSTAL_ADDRESS", "TELECOM_NUMBER", "EMAIL_ADDRESS"])
   contactMechanismType!: "POSTAL_ADDRESS" | "TELECOM_NUMBER" | "EMAIL_ADDRESS";
@@ -278,5 +298,6 @@ export class AddContactMechanismDto {
   emailAddress?: EmailAddressDto;
 
   @Validate(ContactSubtypeMatchConstraint)
+  @Validate(ContactSubtypeExclusiveConstraint)
   _subtypeCheck?: unknown;
 }

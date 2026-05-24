@@ -84,6 +84,8 @@ Type tables are the ERP's vocabulary — they define what classifications are av
             select: { contactMechanismTypeId: true, name: true, description: true, aiPromptHint: true },
           })).map((r) => ({ id: r.contactMechanismTypeId, name: r.name, description: r.description, aiPromptHint: r.aiPromptHint }));
           break;
+        // Unreachable: Zod enum schema validates the input.
+        // Retained as safety net in case the schema is relaxed.
         default:
           return {
             success: false,
