@@ -6,6 +6,9 @@
 
 import { Injectable, Logger } from "@nestjs/common";
 import { PrismaService } from "./prisma/prisma.service.js";
+import { readFileSync } from "fs";
+import { join, dirname } from "path";
+import { fileURLToPath } from "url";
 
 export interface HealthStatus {
   status: "ok" | "error";
@@ -36,7 +39,20 @@ export interface VersionInfo {
 export class HealthService {
   private readonly logger = new Logger(HealthService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly packageInfo: { version: string; name: string };
+
+  constructor(private readonly prisma: PrismaService) {
+    try {
+      // Read package.json at construction time — avoids I/O on every request
+      const __dirname = dirname(fileURLToPath(import.meta.url));
+      const pkgPath = join(__dirname, "../../package.json");
+      const raw = readFileSync(pkgPath, "utf-8");
+      const pkg = JSON.parse(raw);
+      this.packageInfo = { version: pkg.version || "0.0.0", name: pkg.name || "unknown" };
+    } catch {
+      this.packageInfo = { version: "0.0.0", name: "unknown" };
+    }
+  }
 
   /**
    * Get overall health status of the application
@@ -85,8 +101,8 @@ export class HealthService {
    */
   getVersion(): VersionInfo {
     return {
-      version: "0.0.1",
-      name: "@besterp/api",
+      version: this.packageInfo.version,
+      name: this.packageInfo.name,
       nodeVersion: process.version,
       environment: process.env.NODE_ENV || "development",
       build: {

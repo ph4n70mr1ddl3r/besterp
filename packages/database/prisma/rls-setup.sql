@@ -97,3 +97,92 @@ CREATE POLICY tenant_isolation_ai_action_log ON ai_action_log
 CREATE POLICY tenant_isolation_idempotency_record ON idempotency_record
   USING (tenant_id = current_setting('app.current_tenant', TRUE))
   WITH CHECK (tenant_id = current_setting('app.current_tenant', TRUE));
+
+-- ─── Subtype tables (protected via parent party) ────────────────
+-- These tables lack a direct tenant_id column, so policies JOIN through
+-- the parent Party table to enforce isolation.
+
+-- Person (subtype of Party)
+ALTER TABLE person ENABLE ROW LEVEL SECURITY;
+ALTER TABLE person FORCE ROW LEVEL SECURITY;
+CREATE POLICY tenant_isolation_person ON person
+  USING (
+    party_id IN (
+      SELECT party_id FROM party
+      WHERE tenant_id = current_setting('app.current_tenant', TRUE)
+    )
+  )
+  WITH CHECK (
+    party_id IN (
+      SELECT party_id FROM party
+      WHERE tenant_id = current_setting('app.current_tenant', TRUE)
+    )
+  );
+
+-- Organization (subtype of Party)
+ALTER TABLE organization ENABLE ROW LEVEL SECURITY;
+ALTER TABLE organization FORCE ROW LEVEL SECURITY;
+CREATE POLICY tenant_isolation_organization ON organization
+  USING (
+    party_id IN (
+      SELECT party_id FROM party
+      WHERE tenant_id = current_setting('app.current_tenant', TRUE)
+    )
+  )
+  WITH CHECK (
+    party_id IN (
+      SELECT party_id FROM party
+      WHERE tenant_id = current_setting('app.current_tenant', TRUE)
+    )
+  );
+
+-- Postal Address (subtype of ContactMechanism)
+ALTER TABLE postal_address ENABLE ROW LEVEL SECURITY;
+ALTER TABLE postal_address FORCE ROW LEVEL SECURITY;
+CREATE POLICY tenant_isolation_postal_address ON postal_address
+  USING (
+    contact_mechanism_id IN (
+      SELECT contact_mechanism_id FROM contact_mechanism
+      WHERE tenant_id = current_setting('app.current_tenant', TRUE)
+    )
+  )
+  WITH CHECK (
+    contact_mechanism_id IN (
+      SELECT contact_mechanism_id FROM contact_mechanism
+      WHERE tenant_id = current_setting('app.current_tenant', TRUE)
+    )
+  );
+
+-- Telecom Number (subtype of ContactMechanism)
+ALTER TABLE telecom_number ENABLE ROW LEVEL SECURITY;
+ALTER TABLE telecom_number FORCE ROW LEVEL SECURITY;
+CREATE POLICY tenant_isolation_telecom_number ON telecom_number
+  USING (
+    contact_mechanism_id IN (
+      SELECT contact_mechanism_id FROM contact_mechanism
+      WHERE tenant_id = current_setting('app.current_tenant', TRUE)
+    )
+  )
+  WITH CHECK (
+    contact_mechanism_id IN (
+      SELECT contact_mechanism_id FROM contact_mechanism
+      WHERE tenant_id = current_setting('app.current_tenant', TRUE)
+    )
+  );
+
+-- Email Address (subtype of ContactMechanism)
+ALTER TABLE email_address ENABLE ROW LEVEL SECURITY;
+ALTER TABLE email_address FORCE ROW LEVEL SECURITY;
+CREATE POLICY tenant_isolation_email_address ON email_address
+  USING (
+    contact_mechanism_id IN (
+      SELECT contact_mechanism_id FROM contact_mechanism
+      WHERE tenant_id = current_setting('app.current_tenant', TRUE)
+    )
+  )
+  WITH CHECK (
+    contact_mechanism_id IN (
+      SELECT contact_mechanism_id FROM contact_mechanism
+      WHERE tenant_id = current_setting('app.current_tenant', TRUE)
+    )
+  );

@@ -34,3 +34,9 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public
 
 ALTER DEFAULT PRIVILEGES IN SCHEMA public
   GRANT USAGE, SELECT ON SEQUENCES TO besterp_app;
+
+-- Grant access to RLS-protected tables for the app role
+-- Type tables are shared across tenants and need SELECT for lookups
+GRANT SELECT ON party_type TO besterp_app;
+GRANT SELECT ON role_type TO besterp_app;
+GRANT SELECT ON contact_mechanism_type TO besterp_app;

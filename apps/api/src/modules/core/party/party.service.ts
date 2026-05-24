@@ -24,7 +24,6 @@ import {
   InvalidTypeValueError,
   DuplicateEntityError,
   EntityNotFoundError,
-  ConcurrencyError,
 } from "@besterp/shared";
 import {
   CreatePartyInput,
@@ -523,23 +522,13 @@ export class PartyService {
       validContactData = emailAddress;
     }
 
-    if (!validContactData) {
-      throw new MissingSubtypeDataError(
-        `No contact data provided for contactMechanismType '${contactMechanismType}'.`,
-        {
-          suggestedTools: ["add_contact_mechanism"],
-          context: { contactMechanismType },
-        }
-      );
-    }
-
     // Create contact mechanism with subtype in a transaction
     const contactMechanism = await db.$transaction(async (tx: Prisma.TransactionClient) => {
       return tx.contactMechanism.create({
         data: {
           contactMechanismTypeId: cmType.contactMechanismTypeId,
           tenantId,
-          postalAddress: contactMechanismType === "POSTAL_ADDRESS" && validContactData
+          postalAddress: contactMechanismType === "POSTAL_ADDRESS"
             ? {
                 create: {
                   addressLine1: (validContactData as PostalAddressInput).addressLine1.trim(),
@@ -551,7 +540,7 @@ export class PartyService {
                 },
               }
             : undefined,
-          telecomNumber: contactMechanismType === "TELECOM_NUMBER" && validContactData
+          telecomNumber: contactMechanismType === "TELECOM_NUMBER"
             ? {
                 create: {
                   countryCode: (validContactData as TelecomNumberInput).countryCode?.trim() || "+1",
@@ -561,7 +550,7 @@ export class PartyService {
                 },
               }
             : undefined,
-          emailAddress: contactMechanismType === "EMAIL_ADDRESS" && validContactData
+          emailAddress: contactMechanismType === "EMAIL_ADDRESS"
             ? {
                 create: {
                   email: (validContactData as EmailAddressInput).email.trim().toLowerCase(),

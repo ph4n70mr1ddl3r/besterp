@@ -72,8 +72,8 @@ export interface ToolDefinition<TInput = unknown, TResult = unknown> {
   /** Natural language description the AI reads to decide whether to use this tool. */
   description: string;
 
-  /** Zod schema for input validation and JSON Schema generation. */
-  inputSchema: any;
+  /** Zod schema for input validation and JSON Schema generation. Must support `.safeParse()`. */
+  inputSchema: any; // Should be ZodTypeAny from 'zod', typed as `any` to avoid import coupling
 
   /** Risk level — determines confirmation gate behavior. */
   riskLevel: RiskLevel;

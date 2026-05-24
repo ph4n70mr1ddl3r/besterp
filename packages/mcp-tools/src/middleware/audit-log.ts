@@ -31,7 +31,9 @@ export function auditLogMiddleware(prisma: PrismaClient): ToolMiddleware {
         toolInput: input as any,
         toolOutput: { error: { message: error instanceof Error ? error.message : String(error), code: (error as Record<string, unknown>).code as string | undefined } },
         reasoning: undefined,
-      }).catch(() => {});
+      }).catch((logErr) => {
+        console.warn(`[AuditLog] Failed to write audit log: ${logErr instanceof Error ? logErr.message : logErr}`);
+      });
 
       throw error;
     }
@@ -45,7 +47,9 @@ export function auditLogMiddleware(prisma: PrismaClient): ToolMiddleware {
       toolInput: input as any,
       toolOutput: result.data ?? null,
       reasoning: undefined,
-    }).catch(() => {});
+    }).catch((logErr) => {
+      console.warn(`[AuditLog] Failed to write audit log: ${logErr instanceof Error ? logErr.message : logErr}`);
+    });
 
     return result;
   };

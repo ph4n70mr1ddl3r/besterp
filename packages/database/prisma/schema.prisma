@@ -42,7 +42,7 @@ model Party {
   tenantId    String   @map("tenant_id")
   name        String
   description String?
-  version     Int      @default(1)
+  version     Int      @default(1) @map("version")
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 

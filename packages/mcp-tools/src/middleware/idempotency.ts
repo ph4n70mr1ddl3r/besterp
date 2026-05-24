@@ -110,11 +110,18 @@ export function idempotencyMiddleware(prisma: PrismaClient): ToolMiddleware {
         };
       }
 
-      // status === 'failed' — re-execute by updating to pending
-      await prisma.idempotencyRecord.update({
-        where: { idempotencyKey },
-        data: { status: "pending", inputHash, expiresAt: new Date(Date.now() + 86400000) },
-      });
+      // status === 'failed' — re-execute by updating to pending inside a
+      // serializable transaction to prevent two concurrent requests from both
+      // seeing 'failed' and both re-executing.
+      await prisma.$transaction(async (tx) => {
+        const fresh = await tx.idempotencyRecord.findUnique({ where: { idempotencyKey } });
+        if (fresh && fresh.status === "failed") {
+          await tx.idempotencyRecord.update({
+            where: { idempotencyKey },
+            data: { status: "pending", inputHash, expiresAt: new Date(Date.now() + 86400000) },
+          });
+        }
+      }, { isolationLevel: "Serializable" });
     }
 
     // ─── Execute the tool ─────────────────────────────────────────
