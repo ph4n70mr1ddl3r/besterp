@@ -40,6 +40,9 @@ async function bootstrap() {
 
   const app = await NestFactory.create(AppModule);
 
+  // Enable graceful shutdown so PrismaService.onModuleDestroy fires
+  app.enableShutdownHooks();
+
   // Global prefix for REST endpoints
   app.setGlobalPrefix("api");
 

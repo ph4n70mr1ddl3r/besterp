@@ -17,9 +17,11 @@ import { JWT_DEV_SECRET } from "./jwt.strategy.js";
     JwtModule.register({
       // In production, JwtStrategy throws if JWT_SECRET is missing, preventing
       // the app from starting. Here we provide the dev default only in non-prod.
-      // Using undefined (instead of empty string) in prod ensures the JWT module
-      // itself will throw if somehow the strategy check is bypassed.
-      secret: process.env.JWT_SECRET || (process.env.NODE_ENV !== "production" ? JWT_DEV_SECRET : undefined!),
+      // Using an empty string in prod is a deliberate sentinel — the JwtStrategy
+      // constructor already guards against missing secrets, so this path should
+      // never be reached in production. An empty string ensures the JWT module
+      // throws a clear error rather than silently accepting undefined.
+      secret: process.env.JWT_SECRET || (process.env.NODE_ENV !== "production" ? JWT_DEV_SECRET : ""),
       signOptions: { expiresIn: "24h" },
     }),
   ],

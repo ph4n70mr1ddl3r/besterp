@@ -65,24 +65,24 @@ Type tables are the ERP's vocabulary — they define what classifications are av
     tags: ["discovery", "type-table"],
 
     handler: async (input: { typeName: string }, _context: ToolContext) => {
-      type TypeTableRow = { name: string; description: string | null; aiPromptHint: string | null };
+      type TypeTableRow = { id: string; name: string; description: string | null; aiPromptHint: string | null };
       let values: TypeTableRow[];
 
       switch (input.typeName) {
         case "PARTY_TYPE":
-          values = await prisma.partyType.findMany({
+          values = (await prisma.partyType.findMany({
             select: { partyTypeId: true, name: true, description: true, aiPromptHint: true },
-          });
+          })).map((r) => ({ id: r.partyTypeId, name: r.name, description: r.description, aiPromptHint: r.aiPromptHint }));
           break;
         case "ROLE_TYPE":
-          values = await prisma.roleType.findMany({
+          values = (await prisma.roleType.findMany({
             select: { roleTypeId: true, name: true, description: true, aiPromptHint: true },
-          });
+          })).map((r) => ({ id: r.roleTypeId, name: r.name, description: r.description, aiPromptHint: r.aiPromptHint }));
           break;
         case "CONTACT_MECHANISM_TYPE":
-          values = await prisma.contactMechanismType.findMany({
+          values = (await prisma.contactMechanismType.findMany({
             select: { contactMechanismTypeId: true, name: true, description: true, aiPromptHint: true },
-          });
+          })).map((r) => ({ id: r.contactMechanismTypeId, name: r.name, description: r.description, aiPromptHint: r.aiPromptHint }));
           break;
         default:
           return {

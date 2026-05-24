@@ -19,6 +19,16 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { PrismaService } from "../../../prisma/prisma.service.js";
 import { Prisma } from "@prisma/client";
+
+// Prisma return type for party queries with standard includes
+type PartyWithIncludes = Prisma.PartyGetPayload<{
+  include: {
+    person: true;
+    organization: true;
+    partyType: true;
+    roles: { include: { roleType: true } };
+  };
+}>;
 import {
   MissingSubtypeDataError,
   InvalidTypeValueError,
@@ -606,7 +616,7 @@ export class PartyService {
 
   // ─── Private Helpers ──────────────────────────────────────────
 
-  private toPartyResult(party: any): PartyResult {
+  private toPartyResult(party: PartyWithIncludes): PartyResult {
     return {
       partyId: party.partyId,
       name: party.name,
@@ -629,7 +639,7 @@ export class PartyService {
             registrationDate: party.organization.registrationDate?.toISOString() ?? null,
           }
         : null,
-      roles: (party.roles ?? []).map((r: any) => ({
+      roles: (party.roles ?? []).map((r) => ({
         partyRoleId: r.partyRoleId,
         roleTypeName: r.roleType?.name ?? "UNKNOWN",
         fromDate: r.fromDate.toISOString(),

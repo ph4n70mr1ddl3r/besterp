@@ -74,22 +74,6 @@ export const errorHandlerMiddleware: ToolMiddleware = async (input, context, def
       };
     }
 
-    // ─── Legacy string-pattern errors (backward compat) ───────────
-    // Some services still throw `new Error("CODE: message")`
-    const colonIndex = message.indexOf(": ");
-    if (colonIndex > 0 && message.slice(0, colonIndex).includes("_")) {
-      const code = message.slice(0, colonIndex);
-      const detail = message.slice(colonIndex + 2);
-      return {
-        success: false,
-        error: {
-          code,
-          message: detail,
-          suggestedTools: [definition.name, "list_available_tools"],
-        },
-      };
-    }
-
     // ─── Generic fallback ─────────────────────────────────────────
     return {
       success: false,

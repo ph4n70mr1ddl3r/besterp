@@ -47,8 +47,14 @@ export class PrismaService
   }
 
   async onModuleDestroy() {
-    await this.$disconnect();
-    await this.appClient.$disconnect();
+    try {
+      await this.$disconnect();
+      await this.appClient.$disconnect();
+    } catch (error) {
+      this.logger.error(
+        `Error disconnecting database: ${(error as Error).message}`
+      );
+    }
   }
 
   /**
