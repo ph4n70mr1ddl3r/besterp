@@ -18,8 +18,54 @@ import {
   IsInt,
   Min,
   Max,
+  ValidatorConstraint,
+  ValidatorConstraintInterface,
+  Validate,
 } from "class-validator";
 import { Type } from "class-transformer";
+
+// ─── Cross-field validators ──────────────────────────────────────
+
+/**
+ * Validates that when partyType is PERSON, `person` is provided.
+ * When partyType is ORGANIZATION, `organization` is provided.
+ */
+@ValidatorConstraint({ name: "partySubtypeMatch", async: false })
+class PartySubtypeMatchConstraint implements ValidatorConstraintInterface {
+  validate(_value: unknown, args: any): boolean {
+    const obj = args.object as CreatePartyDto;
+    if (obj.partyType === "PERSON" && !obj.person) return false;
+    if (obj.partyType === "ORGANIZATION" && !obj.organization) return false;
+    return true;
+  }
+
+  defaultMessage(args: any): string {
+    const obj = args.object as CreatePartyDto;
+    if (obj.partyType === "PERSON")
+      return "'person' is required when partyType is PERSON";
+    if (obj.partyType === "ORGANIZATION")
+      return "'organization' is required when partyType is ORGANIZATION";
+    return "Subtype data must match partyType";
+  }
+}
+
+/**
+ * Validates that only the matching subtype is provided (no extra data).
+ */
+@ValidatorConstraint({ name: "partySubtypeExclusive", async: false })
+class PartySubtypeExclusiveConstraint implements ValidatorConstraintInterface {
+  validate(_value: unknown, args: any): boolean {
+    const obj = args.object as CreatePartyDto;
+    // ORGANIZATION type should not include person data, and vice versa
+    if (obj.partyType === "PERSON" && obj.organization) return false;
+    if (obj.partyType === "ORGANIZATION" && obj.person) return false;
+    return true;
+  }
+
+  defaultMessage(): string {
+    return "Only the subtype matching partyType should be provided";
+  }
+}
 
 // ─── Person Subtype ──────────────────────────────────────────────
 
@@ -84,6 +130,12 @@ export class CreatePartyDto {
   @IsOptional()
   @Type(() => CreateOrganizationDto)
   organization?: CreateOrganizationDto;
+
+  // Cross-field: correct subtype must be present for the chosen partyType
+  @Validate(PartySubtypeMatchConstraint)
+  // Cross-field: only the matching subtype should be provided
+  @Validate(PartySubtypeExclusiveConstraint)
+  _subtypeCheck?: unknown;
 }
 
 // ─── Search Parties ──────────────────────────────────────────────
@@ -181,6 +233,31 @@ export class EmailAddressDto {
 
 // ─── Add Contact Mechanism ───────────────────────────────────────
 
+/**
+ * Validates that the correct contact subtype is provided for the contactMechanismType.
+ */
+@ValidatorConstraint({ name: "contactSubtypeMatch", async: false })
+class ContactSubtypeMatchConstraint implements ValidatorConstraintInterface {
+  validate(_value: unknown, args: any): boolean {
+    const obj = args.object as AddContactMechanismDto;
+    if (obj.contactMechanismType === "POSTAL_ADDRESS" && !obj.postalAddress) return false;
+    if (obj.contactMechanismType === "TELECOM_NUMBER" && !obj.telecomNumber) return false;
+    if (obj.contactMechanismType === "EMAIL_ADDRESS" && !obj.emailAddress) return false;
+    return true;
+  }
+
+  defaultMessage(args: any): string {
+    const obj = args.object as AddContactMechanismDto;
+    const map: Record<string, string> = {
+      POSTAL_ADDRESS: "postalAddress",
+      TELECOM_NUMBER: "telecomNumber",
+      EMAIL_ADDRESS: "emailAddress",
+    };
+    const field = map[obj.contactMechanismType] || "subtype";
+    return `'${field}' is required when contactMechanismType is ${obj.contactMechanismType}`;
+  }
+}
+
 export class AddContactMechanismDto {
   @IsEnum(["POSTAL_ADDRESS", "TELECOM_NUMBER", "EMAIL_ADDRESS"])
   contactMechanismType!: "POSTAL_ADDRESS" | "TELECOM_NUMBER" | "EMAIL_ADDRESS";
@@ -199,4 +276,7 @@ export class AddContactMechanismDto {
   @IsOptional()
   @Type(() => EmailAddressDto)
   emailAddress?: EmailAddressDto;
+
+  @Validate(ContactSubtypeMatchConstraint)
+  _subtypeCheck?: unknown;
 }

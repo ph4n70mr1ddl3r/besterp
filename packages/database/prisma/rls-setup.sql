@@ -47,27 +47,43 @@ ALTER TABLE idempotency_record FORCE ROW LEVEL SECURITY;
 -- USING  = rows visible for SELECT, UPDATE, DELETE
 -- WITH CHECK = rows allowed for INSERT, UPDATE
 -- Note: Prisma String maps to TEXT, so no UUID cast needed.
+-- IMPORTANT: current_setting(..., TRUE) returns '' (empty string) when
+-- the setting is unset. We guard against '' to prevent edge-case leaks.
 
 -- Party
 CREATE POLICY tenant_isolation_party ON party
-  USING (tenant_id = current_setting('app.current_tenant', TRUE))
-  WITH CHECK (tenant_id = current_setting('app.current_tenant', TRUE));
+  USING (
+    current_setting('app.current_tenant', TRUE) != ''
+    AND tenant_id = current_setting('app.current_tenant', TRUE)
+  )
+  WITH CHECK (
+    current_setting('app.current_tenant', TRUE) != ''
+    AND tenant_id = current_setting('app.current_tenant', TRUE)
+  );
 
 -- Contact Mechanism
 CREATE POLICY tenant_isolation_contact_mechanism ON contact_mechanism
-  USING (tenant_id = current_setting('app.current_tenant', TRUE))
-  WITH CHECK (tenant_id = current_setting('app.current_tenant', TRUE));
+  USING (
+    current_setting('app.current_tenant', TRUE) != ''
+    AND tenant_id = current_setting('app.current_tenant', TRUE)
+  )
+  WITH CHECK (
+    current_setting('app.current_tenant', TRUE) != ''
+    AND tenant_id = current_setting('app.current_tenant', TRUE)
+  );
 
 -- Party Contact Mechanism (via party)
 CREATE POLICY tenant_isolation_party_contact_mechanism ON party_contact_mechanism
   USING (
-    party_id IN (
+    current_setting('app.current_tenant', TRUE) != ''
+    AND party_id IN (
       SELECT party_id FROM party
       WHERE tenant_id = current_setting('app.current_tenant', TRUE)
     )
   )
   WITH CHECK (
-    party_id IN (
+    current_setting('app.current_tenant', TRUE) != ''
+    AND party_id IN (
       SELECT party_id FROM party
       WHERE tenant_id = current_setting('app.current_tenant', TRUE)
     )
@@ -76,13 +92,15 @@ CREATE POLICY tenant_isolation_party_contact_mechanism ON party_contact_mechanis
 -- Party Role (via party subquery — party_role has no tenant_id column)
 CREATE POLICY tenant_isolation_party_role ON party_role
   USING (
-    party_id IN (
+    current_setting('app.current_tenant', TRUE) != ''
+    AND party_id IN (
       SELECT party_id FROM party
       WHERE tenant_id = current_setting('app.current_tenant', TRUE)
     )
   )
   WITH CHECK (
-    party_id IN (
+    current_setting('app.current_tenant', TRUE) != ''
+    AND party_id IN (
       SELECT party_id FROM party
       WHERE tenant_id = current_setting('app.current_tenant', TRUE)
     )
@@ -90,13 +108,25 @@ CREATE POLICY tenant_isolation_party_role ON party_role
 
 -- AI Action Log
 CREATE POLICY tenant_isolation_ai_action_log ON ai_action_log
-  USING (tenant_id = current_setting('app.current_tenant', TRUE))
-  WITH CHECK (tenant_id = current_setting('app.current_tenant', TRUE));
+  USING (
+    current_setting('app.current_tenant', TRUE) != ''
+    AND tenant_id = current_setting('app.current_tenant', TRUE)
+  )
+  WITH CHECK (
+    current_setting('app.current_tenant', TRUE) != ''
+    AND tenant_id = current_setting('app.current_tenant', TRUE)
+  );
 
 -- Idempotency Record
 CREATE POLICY tenant_isolation_idempotency_record ON idempotency_record
-  USING (tenant_id = current_setting('app.current_tenant', TRUE))
-  WITH CHECK (tenant_id = current_setting('app.current_tenant', TRUE));
+  USING (
+    current_setting('app.current_tenant', TRUE) != ''
+    AND tenant_id = current_setting('app.current_tenant', TRUE)
+  )
+  WITH CHECK (
+    current_setting('app.current_tenant', TRUE) != ''
+    AND tenant_id = current_setting('app.current_tenant', TRUE)
+  );
 
 -- ─── Subtype tables (protected via parent party) ────────────────
 -- These tables lack a direct tenant_id column, so policies JOIN through
@@ -107,13 +137,15 @@ ALTER TABLE person ENABLE ROW LEVEL SECURITY;
 ALTER TABLE person FORCE ROW LEVEL SECURITY;
 CREATE POLICY tenant_isolation_person ON person
   USING (
-    party_id IN (
+    current_setting('app.current_tenant', TRUE) != ''
+    AND party_id IN (
       SELECT party_id FROM party
       WHERE tenant_id = current_setting('app.current_tenant', TRUE)
     )
   )
   WITH CHECK (
-    party_id IN (
+    current_setting('app.current_tenant', TRUE) != ''
+    AND party_id IN (
       SELECT party_id FROM party
       WHERE tenant_id = current_setting('app.current_tenant', TRUE)
     )
@@ -124,13 +156,15 @@ ALTER TABLE organization ENABLE ROW LEVEL SECURITY;
 ALTER TABLE organization FORCE ROW LEVEL SECURITY;
 CREATE POLICY tenant_isolation_organization ON organization
   USING (
-    party_id IN (
+    current_setting('app.current_tenant', TRUE) != ''
+    AND party_id IN (
       SELECT party_id FROM party
       WHERE tenant_id = current_setting('app.current_tenant', TRUE)
     )
   )
   WITH CHECK (
-    party_id IN (
+    current_setting('app.current_tenant', TRUE) != ''
+    AND party_id IN (
       SELECT party_id FROM party
       WHERE tenant_id = current_setting('app.current_tenant', TRUE)
     )
@@ -141,13 +175,15 @@ ALTER TABLE postal_address ENABLE ROW LEVEL SECURITY;
 ALTER TABLE postal_address FORCE ROW LEVEL SECURITY;
 CREATE POLICY tenant_isolation_postal_address ON postal_address
   USING (
-    contact_mechanism_id IN (
+    current_setting('app.current_tenant', TRUE) != ''
+    AND contact_mechanism_id IN (
       SELECT contact_mechanism_id FROM contact_mechanism
       WHERE tenant_id = current_setting('app.current_tenant', TRUE)
     )
   )
   WITH CHECK (
-    contact_mechanism_id IN (
+    current_setting('app.current_tenant', TRUE) != ''
+    AND contact_mechanism_id IN (
       SELECT contact_mechanism_id FROM contact_mechanism
       WHERE tenant_id = current_setting('app.current_tenant', TRUE)
     )
@@ -158,13 +194,15 @@ ALTER TABLE telecom_number ENABLE ROW LEVEL SECURITY;
 ALTER TABLE telecom_number FORCE ROW LEVEL SECURITY;
 CREATE POLICY tenant_isolation_telecom_number ON telecom_number
   USING (
-    contact_mechanism_id IN (
+    current_setting('app.current_tenant', TRUE) != ''
+    AND contact_mechanism_id IN (
       SELECT contact_mechanism_id FROM contact_mechanism
       WHERE tenant_id = current_setting('app.current_tenant', TRUE)
     )
   )
   WITH CHECK (
-    contact_mechanism_id IN (
+    current_setting('app.current_tenant', TRUE) != ''
+    AND contact_mechanism_id IN (
       SELECT contact_mechanism_id FROM contact_mechanism
       WHERE tenant_id = current_setting('app.current_tenant', TRUE)
     )
@@ -175,13 +213,15 @@ ALTER TABLE email_address ENABLE ROW LEVEL SECURITY;
 ALTER TABLE email_address FORCE ROW LEVEL SECURITY;
 CREATE POLICY tenant_isolation_email_address ON email_address
   USING (
-    contact_mechanism_id IN (
+    current_setting('app.current_tenant', TRUE) != ''
+    AND contact_mechanism_id IN (
       SELECT contact_mechanism_id FROM contact_mechanism
       WHERE tenant_id = current_setting('app.current_tenant', TRUE)
     )
   )
   WITH CHECK (
-    contact_mechanism_id IN (
+    current_setting('app.current_tenant', TRUE) != ''
+    AND contact_mechanism_id IN (
       SELECT contact_mechanism_id FROM contact_mechanism
       WHERE tenant_id = current_setting('app.current_tenant', TRUE)
     )

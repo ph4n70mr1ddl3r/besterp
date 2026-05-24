@@ -40,33 +40,51 @@ export function idempotencyMiddleware(prisma: PrismaClient): ToolMiddleware {
     // Wrapping findUnique + create/update inside a single serializable
     // transaction prevents two concurrent requests from both seeing a
     // null result and both creating a pending record.
-    const existing = await prisma.$transaction(async (tx) => {
+    //
+    // Returns: { record, shouldReexecute }
+    //   - record=null: no prior record, we created a pending one → proceed
+    //   - record != null: existing record found → handle below
+    const { existing: existingRecord, reexecuteNeeded } = await prisma.$transaction(async (tx) => {
       const record = await tx.idempotencyRecord.findUnique({
         where: { idempotencyKey },
       });
 
-      if (record) return record;
+      if (!record) {
+        // No record exists — atomically create one inside the transaction
+        await tx.idempotencyRecord.create({
+          data: {
+            idempotencyKey,
+            toolName: definition.name,
+            tenantId,
+            userId,
+            agentId: agentId || null,
+            conversationId: conversationId || null,
+            status: "pending",
+            inputHash,
+            expiresAt: new Date(Date.now() + 86400000), // 24h TTL
+          },
+        });
+        return { existing: null, reexecuteNeeded: false };
+      }
 
-      // No record exists — atomically create one inside the transaction
-      await tx.idempotencyRecord.create({
-        data: {
-          idempotencyKey,
-          toolName: definition.name,
-          tenantId,
-          userId,
-          agentId: agentId || null,
-          conversationId: conversationId || null,
-          status: "pending",
-          inputHash,
-          expiresAt: new Date(Date.now() + 86400000), // 24h TTL
-        },
-      });
+      // For failed records, atomically reset to pending inside the SAME
+      // serializable transaction — eliminates the TOCTOU race where two
+      // concurrent requests both see 'failed' and both re-execute.
+      if (record.status === "failed") {
+        await tx.idempotencyRecord.update({
+          where: { idempotencyKey },
+          data: { status: "pending", inputHash, expiresAt: new Date(Date.now() + 86400000) },
+        });
+        return { existing: null, reexecuteNeeded: true };
+      }
 
-      return null; // signal: newly created, proceed to execute
+      return { existing: record, reexecuteNeeded: false };
     }, {
       isolationLevel: "Serializable",
     });
 
+    // Void marker so TypeScript knows the code below is reachable
+    const existing = existingRecord;
     if (existing) {
       if (existing.status === "completed") {
         if (existing.inputHash !== inputHash) {
@@ -110,18 +128,8 @@ export function idempotencyMiddleware(prisma: PrismaClient): ToolMiddleware {
         };
       }
 
-      // status === 'failed' — re-execute by updating to pending inside a
-      // serializable transaction to prevent two concurrent requests from both
-      // seeing 'failed' and both re-executing.
-      await prisma.$transaction(async (tx) => {
-        const fresh = await tx.idempotencyRecord.findUnique({ where: { idempotencyKey } });
-        if (fresh && fresh.status === "failed") {
-          await tx.idempotencyRecord.update({
-            where: { idempotencyKey },
-            data: { status: "pending", inputHash, expiresAt: new Date(Date.now() + 86400000) },
-          });
-        }
-      }, { isolationLevel: "Serializable" });
+      // status === 'failed' case is handled atomically in the first
+      // serializable transaction above. No second transaction needed.
     }
 
     // ─── Execute the tool ─────────────────────────────────────────

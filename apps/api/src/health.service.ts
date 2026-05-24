@@ -62,10 +62,11 @@ export class HealthService {
     const uptime = Math.round(process.uptime() * 1000); // ms since process started
     const environment = process.env.NODE_ENV || "development";
     
-    // Check database connectivity
+    // Check database connectivity — use the app client (RLS-enforced path)
+    // rather than the admin client to verify the actual runtime connection.
     let databaseStatus: "connected" | "disconnected";
     try {
-      await this.prisma.$queryRaw`SELECT 1`;
+      await this.prisma.appClient.$queryRaw`SELECT 1`;
       databaseStatus = "connected";
     } catch (error) {
       this.logger.error(`Database health check failed: ${(error as Error).message}`);

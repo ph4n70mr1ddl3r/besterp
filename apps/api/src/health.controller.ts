@@ -26,15 +26,20 @@ export class HealthController {
   async ready() {
     // Verify database connectivity with a 5-second timeout to prevent
     // the endpoint from hanging when the database is unreachable.
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
     const healthPromise = this.healthService.getHealth();
-    const timeoutPromise = new Promise<"timeout">((resolve) =>
-      setTimeout(() => resolve("timeout"), 5000)
-    );
+    const timeoutPromise = new Promise<"timeout">((resolve) => {
+      timeoutId = setTimeout(() => resolve("timeout"), 5000);
+    });
 
-    const result = await Promise.race([healthPromise, timeoutPromise]);
-    if (result === "timeout" || result.database !== "connected") {
-      throw new ServiceUnavailableException("not ready");
+    try {
+      const result = await Promise.race([healthPromise, timeoutPromise]);
+      if (result === "timeout" || result.database !== "connected") {
+        throw new ServiceUnavailableException("not ready");
+      }
+      return { status: "ready" };
+    } finally {
+      clearTimeout(timeoutId);
     }
-    return { status: "ready" };
   }
 }
