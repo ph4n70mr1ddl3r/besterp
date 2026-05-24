@@ -24,7 +24,12 @@ export interface QueueModuleOptions {
 export class QueueModule {
   static forRoot(options?: Partial<QueueModuleOptions>): DynamicModule {
     const redisHost = options?.redis?.host || process.env.REDIS_HOST || "localhost";
-    const redisPort = options?.redis?.port || parseInt(process.env.REDIS_PORT || "6379", 10);
+    const redisPort = options?.redis?.port || Number.parseInt(process.env.REDIS_PORT || "6379", 10);
+    if (!Number.isFinite(redisPort) || redisPort < 1 || redisPort > 65535) {
+      throw new Error(
+        `Invalid Redis port: ${process.env.REDIS_PORT}. Must be a number between 1 and 65535.`
+      );
+    }
     const redisPassword = options?.redis?.password || process.env.REDIS_PASSWORD;
 
     const connection: Record<string, unknown> = {

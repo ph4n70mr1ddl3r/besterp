@@ -9,7 +9,7 @@ export type {
 } from "./schema/tool-definition.js";
 
 // Registry
-export { ToolRegistry, registry } from "./registry/tool-registry.js";
+export { ToolRegistry } from "./registry/tool-registry.js";
 
 // Middleware
 export {

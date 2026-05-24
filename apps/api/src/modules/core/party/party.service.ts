@@ -19,16 +19,6 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { PrismaService } from "../../../prisma/prisma.service.js";
 import { Prisma } from "@prisma/client";
-
-// Prisma return type for party queries with standard includes
-type PartyWithIncludes = Prisma.PartyGetPayload<{
-  include: {
-    person: true;
-    organization: true;
-    partyType: true;
-    roles: { include: { roleType: true } };
-  };
-}>;
 import {
   MissingSubtypeDataError,
   InvalidTypeValueError,
@@ -49,6 +39,16 @@ import {
   TelecomNumberInput,
   EmailAddressInput,
 } from "./party.types.js";
+
+// Prisma return type for party queries with standard includes
+type PartyWithIncludes = Prisma.PartyGetPayload<{
+  include: {
+    person: true;
+    organization: true;
+    partyType: true;
+    roles: { include: { roleType: true } };
+  };
+}>;
 
 @Injectable()
 export class PartyService {
@@ -215,7 +215,7 @@ export class PartyService {
     const where: Prisma.PartyWhereInput = { tenantId };
     
     if (name) {
-      // Use startsWith for better performance than contains when possible
+      // Use contains for flexible partial matching (case-insensitive)
       const trimmedName = name.trim();
       if (trimmedName.length > 0) {
         where.name = { contains: trimmedName, mode: "insensitive" };

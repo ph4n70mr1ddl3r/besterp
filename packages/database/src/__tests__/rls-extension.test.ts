@@ -7,7 +7,7 @@ import {
   createTenantClient, 
   validateTenantIdEnhanced, 
   validatePrismaClientForRls 
-} from "../rls-extension";
+} from "../rls-extension.js";
 import { InvalidTypeValueError } from "@besterp/shared";
 
 describe("RLS Extension", () => {

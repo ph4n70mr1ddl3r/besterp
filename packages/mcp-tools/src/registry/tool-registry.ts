@@ -150,5 +150,5 @@ export class ToolRegistry {
   }
 }
 
-// Singleton registry instance
-export const registry = new ToolRegistry();
+// NOTE: No singleton is exported. Create instances via `new ToolRegistry()`.
+// This avoids shared mutable state across modules.
