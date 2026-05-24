@@ -23,13 +23,14 @@ function domainErrorToStatus(error: DomainError): number {
       return 404;
     case "DUPLICATE_ENTITY":
       return 409;
+    case "CONCURRENCY_CONFLICT":
+      return 409;
     case "MISSING_SUBTYPE_DATA":
     case "INVALID_TYPE_VALUE":
       return 422;
-    case "CONCURRENCY_CONFLICT":
-      return 409;
     default:
-      return 422;
+      // Unexpected domain error codes — return 500 to flag the issue
+      return 500;
   }
 }
 

@@ -35,7 +35,6 @@ export interface VersionInfo {
 @Injectable()
 export class HealthService {
   private readonly logger = new Logger(HealthService.name);
-  private startTime = Date.now();
 
   constructor(private readonly prisma: PrismaService) {}
 
@@ -44,7 +43,7 @@ export class HealthService {
    */
   async getHealth(): Promise<HealthStatus> {
     const timestamp = new Date().toISOString();
-    const uptime = Date.now() - this.startTime;
+    const uptime = Math.round(process.uptime() * 1000); // ms since process started
     const environment = process.env.NODE_ENV || "development";
     
     // Check database connectivity

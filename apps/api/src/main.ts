@@ -63,7 +63,12 @@ async function bootstrap() {
     })
   );
 
-  const port = process.env.PORT || 3000;
+  const rawPort = process.env.PORT || "3000";
+  const port = Number(rawPort);
+  if (!Number.isFinite(port) || port < 1 || port > 65535) {
+    console.error(`❌ FATAL: Invalid PORT "${rawPort}". Must be a number between 1 and 65535.`);
+    process.exit(1);
+  }
   await app.listen(port);
   console.log(`🚀 BestERP API running on http://localhost:${port}`);
 }

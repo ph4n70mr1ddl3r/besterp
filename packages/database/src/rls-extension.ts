@@ -18,8 +18,7 @@
 //   context. Use interactive transactions for tenant-scoped batch operations.
 
 import { PrismaClient } from "@prisma/client";
-import { validateTenantId } from "@besterp/shared";
-import { InvalidTypeValueError } from "@besterp/shared";
+import { validateTenantId, InvalidTypeValueError } from "@besterp/shared";
 
 // ─── Validation ───────────────────────────────────────────────────
 

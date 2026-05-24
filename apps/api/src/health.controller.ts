@@ -24,9 +24,15 @@ export class HealthController {
 
   @Get("ready")
   async ready() {
-    // Verify database connectivity (delegates to service)
-    const status = await this.healthService.getHealth();
-    if (status.database !== "connected") {
+    // Verify database connectivity with a 5-second timeout to prevent
+    // the endpoint from hanging when the database is unreachable.
+    const healthPromise = this.healthService.getHealth();
+    const timeoutPromise = new Promise<"timeout">((resolve) =>
+      setTimeout(() => resolve("timeout"), 5000)
+    );
+
+    const result = await Promise.race([healthPromise, timeoutPromise]);
+    if (result === "timeout" || result.database !== "connected") {
       throw new ServiceUnavailableException("not ready");
     }
     return { status: "ready" };

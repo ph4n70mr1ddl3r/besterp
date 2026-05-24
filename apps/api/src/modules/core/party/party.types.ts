@@ -130,7 +130,7 @@ export interface ContactMechanismResult {
   contactMechanismId: string;
   contactMechanismType: string;
   partyId: string;
-  postalAddress?: PostalAddressInput | null;
-  telecomNumber?: TelecomNumberInput | null;
-  emailAddress?: EmailAddressInput | null;
+  postalAddress: PostalAddressInput | null;
+  telecomNumber: TelecomNumberInput | null;
+  emailAddress: EmailAddressInput | null;
 }

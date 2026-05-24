@@ -47,12 +47,14 @@ export class PrismaService
   }
 
   async onModuleDestroy() {
-    try {
-      await this.$disconnect();
-      await this.appClient.$disconnect();
-    } catch (error) {
+    const disconnectAll = await Promise.allSettled([
+      this.$disconnect(),
+      this.appClient.$disconnect(),
+    ]);
+    const errors = disconnectAll.filter((r) => r.status === "rejected");
+    if (errors.length > 0) {
       this.logger.error(
-        `Error disconnecting database: ${(error as Error).message}`
+        `Error disconnecting database: ${errors.map((e) => (e as PromiseRejectedResult).reason).join(", ")}`
       );
     }
   }

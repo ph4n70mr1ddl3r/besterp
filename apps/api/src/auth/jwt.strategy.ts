@@ -10,7 +10,6 @@
 import { Injectable, UnauthorizedException } from "@nestjs/common";
 import { PassportStrategy } from "@nestjs/passport";
 import { ExtractJwt, Strategy } from "passport-jwt";
-import { Request } from "express";
 
 export interface JwtPayload {
   sub: string;      // user ID
@@ -45,11 +44,10 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
       secretOrKey: secret || JWT_DEV_SECRET,
-      passReqToCallback: true,
     });
   }
 
-  async validate(req: Request, payload: JwtPayload): Promise<JwtValidatedUser> {
+  async validate(payload: JwtPayload): Promise<JwtValidatedUser> {
     if (!payload.sub) {
       throw new UnauthorizedException("Invalid token: missing user ID (sub).");
     }

@@ -19,7 +19,6 @@ export interface QueueModuleOptions {
   };
 }
 
-@Global()
 @Module({})
 export class QueueModule {
   static forRoot(options?: Partial<QueueModuleOptions>): DynamicModule {
@@ -45,6 +44,7 @@ export class QueueModule {
 
     return {
       module: QueueModule,
+      global: true,
       imports: [
         BullModule.forRoot({
           connection,

@@ -56,8 +56,6 @@ export class PartyService {
 
   constructor(private readonly prisma: PrismaService) {}
 
-  // ─── Prisma return type for party queries with standard includes ──
-
   private static readonly PARTY_INCLUDE = {
     person: true,
     organization: true,
