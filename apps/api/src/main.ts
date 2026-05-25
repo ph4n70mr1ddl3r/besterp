@@ -12,17 +12,13 @@ import { ValidationPipe } from "@nestjs/common";
 import { AppModule } from "./app.module.js";
 
 async function bootstrap() {
-  // Warn if JWT_SECRET is not set
-  if (!process.env.JWT_SECRET) {
-    if (process.env.NODE_ENV === "production") {
-      console.error("❌ FATAL: JWT_SECRET must be set in production. Exiting.");
-      process.exit(1);
-    }
-    console.warn(
-      "⚠️  JWT_SECRET not set — using insecure default. Set JWT_SECRET in production!"
+  // Guard against unhandled promise rejections crashing the process silently.
+  process.on("unhandledRejection", (reason) => {
+    console.error(
+      "❌ Unhandled promise rejection:",
+      reason instanceof Error ? reason.stack : reason
     );
-  }
-
+  });
   // Validate required environment variables
   const requiredInProduction = ["DATABASE_URL", "JWT_SECRET"];
   const missing = requiredInProduction.filter((v) => !process.env[v]);
@@ -31,6 +27,11 @@ async function bootstrap() {
       `❌ FATAL: Missing required environment variables: ${missing.join(", ")}. Exiting.`
     );
     process.exit(1);
+  }
+  if (missing.includes("JWT_SECRET")) {
+    console.warn(
+      "⚠️  JWT_SECRET not set — using insecure default. Set JWT_SECRET in production!"
+    );
   }
   if (missing.length > 0) {
     console.warn(

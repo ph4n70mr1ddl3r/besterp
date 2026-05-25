@@ -21,14 +21,10 @@ export class PrismaService
   private readonly appClient_: PrismaClient;
   /** Cache of tenant-scoped Proxy clients to avoid GC pressure from repeated creation. */
   private readonly tenantClientCache = new Map<string, WeakRef<PrismaClient>>();
+  // FinalizationRegistry evicts cache entries when GC collects the Proxy.
+  // Note: we do NOT try to $disconnect the tenant client because the Proxy
+  // blocks $disconnect (tenant clients share the underlying appClient_ connection).
   private readonly cacheRegistry = new FinalizationRegistry<string>((tenantId: string) => {
-    const ref = this.tenantClientCache.get(tenantId);
-    const client = ref?.deref();
-    // Best-effort disconnect before evicting — prevents connection leaks.
-    // WeakRef may already be empty if GC collected it; $disconnect is safe to skip.
-    if (client) {
-      client.$disconnect().catch(() => {});
-    }
     this.tenantClientCache.delete(tenantId);
   });
 

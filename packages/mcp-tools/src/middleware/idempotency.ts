@@ -44,7 +44,7 @@ export function idempotencyMiddleware(prisma: PrismaClient): ToolMiddleware {
     // Returns: { record, shouldReexecute }
     //   - record=null: no prior record, we created a pending one → proceed
     //   - record != null: existing record found → handle below
-    const { existing: existingRecord, reexecuteNeeded } = await prisma.$transaction(async (tx) => {
+    const { existing: existingRecord } = await prisma.$transaction(async (tx) => {
       const record = await tx.idempotencyRecord.findUnique({
         where: { idempotencyKey },
       });
@@ -75,7 +75,7 @@ export function idempotencyMiddleware(prisma: PrismaClient): ToolMiddleware {
           where: { idempotencyKey },
           data: { status: "pending", inputHash, expiresAt: new Date(Date.now() + 86400000) },
         });
-        return { existing: null, reexecuteNeeded: true };
+        return { existing: null, reexecuteNeeded: false };
       }
 
       return { existing: record, reexecuteNeeded: false };
@@ -83,9 +83,8 @@ export function idempotencyMiddleware(prisma: PrismaClient): ToolMiddleware {
       isolationLevel: "Serializable",
     });
 
-    // Void marker so TypeScript knows the code below is reachable
-    const existing = existingRecord;
-    if (existing) {
+    if (existingRecord) {
+      const existing = existingRecord;
       if (existing.status === "completed") {
         if (existing.inputHash !== inputHash) {
           return {

@@ -71,6 +71,14 @@ const DATA_METHODS = new Set([
   "createMany", "createManyAndReturn",
 ]);
 
+/** Operations that should never be called on a tenant-scoped proxy. */
+const BLOCKED_LIFECYCLE = new Set(["$connect", "$disconnect", "$extends", "$on", "$use"]);
+
+/** Raw SQL operations that bypass RLS scoping. */
+const BLOCKED_RAW_SQL = new Set([
+  "$queryRaw", "$queryRawTyped", "$executeRaw", "$executeRawTyped",
+]);
+
 /**
  * Create a tenant-scoped Prisma client.
  *
@@ -149,8 +157,7 @@ export function createTenantClient(prisma: PrismaClient, tenantId: string) {
       // Block operations that should never be called on a tenant-scoped proxy.
       // $connect/$disconnect affect the underlying client's connection pool;
       // $extends would bypass the Proxy's RLS wrapping.
-      const BLOCKED_METHODS = new Set(["$connect", "$disconnect", "$extends", "$on", "$use"]);
-      if (BLOCKED_METHODS.has(prop)) {
+      if (BLOCKED_LIFECYCLE.has(prop)) {
         throw new Error(
           `Cannot call '${prop}' on a tenant-scoped client. Use the base PrismaClient directly.`
         );
@@ -159,10 +166,7 @@ export function createTenantClient(prisma: PrismaClient, tenantId: string) {
       // Block operations that bypass RLS scoping.
       // $queryRawTyped/$queryRaw would execute without SET LOCAL.
       // $executeRaw/$executeRawTyped could mutate outside tenant context.
-      const BLOCKED_RAW = new Set([
-        "$queryRaw", "$queryRawTyped", "$executeRaw", "$executeRawTyped",
-      ]);
-      if (BLOCKED_RAW.has(prop)) {
+      if (BLOCKED_RAW_SQL.has(prop)) {
         throw new Error(
           `Cannot call '${prop}' on a tenant-scoped client. Raw SQL bypasses RLS. Use the base PrismaClient.`
         );
