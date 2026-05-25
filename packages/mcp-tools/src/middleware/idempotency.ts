@@ -44,44 +44,62 @@ export function idempotencyMiddleware(prisma: PrismaClient): ToolMiddleware {
     // Returns: { record, shouldReexecute }
     //   - record=null: no prior record, we created a pending one → proceed
     //   - record != null: existing record found → handle below
-    const { existing: existingRecord } = await prisma.$transaction(async (tx) => {
-      const record = await tx.idempotencyRecord.findUnique({
-        where: { idempotencyKey },
-      });
+    //
+    // Retry on serialization failure (P2034) — transient under concurrency.
+    const MAX_RETRIES = 3;
+    let existingRecord: any = null;
 
-      if (!record) {
-        // No record exists — atomically create one inside the transaction
-        await tx.idempotencyRecord.create({
-          data: {
-            idempotencyKey,
-            toolName: definition.name,
-            tenantId,
-            userId,
-            agentId: agentId || null,
-            conversationId: conversationId || null,
-            status: "pending",
-            inputHash,
-            expiresAt: new Date(Date.now() + 86400000), // 24h TTL
-          },
+    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+      try {
+        const { existing } = await prisma.$transaction(async (tx) => {
+          const record = await tx.idempotencyRecord.findUnique({
+            where: { idempotencyKey },
+          });
+
+          if (!record) {
+            // No record exists — atomically create one inside the transaction
+            await tx.idempotencyRecord.create({
+              data: {
+                idempotencyKey,
+                toolName: definition.name,
+                tenantId,
+                userId,
+                agentId: agentId || null,
+                conversationId: conversationId || null,
+                status: "pending",
+                inputHash,
+                expiresAt: new Date(Date.now() + 86400000), // 24h TTL
+              },
+            });
+            return { existing: null, reexecuteNeeded: false };
+          }
+
+          // For failed records, atomically reset to pending inside the SAME
+          // serializable transaction — eliminates the TOCTOU race where two
+          // concurrent requests both see 'failed' and both re-execute.
+          if (record.status === "failed") {
+            await tx.idempotencyRecord.update({
+              where: { idempotencyKey },
+              data: { status: "pending", inputHash, expiresAt: new Date(Date.now() + 86400000) },
+            });
+            return { existing: null, reexecuteNeeded: false };
+          }
+
+          return { existing: record, reexecuteNeeded: false };
+        }, {
+          isolationLevel: "Serializable",
         });
-        return { existing: null, reexecuteNeeded: false };
+        existingRecord = existing;
+        break;
+      } catch (e) {
+        if ((e as Record<string, unknown>).code === "P2034" && attempt < MAX_RETRIES - 1) {
+          // Serialization failure — back off and retry
+          await new Promise((r) => setTimeout(r, 50 * (attempt + 1)));
+          continue;
+        }
+        throw e;
       }
-
-      // For failed records, atomically reset to pending inside the SAME
-      // serializable transaction — eliminates the TOCTOU race where two
-      // concurrent requests both see 'failed' and both re-execute.
-      if (record.status === "failed") {
-        await tx.idempotencyRecord.update({
-          where: { idempotencyKey },
-          data: { status: "pending", inputHash, expiresAt: new Date(Date.now() + 86400000) },
-        });
-        return { existing: null, reexecuteNeeded: false };
-      }
-
-      return { existing: record, reexecuteNeeded: false };
-    }, {
-      isolationLevel: "Serializable",
-    });
+    }
 
     if (existingRecord) {
       const existing = existingRecord;

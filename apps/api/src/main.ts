@@ -33,9 +33,10 @@ async function bootstrap() {
       "⚠️  JWT_SECRET not set — using insecure default. Set JWT_SECRET in production!"
     );
   }
-  if (missing.length > 0) {
+  const others = missing.filter((v) => v !== "JWT_SECRET");
+  if (others.length > 0) {
     console.warn(
-      `⚠️  Missing optional environment variables: ${missing.join(", ")}. Defaults will be used.`
+      `⚠️  Missing optional environment variables: ${others.join(", ")}. Defaults will be used.`
     );
   }
 

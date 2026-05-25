@@ -31,16 +31,21 @@ export class QueueModule {
     }
     const redisPassword = options?.redis?.password || process.env.REDIS_PASSWORD;
 
-    const connection: Record<string, unknown> = {
+    const connection: {
+      host: string;
+      port: number;
+      maxRetriesPerRequest: null;
+      retryStrategy: (times: number) => number;
+      connectTimeout: number;
+      password?: string;
+    } = {
       host: redisHost,
       port: redisPort,
       maxRetriesPerRequest: null, // required by BullMQ for sticky connections
-      retryStrategy: (times: number) => Math.min(times * 200, 5000),
+      retryStrategy: (times: number): number => Math.min(times * 200, 5000),
       connectTimeout: 10000,
+      ...(redisPassword ? { password: redisPassword } : {}),
     };
-    if (redisPassword) {
-      connection.password = redisPassword;
-    }
 
     return {
       module: QueueModule,

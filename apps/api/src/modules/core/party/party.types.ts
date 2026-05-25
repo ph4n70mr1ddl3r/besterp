@@ -1,4 +1,4 @@
-// Party DTOs — Input/Output types for the Party domain.
+// Party Types — Input/Output interfaces for the Party domain.
 //
 // These DTOs define the contract between MCP tools / REST endpoints
 // and the Party domain service. They are the canonical shape of data

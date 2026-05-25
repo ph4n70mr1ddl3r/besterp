@@ -142,17 +142,26 @@ describe("HealthController", () => {
     });
 
     it("should throw ServiceUnavailableException when health check times out", async () => {
-      // Simulate a slow health check that never resolves within the timeout.
-      // Since we can't wait 5 real seconds, we test the catch path by
-      // verifying that unexpected errors from getHealth are properly wrapped.
+      vi.useFakeTimers();
+
+      // Simulate a database that never responds
       const mockHealthService = {
-        getHealth: vi.fn().mockRejectedValue(new Error("connection refused")),
+        getHealth: vi.fn().mockReturnValue(new Promise(() => {})),
         getVersion: vi.fn(),
       };
 
       const controller = new HealthController(mockHealthService as any);
+      const readyPromise = controller.ready();
+      // Prevent vitest's unhandled rejection detector from flagging the
+      // pending promise before vi.runAllTimersAsync triggers the timeout.
+      readyPromise.catch(() => {});
 
-      await expect(controller.ready()).rejects.toThrow("connection refused");
+      // Fire the 5-second timeout and flush all resulting microtasks
+      await vi.runAllTimersAsync();
+
+      await expect(readyPromise).rejects.toThrow("health check timed out");
+
+      vi.useRealTimers();
     });
 
     it("should wrap unexpected errors in ServiceUnavailableException", async () => {

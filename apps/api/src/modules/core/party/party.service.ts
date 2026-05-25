@@ -265,21 +265,7 @@ export class PartyService {
       );
     }
 
-    // Verify party exists in tenant (RLS enforces this, but explicit check gives better error)
-    const party = await db.party.findFirst({
-      where: { partyId, tenantId },
-    });
-    if (!party) {
-      throw new EntityNotFoundError(
-        `Party '${partyId}' not found in tenant '${tenantId}'.`,
-        {
-          suggestedTools: ["search_parties", "get_party"],
-          context: { partyId, tenantId },
-        }
-      );
-    }
-
-    // Look up role type with better error handling
+    // Look up role type (static shared data, safe outside transaction)
     const roleTypeRecord = await db.roleType.findFirst({
       where: { name: roleType.trim() },
     });
@@ -293,32 +279,7 @@ export class PartyService {
       );
     }
 
-    // Check if role already active with more specific error
-    const existingRole = await db.partyRole.findFirst({
-      where: {
-        partyId,
-        roleTypeId: roleTypeRecord.roleTypeId,
-        thruDate: null,
-      },
-    });
-    if (existingRole) {
-      throw new DuplicateEntityError(
-        `Party '${partyId}' already has active role '${roleType}'. ` +
-        `Existing role started on ${existingRole.fromDate.toISOString()}. ` +
-        `Use 'update_party_role' to modify it or set thruDate first.`,
-        {
-          suggestedTools: ["get_party", "update_party_role"],
-          context: { 
-            partyId, 
-            roleType, 
-            existingRoleId: existingRole.partyRoleId,
-            existingRoleDate: existingRole.fromDate.toISOString()
-          },
-        }
-      );
-    }
-
-    // Validate and parse fromDate
+    // Validate and parse fromDate (pure computation, no DB access)
     const roleFromDate = fromDate ? new Date(fromDate) : new Date();
     if (isNaN(roleFromDate.getTime())) {
       throw new InvalidTypeValueError(
@@ -330,8 +291,49 @@ export class PartyService {
       );
     }
 
-    // Create role in transaction for data consistency
+    // Atomic check + create in a single transaction to prevent TOCTOU race.
+    // Two concurrent requests with the same partyId/roleType must not both
+    // pass the duplicate check and both insert.
     const role = await db.$transaction(async (tx) => {
+      // Verify party exists (inside tx for atomicity)
+      const party = await tx.party.findFirst({
+        where: { partyId, tenantId },
+      });
+      if (!party) {
+        throw new EntityNotFoundError(
+          `Party '${partyId}' not found in tenant '${tenantId}'.`,
+          {
+            suggestedTools: ["search_parties", "get_party"],
+            context: { partyId, tenantId },
+          }
+        );
+      }
+
+      // Check for existing active role (inside tx to prevent TOCTOU race)
+      const existingRole = await tx.partyRole.findFirst({
+        where: {
+          partyId,
+          roleTypeId: roleTypeRecord.roleTypeId,
+          thruDate: null,
+        },
+      });
+      if (existingRole) {
+        throw new DuplicateEntityError(
+          `Party '${partyId}' already has active role '${roleType}'. ` +
+          `Existing role started on ${existingRole.fromDate.toISOString()}. ` +
+          `Use 'update_party_role' to modify it or set thruDate first.`,
+          {
+            suggestedTools: ["get_party", "update_party_role"],
+            context: {
+              partyId,
+              roleType,
+              existingRoleId: existingRole.partyRoleId,
+              existingRoleDate: existingRole.fromDate.toISOString()
+            },
+          }
+        );
+      }
+
       return tx.partyRole.create({
         data: {
           partyId,

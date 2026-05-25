@@ -304,18 +304,14 @@ describe("PartyService", () => {
       };
 
       const mockDb = {
-        party: {
-          findFirst: vi.fn().mockResolvedValue({ partyId: "party-123" }),
-        },
         roleType: {
           findFirst: vi.fn().mockResolvedValue({ roleTypeId: "rt-customer" }),
         },
-        partyRole: {
-          findFirst: vi.fn().mockResolvedValue(null),
-        },
         $transaction: vi.fn().mockImplementation(async (fn) => {
           const tx = {
+            party: { findFirst: vi.fn().mockResolvedValue({ partyId: "party-123" }) },
             partyRole: {
+              findFirst: vi.fn().mockResolvedValue(null),
               create: vi.fn().mockResolvedValue({
                 partyRoleId: "role-123",
                 partyId: "party-123",
@@ -346,21 +342,24 @@ describe("PartyService", () => {
       };
 
       const mockDb = {
-        party: {
-          findFirst: vi.fn().mockResolvedValue({ partyId: "party-123" }),
-        },
         roleType: {
           findFirst: vi.fn().mockResolvedValue({ roleTypeId: "rt-customer" }),
         },
-        partyRole: {
-          findFirst: vi.fn().mockResolvedValue({
-            partyRoleId: "existing-role",
-            partyId: "party-123",
-            roleTypeId: "rt-customer",
-            fromDate: new Date(),
-            thruDate: null,
-          }),
-        },
+        $transaction: vi.fn().mockImplementation(async (fn) => {
+          const tx = {
+            party: { findFirst: vi.fn().mockResolvedValue({ partyId: "party-123" }) },
+            partyRole: {
+              findFirst: vi.fn().mockResolvedValue({
+                partyRoleId: "existing-role",
+                partyId: "party-123",
+                roleTypeId: "rt-customer",
+                fromDate: new Date(),
+                thruDate: null,
+              }),
+            },
+          };
+          return fn(tx);
+        }),
       };
 
       mockPrismaService.tenantScoped.mockReturnValue(mockDb);

@@ -67,7 +67,7 @@ const telecomNumberSchema = z.object({
 });
 
 const emailAddressSchema = z.object({
-  email: z.string().describe("Email address"),
+  email: z.string().email().describe("Email address"),
 });
 
 // ─── Tool: create_party ───────────────────────────────────────────
