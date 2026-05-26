@@ -14,6 +14,8 @@
     "lint": "tsc --noEmit"
   },
   "dependencies": {
+    "@besterp/database": "*",
+    "@besterp/mcp-tools": "*",
     "@besterp/shared": "*",
     "@nestjs/bullmq": "^11.0.4",
     "@nestjs/common": "^11.0.0",

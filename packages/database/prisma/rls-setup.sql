@@ -51,7 +51,7 @@ ALTER TABLE idempotency_record FORCE ROW LEVEL SECURITY;
 -- the setting is unset. We guard against '' to prevent edge-case leaks.
 
 -- Party
-CREATE POLICY tenant_isolation_party ON party
+CREATE POLICY IF NOT EXISTS tenant_isolation_party ON party
   USING (
     current_setting('app.current_tenant', TRUE) != ''
     AND tenant_id = current_setting('app.current_tenant', TRUE)
@@ -62,7 +62,7 @@ CREATE POLICY tenant_isolation_party ON party
   );
 
 -- Contact Mechanism
-CREATE POLICY tenant_isolation_contact_mechanism ON contact_mechanism
+CREATE POLICY IF NOT EXISTS tenant_isolation_contact_mechanism ON contact_mechanism
   USING (
     current_setting('app.current_tenant', TRUE) != ''
     AND tenant_id = current_setting('app.current_tenant', TRUE)
@@ -73,7 +73,7 @@ CREATE POLICY tenant_isolation_contact_mechanism ON contact_mechanism
   );
 
 -- Party Contact Mechanism (via party)
-CREATE POLICY tenant_isolation_party_contact_mechanism ON party_contact_mechanism
+CREATE POLICY IF NOT EXISTS tenant_isolation_party_contact_mechanism ON party_contact_mechanism
   USING (
     current_setting('app.current_tenant', TRUE) != ''
     AND party_id IN (
@@ -90,7 +90,7 @@ CREATE POLICY tenant_isolation_party_contact_mechanism ON party_contact_mechanis
   );
 
 -- Party Role (via party subquery — party_role has no tenant_id column)
-CREATE POLICY tenant_isolation_party_role ON party_role
+CREATE POLICY IF NOT EXISTS tenant_isolation_party_role ON party_role
   USING (
     current_setting('app.current_tenant', TRUE) != ''
     AND party_id IN (
@@ -107,7 +107,7 @@ CREATE POLICY tenant_isolation_party_role ON party_role
   );
 
 -- AI Action Log
-CREATE POLICY tenant_isolation_ai_action_log ON ai_action_log
+CREATE POLICY IF NOT EXISTS tenant_isolation_ai_action_log ON ai_action_log
   USING (
     current_setting('app.current_tenant', TRUE) != ''
     AND tenant_id = current_setting('app.current_tenant', TRUE)
@@ -118,7 +118,7 @@ CREATE POLICY tenant_isolation_ai_action_log ON ai_action_log
   );
 
 -- Idempotency Record
-CREATE POLICY tenant_isolation_idempotency_record ON idempotency_record
+CREATE POLICY IF NOT EXISTS tenant_isolation_idempotency_record ON idempotency_record
   USING (
     current_setting('app.current_tenant', TRUE) != ''
     AND tenant_id = current_setting('app.current_tenant', TRUE)
@@ -135,7 +135,7 @@ CREATE POLICY tenant_isolation_idempotency_record ON idempotency_record
 -- Person (subtype of Party)
 ALTER TABLE person ENABLE ROW LEVEL SECURITY;
 ALTER TABLE person FORCE ROW LEVEL SECURITY;
-CREATE POLICY tenant_isolation_person ON person
+CREATE POLICY IF NOT EXISTS tenant_isolation_person ON person
   USING (
     current_setting('app.current_tenant', TRUE) != ''
     AND party_id IN (
@@ -154,7 +154,7 @@ CREATE POLICY tenant_isolation_person ON person
 -- Organization (subtype of Party)
 ALTER TABLE organization ENABLE ROW LEVEL SECURITY;
 ALTER TABLE organization FORCE ROW LEVEL SECURITY;
-CREATE POLICY tenant_isolation_organization ON organization
+CREATE POLICY IF NOT EXISTS tenant_isolation_organization ON organization
   USING (
     current_setting('app.current_tenant', TRUE) != ''
     AND party_id IN (
@@ -173,7 +173,7 @@ CREATE POLICY tenant_isolation_organization ON organization
 -- Postal Address (subtype of ContactMechanism)
 ALTER TABLE postal_address ENABLE ROW LEVEL SECURITY;
 ALTER TABLE postal_address FORCE ROW LEVEL SECURITY;
-CREATE POLICY tenant_isolation_postal_address ON postal_address
+CREATE POLICY IF NOT EXISTS tenant_isolation_postal_address ON postal_address
   USING (
     current_setting('app.current_tenant', TRUE) != ''
     AND contact_mechanism_id IN (
@@ -192,7 +192,7 @@ CREATE POLICY tenant_isolation_postal_address ON postal_address
 -- Telecom Number (subtype of ContactMechanism)
 ALTER TABLE telecom_number ENABLE ROW LEVEL SECURITY;
 ALTER TABLE telecom_number FORCE ROW LEVEL SECURITY;
-CREATE POLICY tenant_isolation_telecom_number ON telecom_number
+CREATE POLICY IF NOT EXISTS tenant_isolation_telecom_number ON telecom_number
   USING (
     current_setting('app.current_tenant', TRUE) != ''
     AND contact_mechanism_id IN (
@@ -211,7 +211,7 @@ CREATE POLICY tenant_isolation_telecom_number ON telecom_number
 -- Email Address (subtype of ContactMechanism)
 ALTER TABLE email_address ENABLE ROW LEVEL SECURITY;
 ALTER TABLE email_address FORCE ROW LEVEL SECURITY;
-CREATE POLICY tenant_isolation_email_address ON email_address
+CREATE POLICY IF NOT EXISTS tenant_isolation_email_address ON email_address
   USING (
     current_setting('app.current_tenant', TRUE) != ''
     AND contact_mechanism_id IN (

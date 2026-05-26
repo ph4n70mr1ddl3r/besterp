@@ -172,9 +172,16 @@ export function createTenantClient(prisma: PrismaClient, tenantId: string) {
         );
       }
 
-      // Other internal Prisma properties pass through safely
-      if (prop.startsWith("$") || prop.startsWith("_")) {
+      // Other internal Prisma properties pass through safely.
+      // Block underscore-prefixed properties to prevent exposing
+      // Prisma internals (e.g., _dmmf, _engineConfig).
+      if (prop.startsWith("$") && !BLOCKED_LIFECYCLE.has(prop) && !BLOCKED_RAW_SQL.has(prop)) {
         return (target as any)[prop];
+      }
+      if (prop.startsWith("_")) {
+        throw new Error(
+          `Cannot access '${prop}' on a tenant-scoped client. Internal properties are not exposed.`
+        );
       }
 
       // Model delegate (party, person, organization, etc.)

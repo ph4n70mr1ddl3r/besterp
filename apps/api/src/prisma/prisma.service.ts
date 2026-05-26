@@ -102,13 +102,21 @@ export class PrismaService
     const cached = this.tenantClientCache.get(tenantId)?.deref();
     if (cached) return cached;
 
-    // Evict stale entries if cache exceeds max size.
-    // WeakRef entries whose referent was already GC'd return undefined from .deref().
+    // Evict stale (GC'd) entries first. If none are stale, evict the oldest
+    // entry to prevent unbounded growth in multi-tenant systems.
     if (this.tenantClientCache.size >= PrismaService.MAX_CACHE_SIZE) {
+      let oldestKey: string | null = null;
       for (const [key, ref] of this.tenantClientCache) {
         if (!ref.deref()) {
           this.tenantClientCache.delete(key);
+          oldestKey = null; // Found a stale entry, no need to evict a live one
+          break;
         }
+        if (!oldestKey) oldestKey = key;
+      }
+      // All entries still live — evict the oldest (first-inserted) entry
+      if (oldestKey) {
+        this.tenantClientCache.delete(oldestKey);
       }
     }
 

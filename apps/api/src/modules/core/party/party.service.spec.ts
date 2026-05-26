@@ -54,7 +54,7 @@ describe("PartyService", () => {
 
       const mockDb = {
         partyType: {
-          findFirst: vi.fn().mockResolvedValue({ partyTypeId: "pt-person" }),
+          findUnique: vi.fn().mockResolvedValue({ partyTypeId: "pt-person" }),
         },
         $transaction: vi.fn().mockImplementation(async (fn) => {
           const tx = {
@@ -91,7 +91,7 @@ describe("PartyService", () => {
 
       const mockDb = {
         partyType: {
-          findFirst: vi.fn().mockResolvedValue({ partyTypeId: "pt-org" }),
+          findUnique: vi.fn().mockResolvedValue({ partyTypeId: "pt-org" }),
         },
         $transaction: vi.fn().mockImplementation(async (fn) => {
           const tx = {
@@ -149,7 +149,7 @@ describe("PartyService", () => {
 
       const mockDb = {
         partyType: {
-          findFirst: vi.fn().mockResolvedValue(null),
+          findUnique: vi.fn().mockResolvedValue(null),
         },
       };
 
@@ -305,7 +305,7 @@ describe("PartyService", () => {
 
       const mockDb = {
         roleType: {
-          findFirst: vi.fn().mockResolvedValue({ roleTypeId: "rt-customer" }),
+          findUnique: vi.fn().mockResolvedValue({ roleTypeId: "rt-customer" }),
         },
         $transaction: vi.fn().mockImplementation(async (fn) => {
           const tx = {
@@ -343,7 +343,7 @@ describe("PartyService", () => {
 
       const mockDb = {
         roleType: {
-          findFirst: vi.fn().mockResolvedValue({ roleTypeId: "rt-customer" }),
+          findUnique: vi.fn().mockResolvedValue({ roleTypeId: "rt-customer" }),
         },
         $transaction: vi.fn().mockImplementation(async (fn) => {
           const tx = {
@@ -379,7 +379,7 @@ describe("PartyService", () => {
           findFirst: vi.fn().mockResolvedValue({ partyId: "party-123" }),
         },
         roleType: {
-          findFirst: vi.fn().mockResolvedValue(null),
+          findUnique: vi.fn().mockResolvedValue(null),
         },
       };
 
@@ -404,7 +404,7 @@ describe("PartyService", () => {
 
       const mockDb = {
         contactMechanismType: {
-          findFirst: vi.fn().mockResolvedValue({ contactMechanismTypeId: "cmt-postal" }),
+          findUnique: vi.fn().mockResolvedValue({ contactMechanismTypeId: "cmt-postal" }),
         },
         $transaction: vi.fn().mockImplementation(async (fn) => {
           const tx = {
@@ -466,6 +466,14 @@ describe("PartyService", () => {
         },
       };
 
+      const mockDb = {
+        contactMechanismType: {
+          findUnique: vi.fn().mockResolvedValue({ contactMechanismTypeId: "cmt-email" }),
+        },
+      };
+
+      mockPrismaService.tenantScoped.mockReturnValue(mockDb);
+
       await expect(partyService.addContactMechanism(input)).rejects.toThrow(InvalidTypeValueError);
     });
 
@@ -483,7 +491,7 @@ describe("PartyService", () => {
 
       const mockDb = {
         contactMechanismType: {
-          findFirst: vi.fn().mockResolvedValue({ contactMechanismTypeId: "cmt-postal" }),
+          findUnique: vi.fn().mockResolvedValue({ contactMechanismTypeId: "cmt-postal" }),
         },
         $transaction: vi.fn().mockImplementation(async (fn) => {
           const tx = {

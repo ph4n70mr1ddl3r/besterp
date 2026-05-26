@@ -6,7 +6,7 @@
 
 import { Injectable, Logger } from "@nestjs/common";
 import { PrismaService } from "./prisma/prisma.service.js";
-import { readFileSync } from "fs";
+import * as fs from "fs/promises";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 
@@ -39,21 +39,29 @@ export interface VersionInfo {
 export class HealthService {
   private readonly logger = new Logger(HealthService.name);
 
-  private readonly packageInfo: { version: string; name: string };
+  private packageInfo: { version: string; name: string } = { version: "0.0.0", name: "unknown" };
+  private initialized = false;
 
   constructor(private readonly prisma: PrismaService) {
-    try {
-      // Read package.json at construction time — avoids I/O on every request
-      const __dirname = dirname(fileURLToPath(import.meta.url));
-      const pkgPath = join(__dirname, "../../package.json");
-      const raw = readFileSync(pkgPath, "utf-8");
-      const pkg = JSON.parse(raw);
-      this.packageInfo = { version: pkg.version || "0.0.0", name: pkg.name || "unknown" };
-    } catch (err) {
+    // Kick off async initialization — package.json is read once and cached.
+    // Using async readFile avoids blocking the event loop during startup.
+    this.initPackageInfo().catch((err) => {
       this.logger.warn(
         `Could not read package.json: ${err instanceof Error ? err.message : err}`
       );
-      this.packageInfo = { version: "0.0.0", name: "unknown" };
+    });
+  }
+
+  private async initPackageInfo(): Promise<void> {
+    try {
+      const __dirname = dirname(fileURLToPath(import.meta.url));
+      const pkgPath = join(__dirname, "../../package.json");
+      const raw = await fs.readFile(pkgPath, "utf-8");
+      const pkg = JSON.parse(raw);
+      this.packageInfo = { version: pkg.version || "0.0.0", name: pkg.name || "unknown" };
+      this.initialized = true;
+    } catch {
+      // Already logged in .catch() above
     }
   }
 

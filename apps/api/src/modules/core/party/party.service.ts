@@ -122,7 +122,7 @@ export class PartyService {
     const db = this.prisma.tenantScoped(tenantId);
 
     // Look up party type ID from the type table
-    const partyTypeRecord = await db.partyType.findFirst({
+    const partyTypeRecord = await db.partyType.findUnique({
       where: { name: partyType },
     });
     if (!partyTypeRecord) {
@@ -137,35 +137,36 @@ export class PartyService {
 
     // Create party with supertype/subtype in a transaction
     const party = await db.$transaction(async (tx: Prisma.TransactionClient) => {
+      const data: Prisma.PartyCreateInput = {
+        partyType: { connect: { partyTypeId: partyTypeRecord.partyTypeId } },
+        tenantId,
+        name,
+        description: description || null,
+      };
+      if (personData) {
+        data.person = {
+          create: {
+            firstName: personData.firstName,
+            lastName: personData.lastName,
+            middleName: personData.middleName || null,
+            birthDate: personData.birthDate ? new Date(personData.birthDate) : null,
+            gender: personData.gender || null,
+          },
+        };
+      }
+      if (orgData) {
+        data.organization = {
+          create: {
+            legalName: orgData.legalName,
+            taxId: orgData.taxId || null,
+            registrationDate: orgData.registrationDate
+              ? new Date(orgData.registrationDate)
+              : null,
+          },
+        };
+      }
       return tx.party.create({
-        data: {
-          partyTypeId: partyTypeRecord.partyTypeId,
-          tenantId,
-          name,
-          description: description || null,
-          person: personData
-            ? {
-                create: {
-                  firstName: personData.firstName,
-                  lastName: personData.lastName,
-                  middleName: personData.middleName || null,
-                  birthDate: personData.birthDate ? new Date(personData.birthDate) : null,
-                  gender: personData.gender || null,
-                },
-              }
-            : undefined,
-          organization: orgData
-            ? {
-                create: {
-                  legalName: orgData.legalName,
-                  taxId: orgData.taxId || null,
-                  registrationDate: orgData.registrationDate
-                    ? new Date(orgData.registrationDate)
-                    : null,
-                },
-              }
-            : undefined,
-        },
+        data,
         include: PartyService.PARTY_INCLUDE,
       });
     });
@@ -266,7 +267,7 @@ export class PartyService {
     }
 
     // Look up role type (static shared data, safe outside transaction)
-    const roleTypeRecord = await db.roleType.findFirst({
+    const roleTypeRecord = await db.roleType.findUnique({
       where: { name: roleType.trim() },
     });
     if (!roleTypeRecord) {
@@ -381,7 +382,7 @@ export class PartyService {
     }
 
     // Look up contact mechanism type
-    const cmType = await db.contactMechanismType.findFirst({
+    const cmType = await db.contactMechanismType.findUnique({
       where: { name: contactMechanismType.trim() },
     });
     if (!cmType) {
