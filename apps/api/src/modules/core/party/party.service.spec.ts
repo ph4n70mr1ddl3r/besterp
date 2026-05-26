@@ -403,14 +403,14 @@ describe("PartyService", () => {
       };
 
       const mockDb = {
-        party: {
-          findFirst: vi.fn().mockResolvedValue({ partyId: "party-123" }),
-        },
         contactMechanismType: {
           findFirst: vi.fn().mockResolvedValue({ contactMechanismTypeId: "cmt-postal" }),
         },
         $transaction: vi.fn().mockImplementation(async (fn) => {
           const tx = {
+            party: {
+              findFirst: vi.fn().mockResolvedValue({ partyId: "party-123" }),
+            },
             contactMechanism: {
               create: vi.fn().mockResolvedValue({
                 contactMechanismId: "contact-123",
@@ -467,6 +467,37 @@ describe("PartyService", () => {
       };
 
       await expect(partyService.addContactMechanism(input)).rejects.toThrow(InvalidTypeValueError);
+    });
+
+    it("should throw EntityNotFoundError when party does not exist (inside transaction)", async () => {
+      const input: AddContactMechanismInput = {
+        tenantId: "tenant-1",
+        partyId: "nonexistent",
+        contactMechanismType: "POSTAL_ADDRESS",
+        postalAddress: {
+          addressLine1: "123 Main St",
+          city: "Anytown",
+          country: "US",
+        },
+      };
+
+      const mockDb = {
+        contactMechanismType: {
+          findFirst: vi.fn().mockResolvedValue({ contactMechanismTypeId: "cmt-postal" }),
+        },
+        $transaction: vi.fn().mockImplementation(async (fn) => {
+          const tx = {
+            party: {
+              findFirst: vi.fn().mockResolvedValue(null),
+            },
+          };
+          return fn(tx);
+        }),
+      };
+
+      mockPrismaService.tenantScoped.mockReturnValue(mockDb);
+
+      await expect(partyService.addContactMechanism(input)).rejects.toThrow(EntityNotFoundError);
     });
   });
 });

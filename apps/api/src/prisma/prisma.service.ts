@@ -21,6 +21,8 @@ export class PrismaService
   private readonly appClient_: PrismaClient;
   /** Cache of tenant-scoped Proxy clients to avoid GC pressure from repeated creation. */
   private readonly tenantClientCache = new Map<string, WeakRef<PrismaClient>>();
+  /** Maximum number of tenant clients to cache before eviction. */
+  private static readonly MAX_CACHE_SIZE = 256;
   // FinalizationRegistry evicts cache entries when GC collects the Proxy.
   // Note: we do NOT try to $disconnect the tenant client because the Proxy
   // blocks $disconnect (tenant clients share the underlying appClient_ connection).
@@ -99,6 +101,16 @@ export class PrismaService
   tenantScoped(tenantId: string): PrismaClient {
     const cached = this.tenantClientCache.get(tenantId)?.deref();
     if (cached) return cached;
+
+    // Evict stale entries if cache exceeds max size.
+    // WeakRef entries whose referent was already GC'd return undefined from .deref().
+    if (this.tenantClientCache.size >= PrismaService.MAX_CACHE_SIZE) {
+      for (const [key, ref] of this.tenantClientCache) {
+        if (!ref.deref()) {
+          this.tenantClientCache.delete(key);
+        }
+      }
+    }
 
     const client = createTenantClient(this.appClient_, tenantId);
     this.tenantClientCache.set(tenantId, new WeakRef(client));

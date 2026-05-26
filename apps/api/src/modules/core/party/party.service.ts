@@ -369,26 +369,13 @@ export class PartyService {
     const db = this.prisma.tenantScoped(tenantId);
 
     // Validate inputs
+
     if (!contactMechanismType || contactMechanismType.trim().length === 0) {
       throw new InvalidTypeValueError(
         "contactMechanismType cannot be empty",
         {
           suggestedTools: ["get_type_table_values"],
           context: { field: "contactMechanismType", received: contactMechanismType },
-        }
-      );
-    }
-
-    // Verify party exists in tenant
-    const party = await db.party.findFirst({
-      where: { partyId, tenantId },
-    });
-    if (!party) {
-      throw new EntityNotFoundError(
-        `Party '${partyId}' not found in tenant '${tenantId}'.`,
-        {
-          suggestedTools: ["search_parties", "get_party"],
-          context: { partyId, tenantId },
         }
       );
     }
@@ -412,7 +399,7 @@ export class PartyService {
       );
     }
 
-    // Validate subtype data with detailed validation
+    // Validate subtype data with detailed validation (pure computation, no DB)
     let validContactData: PostalAddressInput | TelecomNumberInput | EmailAddressInput;
     
     if (contactMechanismType === "POSTAL_ADDRESS") {
@@ -447,9 +434,11 @@ export class PartyService {
       }
       this.requireNonEmpty(emailAddress.email, "email", "email address");
       
-      // Email format validation
+      // Email format validation — validate against trimmed+lowered value
+      // to match what will actually be stored in the database.
+      const normalizedEmail = emailAddress.email.trim().toLowerCase();
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      if (!emailRegex.test(emailAddress.email.trim())) {
+      if (!emailRegex.test(normalizedEmail)) {
         throw new InvalidTypeValueError(
           `Invalid email format: ${emailAddress.email}`,
           { suggestedTools: ["add_contact_mechanism"], context: { contactMechanismType, field: "email", invalidValue: emailAddress.email } }
@@ -464,8 +453,24 @@ export class PartyService {
       );
     }
 
-    // Create contact mechanism with subtype in a transaction
+    // Create contact mechanism with subtype in a transaction.
+    // Party existence check is INSIDE the transaction to prevent the TOCTOU
+    // race where the party could be deleted between the check and the create.
     const contactMechanism = await db.$transaction(async (tx: Prisma.TransactionClient) => {
+      // Verify party exists in tenant (inside tx for atomicity)
+      const existingParty = await tx.party.findFirst({
+        where: { partyId, tenantId },
+      });
+      if (!existingParty) {
+        throw new EntityNotFoundError(
+          `Party '${partyId}' not found in tenant '${tenantId}'.`,
+          {
+            suggestedTools: ["search_parties", "get_party"],
+            context: { partyId, tenantId },
+          }
+        );
+      }
+
       return tx.contactMechanism.create({
         data: {
           contactMechanismTypeId: cmType.contactMechanismTypeId,

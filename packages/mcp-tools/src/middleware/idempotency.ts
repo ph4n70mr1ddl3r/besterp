@@ -46,12 +46,15 @@ export function idempotencyMiddleware(prisma: PrismaClient): ToolMiddleware {
     //   - record != null: existing record found → handle below
     //
     // Retry on serialization failure (P2034) — transient under concurrency.
+    // If ALL retries are exhausted, we must NOT proceed without a pending
+    // record (the final update would fail). Instead, return a retryable error.
     const MAX_RETRIES = 3;
     let existingRecord: any = null;
+    let recordCreated = false;
 
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
       try {
-        const { existing } = await prisma.$transaction(async (tx) => {
+        const { existing, created } = await prisma.$transaction(async (tx) => {
           const record = await tx.idempotencyRecord.findUnique({
             where: { idempotencyKey },
           });
@@ -71,7 +74,7 @@ export function idempotencyMiddleware(prisma: PrismaClient): ToolMiddleware {
                 expiresAt: new Date(Date.now() + 86400000), // 24h TTL
               },
             });
-            return { existing: null, reexecuteNeeded: false };
+            return { existing: null, created: true };
           }
 
           // For failed records, atomically reset to pending inside the SAME
@@ -82,14 +85,15 @@ export function idempotencyMiddleware(prisma: PrismaClient): ToolMiddleware {
               where: { idempotencyKey },
               data: { status: "pending", inputHash, expiresAt: new Date(Date.now() + 86400000) },
             });
-            return { existing: null, reexecuteNeeded: false };
+            return { existing: null, created: true };
           }
 
-          return { existing: record, reexecuteNeeded: false };
+          return { existing: record, created: false };
         }, {
           isolationLevel: "Serializable",
         });
         existingRecord = existing;
+        recordCreated = created;
         break;
       } catch (e) {
         if ((e as Record<string, unknown>).code === "P2034" && attempt < MAX_RETRIES - 1) {
@@ -97,8 +101,28 @@ export function idempotencyMiddleware(prisma: PrismaClient): ToolMiddleware {
           await new Promise((r) => setTimeout(r, 50 * (attempt + 1)));
           continue;
         }
-        throw e;
+        // On last attempt or non-P2034 error, break out of the loop.
+        // The contention guard below will handle the case where no record
+        // was created. Non-P2034 errors are re-thrown after the guard.
+        if ((e as Record<string, unknown>).code !== "P2034") {
+          throw e;
+        }
+        // P2034 on last attempt — fall through to contention guard
       }
+    }
+
+    // If all retries were exhausted without creating/updating a record,
+    // we cannot safely proceed — the final update would fail because no
+    // pending row exists. Return a retryable error instead.
+    if (!recordCreated && !existingRecord) {
+      return {
+        success: false,
+        error: {
+          code: "IDEMPOTENCY_CONTENTION",
+          message: `Could not acquire idempotency record for '${idempotencyKey}' after ${MAX_RETRIES} attempts. Please retry with a new idempotency key.`,
+          suggestedTools: [definition.name],
+        },
+      };
     }
 
     if (existingRecord) {

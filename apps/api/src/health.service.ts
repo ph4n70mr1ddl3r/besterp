@@ -49,7 +49,10 @@ export class HealthService {
       const raw = readFileSync(pkgPath, "utf-8");
       const pkg = JSON.parse(raw);
       this.packageInfo = { version: pkg.version || "0.0.0", name: pkg.name || "unknown" };
-    } catch {
+    } catch (err) {
+      this.logger.warn(
+        `Could not read package.json: ${err instanceof Error ? err.message : err}`
+      );
       this.packageInfo = { version: "0.0.0", name: "unknown" };
     }
   }

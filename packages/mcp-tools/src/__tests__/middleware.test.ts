@@ -203,6 +203,21 @@ describe("Idempotency Middleware", () => {
     expect(result.success).toBe(true);
     expect(result.data).toBe("passed through");
   });
+
+  it("should return contention error when all serialization retries fail", async () => {
+    const input = { test: "value" };
+    const idempotencyKey = "test-key";
+    const contextWithKey = { ...mockContext, idempotencyKey };
+
+    // Simulate all retries failing with P2034 (serialization failure)
+    mockPrisma.$transaction.mockRejectedValue({ code: "P2034" });
+
+    const middleware = idempotencyMiddleware(mockPrisma as any);
+    const result = await middleware(input, contextWithKey, mockDefinition, successNext());
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe("IDEMPOTENCY_CONTENTION");
+  });
 });
 
 describe("Audit Log Middleware", () => {

@@ -29,7 +29,9 @@ function domainErrorToStatus(error: DomainError): number {
     case "INVALID_TYPE_VALUE":
       return 422;
     default:
-      // Unexpected domain error codes — return 500 to flag the issue
+      // Unexpected domain error codes — return 500 to flag the issue.
+      // This should never happen; if it does, a new DomainError subclass
+      // was added without updating this mapping.
       return 500;
   }
 }
@@ -48,9 +50,16 @@ export class DomainExceptionFilter implements ExceptionFilter {
 
     if (isDomainError(exception)) {
       const status = domainErrorToStatus(exception);
-      this.logger.warn(
-        `DomainError [${exception.code}]: ${exception.message}`
-      );
+      if (status === 500) {
+        // Unexpected domain error code — log as error to surface the missing mapping.
+        this.logger.error(
+          `Unknown DomainError code '${exception.code}' — add a mapping in domainErrorToStatus(). Defaulting to 500.`
+        );
+      } else {
+        this.logger.warn(
+          `DomainError [${exception.code}]: ${exception.message}`
+        );
+      }
 
       response.status(status).json({
         statusCode: status,
