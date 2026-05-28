@@ -1,5 +1,10 @@
 // BestERP Phase 0a Spike: MCP Tool Server
 //
+// ⚠️  DEPRECATED: This file is the Phase 0a SPIKE implementation.
+//     Production code is in apps/api/src/mcp/ which uses the ToolRegistry,
+//     middleware pipeline, and NestJS PartyService.
+//     This file is retained ONLY for standalone spike testing.
+//
 // Validates: MCP as primary agent interface (ADR-001)
 // - Semantic tool definitions with JSON Schema
 // - One tool: create_party with full validation

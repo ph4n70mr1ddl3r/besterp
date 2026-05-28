@@ -72,7 +72,10 @@ CREATE POLICY IF NOT EXISTS tenant_isolation_contact_mechanism ON contact_mechan
     AND tenant_id = current_setting('app.current_tenant', TRUE)
   );
 
--- Party Contact Mechanism (via party)
+-- Party Contact Mechanism (via party AND contact mechanism)
+-- SECURITY: Both foreign keys must belong to the current tenant.
+-- Without the contact_mechanism_id check, a buggy code path could link
+-- a tenant's party to another tenant's contact mechanism.
 CREATE POLICY IF NOT EXISTS tenant_isolation_party_contact_mechanism ON party_contact_mechanism
   USING (
     current_setting('app.current_tenant', TRUE) != ''
@@ -80,11 +83,19 @@ CREATE POLICY IF NOT EXISTS tenant_isolation_party_contact_mechanism ON party_co
       SELECT party_id FROM party
       WHERE tenant_id = current_setting('app.current_tenant', TRUE)
     )
+    AND contact_mechanism_id IN (
+      SELECT contact_mechanism_id FROM contact_mechanism
+      WHERE tenant_id = current_setting('app.current_tenant', TRUE)
+    )
   )
   WITH CHECK (
     current_setting('app.current_tenant', TRUE) != ''
     AND party_id IN (
       SELECT party_id FROM party
+      WHERE tenant_id = current_setting('app.current_tenant', TRUE)
+    )
+    AND contact_mechanism_id IN (
+      SELECT contact_mechanism_id FROM contact_mechanism
       WHERE tenant_id = current_setting('app.current_tenant', TRUE)
     )
   );
@@ -131,6 +142,16 @@ CREATE POLICY IF NOT EXISTS tenant_isolation_idempotency_record ON idempotency_r
 -- ─── Subtype tables (protected via parent party) ────────────────
 -- These tables lack a direct tenant_id column, so policies JOIN through
 -- the parent Party table to enforce isolation.
+
+-- ─── Partial Unique Index: Active Party Roles ────────────────────
+-- Prevents duplicate active roles at the DB level (defense-in-depth).
+-- The application layer checks inside transactions, but this index
+-- is the safety net against race conditions.
+-- Uses a partial index (WHERE thru_date IS NULL) so expired roles
+-- don't prevent re-assigning the same role type later.
+CREATE UNIQUE INDEX IF NOT EXISTS party_role_active_unique
+  ON party_role (party_id, role_type_id)
+  WHERE thru_date IS NULL;
 
 -- Person (subtype of Party)
 ALTER TABLE person ENABLE ROW LEVEL SECURITY;

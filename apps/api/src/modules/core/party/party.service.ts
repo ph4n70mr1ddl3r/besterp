@@ -137,6 +137,10 @@ export class PartyService {
     // Get RLS-scoped client for tenant isolation
     const db = this.prisma.tenantScoped(tenantId);
 
+    // NOTE: Type table lookups are done OUTSIDE the main transaction.
+    // This is safe because type tables (PARTY_TYPE, ROLE_TYPE, etc.) are
+    // system-managed, seeded at deploy time, and never deleted by app code.
+    // Moving them inside would add transaction overhead with no benefit.
     // Look up party type ID from the type table
     const partyTypeRecord = await db.partyType.findUnique({
       where: { name: partyType },
@@ -275,6 +279,9 @@ export class PartyService {
 
     const db = this.prisma.tenantScoped(tenantId);
 
+    // NOTE: Type table lookup outside transaction — safe because role types
+    // are system-managed immutable data (see createParty for rationale).
+
     // Validate inputs
     if (!roleType || roleType.trim().length === 0) {
       throw new InvalidTypeValueError(
@@ -388,6 +395,9 @@ export class PartyService {
     } = input;
 
     const db = this.prisma.tenantScoped(tenantId);
+
+    // NOTE: Type table lookup outside transaction — safe because contact
+    // mechanism types are system-managed immutable data (see createParty).
 
     // Validate inputs
 
