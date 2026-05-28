@@ -116,8 +116,17 @@ export class PrismaService
         // Track the first-inserted (oldest) live entry for potential eviction
         if (!oldestKey) oldestKey = key;
       }
-      // No stale entries found — evict the oldest live entry to make room
+      // No stale entries found — evict the oldest live entry to make room.
+      // Unregister from FinalizationRegistry first to prevent phantom callbacks
+      // when the evicted client is eventually garbage-collected.
       if (!evictedStale && oldestKey) {
+        const oldRef = this.tenantClientCache.get(oldestKey);
+        if (oldRef) {
+          const oldClient = oldRef.deref();
+          if (oldClient) {
+            this.cacheRegistry.unregister(oldClient);
+          }
+        }
         this.tenantClientCache.delete(oldestKey);
       }
     }

@@ -13,7 +13,13 @@
 // - stdio transport (for local CLI agents)
 // - HTTP/SSE transport (for remote agents) — future
 
-import { DynamicModule, Logger, Module, OnModuleInit } from "@nestjs/common";
+import {
+  DynamicModule,
+  Logger,
+  Module,
+  OnModuleInit,
+} from "@nestjs/common";
+import { validateTenantIdEnhanced } from "@besterp/database";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { PrismaModule } from "../prisma/prisma.module.js";
 import { PartyService } from "../modules/core/party/party.service.js";
@@ -68,6 +74,9 @@ export class McpModule implements OnModuleInit {
     conversationId?: string;
     idempotencyKey?: string;
   }) {
+    // Validate tenant ID format before building context. This catches invalid
+    // tenant IDs from forged JWT tokens before any database operations.
+    validateTenantIdEnhanced(overrides.tenantId);
     return {
       ...overrides,
       services: {

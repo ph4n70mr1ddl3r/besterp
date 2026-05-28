@@ -123,6 +123,7 @@ model PartyRole {
 
   @@index([partyId])
   @@index([roleTypeId])
+  @@index([partyId, roleTypeId])
   @@map("party_role")
 }
 

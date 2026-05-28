@@ -77,6 +77,7 @@ export class PartyService {
         }
       );
     }
+    const trimmedName = name.trim();
 
     // Validate subtype data
     if (partyType === "PERSON" && !personData) {
@@ -118,6 +119,21 @@ export class PartyService {
       }
     }
 
+    // Trim all name fields before storage to prevent whitespace-padded names.
+    // DTOs handle this for the REST path via @Transform, but the MCP tool path
+    // calls the service directly without DTO normalization.
+    const trimmedPerson = personData ? {
+      ...personData,
+      firstName: personData.firstName.trim(),
+      lastName: personData.lastName.trim(),
+      middleName: personData.middleName?.trim() || undefined,
+    } : undefined;
+    const trimmedOrg = orgData ? {
+      ...orgData,
+      legalName: orgData.legalName.trim(),
+      taxId: orgData.taxId?.trim() || undefined,
+    } : undefined;
+
     // Get RLS-scoped client for tenant isolation
     const db = this.prisma.tenantScoped(tenantId);
 
@@ -140,27 +156,27 @@ export class PartyService {
       const data: Prisma.PartyCreateInput = {
         partyType: { connect: { partyTypeId: partyTypeRecord.partyTypeId } },
         tenantId,
-        name,
-        description: description || null,
+        name: trimmedName,
+        description: description?.trim() || null,
       };
-      if (personData) {
+      if (trimmedPerson) {
         data.person = {
           create: {
-            firstName: personData.firstName,
-            lastName: personData.lastName,
-            middleName: personData.middleName || null,
-            birthDate: personData.birthDate ? new Date(personData.birthDate) : null,
-            gender: personData.gender || null,
+            firstName: trimmedPerson.firstName,
+            lastName: trimmedPerson.lastName,
+            middleName: trimmedPerson.middleName || null,
+            birthDate: trimmedPerson.birthDate ? new Date(trimmedPerson.birthDate) : null,
+            gender: trimmedPerson.gender?.trim() || null,
           },
         };
       }
-      if (orgData) {
+      if (trimmedOrg) {
         data.organization = {
           create: {
-            legalName: orgData.legalName,
-            taxId: orgData.taxId || null,
-            registrationDate: orgData.registrationDate
-              ? new Date(orgData.registrationDate)
+            legalName: trimmedOrg.legalName,
+            taxId: trimmedOrg.taxId || null,
+            registrationDate: trimmedOrg.registrationDate
+              ? new Date(trimmedOrg.registrationDate)
               : null,
           },
         };
@@ -171,7 +187,7 @@ export class PartyService {
       });
     });
 
-    this.logger.log(`Created ${partyType} party: ${name} (${party.partyId})`);
+    this.logger.log(`Created ${partyType} party: ${trimmedName} (${party.partyId})`);
     return this.toPartyResult(party);
   }
 

@@ -37,16 +37,16 @@ function getPartyService(ctx: ToolContext) {
 // ─── Schemas ──────────────────────────────────────────────────────
 
 const personSchema = z.object({
-  firstName: z.string().describe("First/given name"),
-  lastName: z.string().describe("Last/family name"),
-  middleName: z.string().optional().describe("Middle name"),
+  firstName: z.string().transform(s => s.trim()).describe("First/given name"),
+  lastName: z.string().transform(s => s.trim()).describe("Last/family name"),
+  middleName: z.string().optional().transform(s => s?.trim()).describe("Middle name"),
   birthDate: z.string().optional().describe("Date of birth (ISO 8601)"),
   gender: z.string().optional().describe("Gender"),
 });
 
 const organizationSchema = z.object({
-  legalName: z.string().describe("Legal/registered name of the organization"),
-  taxId: z.string().optional().describe("Tax identification number"),
+  legalName: z.string().transform(s => s.trim()).describe("Legal/registered name of the organization"),
+  taxId: z.string().optional().transform(s => s?.trim()).describe("Tax identification number"),
   registrationDate: z.string().optional().describe("Date of registration (ISO 8601)"),
 });
 
@@ -67,7 +67,7 @@ const telecomNumberSchema = z.object({
 });
 
 const emailAddressSchema = z.object({
-  email: z.string().email().describe("Email address"),
+  email: z.string().transform(s => s.trim().toLowerCase()).email().describe("Email address"),
 });
 
 // ─── Tool: create_party ───────────────────────────────────────────
