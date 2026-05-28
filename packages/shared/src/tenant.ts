@@ -61,6 +61,11 @@ export async function withTenant<T>(
   tenantId: string,
   fn: (tx: PrismaTransactionClient) => Promise<T>
 ): Promise<T> {
+  if (!prisma || typeof prisma.$transaction !== "function") {
+    throw new Error(
+      "withTenant: Invalid PrismaClient. Provide a connected PrismaClient instance."
+    );
+  }
   validateTenantId(tenantId);
   return prisma.$transaction(async (tx) => {
     // Parameterized query via tagged template — tenant ID is sent as $1,

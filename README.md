@@ -144,35 +144,46 @@ npm run db:seed
    npm install
    ```
 
-2. **Set up environment variables**
+2. **Start infrastructure** (PostgreSQL, Redis, MinIO)
+   ```bash
+   cd docker && docker compose up -d
+   ```
+
+3. **Set up environment variables**
    ```bash
    cp .env.example .env
-   # Configure DATABASE_URL, JWT_SECRET, etc.
+   # No changes needed for local development — defaults match docker compose
    ```
 
-3. **Generate Prisma client**
+4. **Run database migrations and seed**
    ```bash
-   npm run db:generate
+   npm run db:migrate
+   npm run db:seed
    ```
 
-4. **Run the application**
+5. **Generate Prisma client**
    ```bash
-   npm run start:dev
+   npm run generate --workspace=@besterp/database
    ```
 
-5. **Access the health endpoint**
+6. **Run the application**
    ```bash
-   curl http://localhost:3000/health
+   cd apps/api && npm run start:dev
+   ```
+
+7. **Access the health endpoint**
+   ```bash
+   curl http://localhost:3000/api/health
    ```
 
 ## 📚 API Documentation
 
 ### Party Management
-- `POST /api/party` - Create new party (person/organization)
-- `GET /api/party/:id` - Get party by ID
-- `GET /api/party` - Search parties with filters
-- `POST /api/party/:id/roles` - Add role to party
-- `POST /api/party/:id/contacts` - Add contact mechanism
+- `POST /api/parties` - Create new party (person/organization)
+- `GET /api/parties/:id` - Get party by ID
+- `GET /api/parties` - Search parties with filters
+- `POST /api/parties/:id/roles` - Add role to party
+- `POST /api/parties/:id/contacts` - Add contact mechanism
 
 ### MCP Tools
 - `list_available_tools` - Discover available tools

@@ -188,7 +188,7 @@ export class PartyService {
     });
 
     this.logger.log(`Created ${partyType} party: ${trimmedName} (${party.partyId})`);
-    return this.toPartyResult(party);
+    return PartyService.toPartyResult(party);
   }
 
   // ─── Get Party ────────────────────────────────────────────────
@@ -211,7 +211,7 @@ export class PartyService {
       );
     }
 
-    return this.toPartyResult(party);
+    return PartyService.toPartyResult(party);
   }
 
   // ─── Search Parties ───────────────────────────────────────────
@@ -260,7 +260,7 @@ export class PartyService {
     });
 
     return {
-      items: items.map((p) => this.toPartyResult(p)),
+      items: items.map((p) => PartyService.toPartyResult(p)),
       total,
       limit: validatedLimit,
       offset: validatedOffset,
@@ -586,7 +586,7 @@ export class PartyService {
     }
   }
 
-  private toPartyResult(party: PartyWithIncludes): PartyResult {
+  private static toPartyResult(party: PartyWithIncludes): PartyResult {
     return {
       partyId: party.partyId,
       name: party.name,

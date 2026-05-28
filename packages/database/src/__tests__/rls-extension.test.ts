@@ -189,6 +189,14 @@ describe("RLS Extension", () => {
       expect(() => client.$disconnect).toThrow(/Cannot call/);
       expect(() => client.$queryRaw).toThrow(/Cannot call/);
       expect(() => client.$executeRaw).toThrow(/Cannot call/);
+      expect(() => client.$queryRawUnsafe).toThrow(/Cannot call/);
+      expect(() => client.$executeRawUnsafe).toThrow(/Cannot call/);
+    });
+
+    it("should block underscore-prefixed internal properties", () => {
+      const client = createTenantClient(mockPrisma, "tenant-1");
+      expect(() => (client as any)._dmmf).toThrow(/Cannot access/);
+      expect(() => (client as any)._engineConfig).toThrow(/Cannot access/);
     });
 
     it("should handle batch transactions (pass through without tenant context)", async () => {

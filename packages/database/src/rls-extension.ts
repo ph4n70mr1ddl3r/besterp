@@ -77,6 +77,7 @@ const BLOCKED_LIFECYCLE = new Set(["$connect", "$disconnect", "$extends", "$on",
 /** Raw SQL operations that bypass RLS scoping. */
 const BLOCKED_RAW_SQL = new Set([
   "$queryRaw", "$queryRawTyped", "$executeRaw", "$executeRawTyped",
+  "$queryRawUnsafe", "$executeRawUnsafe",
 ]);
 
 /**
@@ -168,7 +169,7 @@ export function createTenantClient(prisma: PrismaClient, tenantId: string) {
       // $executeRaw/$executeRawTyped could mutate outside tenant context.
       if (BLOCKED_RAW_SQL.has(prop)) {
         throw new Error(
-          `Cannot call '${prop}' on a tenant-scoped client. Raw SQL bypasses RLS. Use the base PrismaClient.`
+          `Cannot call '${prop}' on a tenant-scoped client. Raw SQL (including unsafe variants) bypasses RLS. Use the base PrismaClient.`
         );
       }
 

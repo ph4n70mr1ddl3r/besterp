@@ -10,6 +10,8 @@ services:
       POSTGRES_DB: besterp
     volumes:
       - pgdata:/var/lib/postgresql/data
+      - ../packages/database/prisma/create-roles.sql:/docker-entrypoint-initdb.d/01-create-roles.sql
+      - ../packages/database/prisma/rls-setup.sql:/docker-entrypoint-initdb.d/02-rls-setup.sql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U besterp"]
       interval: 5s

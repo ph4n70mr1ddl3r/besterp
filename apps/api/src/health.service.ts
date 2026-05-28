@@ -109,9 +109,16 @@ export class HealthService {
   }
 
   /**
-   * Get version information
+   * Get version information.
+   * Returns default values if package.json hasn't been read yet
+   * (e.g., if called before async init completes).
    */
   getVersion(): VersionInfo {
+    if (!this.initialized) {
+      this.logger.debug(
+        "getVersion() called before package.json was loaded — returning defaults."
+      );
+    }
     return {
       version: this.packageInfo.version,
       name: this.packageInfo.name,

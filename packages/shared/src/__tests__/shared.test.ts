@@ -3,7 +3,7 @@
 // hashInput tests are in crypto.test.ts (comprehensive coverage).
 
 import { describe, it, expect } from "vitest";
-import { validateTenantId } from "../tenant.js";
+import { validateTenantId, withTenant } from "../tenant.js";
 import { richError } from "../errors.js";
 
 describe("validateTenantId", () => {
@@ -32,6 +32,20 @@ describe("validateTenantId", () => {
     expect(() => validateTenantId("tenant@acme")).toThrow("Invalid tenant ID");
     expect(() => validateTenantId("tenant.acme")).toThrow("Invalid tenant ID");
     expect(() => validateTenantId("tenant/acme")).toThrow("Invalid tenant ID");
+  });
+});
+
+describe("withTenant", () => {
+  it("rejects null/undefined PrismaClient", async () => {
+    await expect(
+      withTenant(null as any, "tenant-1", async (tx) => tx.party.findMany())
+    ).rejects.toThrow("Invalid PrismaClient");
+  });
+
+  it("rejects object without $transaction", async () => {
+    await expect(
+      withTenant({} as any, "tenant-1", async (tx) => tx.party.findMany())
+    ).rejects.toThrow("Invalid PrismaClient");
   });
 });
 
