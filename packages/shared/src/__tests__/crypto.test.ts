@@ -114,6 +114,23 @@ describe("hashInput", () => {
     expect(() => hashInput(circularObj)).toThrow();
   });
 
+  it("should handle objects with no prototype (Object.create(null))", () => {
+    const noProto = Object.create(null);
+    noProto.a = 1;
+    noProto.b = 2;
+
+    // Should sort keys like a regular object
+    expect(() => hashInput(noProto)).not.toThrow();
+    const hash = hashInput(noProto);
+    expect(hash).toMatch(/^[a-f0-9]{64}$/);
+
+    // Same key-value pairs should produce same hash regardless of creation order
+    const noProto2 = Object.create(null);
+    noProto2.b = 2;
+    noProto2.a = 1;
+    expect(hashInput(noProto2)).toBe(hash);
+  });
+
   it("should handle Date objects", () => {
     const date1 = new Date("2024-01-01T00:00:00.000Z");
     const date2 = new Date("2024-01-01T00:00:00.000Z");

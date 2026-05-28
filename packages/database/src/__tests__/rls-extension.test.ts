@@ -168,9 +168,9 @@ describe("RLS Extension", () => {
         partyRole: { create: vi.fn().mockResolvedValue({ partyRoleId: "123" }) },
       };
       
+      // The proxy wraps $transaction to inject SET LOCAL before the callback.
+      // The callback should NOT need to call $executeRaw itself — the proxy does it.
       const result = await client.$transaction(async (tx) => {
-        // This should automatically call SET LOCAL at the start
-        await tx.$executeRaw`SELECT set_tenant_context(${"tenant-1"})`;
         await tx.party.findMany();
         await tx.partyRole.create({ data: {} });
         return "success";

@@ -102,20 +102,22 @@ export class PrismaService
     const cached = this.tenantClientCache.get(tenantId)?.deref();
     if (cached) return cached;
 
-    // Evict stale (GC'd) entries first. If none are stale, evict the oldest
-    // entry to prevent unbounded growth in multi-tenant systems.
+    // Evict stale (GC'd) entries first. If none are stale, evict the
+    // first-inserted (oldest) entry to prevent unbounded growth.
     if (this.tenantClientCache.size >= PrismaService.MAX_CACHE_SIZE) {
       let oldestKey: string | null = null;
+      let evictedStale = false;
       for (const [key, ref] of this.tenantClientCache) {
         if (!ref.deref()) {
           this.tenantClientCache.delete(key);
-          oldestKey = null; // Found a stale entry, no need to evict a live one
+          evictedStale = true;
           break;
         }
+        // Track the first-inserted (oldest) live entry for potential eviction
         if (!oldestKey) oldestKey = key;
       }
-      // All entries still live — evict the oldest (first-inserted) entry
-      if (oldestKey) {
+      // No stale entries found — evict the oldest live entry to make room
+      if (!evictedStale && oldestKey) {
         this.tenantClientCache.delete(oldestKey);
       }
     }

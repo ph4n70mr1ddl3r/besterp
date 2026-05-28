@@ -228,15 +228,19 @@ export class PartyService {
       where.roles = { some: { roleType: { name: roleType } } };
     }
 
-    // Use separate count query for better performance
-    const total = await db.party.count({ where });
-    
-    const items = await db.party.findMany({
-      where,
-      include: PartyService.PARTY_INCLUDE,
-      take: validatedLimit,
-      skip: validatedOffset,
-      orderBy: { createdAt: "desc" },
+    // Use a transaction to ensure count + findMany see a consistent snapshot.
+    // Without this, a concurrent insert between the two queries could cause
+    // hasMore to be inaccurate (count says N+1, but findMany returns N).
+    const [total, items] = await db.$transaction(async (tx: Prisma.TransactionClient) => {
+      const count = await tx.party.count({ where });
+      const rows = await tx.party.findMany({
+        where,
+        include: PartyService.PARTY_INCLUDE,
+        take: validatedLimit,
+        skip: validatedOffset,
+        orderBy: { createdAt: "desc" },
+      });
+      return [count, rows] as const;
     });
 
     return {
@@ -435,9 +439,9 @@ export class PartyService {
       }
       this.requireNonEmpty(emailAddress.email, "email", "email address");
       
-      // Email format validation — validate against trimmed+lowered value
-      // to match what will actually be stored in the database.
-      const normalizedEmail = emailAddress.email.trim().toLowerCase();
+      // Email format validation — email is already trimmed+lowered by DTO,
+      // so validate against the normalized value directly.
+      const normalizedEmail = emailAddress.email;
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
       if (!emailRegex.test(normalizedEmail)) {
         throw new InvalidTypeValueError(
@@ -501,7 +505,7 @@ export class PartyService {
           emailAddress: contactMechanismType === "EMAIL_ADDRESS"
             ? {
                 create: {
-                  email: (validContactData as EmailAddressInput).email.trim().toLowerCase(),
+                  email: (validContactData as EmailAddressInput).email,
                 },
               }
             : undefined,

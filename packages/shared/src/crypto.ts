@@ -8,12 +8,19 @@ import * as crypto from "crypto";
 function sortKeysDeep(value: unknown): unknown {
   if (value === null || value === undefined) return null; // Normalize undefined to null
   if (Array.isArray(value)) return value.map(sortKeysDeep);
-  if (typeof value === "object" && value.constructor === Object) {
-    const sorted: Record<string, unknown> = {};
-    for (const key of Object.keys(value as Record<string, unknown>).sort()) {
-      sorted[key] = sortKeysDeep((value as Record<string, unknown>)[key]);
+  if (typeof value === "object") {
+    const proto = Object.getPrototypeOf(value);
+    // Handle plain objects: {}, Object.create(null), etc.
+    // Skip custom class instances (Date, etc.) that have their own serialization.
+    if (proto === Object.prototype || proto === null) {
+      const sorted: Record<string, unknown> = {};
+      for (const key of Object.keys(value as Record<string, unknown>).sort()) {
+        sorted[key] = sortKeysDeep((value as Record<string, unknown>)[key]);
+      }
+      return sorted;
     }
-    return sorted;
+    // Non-plain objects (Date, class instances, etc.) pass through for JSON.stringify to handle
+    return value;
   }
   if (typeof value === "bigint") return `BigInt:${value.toString()}`;
   if (typeof value === "symbol") return `Symbol:${value.toString()}`;

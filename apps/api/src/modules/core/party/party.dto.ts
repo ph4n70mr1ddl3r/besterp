@@ -228,6 +228,9 @@ export class TelecomNumberDto {
 }
 
 export class EmailAddressDto {
+  @Transform(({ value }: { value: string }) =>
+    typeof value === "string" ? value.trim().toLowerCase() : value
+  )
   @IsEmail()
   @IsNotEmpty()
   email!: string;

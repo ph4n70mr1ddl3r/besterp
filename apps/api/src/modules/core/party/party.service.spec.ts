@@ -236,6 +236,22 @@ describe("PartyService", () => {
             }),
           ]),
         },
+        $transaction: vi.fn().mockImplementation(async (fn) => {
+          const tx = {
+            party: {
+              count: vi.fn().mockResolvedValue(2),
+              findMany: vi.fn().mockResolvedValue([
+                mockParty({ name: "John Doe", person: { firstName: "John", lastName: "Doe" } }),
+                mockParty({
+                  partyId: "party-2",
+                  name: "John Smith",
+                  person: { firstName: "John", lastName: "Smith" },
+                }),
+              ]),
+            },
+          };
+          return fn(tx);
+        }),
       };
 
       mockPrismaService.tenantScoped.mockReturnValue(mockDb);
@@ -256,10 +272,15 @@ describe("PartyService", () => {
       };
 
       const mockDb = {
-        party: {
-          count: vi.fn().mockResolvedValue(0),
-          findMany: vi.fn().mockResolvedValue([]),
-        },
+        $transaction: vi.fn().mockImplementation(async (fn) => {
+          const tx = {
+            party: {
+              count: vi.fn().mockResolvedValue(0),
+              findMany: vi.fn().mockResolvedValue([]),
+            },
+          };
+          return fn(tx);
+        }),
       };
 
       mockPrismaService.tenantScoped.mockReturnValue(mockDb);
@@ -280,10 +301,15 @@ describe("PartyService", () => {
       };
 
       const mockDb = {
-        party: {
-          count: vi.fn().mockResolvedValue(1),
-          findMany: vi.fn().mockResolvedValue([]),
-        },
+        $transaction: vi.fn().mockImplementation(async (fn) => {
+          const tx = {
+            party: {
+              count: vi.fn().mockResolvedValue(1),
+              findMany: vi.fn().mockResolvedValue([]),
+            },
+          };
+          return fn(tx);
+        }),
       };
 
       mockPrismaService.tenantScoped.mockReturnValue(mockDb);
