@@ -15,6 +15,7 @@
 
 import {
   DynamicModule,
+  Injectable,
   Logger,
   Module,
   OnModuleInit,
@@ -33,6 +34,7 @@ import {
 import { registerPartyTools } from "./tools/party-tools.js";
 import { registerDiscoveryTools } from "./tools/discovery-tools.js";
 
+@Injectable()
 @Module({})
 export class McpModule implements OnModuleInit {
   private readonly logger = new Logger(McpModule.name);
@@ -77,6 +79,12 @@ export class McpModule implements OnModuleInit {
     // Validate tenant ID format before building context. This catches invalid
     // tenant IDs from forged JWT tokens before any database operations.
     validateTenantIdEnhanced(overrides.tenantId);
+
+    // Validate userId — prevents null/empty user IDs in audit logs.
+    if (!overrides.userId || overrides.userId.trim().length === 0) {
+      throw new Error("McpModule.buildContext: userId is required and cannot be empty.");
+    }
+
     return {
       ...overrides,
       services: {

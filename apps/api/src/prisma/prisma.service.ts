@@ -49,6 +49,13 @@ export class PrismaService
         "The app client requires DATABASE_URL to connect as the RLS-enforced role."
       );
     }
+    if (!process.env.DATABASE_ADMIN_URL && process.env.NODE_ENV === "production") {
+      this.logger.warn(
+        "DATABASE_ADMIN_URL is not set — admin client falls back to DATABASE_URL. " +
+        "In production the admin client should use a superuser connection to bypass RLS. " +
+        "Without it, admin/cross-tenant operations may be silently blocked by RLS policies."
+      );
+    }
     try {
       await this.$connect();
       await this.appClient_.$connect();
@@ -63,6 +70,16 @@ export class PrismaService
   }
 
   async onModuleDestroy() {
+    // Clear tenant client cache and unregister from FinalizationRegistry
+    // to prevent phantom callbacks after the service is destroyed.
+    for (const [tenantId, ref] of this.tenantClientCache) {
+      const client = ref.deref();
+      if (client) {
+        this.cacheRegistry.unregister(client);
+      }
+    }
+    this.tenantClientCache.clear();
+
     const disconnectAll = await Promise.allSettled([
       this.$disconnect(),
       this.appClient_.$disconnect(),

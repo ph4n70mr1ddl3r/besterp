@@ -465,9 +465,10 @@ export class PartyService {
       }
       this.requireNonEmpty(emailAddress.email, "email", "email address");
       
-      // Email format validation — email is already trimmed+lowered by DTO,
-      // so validate against the normalized value directly.
-      const normalizedEmail = emailAddress.email;
+      // Email format validation — normalize to lowercase for consistency
+      // even if the caller forgot to (defense-in-depth: both DTO and Zod
+      // schemas already normalize, but the service is the canonical layer).
+      const normalizedEmail = emailAddress.email.trim().toLowerCase();
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
       if (!emailRegex.test(normalizedEmail)) {
         throw new InvalidTypeValueError(
@@ -475,7 +476,7 @@ export class PartyService {
           { suggestedTools: ["add_contact_mechanism"], context: { contactMechanismType, field: "email", invalidValue: emailAddress.email } }
         );
       }
-      validContactData = emailAddress;
+      validContactData = { ...emailAddress, email: normalizedEmail };
     } else {
       // Exhaustiveness check — the enum validation in the DTO should prevent this.
       throw new InvalidTypeValueError(
