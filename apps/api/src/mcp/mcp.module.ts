@@ -17,7 +17,6 @@ import {
   DynamicModule,
   Injectable,
   Logger,
-  Module,
   OnModuleInit,
 } from "@nestjs/common";
 import { validateTenantIdEnhanced } from "@besterp/database";
@@ -35,7 +34,6 @@ import { registerPartyTools } from "./tools/party-tools.js";
 import { registerDiscoveryTools } from "./tools/discovery-tools.js";
 
 @Injectable()
-@Module({})
 export class McpModule implements OnModuleInit {
   private readonly logger = new Logger(McpModule.name);
   private readonly registry = new ToolRegistry();

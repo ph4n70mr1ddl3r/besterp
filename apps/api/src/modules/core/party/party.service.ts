@@ -107,10 +107,22 @@ export class PartyService {
           { suggestedTools: ["create_party"], context: { field: "firstName" } }
         );
       }
+      if (personData.firstName.trim().length > 200) {
+        throw new InvalidTypeValueError(
+          `firstName is too long (${personData.firstName.trim().length} characters, max 200)`,
+          { suggestedTools: ["create_party"], context: { field: "firstName", length: personData.firstName.trim().length, maxLength: 200 } }
+        );
+      }
       if (!personData.lastName || personData.lastName.trim().length === 0) {
         throw new MissingSubtypeDataError(
           "lastName is required for person data",
           { suggestedTools: ["create_party"], context: { field: "lastName" } }
+        );
+      }
+      if (personData.lastName.trim().length > 200) {
+        throw new InvalidTypeValueError(
+          `lastName is too long (${personData.lastName.trim().length} characters, max 200)`,
+          { suggestedTools: ["create_party"], context: { field: "lastName", length: personData.lastName.trim().length, maxLength: 200 } }
         );
       }
     }
@@ -121,6 +133,12 @@ export class PartyService {
         throw new MissingSubtypeDataError(
           "legalName is required for organization data",
           { suggestedTools: ["create_party"], context: { field: "legalName" } }
+        );
+      }
+      if (orgData.legalName.trim().length > 500) {
+        throw new InvalidTypeValueError(
+          `legalName is too long (${orgData.legalName.trim().length} characters, max 500)`,
+          { suggestedTools: ["create_party"], context: { field: "legalName", length: orgData.legalName.trim().length, maxLength: 500 } }
         );
       }
     }
@@ -298,10 +316,20 @@ export class PartyService {
         }
       );
     }
+    const trimmedRoleType = roleType.trim();
+    if (trimmedRoleType.length > 100) {
+      throw new InvalidTypeValueError(
+        `roleType is too long (${trimmedRoleType.length} characters, max 100)`,
+        {
+          suggestedTools: ["get_type_table_values"],
+          context: { field: "roleType", length: trimmedRoleType.length, maxLength: 100 },
+        }
+      );
+    }
 
     // Look up role type (static shared data, safe outside transaction)
     const roleTypeRecord = await db.roleType.findUnique({
-      where: { name: roleType.trim() },
+      where: { name: trimmedRoleType },
     });
     if (!roleTypeRecord) {
       throw new InvalidTypeValueError(
@@ -416,10 +444,20 @@ export class PartyService {
         }
       );
     }
+    const trimmedCmType = contactMechanismType.trim();
+    if (trimmedCmType.length > 50) {
+      throw new InvalidTypeValueError(
+        `contactMechanismType is too long (${trimmedCmType.length} characters, max 50)`,
+        {
+          suggestedTools: ["get_type_table_values"],
+          context: { field: "contactMechanismType", length: trimmedCmType.length, maxLength: 50 },
+        }
+      );
+    }
 
     // Look up contact mechanism type
     const cmType = await db.contactMechanismType.findUnique({
-      where: { name: contactMechanismType.trim() },
+      where: { name: trimmedCmType },
     });
     if (!cmType) {
       throw new InvalidTypeValueError(
@@ -439,11 +477,11 @@ export class PartyService {
     // Validate subtype data with detailed validation (pure computation, no DB)
     let validContactData: PostalAddressInput | TelecomNumberInput | EmailAddressInput;
     
-    if (contactMechanismType === "POSTAL_ADDRESS") {
+    if (trimmedCmType === "POSTAL_ADDRESS") {
       if (!postalAddress) {
         throw new MissingSubtypeDataError(
           "postalAddress is required when contactMechanismType is POSTAL_ADDRESS.",
-          { suggestedTools: ["add_contact_mechanism"], context: { contactMechanismType, missingField: "postalAddress" } }
+          { suggestedTools: ["add_contact_mechanism"], context: { contactMechanismType: trimmedCmType, missingField: "postalAddress" } }
         );
       }
       this.requireNonEmpty(postalAddress.addressLine1, "addressLine1", "postal address");
@@ -451,22 +489,22 @@ export class PartyService {
       this.requireNonEmpty(postalAddress.country, "country", "postal address");
       validContactData = postalAddress;
     } 
-    else if (contactMechanismType === "TELECOM_NUMBER") {
+    else if (trimmedCmType === "TELECOM_NUMBER") {
       if (!telecomNumber) {
         throw new MissingSubtypeDataError(
           "telecomNumber is required when contactMechanismType is TELECOM_NUMBER.",
-          { suggestedTools: ["add_contact_mechanism"], context: { contactMechanismType, missingField: "telecomNumber" } }
+          { suggestedTools: ["add_contact_mechanism"], context: { contactMechanismType: trimmedCmType, missingField: "telecomNumber" } }
         );
       }
       this.requireNonEmpty(telecomNumber.areaCode, "areaCode", "telecom number");
       this.requireNonEmpty(telecomNumber.lineNumber, "lineNumber", "telecom number");
       validContactData = telecomNumber;
     } 
-    else if (contactMechanismType === "EMAIL_ADDRESS") {
+    else if (trimmedCmType === "EMAIL_ADDRESS") {
       if (!emailAddress) {
         throw new MissingSubtypeDataError(
           "emailAddress is required when contactMechanismType is EMAIL_ADDRESS.",
-          { suggestedTools: ["add_contact_mechanism"], context: { contactMechanismType, missingField: "emailAddress" } }
+          { suggestedTools: ["add_contact_mechanism"], context: { contactMechanismType: trimmedCmType, missingField: "emailAddress" } }
         );
       }
       this.requireNonEmpty(emailAddress.email, "email", "email address");
@@ -479,15 +517,15 @@ export class PartyService {
       if (!emailRegex.test(normalizedEmail)) {
         throw new InvalidTypeValueError(
           `Invalid email format: ${emailAddress.email}`,
-          { suggestedTools: ["add_contact_mechanism"], context: { contactMechanismType, field: "email", invalidValue: emailAddress.email } }
+          { suggestedTools: ["add_contact_mechanism"], context: { contactMechanismType: trimmedCmType, field: "email", invalidValue: emailAddress.email } }
         );
       }
       validContactData = { ...emailAddress, email: normalizedEmail };
     } else {
       // Exhaustiveness check — the enum validation in the DTO should prevent this.
       throw new InvalidTypeValueError(
-        `Unsupported contactMechanismType: ${contactMechanismType}`,
-        { suggestedTools: ["get_type_table_values"], context: { field: "contactMechanismType", invalidValue: contactMechanismType } }
+        `Unsupported contactMechanismType: ${trimmedCmType}`,
+        { suggestedTools: ["get_type_table_values"], context: { field: "contactMechanismType", invalidValue: trimmedCmType } }
       );
     }
 
@@ -513,7 +551,7 @@ export class PartyService {
         data: {
           contactMechanismTypeId: cmType.contactMechanismTypeId,
           tenantId,
-          postalAddress: contactMechanismType === "POSTAL_ADDRESS"
+          postalAddress: trimmedCmType === "POSTAL_ADDRESS"
             ? {
                 create: {
                   addressLine1: (validContactData as PostalAddressInput).addressLine1.trim(),
@@ -525,7 +563,7 @@ export class PartyService {
                 },
               }
             : undefined,
-          telecomNumber: contactMechanismType === "TELECOM_NUMBER"
+          telecomNumber: trimmedCmType === "TELECOM_NUMBER"
             ? {
                 create: {
                   countryCode: (validContactData as TelecomNumberInput).countryCode?.trim() || "+1",
@@ -535,7 +573,7 @@ export class PartyService {
                 },
               }
             : undefined,
-          emailAddress: contactMechanismType === "EMAIL_ADDRESS"
+          emailAddress: trimmedCmType === "EMAIL_ADDRESS"
             ? {
                 create: {
                   email: (validContactData as EmailAddressInput).email,
@@ -555,7 +593,7 @@ export class PartyService {
       });
     });
 
-    this.logger.log(`Added ${contactMechanismType} to party ${partyId} (ID: ${contactMechanism.contactMechanismId})`);
+    this.logger.log(`Added ${trimmedCmType} to party ${partyId} (ID: ${contactMechanism.contactMechanismId})`);
 
     // Format return data consistently
     return {

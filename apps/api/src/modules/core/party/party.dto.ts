@@ -18,6 +18,7 @@ import {
   IsInt,
   Min,
   Max,
+  MaxLength,
   ValidatorConstraint,
   ValidatorConstraintInterface,
   Validate,
@@ -72,14 +73,17 @@ class PartySubtypeExclusiveConstraint implements ValidatorConstraintInterface {
 export class CreatePersonDto {
   @IsString()
   @IsNotEmpty()
+  @MaxLength(200)
   firstName!: string;
 
   @IsString()
   @IsNotEmpty()
+  @MaxLength(200)
   lastName!: string;
 
   @IsOptional()
   @IsString()
+  @MaxLength(100)
   middleName?: string;
 
   @IsOptional()
@@ -96,10 +100,12 @@ export class CreatePersonDto {
 export class CreateOrganizationDto {
   @IsString()
   @IsNotEmpty()
+  @MaxLength(500)
   legalName!: string;
 
   @IsOptional()
   @IsString()
+  @MaxLength(50)
   taxId?: string;
 
   @IsOptional()
@@ -116,10 +122,12 @@ export class CreatePartyDto {
   @Transform(({ value }: { value: string }) => (typeof value === "string" ? value.trim() : value))
   @IsString()
   @IsNotEmpty()
+  @MaxLength(500)
   name!: string;
 
   @IsOptional()
   @IsString()
+  @MaxLength(1000)
   description?: string;
 
   @ValidateNested()
@@ -174,6 +182,7 @@ export class SearchPartiesDto {
 export class AddPartyRoleDto {
   @IsString()
   @IsNotEmpty()
+  @MaxLength(100)
   roleType!: string;
 
   @IsOptional()
@@ -186,44 +195,54 @@ export class AddPartyRoleDto {
 export class PostalAddressDto {
   @IsString()
   @IsNotEmpty()
+  @MaxLength(200)
   addressLine1!: string;
 
   @IsOptional()
   @IsString()
+  @MaxLength(200)
   addressLine2?: string;
 
   @IsString()
   @IsNotEmpty()
+  @MaxLength(100)
   city!: string;
 
   @IsOptional()
   @IsString()
+  @MaxLength(100)
   stateProvince?: string;
 
   @IsOptional()
   @IsString()
+  @MaxLength(20)
   postalCode?: string;
 
   @IsString()
   @IsNotEmpty()
+  @MaxLength(3)
   country!: string;
 }
 
 export class TelecomNumberDto {
   @IsOptional()
   @IsString()
+  @MaxLength(5)
   countryCode?: string;
 
   @IsString()
   @IsNotEmpty()
+  @MaxLength(10)
   areaCode!: string;
 
   @IsString()
   @IsNotEmpty()
+  @MaxLength(20)
   lineNumber!: string;
 
   @IsOptional()
   @IsString()
+  @MaxLength(10)
   extension?: string;
 }
 

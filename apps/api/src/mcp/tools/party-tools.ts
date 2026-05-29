@@ -37,33 +37,33 @@ function getPartyService(ctx: ToolContext) {
 // ─── Schemas ──────────────────────────────────────────────────────
 
 const personSchema = z.object({
-  firstName: z.string().transform(s => s.trim()).describe("First/given name"),
-  lastName: z.string().transform(s => s.trim()).describe("Last/family name"),
-  middleName: z.string().optional().transform(s => s?.trim()).describe("Middle name"),
+  firstName: z.string().min(1).max(200).transform(s => s.trim()).describe("First/given name"),
+  lastName: z.string().min(1).max(200).transform(s => s.trim()).describe("Last/family name"),
+  middleName: z.string().max(100).optional().transform(s => s?.trim()).describe("Middle name"),
   birthDate: z.string().optional().describe("Date of birth (ISO 8601)"),
-  gender: z.string().optional().describe("Gender"),
+  gender: z.string().max(50).optional().describe("Gender"),
 });
 
 const organizationSchema = z.object({
-  legalName: z.string().transform(s => s.trim()).describe("Legal/registered name of the organization"),
-  taxId: z.string().optional().transform(s => s?.trim()).describe("Tax identification number"),
+  legalName: z.string().min(1).max(500).transform(s => s.trim()).describe("Legal/registered name of the organization"),
+  taxId: z.string().max(50).optional().transform(s => s?.trim()).describe("Tax identification number"),
   registrationDate: z.string().optional().describe("Date of registration (ISO 8601)"),
 });
 
 const postalAddressSchema = z.object({
-  addressLine1: z.string().describe("Street address line 1"),
-  addressLine2: z.string().optional().describe("Street address line 2"),
-  city: z.string().describe("City"),
-  stateProvince: z.string().optional().describe("State or province"),
-  postalCode: z.string().optional().describe("Postal/ZIP code"),
-  country: z.string().describe("Country code (e.g., US, DE, JP)"),
+  addressLine1: z.string().min(1).max(200).transform(s => s.trim()).describe("Street address line 1"),
+  addressLine2: z.string().max(200).optional().transform(s => s?.trim()).describe("Street address line 2"),
+  city: z.string().min(1).max(100).transform(s => s.trim()).describe("City"),
+  stateProvince: z.string().max(100).optional().transform(s => s?.trim()).describe("State or province"),
+  postalCode: z.string().max(20).optional().transform(s => s?.trim()).describe("Postal/ZIP code"),
+  country: z.string().min(1).max(3).transform(s => s.trim()).describe("Country code (e.g., US, DE, JP)"),
 });
 
 const telecomNumberSchema = z.object({
-  countryCode: z.string().optional().default("+1").describe("Country code (default: +1)"),
-  areaCode: z.string().describe("Area code"),
-  lineNumber: z.string().describe("Phone line number"),
-  extension: z.string().optional().describe("Extension"),
+  countryCode: z.string().max(5).optional().default("+1").transform(s => s?.trim() ?? "+1").describe("Country code (default: +1)"),
+  areaCode: z.string().min(1).max(10).transform(s => s.trim()).describe("Area code"),
+  lineNumber: z.string().min(1).max(20).transform(s => s.trim()).describe("Phone line number"),
+  extension: z.string().max(10).optional().transform(s => s?.trim()).describe("Extension"),
 });
 
 const emailAddressSchema = z.object({

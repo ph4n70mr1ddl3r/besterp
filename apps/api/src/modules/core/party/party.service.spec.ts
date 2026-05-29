@@ -120,6 +120,47 @@ describe("PartyService", () => {
       expect(result.organization?.legalName).toBe("Acme Corporation");
     });
 
+    it("should throw error for firstName exceeding max length", async () => {
+      const input: CreatePartyInput = {
+        tenantId: "tenant-1",
+        partyType: "PERSON",
+        name: "John Doe",
+        person: {
+          firstName: "x".repeat(201),
+          lastName: "Doe",
+        },
+      };
+
+      await expect(partyService.createParty(input)).rejects.toThrow(InvalidTypeValueError);
+    });
+
+    it("should throw error for lastName exceeding max length", async () => {
+      const input: CreatePartyInput = {
+        tenantId: "tenant-1",
+        partyType: "PERSON",
+        name: "John Doe",
+        person: {
+          firstName: "John",
+          lastName: "x".repeat(201),
+        },
+      };
+
+      await expect(partyService.createParty(input)).rejects.toThrow(InvalidTypeValueError);
+    });
+
+    it("should throw error for legalName exceeding max length", async () => {
+      const input: CreatePartyInput = {
+        tenantId: "tenant-1",
+        partyType: "ORGANIZATION",
+        name: "Acme Corp",
+        organization: {
+          legalName: "x".repeat(501),
+        },
+      };
+
+      await expect(partyService.createParty(input)).rejects.toThrow(InvalidTypeValueError);
+    });
+
     it("should throw error for missing person data", async () => {
       const input: CreatePartyInput = {
         tenantId: "tenant-1",
@@ -163,6 +204,17 @@ describe("PartyService", () => {
         tenantId: "tenant-1",
         partyType: "PERSON",
         name: "",
+        person: { firstName: "John", lastName: "Doe" },
+      };
+
+      await expect(partyService.createParty(input)).rejects.toThrow(InvalidTypeValueError);
+    });
+
+    it("should throw error for name exceeding max length", async () => {
+      const input: CreatePartyInput = {
+        tenantId: "tenant-1",
+        partyType: "PERSON",
+        name: "x".repeat(501),
         person: { firstName: "John", lastName: "Doe" },
       };
 
@@ -391,6 +443,16 @@ describe("PartyService", () => {
       mockPrismaService.tenantScoped.mockReturnValue(mockDb);
 
       await expect(partyService.addPartyRole(input)).rejects.toThrow(DuplicateEntityError);
+    });
+
+    it("should throw error for roleType exceeding max length", async () => {
+      const input = {
+        tenantId: "tenant-1",
+        partyId: "party-123",
+        roleType: "x".repeat(101),
+      };
+
+      await expect(partyService.addPartyRole(input)).rejects.toThrow(InvalidTypeValueError);
     });
 
     it("should throw error for invalid role type", async () => {
