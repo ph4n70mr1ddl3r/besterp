@@ -38,7 +38,10 @@ export function auditLogMiddleware(prisma: PrismaClient): ToolMiddleware {
       throw error;
     }
 
-    await logAction(prisma, {
+    // Fire-and-forget: do NOT await the audit write on the success path.
+    // Awaiting adds latency to every successful tool call for no benefit.
+    // The .catch() prevents unhandled rejections if the write fails.
+    logAction(prisma, {
       agentId: context.agentId,
       conversationId: context.conversationId,
       userId: context.userId,

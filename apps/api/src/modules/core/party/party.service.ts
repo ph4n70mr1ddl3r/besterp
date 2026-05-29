@@ -78,6 +78,12 @@ export class PartyService {
       );
     }
     const trimmedName = name.trim();
+    if (trimmedName.length > 500) {
+      throw new InvalidTypeValueError(
+        `Party name is too long (${trimmedName.length} characters, max 500)`,
+        { suggestedTools: ["create_party"], context: { field: "name", length: trimmedName.length, maxLength: 500 } }
+      );
+    }
 
     // Validate subtype data
     if (partyType === "PERSON" && !personData) {

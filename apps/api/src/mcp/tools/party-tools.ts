@@ -95,11 +95,21 @@ Example: Create a supplier organization
       "Unique key to prevent duplicate creation. Format: party-create-{description}-{date}"
     ),
     partyType: z.enum(["PERSON", "ORGANIZATION"]).describe("Type of party to create"),
-    name: z.string().describe("Display name for the party"),
+    name: z.string().min(1).max(500).describe("Display name for the party (1-500 characters)"),
     description: z.string().optional().describe("Optional description"),
     person: personSchema.optional().describe("Person details (required when partyType is PERSON)"),
     organization: organizationSchema.optional().describe("Organization details (required when partyType is ORGANIZATION)"),
-  }),
+  }).refine(
+    (data) => {
+      if (data.partyType === "PERSON") return data.person !== undefined;
+      if (data.partyType === "ORGANIZATION") return data.organization !== undefined;
+      return true;
+    },
+    {
+      message: "'person' is required when partyType is PERSON, 'organization' is required when partyType is ORGANIZATION",
+      path: ["partyType"],
+    }
+  ),
 
   riskLevel: "low",
   entity: "party",
@@ -164,7 +174,7 @@ Use this to find customers, suppliers, or any party by name, type, or role.`,
     partyType: z.enum(["PERSON", "ORGANIZATION"]).optional().describe("Filter by party type"),
     roleType: z.string().optional().describe("Filter by role type name (e.g., 'Customer', 'Supplier')"),
     limit: z.number().int().min(1).max(500).optional().default(50).describe("Maximum results to return (max 500)"),
-    offset: z.number().optional().default(0).describe("Number of results to skip"),
+    offset: z.number().int().min(0).optional().default(0).describe("Number of results to skip (min 0)"),
   }),
 
   riskLevel: "none",
@@ -245,7 +255,18 @@ Use 'get_type_table_values' with typeName "CONTACT_MECHANISM_TYPE" to see availa
       .describe("Phone number details (required when contactMechanismType is TELECOM_NUMBER)"),
     emailAddress: emailAddressSchema.optional()
       .describe("Email details (required when contactMechanismType is EMAIL_ADDRESS)"),
-  }),
+  }).refine(
+    (data) => {
+      if (data.contactMechanismType === "POSTAL_ADDRESS") return data.postalAddress !== undefined;
+      if (data.contactMechanismType === "TELECOM_NUMBER") return data.telecomNumber !== undefined;
+      if (data.contactMechanismType === "EMAIL_ADDRESS") return data.emailAddress !== undefined;
+      return true;
+    },
+    {
+      message: "The matching subtype data must be provided for the chosen contactMechanismType",
+      path: ["contactMechanismType"],
+    }
+  ),
 
   riskLevel: "low",
   entity: "party",
