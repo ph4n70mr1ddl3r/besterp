@@ -40,8 +40,8 @@ const personSchema = z.object({
   firstName: z.string().min(1).max(200).transform(s => s.trim()).describe("First/given name"),
   lastName: z.string().min(1).max(200).transform(s => s.trim()).describe("Last/family name"),
   middleName: z.string().max(100).optional().transform(s => s?.trim()).describe("Middle name"),
-  birthDate: z.string().optional().describe("Date of birth (ISO 8601)"),
-  gender: z.string().max(50).optional().describe("Gender"),
+  birthDate: z.string().max(30).optional().describe("Date of birth (ISO 8601)"),
+  gender: z.string().max(50).optional().transform(s => s?.trim()).describe("Gender"),
 });
 
 const organizationSchema = z.object({
@@ -95,8 +95,8 @@ Example: Create a supplier organization
       "Unique key to prevent duplicate creation. Format: party-create-{description}-{date}"
     ),
     partyType: z.enum(["PERSON", "ORGANIZATION"]).describe("Type of party to create"),
-    name: z.string().min(1).max(500).describe("Display name for the party (1-500 characters)"),
-    description: z.string().optional().describe("Optional description"),
+    name: z.string().min(1).max(500).transform(s => s.trim()).describe("Display name for the party (1-500 characters)"),
+    description: z.string().max(1000).optional().transform(s => s?.trim()).describe("Optional description (max 1000 characters)"),
     person: personSchema.optional().describe("Person details (required when partyType is PERSON)"),
     organization: organizationSchema.optional().describe("Organization details (required when partyType is ORGANIZATION)"),
   }).refine(
@@ -146,7 +146,7 @@ const getParty: ToolDefinition = {
 Returns full party details. Use this to inspect a specific party's information.`,
 
   inputSchema: z.object({
-    partyId: z.string().describe("The unique ID of the party"),
+    partyId: z.string().min(1).describe("The unique ID of the party"),
   }),
 
   riskLevel: "none",
@@ -170,7 +170,7 @@ Returns a paginated list of parties matching the criteria.
 Use this to find customers, suppliers, or any party by name, type, or role.`,
 
   inputSchema: z.object({
-    name: z.string().optional().describe("Filter by name (case-insensitive partial match)"),
+    name: z.string().optional().transform(s => s?.trim()).describe("Filter by name (case-insensitive partial match)"),
     partyType: z.enum(["PERSON", "ORGANIZATION"]).optional().describe("Filter by party type"),
     roleType: z.string().optional().describe("Filter by role type name (e.g., 'Customer', 'Supplier')"),
     limit: z.number().int().min(1).max(500).optional().default(50).describe("Maximum results to return (max 500)"),
@@ -205,8 +205,8 @@ Example: Make a party a customer
 
   inputSchema: z.object({
     idempotencyKey: z.string().describe("Idempotency key to prevent duplicate role assignment. Format: role-{partyId}-{roleType}-{date}"),
-    partyId: z.string().describe("The party to assign the role to"),
-    roleType: z.string().describe("Role type name (e.g., 'Customer', 'Supplier', 'Employee')"),
+    partyId: z.string().min(1).describe("The party to assign the role to"),
+    roleType: z.string().min(1).max(100).describe("Role type name (e.g., 'Customer', 'Supplier', 'Employee')"),
     fromDate: z.string().optional().describe("Start date for the role (ISO 8601, default: now)"),
   }),
 
@@ -246,7 +246,7 @@ Use 'get_type_table_values' with typeName "CONTACT_MECHANISM_TYPE" to see availa
 
   inputSchema: z.object({
     idempotencyKey: z.string().describe("Idempotency key to prevent duplicate contact creation. Format: contact-{partyId}-{type}-{date}"),
-    partyId: z.string().describe("The party to add the contact to"),
+    partyId: z.string().min(1).describe("The party to add the contact to"),
     contactMechanismType: z.enum(["POSTAL_ADDRESS", "TELECOM_NUMBER", "EMAIL_ADDRESS"])
       .describe("Type of contact mechanism"),
     postalAddress: postalAddressSchema.optional()

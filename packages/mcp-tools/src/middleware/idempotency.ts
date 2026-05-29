@@ -26,6 +26,12 @@ import { ToolMiddleware, ToolDefinition, ToolResult, ToolContext } from "../sche
  */
 export function idempotencyMiddleware(prisma: PrismaClient): ToolMiddleware {
   return async (input, context, definition, next) => {
+    // Guard against misconfigured middleware (e.g., null prisma).
+    if (!prisma?.idempotencyRecord) {
+      console.warn("[Idempotency] Prisma client not available — skipping idempotency check.");
+      return next(input, context);
+    }
+
     const { idempotencyKey, tenantId, userId, agentId, conversationId } = context;
 
     // No key = no idempotency — pass through

@@ -84,6 +84,13 @@ export class PartyService {
         { suggestedTools: ["create_party"], context: { field: "name", length: trimmedName.length, maxLength: 500 } }
       );
     }
+    // Validate description length (MCP tool path has no DTO validation)
+    if (description && description.trim().length > 1000) {
+      throw new InvalidTypeValueError(
+        `Description is too long (${description.trim().length} characters, max 1000)`,
+        { suggestedTools: ["create_party"], context: { field: "description", length: description.trim().length, maxLength: 1000 } }
+      );
+    }
 
     // Validate subtype data
     if (partyType === "PERSON" && !personData) {
@@ -257,11 +264,14 @@ export class PartyService {
     const where: Prisma.PartyWhereInput = { tenantId };
     
     if (name) {
-      // Use contains for flexible partial matching (case-insensitive)
+      // Use contains for flexible partial matching (case-insensitive).
+      // Trim whitespace to avoid useless LIKE '%  %' queries.
       const trimmedName = name.trim();
       if (trimmedName.length > 0) {
         where.name = { contains: trimmedName, mode: "insensitive" };
       }
+      // If trimmed name is empty, skip the filter — returning all parties
+      // is more useful than an empty result set.
     }
     
     if (partyType) {

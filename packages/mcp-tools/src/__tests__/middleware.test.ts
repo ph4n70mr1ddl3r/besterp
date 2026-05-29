@@ -204,6 +204,17 @@ describe("Idempotency Middleware", () => {
     expect(result.data).toBe("passed through");
   });
 
+  it("should pass through when prisma is null", async () => {
+    const input = { test: "value" };
+    const contextWithKey = { ...mockContext, idempotencyKey: "some-key" };
+
+    const middleware = idempotencyMiddleware(null as any);
+    const result = await middleware(input, contextWithKey, mockDefinition, successNext({ success: true, data: "passed through" }));
+
+    expect(result.success).toBe(true);
+    expect(result.data).toBe("passed through");
+  });
+
   it("should return contention error when all serialization retries fail", async () => {
     const input = { test: "value" };
     const idempotencyKey = "test-key";
@@ -267,6 +278,17 @@ describe("Audit Log Middleware", () => {
         }),
       })
     );
+  });
+
+  it("should pass through when prisma is null", async () => {
+    const input = { test: "value" };
+    const toolResult: ToolResult = { success: true, data: "ok" };
+
+    const middleware = auditLogMiddleware(null as any);
+    const result = await middleware(input, mockContext, mockDefinition, successNext(toolResult));
+
+    // Should not throw, should pass through the result
+    expect(result).toEqual(toolResult);
   });
 });
 

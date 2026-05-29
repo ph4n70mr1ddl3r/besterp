@@ -92,6 +92,7 @@ export class CreatePersonDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(50)
   gender?: string;
 }
 

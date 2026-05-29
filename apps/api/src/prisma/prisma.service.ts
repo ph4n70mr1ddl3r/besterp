@@ -84,11 +84,10 @@ export class PrismaService
       this.$disconnect(),
       this.appClient_.$disconnect(),
     ]);
-    const errors = disconnectAll.filter((r) => r.status === "rejected");
-    if (errors.length > 0) {
-      this.logger.error(
-        `Error disconnecting database: ${errors.map((e) => (e as PromiseRejectedResult).reason).join(", ")}`
-      );
+    for (const result of disconnectAll) {
+      if (result.status === "rejected") {
+        this.logger.error(`Error disconnecting database: ${result.reason}`);
+      }
     }
   }
 

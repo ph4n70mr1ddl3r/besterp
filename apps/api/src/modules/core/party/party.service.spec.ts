@@ -234,6 +234,18 @@ describe("PartyService", () => {
 
       await expect(partyService.createParty(input)).rejects.toThrow(MissingSubtypeDataError);
     });
+
+    it("should throw error for description exceeding max length", async () => {
+      const input: CreatePartyInput = {
+        tenantId: "tenant-1",
+        partyType: "PERSON",
+        name: "John Doe",
+        description: "x".repeat(1001),
+        person: { firstName: "John", lastName: "Doe" },
+      };
+
+      await expect(partyService.createParty(input)).rejects.toThrow(InvalidTypeValueError);
+    });
   });
 
   describe("getParty", () => {

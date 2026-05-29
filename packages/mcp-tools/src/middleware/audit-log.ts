@@ -18,6 +18,12 @@ import { ToolMiddleware, ToolDefinition, ToolResult } from "../schema/tool-defin
  */
 export function auditLogMiddleware(prisma: PrismaClient): ToolMiddleware {
   return async (input, context, definition, next) => {
+    // Guard against misconfigured middleware (e.g., null prisma).
+    if (!prisma?.aiActionLog) {
+      console.warn("[AuditLog] Prisma client not available — skipping audit log.");
+      return next(input, context);
+    }
+
     let result: ToolResult;
     try {
       result = await next(input, context);
