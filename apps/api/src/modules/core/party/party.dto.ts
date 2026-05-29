@@ -71,17 +71,20 @@ class PartySubtypeExclusiveConstraint implements ValidatorConstraintInterface {
 // ─── Person Subtype ──────────────────────────────────────────────
 
 export class CreatePersonDto {
+  @Transform(({ value }: { value: string }) => (typeof value === "string" ? value.trim() : value))
   @IsString()
   @IsNotEmpty()
   @MaxLength(200)
   firstName!: string;
 
+  @Transform(({ value }: { value: string }) => (typeof value === "string" ? value.trim() : value))
   @IsString()
   @IsNotEmpty()
   @MaxLength(200)
   lastName!: string;
 
   @IsOptional()
+  @Transform(({ value }: { value: string }) => (typeof value === "string" ? value.trim() : value))
   @IsString()
   @MaxLength(100)
   middleName?: string;
@@ -91,6 +94,7 @@ export class CreatePersonDto {
   birthDate?: string;
 
   @IsOptional()
+  @Transform(({ value }: { value: string }) => (typeof value === "string" ? value.trim() : value))
   @IsString()
   @MaxLength(50)
   gender?: string;
@@ -99,12 +103,14 @@ export class CreatePersonDto {
 // ─── Organization Subtype ────────────────────────────────────────
 
 export class CreateOrganizationDto {
+  @Transform(({ value }: { value: string }) => (typeof value === "string" ? value.trim() : value))
   @IsString()
   @IsNotEmpty()
   @MaxLength(500)
   legalName!: string;
 
   @IsOptional()
+  @Transform(({ value }: { value: string }) => (typeof value === "string" ? value.trim() : value))
   @IsString()
   @MaxLength(50)
   taxId?: string;
@@ -181,6 +187,7 @@ export class SearchPartiesDto {
 // ─── Add Party Role ──────────────────────────────────────────────
 
 export class AddPartyRoleDto {
+  @Transform(({ value }: { value: string }) => (typeof value === "string" ? value.trim() : value))
   @IsString()
   @IsNotEmpty()
   @MaxLength(100)
@@ -194,31 +201,37 @@ export class AddPartyRoleDto {
 // ─── Contact Mechanism Subtypes ──────────────────────────────────
 
 export class PostalAddressDto {
+  @Transform(({ value }: { value: string }) => (typeof value === "string" ? value.trim() : value))
   @IsString()
   @IsNotEmpty()
   @MaxLength(200)
   addressLine1!: string;
 
   @IsOptional()
+  @Transform(({ value }: { value: string }) => (typeof value === "string" ? value.trim() : value))
   @IsString()
   @MaxLength(200)
   addressLine2?: string;
 
+  @Transform(({ value }: { value: string }) => (typeof value === "string" ? value.trim() : value))
   @IsString()
   @IsNotEmpty()
   @MaxLength(100)
   city!: string;
 
   @IsOptional()
+  @Transform(({ value }: { value: string }) => (typeof value === "string" ? value.trim() : value))
   @IsString()
   @MaxLength(100)
   stateProvince?: string;
 
   @IsOptional()
+  @Transform(({ value }: { value: string }) => (typeof value === "string" ? value.trim() : value))
   @IsString()
   @MaxLength(20)
   postalCode?: string;
 
+  @Transform(({ value }: { value: string }) => (typeof value === "string" ? value.trim().toUpperCase() : value))
   @IsString()
   @IsNotEmpty()
   @MaxLength(3)
@@ -227,21 +240,25 @@ export class PostalAddressDto {
 
 export class TelecomNumberDto {
   @IsOptional()
+  @Transform(({ value }: { value: string }) => (typeof value === "string" ? value.trim() : value))
   @IsString()
   @MaxLength(5)
   countryCode?: string;
 
+  @Transform(({ value }: { value: string }) => (typeof value === "string" ? value.trim() : value))
   @IsString()
   @IsNotEmpty()
   @MaxLength(10)
   areaCode!: string;
 
+  @Transform(({ value }: { value: string }) => (typeof value === "string" ? value.trim() : value))
   @IsString()
   @IsNotEmpty()
   @MaxLength(20)
   lineNumber!: string;
 
   @IsOptional()
+  @Transform(({ value }: { value: string }) => (typeof value === "string" ? value.trim() : value))
   @IsString()
   @MaxLength(10)
   extension?: string;
