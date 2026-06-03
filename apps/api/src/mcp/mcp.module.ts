@@ -91,6 +91,20 @@ export class McpModule implements OnModuleInit {
       );
     }
 
+    // Validate agentId length — prevents oversized values in audit logs.
+    if (overrides.agentId && overrides.agentId.length > 200) {
+      throw new Error(
+        `McpModule.buildContext: agentId is too long (${overrides.agentId.length} chars, max 200).`
+      );
+    }
+
+    // Validate conversationId length — prevents oversized values in audit logs.
+    if (overrides.conversationId && overrides.conversationId.length > 200) {
+      throw new Error(
+        `McpModule.buildContext: conversationId is too long (${overrides.conversationId.length} chars, max 200).`
+      );
+    }
+
     return {
       ...overrides,
       services: {

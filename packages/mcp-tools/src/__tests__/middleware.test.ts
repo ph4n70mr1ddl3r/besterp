@@ -290,6 +290,23 @@ describe("Audit Log Middleware", () => {
     // Should not throw, should pass through the result
     expect(result).toEqual(toolResult);
   });
+
+  it("should truncate oversized tool inputs", async () => {
+    // Create an input larger than 64KB
+    const largeInput = { data: "x".repeat(70000) };
+    const toolResult: ToolResult = { success: true, data: "ok" };
+
+    mockPrisma.aiActionLog.create.mockResolvedValue({ id: "log-id" });
+
+    const middleware = auditLogMiddleware(mockPrisma as any);
+    await middleware(largeInput, mockContext, mockDefinition, successNext(toolResult));
+
+    const createCall = mockPrisma.aiActionLog.create.mock.calls[0];
+    const storedInput = createCall[0].data.toolInput;
+    expect(storedInput._truncated).toBe(true);
+    expect(storedInput._originalSize).toBeGreaterThan(65536);
+    expect(typeof storedInput._preview).toBe("string");
+  });
 });
 
 describe("Error Handler Middleware", () => {

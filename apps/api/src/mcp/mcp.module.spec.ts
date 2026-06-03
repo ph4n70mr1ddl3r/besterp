@@ -142,5 +142,43 @@ describe("McpModule", () => {
       });
       expect(ctx.idempotencyKey).toBe("x".repeat(500));
     });
+
+    it("should reject overly long agentId", () => {
+      expect(() =>
+        mcpModule.buildContext({
+          tenantId: "tenant-1",
+          userId: "user-1",
+          agentId: "x".repeat(201),
+        })
+      ).toThrow("agentId is too long");
+    });
+
+    it("should accept agentId at max length", () => {
+      const ctx = mcpModule.buildContext({
+        tenantId: "tenant-1",
+        userId: "user-1",
+        agentId: "x".repeat(200),
+      });
+      expect(ctx.agentId).toBe("x".repeat(200));
+    });
+
+    it("should reject overly long conversationId", () => {
+      expect(() =>
+        mcpModule.buildContext({
+          tenantId: "tenant-1",
+          userId: "user-1",
+          conversationId: "x".repeat(201),
+        })
+      ).toThrow("conversationId is too long");
+    });
+
+    it("should accept conversationId at max length", () => {
+      const ctx = mcpModule.buildContext({
+        tenantId: "tenant-1",
+        userId: "user-1",
+        conversationId: "x".repeat(200),
+      });
+      expect(ctx.conversationId).toBe("x".repeat(200));
+    });
   });
 });

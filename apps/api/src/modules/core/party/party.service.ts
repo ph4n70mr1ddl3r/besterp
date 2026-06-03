@@ -256,7 +256,10 @@ export class PartyService {
     }
     
     if (roleType) {
-      where.roles = { some: { roleType: { name: roleType } } };
+      const trimmedRoleType = roleType.trim();
+      if (trimmedRoleType.length > 0) {
+        where.roles = { some: { roleType: { name: trimmedRoleType } } };
+      }
     }
 
     // Use a transaction to ensure count + findMany see a consistent snapshot.
@@ -360,14 +363,14 @@ export class PartyService {
       });
       if (existingRole) {
         throw new DuplicateEntityError(
-          `Party '${partyId}' already has active role '${roleType}'. ` +
+          `Party '${partyId}' already has active role '${trimmedRoleType}'. ` +
           `Existing role started on ${existingRole.fromDate.toISOString()}. ` +
           `Use 'update_party_role' to modify it or set thruDate first.`,
           {
             suggestedTools: ["get_party", "update_party_role"],
             context: {
               partyId,
-              roleType,
+              roleType: trimmedRoleType,
               existingRoleId: existingRole.partyRoleId,
               existingRoleDate: existingRole.fromDate.toISOString()
             },
