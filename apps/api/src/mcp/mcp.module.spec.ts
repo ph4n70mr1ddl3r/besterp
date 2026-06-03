@@ -123,5 +123,24 @@ describe("McpModule", () => {
       expect(ctx.conversationId).toBeUndefined();
       expect(ctx.idempotencyKey).toBeUndefined();
     });
+
+    it("should reject overly long idempotency key", () => {
+      expect(() =>
+        mcpModule.buildContext({
+          tenantId: "tenant-1",
+          userId: "user-1",
+          idempotencyKey: "x".repeat(501),
+        })
+      ).toThrow("idempotencyKey is too long");
+    });
+
+    it("should accept idempotency key at max length", () => {
+      const ctx = mcpModule.buildContext({
+        tenantId: "tenant-1",
+        userId: "user-1",
+        idempotencyKey: "x".repeat(500),
+      });
+      expect(ctx.idempotencyKey).toBe("x".repeat(500));
+    });
   });
 });

@@ -385,7 +385,7 @@ export class PartyService {
       });
     });
 
-    this.logger.log(`Added role '${roleType}' to party ${partyId} (ID: ${role.partyRoleId})`);
+    this.logger.log(`Added role '${trimmedRoleType}' to party ${partyId} (ID: ${role.partyRoleId})`);
     return {
       partyRoleId: role.partyRoleId,
       partyId: role.partyId,

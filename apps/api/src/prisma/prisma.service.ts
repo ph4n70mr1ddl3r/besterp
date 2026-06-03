@@ -132,6 +132,12 @@ export class PrismaService
       let evictedAny = false;
       for (const [key, ref] of this.tenantClientCache) {
         if (!ref.deref()) {
+          // Clean up the FinalizationRegistry registration and token for GC'd entries.
+          const staleToken = this.unregisterTokens.get(key);
+          if (staleToken) {
+            this.cacheRegistry.unregister(staleToken);
+            this.unregisterTokens.delete(key);
+          }
           this.tenantClientCache.delete(key);
           evictedAny = true;
         } else if (!oldestKey) {

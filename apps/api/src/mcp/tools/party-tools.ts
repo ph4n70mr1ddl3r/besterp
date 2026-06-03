@@ -91,7 +91,7 @@ Example: Create a supplier organization
   create_party({ partyType: "ORGANIZATION", name: "Acme Corp", organization: { legalName: "Acme Corporation Ltd." } })`,
 
   inputSchema: z.object({
-    idempotencyKey: z.string().describe(
+    idempotencyKey: z.string().min(1).max(500).describe(
       "Unique key to prevent duplicate creation. Format: party-create-{description}-{date}"
     ),
     partyType: z.enum(["PERSON", "ORGANIZATION"]).describe("Type of party to create"),
@@ -204,7 +204,7 @@ Example: Make a party a customer
   add_party_role({ partyId: "abc-123", roleType: "Customer" })`,
 
   inputSchema: z.object({
-    idempotencyKey: z.string().describe("Idempotency key to prevent duplicate role assignment. Format: role-{partyId}-{roleType}-{date}"),
+    idempotencyKey: z.string().min(1).max(500).describe("Idempotency key to prevent duplicate role assignment. Format: role-{partyId}-{roleType}-{date}"),
     partyId: z.string().min(1).describe("The party to assign the role to"),
     roleType: z.string().min(1).max(100).describe("Role type name (e.g., 'Customer', 'Supplier', 'Employee')"),
     fromDate: z.string().optional().describe("Start date for the role (ISO 8601, default: now)"),
@@ -245,7 +245,7 @@ A party can have multiple contacts of each type.
 Use 'get_type_table_values' with typeName "CONTACT_MECHANISM_TYPE" to see available types.`,
 
   inputSchema: z.object({
-    idempotencyKey: z.string().describe("Idempotency key to prevent duplicate contact creation. Format: contact-{partyId}-{type}-{date}"),
+    idempotencyKey: z.string().min(1).max(500).describe("Idempotency key to prevent duplicate contact creation. Format: contact-{partyId}-{type}-{date}"),
     partyId: z.string().min(1).describe("The party to add the contact to"),
     contactMechanismType: z.enum(["POSTAL_ADDRESS", "TELECOM_NUMBER", "EMAIL_ADDRESS"])
       .describe("Type of contact mechanism"),

@@ -83,6 +83,14 @@ export class McpModule implements OnModuleInit {
       throw new Error("McpModule.buildContext: userId is required and cannot be empty.");
     }
 
+    // Validate idempotency key length — prevents excessively long keys from
+    // wasting database storage in the idempotency_record table.
+    if (overrides.idempotencyKey && overrides.idempotencyKey.length > 500) {
+      throw new Error(
+        `McpModule.buildContext: idempotencyKey is too long (${overrides.idempotencyKey.length} chars, max 500).`
+      );
+    }
+
     return {
       ...overrides,
       services: {

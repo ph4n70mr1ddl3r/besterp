@@ -272,6 +272,7 @@ export class EmailAddressDto {
   )
   @IsEmail()
   @IsNotEmpty()
+  @MaxLength(254) // RFC 5321 limit
   email!: string;
 }
 

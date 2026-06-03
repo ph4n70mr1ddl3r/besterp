@@ -531,6 +531,47 @@ describe("PartyService", () => {
 
       await expect(partyService.addPartyRole(input)).rejects.toThrow(InvalidTypeValueError);
     });
+
+    it("should trim roleType before lookup", async () => {
+      const input = {
+        tenantId: "tenant-1",
+        partyId: "party-123",
+        roleType: "  Customer  ",
+      };
+
+      const mockDb = {
+        roleType: {
+          findUnique: vi.fn().mockResolvedValue({ roleTypeId: "rt-customer" }),
+        },
+        $transaction: vi.fn().mockImplementation(async (fn) => {
+          const tx = {
+            party: { findFirst: vi.fn().mockResolvedValue({ partyId: "party-123" }) },
+            partyRole: {
+              findFirst: vi.fn().mockResolvedValue(null),
+              create: vi.fn().mockResolvedValue({
+                partyRoleId: "role-123",
+                partyId: "party-123",
+                roleTypeId: "rt-customer",
+                fromDate: new Date(),
+                thruDate: null,
+                roleType: { name: "Customer", roleTypeId: "rt-customer" },
+              }),
+            },
+          };
+          return fn(tx);
+        }),
+      };
+
+      mockPrismaService.tenantScoped.mockReturnValue(mockDb);
+
+      const result = await partyService.addPartyRole(input);
+
+      // Verify the trimmed value was used for the lookup
+      expect(mockDb.roleType.findUnique).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { name: "Customer" } })
+      );
+      expect(result.roleTypeName).toBe("Customer");
+    });
   });
 
   describe("addContactMechanism", () => {
