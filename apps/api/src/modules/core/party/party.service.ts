@@ -77,19 +77,11 @@ export class PartyService {
         }
       );
     }
+    this.requireMaxLength(name, "Party name", 500);
     const trimmedName = name.trim();
-    if (trimmedName.length > 500) {
-      throw new InvalidTypeValueError(
-        `Party name is too long (${trimmedName.length} characters, max 500)`,
-        { suggestedTools: ["create_party"], context: { field: "name", length: trimmedName.length, maxLength: 500 } }
-      );
-    }
     // Validate description length (MCP tool path has no DTO validation)
-    if (description && description.trim().length > 1000) {
-      throw new InvalidTypeValueError(
-        `Description is too long (${description.trim().length} characters, max 1000)`,
-        { suggestedTools: ["create_party"], context: { field: "description", length: description.trim().length, maxLength: 1000 } }
-      );
+    if (description) {
+      this.requireMaxLength(description, "Description", 1000);
     }
 
     // Validate subtype data
@@ -114,24 +106,14 @@ export class PartyService {
           { suggestedTools: ["create_party"], context: { field: "firstName" } }
         );
       }
-      if (personData.firstName.trim().length > 200) {
-        throw new InvalidTypeValueError(
-          `firstName is too long (${personData.firstName.trim().length} characters, max 200)`,
-          { suggestedTools: ["create_party"], context: { field: "firstName", length: personData.firstName.trim().length, maxLength: 200 } }
-        );
-      }
+      this.requireMaxLength(personData.firstName, "firstName", 200);
       if (!personData.lastName || personData.lastName.trim().length === 0) {
         throw new MissingSubtypeDataError(
           "lastName is required for person data",
           { suggestedTools: ["create_party"], context: { field: "lastName" } }
         );
       }
-      if (personData.lastName.trim().length > 200) {
-        throw new InvalidTypeValueError(
-          `lastName is too long (${personData.lastName.trim().length} characters, max 200)`,
-          { suggestedTools: ["create_party"], context: { field: "lastName", length: personData.lastName.trim().length, maxLength: 200 } }
-        );
-      }
+      this.requireMaxLength(personData.lastName, "lastName", 200);
     }
     
     // Validate organization data if provided
@@ -142,12 +124,7 @@ export class PartyService {
           { suggestedTools: ["create_party"], context: { field: "legalName" } }
         );
       }
-      if (orgData.legalName.trim().length > 500) {
-        throw new InvalidTypeValueError(
-          `legalName is too long (${orgData.legalName.trim().length} characters, max 500)`,
-          { suggestedTools: ["create_party"], context: { field: "legalName", length: orgData.legalName.trim().length, maxLength: 500 } }
-        );
-      }
+      this.requireMaxLength(orgData.legalName, "legalName", 500);
     }
 
     // Trim all name fields before storage to prevent whitespace-padded names.
@@ -326,16 +303,8 @@ export class PartyService {
         }
       );
     }
+    this.requireMaxLength(roleType, "roleType", 100, "get_type_table_values");
     const trimmedRoleType = roleType.trim();
-    if (trimmedRoleType.length > 100) {
-      throw new InvalidTypeValueError(
-        `roleType is too long (${trimmedRoleType.length} characters, max 100)`,
-        {
-          suggestedTools: ["get_type_table_values"],
-          context: { field: "roleType", length: trimmedRoleType.length, maxLength: 100 },
-        }
-      );
-    }
 
     // Look up role type (static shared data, safe outside transaction)
     const roleTypeRecord = await db.roleType.findUnique({
@@ -343,10 +312,10 @@ export class PartyService {
     });
     if (!roleTypeRecord) {
       throw new InvalidTypeValueError(
-        `ROLE_TYPE '${roleType}' is not valid. Use 'get_type_table_values' to see valid role types.`,
+        `ROLE_TYPE '${trimmedRoleType}' is not valid. Use 'get_type_table_values' to see valid role types.`,
         {
           suggestedTools: ["get_type_table_values"],
-          context: { field: "roleType", invalidValue: roleType, lookupField: "name" },
+          context: { field: "roleType", invalidValue: trimmedRoleType, lookupField: "name" },
         }
       );
     }
@@ -455,15 +424,7 @@ export class PartyService {
       );
     }
     const trimmedCmType = contactMechanismType.trim();
-    if (trimmedCmType.length > 50) {
-      throw new InvalidTypeValueError(
-        `contactMechanismType is too long (${trimmedCmType.length} characters, max 50)`,
-        {
-          suggestedTools: ["get_type_table_values"],
-          context: { field: "contactMechanismType", length: trimmedCmType.length, maxLength: 50 },
-        }
-      );
-    }
+    this.requireMaxLength(contactMechanismType, "contactMechanismType", 50, "get_type_table_values");
 
     // Look up contact mechanism type
     const cmType = await db.contactMechanismType.findUnique({
@@ -647,6 +608,22 @@ export class PartyService {
       throw new MissingSubtypeDataError(
         `${field} is required for ${parentType}`,
         { suggestedTools: [tool], context: { parentType, field } }
+      );
+    }
+  }
+
+  /** Validate that a trimmed string does not exceed maxLength, throwing InvalidTypeValueError. */
+  private requireMaxLength(
+    value: string,
+    field: string,
+    maxLength: number,
+    tool = "create_party",
+  ): void {
+    const trimmed = value.trim();
+    if (trimmed.length > maxLength) {
+      throw new InvalidTypeValueError(
+        `${field} is too long (${trimmed.length} characters, max ${maxLength})`,
+        { suggestedTools: [tool], context: { field, length: trimmed.length, maxLength } }
       );
     }
   }

@@ -30,9 +30,7 @@ export class HealthController {
     const healthPromise = this.healthService.getHealth();
     // Prevent unhandled rejection if the DB query eventually fails after
     // the timeout wins the race — the rejection would otherwise be silent.
-    // We store the rejection reason so the catch block can use it.
-    let healthRejection: unknown;
-    healthPromise.catch((err) => { healthRejection = err; });
+    healthPromise.catch(() => {});
     const timeoutPromise = new Promise<"timeout">((resolve) => {
       timeoutId = setTimeout(() => resolve("timeout"), 5000);
     });

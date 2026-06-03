@@ -118,6 +118,11 @@ export function createTenantClient(prisma: PrismaClient, tenantId: string) {
   // Validate that the Prisma client supports RLS operations
   validatePrismaClientForRls(prisma);
 
+  // Cache for wrapped model methods to avoid creating new functions on every access.
+  // This reduces GC pressure in high-throughput scenarios where the same model
+  // methods (e.g., party.findMany) are called repeatedly.
+  const methodCache = new Map<string, Function>();
+
   return new Proxy(prisma, {
     get(target, prop: string | symbol) {
       if (typeof prop !== "string") return (target as any)[prop];
@@ -198,9 +203,14 @@ export function createTenantClient(prisma: PrismaClient, tenantId: string) {
 
           if (!DATA_METHODS.has(method)) return originalFn;
 
+          // Cache the wrapped function to avoid re-creating it on every call.
+          const cacheKey = `${String(prop)}.${method}`;
+          const cached = methodCache.get(cacheKey);
+          if (cached) return cached;
+
           // Return a wrapped function that sets tenant context for standalone queries.
           // Note: Queries inside $transaction use the intercepted $transaction path above.
-          return async function (this: unknown, ...args: unknown[]) {
+          const wrapped = async function (this: unknown, ...args: unknown[]) {
             return prisma.$transaction(async (tx) => {
               await tx.$executeRaw`SELECT set_tenant_context(${tenantId})`;
               const txDelegate = (tx as any)[prop];
@@ -214,6 +224,8 @@ export function createTenantClient(prisma: PrismaClient, tenantId: string) {
               return txMethod.apply(txDelegate, args);
             });
           };
+          methodCache.set(cacheKey, wrapped);
+          return wrapped;
         },
       });
     },
