@@ -480,7 +480,7 @@ export class PartyService {
     });
     if (!cmType) {
       throw new InvalidTypeValueError(
-        `CONTACT_MECHANISM_TYPE '${contactMechanismType}' is not valid. ` +
+        `CONTACT_MECHANISM_TYPE '${trimmedCmType}' is not valid. ` +
         `Valid types: ['POSTAL_ADDRESS', 'TELECOM_NUMBER', 'EMAIL_ADDRESS'].`,
         {
           suggestedTools: ["get_type_table_values"],

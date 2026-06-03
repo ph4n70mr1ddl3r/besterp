@@ -170,6 +170,7 @@ export class SearchPartiesDto {
   @IsOptional()
   @Transform(({ value }: { value: string }) => (typeof value === "string" ? value.trim() : value))
   @IsString()
+  @MaxLength(100)
   roleType?: string;
 
   @IsOptional()

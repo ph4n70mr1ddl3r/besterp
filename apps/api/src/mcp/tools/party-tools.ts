@@ -47,7 +47,7 @@ const personSchema = z.object({
 const organizationSchema = z.object({
   legalName: z.string().min(1).max(500).transform(s => s.trim()).describe("Legal/registered name of the organization"),
   taxId: z.string().max(50).optional().transform(s => s?.trim()).describe("Tax identification number"),
-  registrationDate: z.string().optional().describe("Date of registration (ISO 8601)"),
+  registrationDate: z.string().max(30).optional().describe("Date of registration (ISO 8601)"),
 });
 
 const postalAddressSchema = z.object({
@@ -67,7 +67,7 @@ const telecomNumberSchema = z.object({
 });
 
 const emailAddressSchema = z.object({
-  email: z.string().email().transform(s => s.trim().toLowerCase()).describe("Email address"),
+  email: z.string().email().max(254).transform(s => s.trim().toLowerCase()).describe("Email address"),
 });
 
 // ─── Tool: create_party ───────────────────────────────────────────
@@ -172,7 +172,7 @@ Use this to find customers, suppliers, or any party by name, type, or role.`,
   inputSchema: z.object({
     name: z.string().optional().transform(s => s?.trim()).describe("Filter by name (case-insensitive partial match)"),
     partyType: z.enum(["PERSON", "ORGANIZATION"]).optional().describe("Filter by party type"),
-    roleType: z.string().optional().describe("Filter by role type name (e.g., 'Customer', 'Supplier')"),
+    roleType: z.string().max(100).optional().transform(s => s?.trim()).describe("Filter by role type name (e.g., 'Customer', 'Supplier')"),
     limit: z.number().int().min(1).max(500).optional().default(50).describe("Maximum results to return (max 500)"),
     offset: z.number().int().min(0).optional().default(0).describe("Number of results to skip (min 0)"),
   }),

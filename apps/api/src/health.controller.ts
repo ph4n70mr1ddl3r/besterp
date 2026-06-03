@@ -27,9 +27,7 @@ export class HealthController {
     // Verify database connectivity with a 5-second timeout to prevent
     // the endpoint from hanging when the database is unreachable.
     let timeoutId: ReturnType<typeof setTimeout> | undefined;
-    const healthPromise = this.healthService.getHealth().catch((err) => {
-      throw err;
-    });
+    const healthPromise = this.healthService.getHealth();
     const timeoutPromise = new Promise<"timeout">((resolve) => {
       timeoutId = setTimeout(() => resolve("timeout"), 5000);
     });
