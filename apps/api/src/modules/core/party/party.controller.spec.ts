@@ -79,6 +79,13 @@ describe("PartyController", () => {
         expect.objectContaining({ tenantId: "tenant-1" })
       );
     });
+
+    it("should throw UnauthorizedException when tenant context is missing", async () => {
+      const req = mockRequestNoContext();
+      await expect(
+        controller.create(req, { partyType: "PERSON", name: "Test" } as any)
+      ).rejects.toThrow(UnauthorizedException);
+    });
   });
 
   describe("search", () => {
@@ -116,6 +123,13 @@ describe("PartyController", () => {
 
       expect(partyService.getParty).toHaveBeenCalledWith("tenant-1", "party-123");
     });
+
+    it("should throw UnauthorizedException when tenant context is missing", async () => {
+      const req = mockRequestNoContext();
+      await expect(
+        controller.get(req, "party-123")
+      ).rejects.toThrow(UnauthorizedException);
+    });
   });
 
   describe("addRole", () => {
@@ -130,6 +144,13 @@ describe("PartyController", () => {
         tenantId: "tenant-1",
         partyId: "party-123",
       });
+    });
+
+    it("should throw UnauthorizedException when tenant context is missing", async () => {
+      const req = mockRequestNoContext();
+      await expect(
+        controller.addRole(req, "party-123", { roleType: "Customer" } as any)
+      ).rejects.toThrow(UnauthorizedException);
     });
   });
 
@@ -146,6 +167,13 @@ describe("PartyController", () => {
         tenantId: "tenant-1",
         partyId: "party-123",
       });
+    });
+
+    it("should throw UnauthorizedException when tenant context is missing", async () => {
+      const req = mockRequestNoContext();
+      await expect(
+        controller.addContact(req, "party-123", {} as any)
+      ).rejects.toThrow(UnauthorizedException);
     });
   });
 });

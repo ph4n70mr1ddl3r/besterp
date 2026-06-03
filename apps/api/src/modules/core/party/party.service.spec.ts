@@ -487,6 +487,50 @@ describe("PartyService", () => {
 
       await expect(partyService.addPartyRole(input)).rejects.toThrow(InvalidTypeValueError);
     });
+
+    it("should throw EntityNotFoundError when party does not exist", async () => {
+      const input = {
+        tenantId: "tenant-1",
+        partyId: "nonexistent",
+        roleType: "Customer",
+      };
+
+      const mockDb = {
+        roleType: {
+          findUnique: vi.fn().mockResolvedValue({ roleTypeId: "rt-customer" }),
+        },
+        $transaction: vi.fn().mockImplementation(async (fn) => {
+          const tx = {
+            party: { findFirst: vi.fn().mockResolvedValue(null) },
+          };
+          return fn(tx);
+        }),
+      };
+
+      mockPrismaService.tenantScoped.mockReturnValue(mockDb);
+
+      await expect(partyService.addPartyRole(input)).rejects.toThrow(EntityNotFoundError);
+    });
+
+    it("should throw error for empty roleType", async () => {
+      const input = {
+        tenantId: "tenant-1",
+        partyId: "party-123",
+        roleType: "",
+      };
+
+      await expect(partyService.addPartyRole(input)).rejects.toThrow(InvalidTypeValueError);
+    });
+
+    it("should throw error for whitespace-only roleType", async () => {
+      const input = {
+        tenantId: "tenant-1",
+        partyId: "party-123",
+        roleType: "   ",
+      };
+
+      await expect(partyService.addPartyRole(input)).rejects.toThrow(InvalidTypeValueError);
+    });
   });
 
   describe("addContactMechanism", () => {
@@ -606,6 +650,194 @@ describe("PartyService", () => {
       mockPrismaService.tenantScoped.mockReturnValue(mockDb);
 
       await expect(partyService.addContactMechanism(input)).rejects.toThrow(EntityNotFoundError);
+    });
+
+    it("should throw MissingSubtypeDataError when city is missing for postal address", async () => {
+      const input = {
+        tenantId: "tenant-1",
+        partyId: "party-123",
+        contactMechanismType: "POSTAL_ADDRESS" as const,
+        postalAddress: {
+          addressLine1: "123 Main St",
+          country: "US",
+        },
+      } as any;
+
+      const mockDb = {
+        contactMechanismType: {
+          findUnique: vi.fn().mockResolvedValue({ contactMechanismTypeId: "cmt-postal" }),
+        },
+      };
+
+      mockPrismaService.tenantScoped.mockReturnValue(mockDb);
+
+      await expect(partyService.addContactMechanism(input)).rejects.toThrow(MissingSubtypeDataError);
+    });
+
+    it("should throw MissingSubtypeDataError when country is missing for postal address", async () => {
+      const input = {
+        tenantId: "tenant-1",
+        partyId: "party-123",
+        contactMechanismType: "POSTAL_ADDRESS" as const,
+        postalAddress: {
+          addressLine1: "123 Main St",
+          city: "Anytown",
+        },
+      } as any;
+
+      const mockDb = {
+        contactMechanismType: {
+          findUnique: vi.fn().mockResolvedValue({ contactMechanismTypeId: "cmt-postal" }),
+        },
+      };
+
+      mockPrismaService.tenantScoped.mockReturnValue(mockDb);
+
+      await expect(partyService.addContactMechanism(input)).rejects.toThrow(MissingSubtypeDataError);
+    });
+
+    it("should add telecom number successfully", async () => {
+      const input: AddContactMechanismInput = {
+        tenantId: "tenant-1",
+        partyId: "party-123",
+        contactMechanismType: "TELECOM_NUMBER",
+        telecomNumber: {
+          areaCode: "415",
+          lineNumber: "5551234",
+        },
+      };
+
+      const mockDb = {
+        contactMechanismType: {
+          findUnique: vi.fn().mockResolvedValue({ contactMechanismTypeId: "cmt-telecom" }),
+        },
+        $transaction: vi.fn().mockImplementation(async (fn) => {
+          const tx = {
+            party: {
+              findFirst: vi.fn().mockResolvedValue({ partyId: "party-123" }),
+            },
+            contactMechanism: {
+              create: vi.fn().mockResolvedValue({
+                contactMechanismId: "contact-telecom-1",
+                contactMechanismTypeId: "cmt-telecom",
+                contactMechanismType: { name: "TELECOM_NUMBER", contactMechanismTypeId: "cmt-telecom" },
+                postalAddress: null,
+                telecomNumber: {
+                  countryCode: "+1",
+                  areaCode: "415",
+                  lineNumber: "5551234",
+                  extension: null,
+                },
+                emailAddress: null,
+              }),
+            },
+          };
+          return fn(tx);
+        }),
+      };
+
+      mockPrismaService.tenantScoped.mockReturnValue(mockDb);
+
+      const result = await partyService.addContactMechanism(input);
+
+      expect(result.contactMechanismId).toBe("contact-telecom-1");
+      expect(result.contactMechanismType).toBe("TELECOM_NUMBER");
+      expect(result.telecomNumber?.areaCode).toBe("415");
+      expect(result.postalAddress).toBeNull();
+    });
+
+    it("should add email address successfully", async () => {
+      const input: AddContactMechanismInput = {
+        tenantId: "tenant-1",
+        partyId: "party-123",
+        contactMechanismType: "EMAIL_ADDRESS",
+        emailAddress: {
+          email: "Test@Example.COM",
+        },
+      };
+
+      const mockDb = {
+        contactMechanismType: {
+          findUnique: vi.fn().mockResolvedValue({ contactMechanismTypeId: "cmt-email" }),
+        },
+        $transaction: vi.fn().mockImplementation(async (fn) => {
+          const tx = {
+            party: {
+              findFirst: vi.fn().mockResolvedValue({ partyId: "party-123" }),
+            },
+            contactMechanism: {
+              create: vi.fn().mockResolvedValue({
+                contactMechanismId: "contact-email-1",
+                contactMechanismTypeId: "cmt-email",
+                contactMechanismType: { name: "EMAIL_ADDRESS", contactMechanismTypeId: "cmt-email" },
+                postalAddress: null,
+                telecomNumber: null,
+                emailAddress: {
+                  email: "test@example.com",
+                },
+              }),
+            },
+          };
+          return fn(tx);
+        }),
+      };
+
+      mockPrismaService.tenantScoped.mockReturnValue(mockDb);
+
+      const result = await partyService.addContactMechanism(input);
+
+      expect(result.contactMechanismId).toBe("contact-email-1");
+      expect(result.contactMechanismType).toBe("EMAIL_ADDRESS");
+      expect(result.emailAddress?.email).toBe("test@example.com");
+    });
+
+    it("should throw MissingSubtypeDataError when areaCode is missing for telecom", async () => {
+      const input = {
+        tenantId: "tenant-1",
+        partyId: "party-123",
+        contactMechanismType: "TELECOM_NUMBER" as const,
+        telecomNumber: {
+          lineNumber: "5551234",
+        },
+      } as any;
+
+      const mockDb = {
+        contactMechanismType: {
+          findUnique: vi.fn().mockResolvedValue({ contactMechanismTypeId: "cmt-telecom" }),
+        },
+      };
+
+      mockPrismaService.tenantScoped.mockReturnValue(mockDb);
+
+      await expect(partyService.addContactMechanism(input)).rejects.toThrow(MissingSubtypeDataError);
+    });
+
+    it("should throw MissingSubtypeDataError for empty contactMechanismType", async () => {
+      const input = {
+        tenantId: "tenant-1",
+        partyId: "party-123",
+        contactMechanismType: "",
+      } as any;
+
+      await expect(partyService.addContactMechanism(input)).rejects.toThrow(InvalidTypeValueError);
+    });
+
+    it("should throw InvalidTypeValueError for unknown contactMechanismType", async () => {
+      const input: AddContactMechanismInput = {
+        tenantId: "tenant-1",
+        partyId: "party-123",
+        contactMechanismType: "CARRIER_PIGEON" as any,
+      };
+
+      const mockDb = {
+        contactMechanismType: {
+          findUnique: vi.fn().mockResolvedValue(null),
+        },
+      };
+
+      mockPrismaService.tenantScoped.mockReturnValue(mockDb);
+
+      await expect(partyService.addContactMechanism(input)).rejects.toThrow(InvalidTypeValueError);
     });
   });
 });

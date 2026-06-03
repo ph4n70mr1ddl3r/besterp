@@ -133,6 +133,7 @@ export class CreatePartyDto {
   name!: string;
 
   @IsOptional()
+  @Transform(({ value }: { value: string }) => (typeof value === "string" ? value.trim() : value))
   @IsString()
   @MaxLength(1000)
   description?: string;
@@ -167,6 +168,7 @@ export class SearchPartiesDto {
   partyType?: "PERSON" | "ORGANIZATION";
 
   @IsOptional()
+  @Transform(({ value }: { value: string }) => (typeof value === "string" ? value.trim() : value))
   @IsString()
   roleType?: string;
 
