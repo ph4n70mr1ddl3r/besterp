@@ -68,35 +68,34 @@ Type tables are the ERP's vocabulary — they define what classifications are av
       type TypeTableRow = { id: string; name: string; description: string | null; aiPromptHint: string | null };
       let values: TypeTableRow[];
 
-      switch (input.typeName) {
-        case "PARTY_TYPE":
-          values = (await prisma.partyType.findMany({
-            select: { partyTypeId: true, name: true, description: true, aiPromptHint: true },
-          })).map((r) => ({ id: r.partyTypeId, name: r.name, description: r.description, aiPromptHint: r.aiPromptHint }));
-          break;
-        case "ROLE_TYPE":
-          values = (await prisma.roleType.findMany({
-            select: { roleTypeId: true, name: true, description: true, aiPromptHint: true },
-          })).map((r) => ({ id: r.roleTypeId, name: r.name, description: r.description, aiPromptHint: r.aiPromptHint }));
-          break;
-        case "CONTACT_MECHANISM_TYPE":
-          values = (await prisma.contactMechanismType.findMany({
-            select: { contactMechanismTypeId: true, name: true, description: true, aiPromptHint: true },
-          })).map((r) => ({ id: r.contactMechanismTypeId, name: r.name, description: r.description, aiPromptHint: r.aiPromptHint }));
-          break;
-        // Unreachable: Zod enum schema validates the input.
-        // Retained as safety net in case the schema is relaxed.
-        default:
-          return {
-            success: false,
-            error: {
-              code: "INVALID_TYPE_TABLE",
-              message: `Type table '${input.typeName}' not found. Valid tables: ['PARTY_TYPE', 'ROLE_TYPE', 'CONTACT_MECHANISM_TYPE']`,
-              suggestedTools: ["get_type_table_values"],
-              context: { validTypeTables: ["PARTY_TYPE", "ROLE_TYPE", "CONTACT_MECHANISM_TYPE"] },
-            },
-          };
+      // NOTE: The Zod enum above validates typeName at the registry level,
+      // so the default branch is unreachable. We enumerate all valid cases
+      // explicitly and throw for safety if the schema is ever relaxed.
+      const handlers: Record<string, () => Promise<TypeTableRow[]>> = {
+        PARTY_TYPE: async () => (await prisma.partyType.findMany({
+          select: { partyTypeId: true, name: true, description: true, aiPromptHint: true },
+        })).map((r) => ({ id: r.partyTypeId, name: r.name, description: r.description, aiPromptHint: r.aiPromptHint })),
+        ROLE_TYPE: async () => (await prisma.roleType.findMany({
+          select: { roleTypeId: true, name: true, description: true, aiPromptHint: true },
+        })).map((r) => ({ id: r.roleTypeId, name: r.name, description: r.description, aiPromptHint: r.aiPromptHint })),
+        CONTACT_MECHANISM_TYPE: async () => (await prisma.contactMechanismType.findMany({
+          select: { contactMechanismTypeId: true, name: true, description: true, aiPromptHint: true },
+        })).map((r) => ({ id: r.contactMechanismTypeId, name: r.name, description: r.description, aiPromptHint: r.aiPromptHint })),
+      };
+
+      const handler = handlers[input.typeName];
+      if (!handler) {
+        return {
+          success: false,
+          error: {
+            code: "INVALID_TYPE_TABLE",
+            message: `Type table '${input.typeName}' not found. Valid tables: ['PARTY_TYPE', 'ROLE_TYPE', 'CONTACT_MECHANISM_TYPE']`,
+            suggestedTools: ["get_type_table_values"],
+            context: { validTypeTables: ["PARTY_TYPE", "ROLE_TYPE", "CONTACT_MECHANISM_TYPE"] },
+          },
+        };
       }
+      values = await handler();
 
       return {
         success: true,

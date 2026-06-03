@@ -409,11 +409,7 @@ export class PartyService {
 
     const db = this.prisma.tenantScoped(tenantId);
 
-    // NOTE: Type table lookup outside transaction — safe because contact
-    // mechanism types are system-managed immutable data (see createParty).
-
-    // Validate inputs
-
+    // ─── Pure input validation (fail fast, before any DB access) ─────
     if (!contactMechanismType || contactMechanismType.trim().length === 0) {
       throw new InvalidTypeValueError(
         "contactMechanismType cannot be empty",
@@ -425,6 +421,55 @@ export class PartyService {
     }
     const trimmedCmType = contactMechanismType.trim();
     this.requireMaxLength(contactMechanismType, "contactMechanismType", 50, "get_type_table_values");
+
+    // Validate subtype data early — avoids wasting a DB round-trip on invalid input.
+    let validContactData: PostalAddressInput | TelecomNumberInput | EmailAddressInput;
+    if (trimmedCmType === "POSTAL_ADDRESS") {
+      if (!postalAddress) {
+        throw new MissingSubtypeDataError(
+          "postalAddress is required when contactMechanismType is POSTAL_ADDRESS.",
+          { suggestedTools: ["add_contact_mechanism"], context: { contactMechanismType: trimmedCmType, missingField: "postalAddress" } }
+        );
+      }
+      this.requireNonEmpty(postalAddress.addressLine1, "addressLine1", "postal address");
+      this.requireNonEmpty(postalAddress.city, "city", "postal address");
+      this.requireNonEmpty(postalAddress.country, "country", "postal address");
+      validContactData = postalAddress;
+    } else if (trimmedCmType === "TELECOM_NUMBER") {
+      if (!telecomNumber) {
+        throw new MissingSubtypeDataError(
+          "telecomNumber is required when contactMechanismType is TELECOM_NUMBER.",
+          { suggestedTools: ["add_contact_mechanism"], context: { contactMechanismType: trimmedCmType, missingField: "telecomNumber" } }
+        );
+      }
+      this.requireNonEmpty(telecomNumber.areaCode, "areaCode", "telecom number");
+      this.requireNonEmpty(telecomNumber.lineNumber, "lineNumber", "telecom number");
+      validContactData = telecomNumber;
+    } else if (trimmedCmType === "EMAIL_ADDRESS") {
+      if (!emailAddress) {
+        throw new MissingSubtypeDataError(
+          "emailAddress is required when contactMechanismType is EMAIL_ADDRESS.",
+          { suggestedTools: ["add_contact_mechanism"], context: { contactMechanismType: trimmedCmType, missingField: "emailAddress" } }
+        );
+      }
+      this.requireNonEmpty(emailAddress.email, "email", "email address");
+      const normalizedEmail = emailAddress.email.trim().toLowerCase();
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(normalizedEmail)) {
+        throw new InvalidTypeValueError(
+          `Invalid email format: ${emailAddress.email}`,
+          { suggestedTools: ["add_contact_mechanism"], context: { contactMechanismType: trimmedCmType, field: "email", invalidValue: emailAddress.email } }
+        );
+      }
+      validContactData = { ...emailAddress, email: normalizedEmail };
+    } else {
+      // Unknown type — will be caught by the DB lookup below.
+      validContactData = undefined as any;
+    }
+
+    // ─── Database lookups (after pure validation passes) ─────────────
+    // NOTE: Type table lookup outside transaction — safe because contact
+    // mechanism types are system-managed immutable data (see createParty).
 
     // Look up contact mechanism type
     const cmType = await db.contactMechanismType.findUnique({
@@ -445,60 +490,7 @@ export class PartyService {
       );
     }
 
-    // Validate subtype data with detailed validation (pure computation, no DB)
-    let validContactData: PostalAddressInput | TelecomNumberInput | EmailAddressInput;
-    
-    if (trimmedCmType === "POSTAL_ADDRESS") {
-      if (!postalAddress) {
-        throw new MissingSubtypeDataError(
-          "postalAddress is required when contactMechanismType is POSTAL_ADDRESS.",
-          { suggestedTools: ["add_contact_mechanism"], context: { contactMechanismType: trimmedCmType, missingField: "postalAddress" } }
-        );
-      }
-      this.requireNonEmpty(postalAddress.addressLine1, "addressLine1", "postal address");
-      this.requireNonEmpty(postalAddress.city, "city", "postal address");
-      this.requireNonEmpty(postalAddress.country, "country", "postal address");
-      validContactData = postalAddress;
-    } 
-    else if (trimmedCmType === "TELECOM_NUMBER") {
-      if (!telecomNumber) {
-        throw new MissingSubtypeDataError(
-          "telecomNumber is required when contactMechanismType is TELECOM_NUMBER.",
-          { suggestedTools: ["add_contact_mechanism"], context: { contactMechanismType: trimmedCmType, missingField: "telecomNumber" } }
-        );
-      }
-      this.requireNonEmpty(telecomNumber.areaCode, "areaCode", "telecom number");
-      this.requireNonEmpty(telecomNumber.lineNumber, "lineNumber", "telecom number");
-      validContactData = telecomNumber;
-    } 
-    else if (trimmedCmType === "EMAIL_ADDRESS") {
-      if (!emailAddress) {
-        throw new MissingSubtypeDataError(
-          "emailAddress is required when contactMechanismType is EMAIL_ADDRESS.",
-          { suggestedTools: ["add_contact_mechanism"], context: { contactMechanismType: trimmedCmType, missingField: "emailAddress" } }
-        );
-      }
-      this.requireNonEmpty(emailAddress.email, "email", "email address");
-      
-      // Email format validation — normalize to lowercase for consistency
-      // even if the caller forgot to (defense-in-depth: both DTO and Zod
-      // schemas already normalize, but the service is the canonical layer).
-      const normalizedEmail = emailAddress.email.trim().toLowerCase();
-      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      if (!emailRegex.test(normalizedEmail)) {
-        throw new InvalidTypeValueError(
-          `Invalid email format: ${emailAddress.email}`,
-          { suggestedTools: ["add_contact_mechanism"], context: { contactMechanismType: trimmedCmType, field: "email", invalidValue: emailAddress.email } }
-        );
-      }
-      validContactData = { ...emailAddress, email: normalizedEmail };
-    } else {
-      // Exhaustiveness check — the enum validation in the DTO should prevent this.
-      throw new InvalidTypeValueError(
-        `Unsupported contactMechanismType: ${trimmedCmType}`,
-        { suggestedTools: ["get_type_table_values"], context: { field: "contactMechanismType", invalidValue: trimmedCmType } }
-      );
-    }
+    // ─── Transaction: party existence check + contact creation ────────
 
     // Create contact mechanism with subtype in a transaction.
     // Party existence check is INSIDE the transaction to prevent the TOCTOU

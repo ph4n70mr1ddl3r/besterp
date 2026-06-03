@@ -118,46 +118,46 @@ export function createTenantClient(prisma: PrismaClient, tenantId: string) {
   // Validate that the Prisma client supports RLS operations
   validatePrismaClientForRls(prisma);
 
-  // Cache for wrapped model methods to avoid creating new functions on every access.
-  // This reduces GC pressure in high-throughput scenarios where the same model
-  // methods (e.g., party.findMany) are called repeatedly.
+  // Cache for wrapped methods to avoid creating new closures on every access.
+  // This reduces GC pressure in high-throughput scenarios where the same methods
+  // (e.g., party.findMany, $transaction) are called repeatedly.
   const methodCache = new Map<string, Function>();
+
+  // Pre-build the $transaction wrapper so it's allocated once, not per-access.
+  const transactionWrapper = (...args: unknown[]) => {
+    const [first, second] = args;
+
+    // Interactive transaction: $transaction(fn) or $transaction(fn, options)
+    if (typeof first === "function") {
+      const options = (typeof second === "object" && second !== null) ? second : undefined;
+      const wrappedFn = async (tx: any) => {
+        await tx.$executeRaw`SELECT set_tenant_context(${tenantId})`;
+        return first(tx);
+      };
+      return options
+        ? (prisma as any).$transaction(wrappedFn, options)
+        : (prisma as any).$transaction(wrappedFn);
+    }
+
+    // Batch transaction: $transaction([...promises])
+    // These pass through without tenant context. Use interactive
+    // transactions for tenant-scoped batch operations.
+    if (Array.isArray(first)) {
+      return (prisma as any).$transaction(first);
+    }
+
+    // Fallback — unknown overload, pass through
+    return (prisma as any).$transaction(...args);
+  };
 
   return new Proxy(prisma, {
     get(target, prop: string | symbol) {
       if (typeof prop !== "string") return (target as any)[prop];
 
       // ─── Intercept $transaction to inject SET LOCAL ────────────
-      // This is the critical fix: previously, $transaction passed through
-      // to the raw client, so SET LOCAL was never called inside callbacks.
-      // Now, interactive transactions get SET LOCAL injected at the start,
-      // and the transaction client (tx) inherits the tenant context.
+      // Returns the pre-built wrapper (single allocation).
       if (prop === "$transaction") {
-        return (...args: unknown[]) => {
-          const [first, second] = args;
-
-          // Interactive transaction: $transaction(fn) or $transaction(fn, options)
-          if (typeof first === "function") {
-            const options = (typeof second === "object" && second !== null) ? second : undefined;
-            const wrappedFn = async (tx: any) => {
-              await tx.$executeRaw`SELECT set_tenant_context(${tenantId})`;
-              return first(tx);
-            };
-            return options
-              ? (target as any).$transaction(wrappedFn, options)
-              : (target as any).$transaction(wrappedFn);
-          }
-
-          // Batch transaction: $transaction([...promises])
-          // These pass through without tenant context. Use interactive
-          // transactions for tenant-scoped batch operations.
-          if (Array.isArray(first)) {
-            return (target as any).$transaction(first);
-          }
-
-          // Fallback — unknown overload, pass through
-          return (target as any).$transaction(...args);
-        };
+        return transactionWrapper;
       }
 
       // Block operations that should never be called on a tenant-scoped proxy.

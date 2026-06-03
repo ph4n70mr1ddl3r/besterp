@@ -26,9 +26,12 @@ export class PrismaService
   // FinalizationRegistry evicts cache entries when GC collects the Proxy.
   // Note: we do NOT try to $disconnect the tenant client because the Proxy
   // blocks $disconnect (tenant clients share the underlying appClient_ connection).
+  // Unregister tokens are stored separately so we can always unregister without
+  // needing to deref the WeakRef (which may already be GC'd).
   private readonly cacheRegistry = new FinalizationRegistry<string>((tenantId: string) => {
     this.tenantClientCache.delete(tenantId);
   });
+  private readonly unregisterTokens = new Map<string, object>();
 
   constructor() {
     // Base client uses admin URL for migrations, seed, cross-tenant ops
@@ -72,13 +75,11 @@ export class PrismaService
   async onModuleDestroy() {
     // Clear tenant client cache and unregister from FinalizationRegistry
     // to prevent phantom callbacks after the service is destroyed.
-    for (const [tenantId, ref] of this.tenantClientCache) {
-      const client = ref.deref();
-      if (client) {
-        this.cacheRegistry.unregister(client);
-      }
+    for (const [tenantId, token] of this.unregisterTokens) {
+      this.cacheRegistry.unregister(token);
     }
     this.tenantClientCache.clear();
+    this.unregisterTokens.clear();
 
     const disconnectAll = await Promise.allSettled([
       this.$disconnect(),
@@ -124,9 +125,9 @@ export class PrismaService
     const cached = this.tenantClientCache.get(tenantId)?.deref();
     if (cached) return cached;
 
-    // Evict stale (GC'd) entries first. If none are stale, evict the
-    // first-inserted (oldest) live entry to prevent unbounded growth.
+    // Only run eviction when the cache is full.
     if (this.tenantClientCache.size >= PrismaService.MAX_CACHE_SIZE) {
+      // First pass: evict stale (GC'd) entries.
       let oldestKey: string | null = null;
       let evictedAny = false;
       for (const [key, ref] of this.tenantClientCache) {
@@ -134,28 +135,28 @@ export class PrismaService
           this.tenantClientCache.delete(key);
           evictedAny = true;
         } else if (!oldestKey) {
-          // Track the first-inserted (oldest) live entry for potential eviction
           oldestKey = key;
         }
       }
       // No stale entries found — evict the oldest live entry to make room.
-      // Unregister from FinalizationRegistry first to prevent phantom callbacks
-      // when the evicted client is eventually garbage-collected.
+      // Unregister from FinalizationRegistry using the stored token.
       if (!evictedAny && oldestKey) {
-        const oldRef = this.tenantClientCache.get(oldestKey);
-        if (oldRef) {
-          const oldClient = oldRef.deref();
-          if (oldClient) {
-            this.cacheRegistry.unregister(oldClient);
-          }
+        const token = this.unregisterTokens.get(oldestKey);
+        if (token) {
+          this.cacheRegistry.unregister(token);
         }
         this.tenantClientCache.delete(oldestKey);
+        this.unregisterTokens.delete(oldestKey);
       }
     }
 
     const client = createTenantClient(this.appClient_, tenantId);
+    // Use a dedicated object as the unregister token so we can always
+    // call unregister without needing to deref the WeakRef.
+    const token = {};
     this.tenantClientCache.set(tenantId, new WeakRef(client));
-    this.cacheRegistry.register(client, tenantId);
+    this.unregisterTokens.set(tenantId, token);
+    this.cacheRegistry.register(client, tenantId, token);
     return client;
   }
 }

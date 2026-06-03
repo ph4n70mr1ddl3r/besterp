@@ -77,9 +77,10 @@ export const errorHandlerMiddleware: ToolMiddleware = async (input, context, def
     // ─── Generic fallback ─────────────────────────────────────────
     // Log unexpected errors server-side — they may indicate a bug.
     // Domain errors and known Prisma errors are expected, so they aren't logged.
-    console.error(
-      `[MCP] Unexpected error in '${definition.name}': ${message}`,
-      error instanceof Error ? error.stack : undefined
+    // Use stderr for server-side logging (avoid polluting MCP stdio transport).
+    process.stderr.write(
+      `[MCP] Unexpected error in '${definition.name}': ${message}\n` +
+      (error instanceof Error ? `${error.stack}\n` : '')
     );
     return {
       success: false,
