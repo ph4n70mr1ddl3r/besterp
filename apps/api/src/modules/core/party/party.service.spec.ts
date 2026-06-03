@@ -900,14 +900,7 @@ describe("PartyService", () => {
         contactMechanismType: "CARRIER_PIGEON" as any,
       };
 
-      const mockDb = {
-        contactMechanismType: {
-          findUnique: vi.fn().mockResolvedValue(null),
-        },
-      };
-
-      mockPrismaService.tenantScoped.mockReturnValue(mockDb);
-
+      // Service now throws early before any DB access for unknown types
       await expect(partyService.addContactMechanism(input)).rejects.toThrow(InvalidTypeValueError);
     });
   });

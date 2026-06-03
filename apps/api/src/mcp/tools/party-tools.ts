@@ -170,7 +170,7 @@ Returns a paginated list of parties matching the criteria.
 Use this to find customers, suppliers, or any party by name, type, or role.`,
 
   inputSchema: z.object({
-    name: z.string().optional().transform(s => s?.trim()).describe("Filter by name (case-insensitive partial match)"),
+    name: z.string().max(500).optional().transform(s => s?.trim()).describe("Filter by name (case-insensitive partial match)"),
     partyType: z.enum(["PERSON", "ORGANIZATION"]).optional().describe("Filter by party type"),
     roleType: z.string().max(100).optional().transform(s => s?.trim()).describe("Filter by role type name (e.g., 'Customer', 'Supplier')"),
     limit: z.number().int().min(1).max(500).optional().default(50).describe("Maximum results to return (max 500)"),
@@ -206,7 +206,7 @@ Example: Make a party a customer
   inputSchema: z.object({
     idempotencyKey: z.string().min(1).max(500).describe("Idempotency key to prevent duplicate role assignment. Format: role-{partyId}-{roleType}-{date}"),
     partyId: z.string().min(1).describe("The party to assign the role to"),
-    roleType: z.string().min(1).max(100).describe("Role type name (e.g., 'Customer', 'Supplier', 'Employee')"),
+    roleType: z.string().min(1).max(100).transform(s => s.trim()).describe("Role type name (e.g., 'Customer', 'Supplier', 'Employee')"),
     fromDate: z.string().optional().describe("Start date for the role (ISO 8601, default: now)"),
   }),
 

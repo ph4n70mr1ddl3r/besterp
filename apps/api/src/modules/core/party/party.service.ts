@@ -466,8 +466,19 @@ export class PartyService {
       }
       validContactData = { ...emailAddress, email: normalizedEmail };
     } else {
-      // Unknown type — will be caught by the DB lookup below.
-      validContactData = undefined as any;
+      // Unknown type — fail fast before any DB round-trip
+      throw new InvalidTypeValueError(
+        `CONTACT_MECHANISM_TYPE '${trimmedCmType}' is not valid. ` +
+        `Valid types: ['POSTAL_ADDRESS', 'TELECOM_NUMBER', 'EMAIL_ADDRESS'].`,
+        {
+          suggestedTools: ["get_type_table_values"],
+          context: {
+            field: "contactMechanismType",
+            invalidValue: trimmedCmType,
+            validValues: ["POSTAL_ADDRESS", "TELECOM_NUMBER", "EMAIL_ADDRESS"]
+          },
+        }
+      );
     }
 
     // ─── Database lookups (after pure validation passes) ─────────────

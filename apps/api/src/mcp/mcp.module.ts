@@ -91,18 +91,28 @@ export class McpModule implements OnModuleInit {
       );
     }
 
-    // Validate agentId length — prevents oversized values in audit logs.
-    if (overrides.agentId && overrides.agentId.length > 200) {
-      throw new Error(
-        `McpModule.buildContext: agentId is too long (${overrides.agentId.length} chars, max 200).`
-      );
+    // Validate agentId — prevents oversized or whitespace-only values in audit logs.
+    if (overrides.agentId) {
+      if (overrides.agentId.trim().length === 0) {
+        throw new Error("McpModule.buildContext: agentId cannot be whitespace-only.");
+      }
+      if (overrides.agentId.length > 200) {
+        throw new Error(
+          `McpModule.buildContext: agentId is too long (${overrides.agentId.length} chars, max 200).`
+        );
+      }
     }
 
-    // Validate conversationId length — prevents oversized values in audit logs.
-    if (overrides.conversationId && overrides.conversationId.length > 200) {
-      throw new Error(
-        `McpModule.buildContext: conversationId is too long (${overrides.conversationId.length} chars, max 200).`
-      );
+    // Validate conversationId — prevents oversized or whitespace-only values in audit logs.
+    if (overrides.conversationId) {
+      if (overrides.conversationId.trim().length === 0) {
+        throw new Error("McpModule.buildContext: conversationId cannot be whitespace-only.");
+      }
+      if (overrides.conversationId.length > 200) {
+        throw new Error(
+          `McpModule.buildContext: conversationId is too long (${overrides.conversationId.length} chars, max 200).`
+        );
+      }
     }
 
     return {

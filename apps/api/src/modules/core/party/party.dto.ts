@@ -161,6 +161,7 @@ export class SearchPartiesDto {
   @Transform(({ value }: { value: string }) => (typeof value === "string" ? value.trim() : value))
   @IsOptional()
   @IsString()
+  @MaxLength(500)
   name?: string;
 
   @IsOptional()

@@ -113,6 +113,26 @@ describe("McpModule", () => {
       ).toThrow("userId is required");
     });
 
+    it("should reject whitespace-only agentId", () => {
+      expect(() =>
+        mcpModule.buildContext({
+          tenantId: "tenant-1",
+          userId: "user-1",
+          agentId: "   ",
+        })
+      ).toThrow("agentId cannot be whitespace-only");
+    });
+
+    it("should reject whitespace-only conversationId", () => {
+      expect(() =>
+        mcpModule.buildContext({
+          tenantId: "tenant-1",
+          userId: "user-1",
+          conversationId: "   ",
+        })
+      ).toThrow("conversationId cannot be whitespace-only");
+    });
+
     it("should accept optional fields as undefined", () => {
       const ctx = mcpModule.buildContext({
         tenantId: "tenant-1",
