@@ -32,7 +32,7 @@ Each tool listing includes its risk level and confirmation requirements.`,
     handler: async (input: { entity?: string }, _context: ToolContext) => {
       let tools = registry.getDiscoveryInfo();
       if (input.entity) {
-        tools = tools.filter((t: any) => t.entity === input.entity);
+        tools = tools.filter((t) => t.entity === input.entity);
       }
       return {
         success: true,

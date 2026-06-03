@@ -55,7 +55,7 @@ export class HealthService {
   private async initPackageInfo(): Promise<void> {
     try {
       const __dirname = dirname(fileURLToPath(import.meta.url));
-      const pkgPath = join(__dirname, "../../package.json");
+      const pkgPath = join(__dirname, "../package.json");
       const raw = await fs.readFile(pkgPath, "utf-8");
       const pkg = JSON.parse(raw);
       this.packageInfo = { version: pkg.version || "0.0.0", name: pkg.name || "unknown" };
