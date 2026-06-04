@@ -65,12 +65,9 @@ export class DomainExceptionFilter implements ExceptionFilter {
         statusCode: status,
         error: exception.code,
         message: exception.message,
-        suggestedTools: exception.suggestedTools.length > 0
-          ? exception.suggestedTools
-          : undefined,
-        context: Object.keys(exception.context).length > 0
-          ? exception.context
-          : undefined,
+        // suggestedTools and context are intentionally omitted from REST responses.
+        // They contain AI-oriented guidance (tool names, internal field names) that
+        // is useful for MCP agents but could confuse or leak internals to API consumers.
       });
       return;
     }

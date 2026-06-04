@@ -128,6 +128,10 @@ export function createTenantClient(prisma: PrismaClient, tenantId: string) {
   // (e.g., party.findMany, $transaction) are called repeatedly.
   const methodCache = new Map<string, Function>();
 
+  // Cache for model delegate proxies to avoid creating a new Proxy on every property access.
+  // Without this, each access to `scoped.party` creates a new Proxy wrapping the delegate.
+  const delegateCache = new Map<string, any>();
+
   // Pre-build the $transaction wrapper so it's allocated once, not per-access.
   const transactionWrapper = (...args: unknown[]) => {
     const [first, second] = args;
@@ -203,10 +207,13 @@ export function createTenantClient(prisma: PrismaClient, tenantId: string) {
       }
 
       // Model delegate (party, person, organization, etc.)
+      const cachedDelegate = delegateCache.get(prop);
+      if (cachedDelegate) return cachedDelegate;
+
       const delegate = (target as any)[prop];
       if (!delegate || typeof delegate !== "object") return delegate;
 
-      return new Proxy(delegate, {
+      const proxy = new Proxy(delegate, {
         get(modelTarget, method: string | symbol) {
           if (typeof method !== "string") return (modelTarget as any)[method];
 
@@ -240,6 +247,9 @@ export function createTenantClient(prisma: PrismaClient, tenantId: string) {
           return wrapped;
         },
       });
+
+      delegateCache.set(prop, proxy);
+      return proxy;
     },
   }) as any as PrismaClient;
 }

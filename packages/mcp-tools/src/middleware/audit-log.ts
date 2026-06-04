@@ -20,7 +20,7 @@ export function auditLogMiddleware(prisma: PrismaClient): ToolMiddleware {
   return async (input, context, definition, next) => {
     // Guard against misconfigured middleware (e.g., null prisma).
     if (!prisma?.aiActionLog) {
-      console.warn("[AuditLog] Prisma client not available — skipping audit log.");
+      process.stderr.write("[AuditLog] Prisma client not available — skipping audit log.\n");
       return next(input, context);
     }
 
@@ -38,10 +38,10 @@ export function auditLogMiddleware(prisma: PrismaClient): ToolMiddleware {
         toolOutput: { error: { message: error instanceof Error ? error.message : String(error), code: (error as Record<string, unknown>).code as string | undefined } },
         reasoning: undefined,
       }).catch((logErr) => {
-        console.warn(
+        process.stderr.write(
           `[AuditLog] Failed to write error-path audit log for tool '${definition.name}' ` +
           `(tenant=${context.tenantId}, user=${context.userId}): ` +
-          `${logErr instanceof Error ? logErr.message : logErr}`
+          `${logErr instanceof Error ? logErr.message : logErr}\n`
         );
       });
 
@@ -61,10 +61,10 @@ export function auditLogMiddleware(prisma: PrismaClient): ToolMiddleware {
       toolOutput: result.data ?? null,
       reasoning: undefined,
     }).catch((logErr) => {
-      console.warn(
+      process.stderr.write(
         `[AuditLog] Failed to write audit log for tool '${definition.name}' ` +
         `(tenant=${context.tenantId}, user=${context.userId}): ` +
-        `${logErr instanceof Error ? logErr.message : logErr}`
+        `${logErr instanceof Error ? logErr.message : logErr}\n`
       );
     });
 
