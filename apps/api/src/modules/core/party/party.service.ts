@@ -77,11 +77,14 @@ export class PartyService {
         }
       );
     }
-    this.requireMaxLength(name, "Party name", 500);
     const trimmedName = name.trim();
+    this.requireMaxLength(trimmedName, "Party name", 500);
     // Validate description length (MCP tool path has no DTO validation)
     if (description) {
-      this.requireMaxLength(description, "Description", 1000);
+      const trimmedDescription = description.trim();
+      if (trimmedDescription.length > 0) {
+        this.requireMaxLength(trimmedDescription, "Description", 1000);
+      }
     }
 
     // Validate subtype data
@@ -423,7 +426,7 @@ export class PartyService {
       );
     }
     const trimmedCmType = contactMechanismType.trim();
-    this.requireMaxLength(contactMechanismType, "contactMechanismType", 50, "get_type_table_values");
+    this.requireMaxLength(trimmedCmType, "contactMechanismType", 50, "get_type_table_values");
 
     // Validate subtype data early — avoids wasting a DB round-trip on invalid input.
     let validContactData: PostalAddressInput | TelecomNumberInput | EmailAddressInput;

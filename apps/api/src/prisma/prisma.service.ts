@@ -81,13 +81,15 @@ export class PrismaService
     this.tenantClientCache.clear();
     this.unregisterTokens.clear();
 
-    const disconnectAll = await Promise.allSettled([
+    const disconnectResults = await Promise.allSettled([
       this.$disconnect(),
       this.appClient_.$disconnect(),
     ]);
-    for (const result of disconnectAll) {
+    const labels = ["admin", "app"];
+    for (let i = 0; i < disconnectResults.length; i++) {
+      const result = disconnectResults[i];
       if (result.status === "rejected") {
-        this.logger.error(`Error disconnecting database: ${result.reason}`);
+        this.logger.error(`Error disconnecting ${labels[i]} client: ${result.reason}`);
       }
     }
   }
@@ -127,26 +129,29 @@ export class PrismaService
 
     // Only run eviction when the cache is full.
     if (this.tenantClientCache.size >= PrismaService.MAX_CACHE_SIZE) {
-      // First pass: evict stale (GC'd) entries.
+      // Collect stale (GC'd) entries first to avoid mutating the map during iteration.
+      const staleKeys: string[] = [];
       let oldestKey: string | null = null;
-      let evictedAny = false;
       for (const [key, ref] of this.tenantClientCache) {
         if (!ref.deref()) {
-          // Clean up the FinalizationRegistry registration and token for GC'd entries.
-          const staleToken = this.unregisterTokens.get(key);
-          if (staleToken) {
-            this.cacheRegistry.unregister(staleToken);
-            this.unregisterTokens.delete(key);
-          }
-          this.tenantClientCache.delete(key);
-          evictedAny = true;
+          staleKeys.push(key);
         } else if (!oldestKey) {
           oldestKey = key;
         }
       }
+
+      // Delete stale entries (safe — keys collected before mutation).
+      for (const key of staleKeys) {
+        const staleToken = this.unregisterTokens.get(key);
+        if (staleToken) {
+          this.cacheRegistry.unregister(staleToken);
+          this.unregisterTokens.delete(key);
+        }
+        this.tenantClientCache.delete(key);
+      }
+
       // No stale entries found — evict the oldest live entry to make room.
-      // Unregister from FinalizationRegistry using the stored token.
-      if (!evictedAny && oldestKey) {
+      if (staleKeys.length === 0 && oldestKey) {
         const token = this.unregisterTokens.get(oldestKey);
         if (token) {
           this.cacheRegistry.unregister(token);

@@ -38,7 +38,11 @@ export function auditLogMiddleware(prisma: PrismaClient): ToolMiddleware {
         toolOutput: { error: { message: error instanceof Error ? error.message : String(error), code: (error as Record<string, unknown>).code as string | undefined } },
         reasoning: undefined,
       }).catch((logErr) => {
-        console.warn(`[AuditLog] Failed to write audit log: ${logErr instanceof Error ? logErr.message : logErr}`);
+        console.warn(
+          `[AuditLog] Failed to write error-path audit log for tool '${definition.name}' ` +
+          `(tenant=${context.tenantId}, user=${context.userId}): ` +
+          `${logErr instanceof Error ? logErr.message : logErr}`
+        );
       });
 
       throw error;
@@ -57,7 +61,11 @@ export function auditLogMiddleware(prisma: PrismaClient): ToolMiddleware {
       toolOutput: result.data ?? null,
       reasoning: undefined,
     }).catch((logErr) => {
-      console.warn(`[AuditLog] Failed to write audit log: ${logErr instanceof Error ? logErr.message : logErr}`);
+      console.warn(
+        `[AuditLog] Failed to write audit log for tool '${definition.name}' ` +
+        `(tenant=${context.tenantId}, user=${context.userId}): ` +
+        `${logErr instanceof Error ? logErr.message : logErr}`
+      );
     });
 
     return result;
