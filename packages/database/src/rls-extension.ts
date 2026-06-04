@@ -64,6 +64,11 @@ export function validatePrismaClientForRls(prisma: PrismaClient): void {
 
 // ─── Data-access methods to wrap with tenant context ──────────────
 
+// Whitelist of known safe $ properties on the tenant-scoped proxy.
+// Only $transaction is allowed — all others are blocked to prevent
+// future Prisma methods from silently bypassing RLS scoping.
+const SAFE_DOLLAR_PROPS = new Set(["$transaction"]);
+
 const DATA_METHODS = new Set([
   "findMany", "findUnique", "findFirst", "create", "update",
   "delete", "upsert", "count", "aggregate", "groupBy",
@@ -181,7 +186,6 @@ export function createTenantClient(prisma: PrismaClient, tenantId: string) {
       // Whitelist known safe $ properties instead of allowing all unknown ones.
       // This prevents future Prisma methods (e.g., $metrics, $queryRawSafe)
       // from silently bypassing RLS scoping.
-      const SAFE_DOLLAR_PROPS = new Set(["$transaction"]);
       if (prop.startsWith("$")) {
         if (SAFE_DOLLAR_PROPS.has(prop)) {
           // $transaction is already intercepted above; this branch is

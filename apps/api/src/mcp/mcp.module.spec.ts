@@ -2,7 +2,7 @@
 // Tests tenant ID validation, userId validation, and service injection
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { McpModule } from "../../../../apps/api/src/mcp/mcp.module.js";
+import { McpModule } from "./mcp.module.js";
 import { InvalidTypeValueError } from "@besterp/shared";
 
 // McpModule depends on PrismaService + PartyService.

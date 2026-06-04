@@ -109,14 +109,14 @@ export class PartyService {
           { suggestedTools: ["create_party"], context: { field: "firstName" } }
         );
       }
-      this.requireMaxLength(personData.firstName, "firstName", 200);
+      this.requireMaxLength(personData.firstName, "First name", 200);
       if (!personData.lastName || personData.lastName.trim().length === 0) {
         throw new MissingSubtypeDataError(
           "lastName is required for person data",
           { suggestedTools: ["create_party"], context: { field: "lastName" } }
         );
       }
-      this.requireMaxLength(personData.lastName, "lastName", 200);
+      this.requireMaxLength(personData.lastName, "Last name", 200);
     }
     
     // Validate organization data if provided
@@ -127,7 +127,7 @@ export class PartyService {
           { suggestedTools: ["create_party"], context: { field: "legalName" } }
         );
       }
-      this.requireMaxLength(orgData.legalName, "legalName", 500);
+      this.requireMaxLength(orgData.legalName, "Legal name", 500);
     }
 
     // Trim all name fields before storage to prevent whitespace-padded names.
@@ -309,7 +309,7 @@ export class PartyService {
         }
       );
     }
-    this.requireMaxLength(roleType, "roleType", 100, "get_type_table_values");
+    this.requireMaxLength(roleType, "Role type", 100, "get_type_table_values");
     const trimmedRoleType = roleType.trim();
 
     // Look up role type (static shared data, safe outside transaction)
@@ -426,7 +426,7 @@ export class PartyService {
       );
     }
     const trimmedCmType = contactMechanismType.trim();
-    this.requireMaxLength(trimmedCmType, "contactMechanismType", 50, "get_type_table_values");
+    this.requireMaxLength(trimmedCmType, "Contact mechanism type", 50, "get_type_table_values");
 
     // Validate subtype data early — avoids wasting a DB round-trip on invalid input.
     let validContactData: PostalAddressInput | TelecomNumberInput | EmailAddressInput;

@@ -76,11 +76,21 @@ export class HealthService {
         this.logger.warn("Could not find package.json in any expected location");
         return;
       }
-      const pkg = JSON.parse(raw);
+      let pkg: { version?: string; name?: string };
+      try {
+        pkg = JSON.parse(raw);
+      } catch (parseErr) {
+        this.logger.warn(
+          `package.json found but could not be parsed: ${parseErr instanceof Error ? parseErr.message : parseErr}`
+        );
+        return;
+      }
       this.packageInfo = { version: pkg.version || "0.0.0", name: pkg.name || "unknown" };
       this.initialized = true;
-    } catch {
-      // Already logged in .catch() above
+    } catch (err) {
+      this.logger.warn(
+        `Could not read package.json: ${err instanceof Error ? err.message : err}`
+      );
     }
   }
 

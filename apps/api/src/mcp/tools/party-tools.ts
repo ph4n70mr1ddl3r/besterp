@@ -56,7 +56,7 @@ const postalAddressSchema = z.object({
   city: z.string().min(1).max(100).transform(s => s.trim()).describe("City"),
   stateProvince: z.string().max(100).optional().transform(s => s?.trim()).describe("State or province"),
   postalCode: z.string().max(20).optional().transform(s => s?.trim()).describe("Postal/ZIP code"),
-  country: z.string().min(1).max(3).transform(s => s.trim()).describe("Country code (e.g., US, DE, JP)"),
+  country: z.string().min(1).max(3).transform(s => s.trim().toUpperCase()).describe("Country code (e.g., US, DE, JP)"),
 });
 
 const telecomNumberSchema = z.object({
