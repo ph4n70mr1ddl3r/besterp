@@ -12,7 +12,7 @@
     "seed": "tsx prisma/seed.ts",
     "reset": "prisma migrate reset --force",
     "studio": "prisma studio",
-    "spike:rls": "tsx src/spike-rls.ts",
+    "spike:rls": "tsx spikes/spike-rls.ts",
     "postinstall": "prisma generate",
     "build": "tsc",
     "test": "vitest run",

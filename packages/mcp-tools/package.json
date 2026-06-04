@@ -7,8 +7,8 @@
   "types": "src/index.ts",
   "scripts": {
     "build": "tsc",
-    "dev": "tsx src/server.ts",
-    "spike:agent": "tsx src/test-agent.ts",
+    "dev": "tsx spikes/server.ts",
+    "spike:agent": "tsx spikes/test-agent.ts",
     "lint": "tsc --noEmit",
     "test": "vitest run"
   },

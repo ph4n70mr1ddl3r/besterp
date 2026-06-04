@@ -8,7 +8,7 @@
 // Phase 0b: Infrastructure only — queues will be used for domain events
 // when cross-module coordination is needed (Phase 1+).
 
-import { DynamicModule, Global, Module } from "@nestjs/common";
+import { DynamicModule, Module } from "@nestjs/common";
 import { BullModule } from "@nestjs/bullmq";
 
 export interface QueueModuleOptions {

@@ -77,8 +77,8 @@ export class PartyService {
         }
       );
     }
+    this.requireMaxLength(name, "Party name", 500);
     const trimmedName = name.trim();
-    this.requireMaxLength(trimmedName, "Party name", 500);
     // Validate description length (MCP tool path has no DTO validation)
     if (description) {
       const trimmedDescription = description.trim();

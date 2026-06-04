@@ -37,7 +37,7 @@ async function main() {
 
   const transport = new StdioClientTransport({
     command: "npx",
-    args: ["tsx", "src/server.ts"],
+    args: ["tsx", "spikes/server.ts"],
     env: {
       ...process.env,
       DATABASE_URL: process.env.DATABASE_URL || "",
