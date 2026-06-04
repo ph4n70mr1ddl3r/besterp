@@ -33,10 +33,9 @@ async function bootstrap() {
       "⚠️  JWT_SECRET not set — using insecure default. Set JWT_SECRET in production!"
     );
   }
-  const others = missing.filter((v) => v !== "JWT_SECRET");
-  if (others.length > 0) {
+  if (!process.env.DATABASE_URL && process.env.NODE_ENV !== "production") {
     console.warn(
-      `⚠️  Missing optional environment variables: ${others.join(", ")}. Defaults will be used.`
+      "⚠️  DATABASE_URL not set — database operations will fail. Set DATABASE_URL before running the API."
     );
   }
 

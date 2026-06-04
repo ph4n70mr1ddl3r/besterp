@@ -8,3 +8,7 @@ dist/
 .nx/
 coverage/
 tmp/
+
+# Prisma
+packages/database/prisma/*.db
+packages/database/prisma/*.db-journal

@@ -487,6 +487,9 @@ export class PartyService {
     // ─── Database lookups (after pure validation passes) ─────────────
     // NOTE: Type table lookup outside transaction — safe because contact
     // mechanism types are system-managed immutable data (see createParty).
+    // For known types (POSTAL_ADDRESS, TELECOM_NUMBER, EMAIL_ADDRESS), the
+    // early validation above already confirmed the type is valid. The DB
+    // lookup here is defense-in-depth to catch stale seed data.
 
     // Look up contact mechanism type
     const cmType = await db.contactMechanismType.findUnique({
@@ -494,14 +497,15 @@ export class PartyService {
     });
     if (!cmType) {
       throw new InvalidTypeValueError(
-        `CONTACT_MECHANISM_TYPE '${trimmedCmType}' is not valid. ` +
-        `Valid types: ['POSTAL_ADDRESS', 'TELECOM_NUMBER', 'EMAIL_ADDRESS'].`,
+        `CONTACT_MECHANISM_TYPE '${trimmedCmType}' exists as a known type but was not found in the database. ` +
+        `This may indicate the database has not been seeded. Run 'npm run db:seed'.`,
         {
           suggestedTools: ["get_type_table_values"],
           context: { 
             field: "contactMechanismType", 
-            invalidValue: contactMechanismType,
-            validValues: ["POSTAL_ADDRESS", "TELECOM_NUMBER", "EMAIL_ADDRESS"]
+            invalidValue: trimmedCmType,
+            validValues: ["POSTAL_ADDRESS", "TELECOM_NUMBER", "EMAIL_ADDRESS"],
+            hint: "Database may need seeding"
           },
         }
       );

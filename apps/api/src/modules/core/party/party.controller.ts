@@ -18,7 +18,6 @@ import {
   Query,
   Req,
   UnauthorizedException,
-  ParseUUIDPipe,
 } from "@nestjs/common";
 import { Request } from "express";
 import { TenantContext } from "../../../common/tenant-context.js";
@@ -75,7 +74,7 @@ export class PartyController {
   @Get(":id")
   async get(
     @Req() req: Request,
-    @Param("id", ParseUUIDPipe) partyId: string
+    @Param("id") partyId: string
   ) {
     const { tenantId } = this.getTenantContext(req);
     return this.partyService.getParty(tenantId, partyId);
@@ -84,7 +83,7 @@ export class PartyController {
   @Post(":id/roles")
   async addRole(
     @Req() req: Request,
-    @Param("id", ParseUUIDPipe) partyId: string,
+    @Param("id") partyId: string,
     @Body() body: AddPartyRoleDto
   ) {
     const { tenantId } = this.getTenantContext(req);
@@ -98,7 +97,7 @@ export class PartyController {
   @Post(":id/contacts")
   async addContact(
     @Req() req: Request,
-    @Param("id", ParseUUIDPipe) partyId: string,
+    @Param("id") partyId: string,
     @Body() body: AddContactMechanismDto
   ) {
     const { tenantId } = this.getTenantContext(req);

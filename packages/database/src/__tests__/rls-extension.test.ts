@@ -191,6 +191,8 @@ describe("RLS Extension", () => {
       expect(() => client.$executeRaw).toThrow(/Cannot call/);
       expect(() => client.$queryRawUnsafe).toThrow(/Cannot call/);
       expect(() => client.$executeRawUnsafe).toThrow(/Cannot call/);
+      // Unknown $ methods should also be blocked
+      expect(() => (client as any).$metrics).toThrow(/Cannot call/);
     });
 
     it("should block underscore-prefixed internal properties", () => {

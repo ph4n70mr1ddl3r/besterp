@@ -178,11 +178,19 @@ export function createTenantClient(prisma: PrismaClient, tenantId: string) {
         );
       }
 
-      // Other internal Prisma properties pass through safely.
-      // Block underscore-prefixed properties to prevent exposing
-      // Prisma internals (e.g., _dmmf, _engineConfig).
-      if (prop.startsWith("$") && !BLOCKED_LIFECYCLE.has(prop) && !BLOCKED_RAW_SQL.has(prop)) {
-        return (target as any)[prop];
+      // Whitelist known safe $ properties instead of allowing all unknown ones.
+      // This prevents future Prisma methods (e.g., $metrics, $queryRawSafe)
+      // from silently bypassing RLS scoping.
+      const SAFE_DOLLAR_PROPS = new Set(["$transaction"]);
+      if (prop.startsWith("$")) {
+        if (SAFE_DOLLAR_PROPS.has(prop)) {
+          // $transaction is already intercepted above; this branch is
+          // unreachable but kept for clarity.
+          return transactionWrapper;
+        }
+        throw new Error(
+          `Cannot call '${prop}' on a tenant-scoped client. Only $transaction is allowed. Use the base PrismaClient for other operations.`
+        );
       }
       if (prop.startsWith("_")) {
         throw new Error(
