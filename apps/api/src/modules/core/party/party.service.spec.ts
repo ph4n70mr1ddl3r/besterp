@@ -542,6 +542,19 @@ describe("PartyService", () => {
       await expect(partyService.addPartyRole(input)).rejects.toThrow(EntityNotFoundError);
     });
 
+    it("should throw error for invalid fromDate format before DB lookup", async () => {
+      const input = {
+        tenantId: "tenant-1",
+        partyId: "party-123",
+        roleType: "Customer",
+        fromDate: "not-a-date",
+      };
+
+      // Should throw before any DB call
+      await expect(partyService.addPartyRole(input)).rejects.toThrow(InvalidTypeValueError);
+      await expect(partyService.addPartyRole(input)).rejects.toThrow("Invalid fromDate format");
+    });
+
     it("should throw error for empty roleType", async () => {
       const input = {
         tenantId: "tenant-1",
@@ -901,6 +914,34 @@ describe("PartyService", () => {
       };
 
       // Service now throws early before any DB access for unknown types
+      await expect(partyService.addContactMechanism(input)).rejects.toThrow(InvalidTypeValueError);
+    });
+
+    it("should throw error for country exceeding max length", async () => {
+      const input: AddContactMechanismInput = {
+        tenantId: "tenant-1",
+        partyId: "party-123",
+        contactMechanismType: "POSTAL_ADDRESS",
+        postalAddress: {
+          addressLine1: "123 Main St",
+          city: "Anytown",
+          country: "TOOLONG",
+        },
+      };
+
+      await expect(partyService.addContactMechanism(input)).rejects.toThrow(InvalidTypeValueError);
+    });
+
+    it("should throw error for email exceeding max length", async () => {
+      const input: AddContactMechanismInput = {
+        tenantId: "tenant-1",
+        partyId: "party-123",
+        contactMechanismType: "EMAIL_ADDRESS",
+        emailAddress: {
+          email: `a@${"x".repeat(250)}.com`,
+        },
+      };
+
       await expect(partyService.addContactMechanism(input)).rejects.toThrow(InvalidTypeValueError);
     });
   });

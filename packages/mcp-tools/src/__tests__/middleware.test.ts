@@ -215,6 +215,37 @@ describe("Idempotency Middleware", () => {
     expect(result.data).toBe("passed through");
   });
 
+  it("should re-execute for failed record (reset to pending atomically)", async () => {
+    const input = { test: "value" };
+    const idempotencyKey = "test-key";
+    const contextWithKey = { ...mockContext, idempotencyKey };
+
+    // Simulate a failed record being found and reset inside the transaction
+    mockPrisma.$transaction.mockImplementation(async (fn: Function, _opts?: any) => {
+      const tx = {
+        idempotencyRecord: {
+          findUnique: vi.fn().mockResolvedValue({
+            idempotencyKey,
+            status: "failed",
+            inputHash: "old-hash",
+          }),
+          // The reset-to-pending update
+          update: vi.fn().mockResolvedValue({}),
+          create: mockPrisma.idempotencyRecord.create,
+        },
+      };
+      return fn(tx);
+    });
+    mockPrisma.idempotencyRecord.update.mockResolvedValue({});
+
+    const middleware = idempotencyMiddleware(mockPrisma as any);
+    const result = await middleware(input, contextWithKey, mockDefinition, successNext({ success: true, data: "re-executed" }));
+
+    // The failed record was reset and the tool was re-executed
+    expect(result.success).toBe(true);
+    expect(result.data).toBe("re-executed");
+  });
+
   it("should return contention error when all serialization retries fail", async () => {
     const input = { test: "value" };
     const idempotencyKey = "test-key";

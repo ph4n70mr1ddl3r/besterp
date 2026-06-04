@@ -83,12 +83,18 @@ export class McpModule implements OnModuleInit {
       throw new Error("McpModule.buildContext: userId is required and cannot be empty.");
     }
 
-    // Validate idempotency key length — prevents excessively long keys from
-    // wasting database storage in the idempotency_record table.
-    if (overrides.idempotencyKey && overrides.idempotencyKey.length > 500) {
-      throw new Error(
-        `McpModule.buildContext: idempotencyKey is too long (${overrides.idempotencyKey.length} chars, max 500).`
-      );
+    // Validate idempotency key — trim to prevent whitespace-caused cache misses,
+    // then enforce length to prevent excessively long keys from wasting storage.
+    if (overrides.idempotencyKey) {
+      const trimmedKey = overrides.idempotencyKey.trim();
+      if (trimmedKey.length === 0) {
+        throw new Error("McpModule.buildContext: idempotencyKey cannot be whitespace-only.");
+      }
+      if (trimmedKey.length > 500) {
+        throw new Error(
+          `McpModule.buildContext: idempotencyKey is too long (${trimmedKey.length} chars, max 500).`
+        );
+      }
     }
 
     // Validate agentId — prevents oversized or whitespace-only values in audit logs.

@@ -163,6 +163,16 @@ describe("McpModule", () => {
       expect(ctx.idempotencyKey).toBe("x".repeat(500));
     });
 
+    it("should reject whitespace-only idempotencyKey", () => {
+      expect(() =>
+        mcpModule.buildContext({
+          tenantId: "tenant-1",
+          userId: "user-1",
+          idempotencyKey: "   ",
+        })
+      ).toThrow("idempotencyKey cannot be whitespace-only");
+    });
+
     it("should reject overly long agentId", () => {
       expect(() =>
         mcpModule.buildContext({

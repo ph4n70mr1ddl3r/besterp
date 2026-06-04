@@ -296,7 +296,7 @@ export class PartyService {
     // NOTE: Type table lookup outside transaction — safe because role types
     // are system-managed immutable data (see createParty for rationale).
 
-    // Validate inputs
+    // ─── Pure input validation (fail fast, before any DB access) ─────
     if (!roleType || roleType.trim().length === 0) {
       throw new InvalidTypeValueError(
         "roleType cannot be empty",
@@ -309,6 +309,19 @@ export class PartyService {
     this.requireMaxLength(roleType, "Role type", 100, "get_type_table_values");
     const trimmedRoleType = roleType.trim();
 
+    // Validate and parse fromDate BEFORE any DB access (pure computation)
+    const roleFromDate = fromDate ? new Date(fromDate) : new Date();
+    if (isNaN(roleFromDate.getTime())) {
+      throw new InvalidTypeValueError(
+        `Invalid fromDate format: ${fromDate}. Use ISO 8601 format (YYYY-MM-DDTHH:mm:ss.sssZ)`,
+        {
+          suggestedTools: ["add_party_role"],
+          context: { field: "fromDate", invalidValue: fromDate },
+        }
+      );
+    }
+
+    // ─── Database lookups (after pure validation passes) ─────────────
     // Look up role type (static shared data, safe outside transaction)
     const roleTypeRecord = await db.roleType.findUnique({
       where: { name: trimmedRoleType },
@@ -319,18 +332,6 @@ export class PartyService {
         {
           suggestedTools: ["get_type_table_values"],
           context: { field: "roleType", invalidValue: trimmedRoleType, lookupField: "name" },
-        }
-      );
-    }
-
-    // Validate and parse fromDate (pure computation, no DB access)
-    const roleFromDate = fromDate ? new Date(fromDate) : new Date();
-    if (isNaN(roleFromDate.getTime())) {
-      throw new InvalidTypeValueError(
-        `Invalid fromDate format: ${fromDate}. Use ISO 8601 format (YYYY-MM-DDTHH:mm:ss.sssZ)`,
-        {
-          suggestedTools: ["add_party_role"],
-          context: { field: "fromDate", invalidValue: fromDate },
         }
       );
     }
@@ -435,8 +436,14 @@ export class PartyService {
         );
       }
       this.requireNonEmpty(postalAddress.addressLine1, "addressLine1", "postal address");
+      this.requireMaxLength(postalAddress.addressLine1, "addressLine1", 200, "add_contact_mechanism");
       this.requireNonEmpty(postalAddress.city, "city", "postal address");
+      this.requireMaxLength(postalAddress.city, "city", 100, "add_contact_mechanism");
       this.requireNonEmpty(postalAddress.country, "country", "postal address");
+      this.requireMaxLength(postalAddress.country, "country", 3, "add_contact_mechanism");
+      if (postalAddress.addressLine2) this.requireMaxLength(postalAddress.addressLine2, "addressLine2", 200, "add_contact_mechanism");
+      if (postalAddress.stateProvince) this.requireMaxLength(postalAddress.stateProvince, "stateProvince", 100, "add_contact_mechanism");
+      if (postalAddress.postalCode) this.requireMaxLength(postalAddress.postalCode, "postalCode", 20, "add_contact_mechanism");
       validContactData = postalAddress;
     } else if (trimmedCmType === "TELECOM_NUMBER") {
       if (!telecomNumber) {
@@ -446,7 +453,11 @@ export class PartyService {
         );
       }
       this.requireNonEmpty(telecomNumber.areaCode, "areaCode", "telecom number");
+      this.requireMaxLength(telecomNumber.areaCode, "areaCode", 10, "add_contact_mechanism");
       this.requireNonEmpty(telecomNumber.lineNumber, "lineNumber", "telecom number");
+      this.requireMaxLength(telecomNumber.lineNumber, "lineNumber", 20, "add_contact_mechanism");
+      if (telecomNumber.countryCode) this.requireMaxLength(telecomNumber.countryCode, "countryCode", 5, "add_contact_mechanism");
+      if (telecomNumber.extension) this.requireMaxLength(telecomNumber.extension, "extension", 10, "add_contact_mechanism");
       validContactData = telecomNumber;
     } else if (trimmedCmType === "EMAIL_ADDRESS") {
       if (!emailAddress) {
@@ -456,6 +467,7 @@ export class PartyService {
         );
       }
       this.requireNonEmpty(emailAddress.email, "email", "email address");
+      this.requireMaxLength(emailAddress.email, "email", 254, "add_contact_mechanism");
       const normalizedEmail = emailAddress.email.trim().toLowerCase();
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
       if (!emailRegex.test(normalizedEmail)) {
