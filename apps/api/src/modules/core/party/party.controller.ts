@@ -18,6 +18,7 @@ import {
   Query,
   Req,
   UnauthorizedException,
+  BadRequestException,
 } from "@nestjs/common";
 import { Request } from "express";
 import { TenantContext } from "../../../common/tenant-context.js";
@@ -43,6 +44,18 @@ export class PartyController {
       );
     }
     return ctx;
+  }
+
+  /** Validate that a route param looks like a UUID. */
+  private requireUuid(value: string, paramName: string): void {
+    // Loosely match UUID format (8-4-4-4-12 hex chars with optional dashes).
+    // Prisma will reject invalid UUIDs, but this gives a clear 400 error
+    // instead of an opaque Prisma P2023 error.
+    if (!/^[0-9a-fA-F]{8}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{12}$/.test(value)) {
+      throw new BadRequestException(
+        `Invalid '${paramName}': must be a valid UUID.`
+      );
+    }
   }
 
   @Post()
@@ -77,6 +90,7 @@ export class PartyController {
     @Param("id") partyId: string
   ) {
     const { tenantId } = this.getTenantContext(req);
+    this.requireUuid(partyId, "id");
     return this.partyService.getParty(tenantId, partyId);
   }
 
@@ -87,6 +101,7 @@ export class PartyController {
     @Body() body: AddPartyRoleDto
   ) {
     const { tenantId } = this.getTenantContext(req);
+    this.requireUuid(partyId, "id");
     return this.partyService.addPartyRole({
       ...body,
       tenantId,
@@ -101,6 +116,7 @@ export class PartyController {
     @Body() body: AddContactMechanismDto
   ) {
     const { tenantId } = this.getTenantContext(req);
+    this.requireUuid(partyId, "id");
     return this.partyService.addContactMechanism({
       ...body,
       tenantId,

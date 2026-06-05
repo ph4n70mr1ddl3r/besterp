@@ -84,24 +84,29 @@ interface AuditLogEntry {
 }
 
 const MAX_AUDIT_INPUT_SIZE = 65536; // 64 KB — prevents unbounded JSON storage
+const MAX_AUDIT_OUTPUT_SIZE = 65536; // 64 KB — prevents unbounded JSON storage
 
-async function logAction(prisma: PrismaClient, entry: AuditLogEntry): Promise<void> {
-  // Truncate oversized inputs to prevent unbounded audit log storage.
-  // If the serialized input exceeds the limit, store a truncated version
-  // with a marker so operators know data was elided.
-  let toolInput = entry.toolInput;
+function truncateValue(value: unknown, maxSize: number): unknown {
   try {
-    const serialized = JSON.stringify(toolInput);
-    if (serialized.length > MAX_AUDIT_INPUT_SIZE) {
-      toolInput = {
+    const serialized = JSON.stringify(value);
+    if (serialized.length > maxSize) {
+      return {
         _truncated: true,
         _originalSize: serialized.length,
         _preview: serialized.slice(0, 1024),
       };
     }
   } catch {
-    toolInput = { _error: "Failed to serialize tool input" };
+    return { _error: "Failed to serialize value" };
   }
+  return value;
+}
+
+async function logAction(prisma: PrismaClient, entry: AuditLogEntry): Promise<void> {
+  // Truncate oversized inputs and outputs to prevent unbounded audit log storage.
+  // If the serialized value exceeds the limit, store a truncated version
+  // with a marker so operators know data was elided.
+  const toolInput = truncateValue(entry.toolInput, MAX_AUDIT_INPUT_SIZE);
 
   await prisma.aiActionLog.create({
     data: {
@@ -111,7 +116,7 @@ async function logAction(prisma: PrismaClient, entry: AuditLogEntry): Promise<vo
       tenantId: entry.tenantId,
       toolCalled: entry.toolCalled,
       toolInput: toolInput as any,
-      toolOutput: entry.toolOutput as any,
+      toolOutput: truncateValue(entry.toolOutput, MAX_AUDIT_OUTPUT_SIZE) as any,
       reasoning: entry.reasoning || null,
     },
   });

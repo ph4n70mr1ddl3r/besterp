@@ -2,7 +2,7 @@
 // Tests REST endpoint behavior: tenant context extraction, error handling, delegation
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { UnauthorizedException } from "@nestjs/common";
+import { UnauthorizedException, BadRequestException } from "@nestjs/common";
 import { PartyController } from "./party.controller.js";
 import { PartyService } from "./party.service.js";
 
@@ -119,16 +119,23 @@ describe("PartyController", () => {
     it("should pass tenantId and partyId to service", async () => {
       const req = mockRequest({ tenantId: "tenant-1", userId: "user-1" });
 
-      await controller.get(req, "party-123");
+      await controller.get(req, "12345678-1234-1234-1234-123456789abc");
 
-      expect(partyService.getParty).toHaveBeenCalledWith("tenant-1", "party-123");
+      expect(partyService.getParty).toHaveBeenCalledWith("tenant-1", "12345678-1234-1234-1234-123456789abc");
     });
 
     it("should throw UnauthorizedException when tenant context is missing", async () => {
       const req = mockRequestNoContext();
       await expect(
-        controller.get(req, "party-123")
+        controller.get(req, "12345678-1234-1234-1234-123456789abc")
       ).rejects.toThrow(UnauthorizedException);
+    });
+
+    it("should throw BadRequestException for invalid UUID", async () => {
+      const req = mockRequest({ tenantId: "tenant-1", userId: "user-1" });
+      await expect(
+        controller.get(req, "not-a-uuid")
+      ).rejects.toThrow(BadRequestException);
     });
   });
 
@@ -137,20 +144,27 @@ describe("PartyController", () => {
       const req = mockRequest({ tenantId: "tenant-1", userId: "user-1" });
       const body = { roleType: "Customer" };
 
-      await controller.addRole(req, "party-123", body as any);
+      await controller.addRole(req, "12345678-1234-1234-1234-123456789abc", body as any);
 
       expect(partyService.addPartyRole).toHaveBeenCalledWith({
         roleType: "Customer",
         tenantId: "tenant-1",
-        partyId: "party-123",
+        partyId: "12345678-1234-1234-1234-123456789abc",
       });
     });
 
     it("should throw UnauthorizedException when tenant context is missing", async () => {
       const req = mockRequestNoContext();
       await expect(
-        controller.addRole(req, "party-123", { roleType: "Customer" } as any)
+        controller.addRole(req, "12345678-1234-1234-1234-123456789abc", { roleType: "Customer" } as any)
       ).rejects.toThrow(UnauthorizedException);
+    });
+
+    it("should throw BadRequestException for invalid UUID", async () => {
+      const req = mockRequest({ tenantId: "tenant-1", userId: "user-1" });
+      await expect(
+        controller.addRole(req, "not-a-uuid", { roleType: "Customer" } as any)
+      ).rejects.toThrow(BadRequestException);
     });
   });
 
@@ -159,21 +173,28 @@ describe("PartyController", () => {
       const req = mockRequest({ tenantId: "tenant-1", userId: "user-1" });
       const body = { contactMechanismType: "EMAIL_ADDRESS", emailAddress: { email: "a@b.com" } };
 
-      await controller.addContact(req, "party-123", body as any);
+      await controller.addContact(req, "12345678-1234-1234-1234-123456789abc", body as any);
 
       expect(partyService.addContactMechanism).toHaveBeenCalledWith({
         contactMechanismType: "EMAIL_ADDRESS",
         emailAddress: { email: "a@b.com" },
         tenantId: "tenant-1",
-        partyId: "party-123",
+        partyId: "12345678-1234-1234-1234-123456789abc",
       });
     });
 
     it("should throw UnauthorizedException when tenant context is missing", async () => {
       const req = mockRequestNoContext();
       await expect(
-        controller.addContact(req, "party-123", {} as any)
+        controller.addContact(req, "12345678-1234-1234-1234-123456789abc", {} as any)
       ).rejects.toThrow(UnauthorizedException);
+    });
+
+    it("should throw BadRequestException for invalid UUID", async () => {
+      const req = mockRequest({ tenantId: "tenant-1", userId: "user-1" });
+      await expect(
+        controller.addContact(req, "not-a-uuid", {} as any)
+      ).rejects.toThrow(BadRequestException);
     });
   });
 });

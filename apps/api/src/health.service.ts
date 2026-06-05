@@ -5,7 +5,7 @@
 // and application status.
 
 import { Injectable, Logger } from "@nestjs/common";
-import { PrismaService } from "./prisma/prisma.service.js";
+import { PrismaService } from "../prisma/prisma.service.js";
 import * as fs from "fs/promises";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";

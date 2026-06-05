@@ -95,8 +95,8 @@ Example: Create a supplier organization
       "Unique key to prevent duplicate creation. Format: party-create-{description}-{date}"
     ),
     partyType: z.enum(["PERSON", "ORGANIZATION"]).describe("Type of party to create"),
-    name: z.string().min(1).max(500).transform(s => s.trim()).describe("Display name for the party (1-500 characters)"),
-    description: z.string().max(1000).optional().transform(s => s?.trim()).describe("Optional description (max 1000 characters)"),
+    name: z.string().min(1).max(500).transform(s => s.trim()).pipe(z.string().min(1).max(500)).describe("Display name for the party (1-500 characters)"),
+    description: z.string().max(1000).optional().transform(s => s?.trim()).pipe(z.string().max(1000).optional()).describe("Optional description (max 1000 characters)"),
     person: personSchema.optional().describe("Person details (required when partyType is PERSON)"),
     organization: organizationSchema.optional().describe("Organization details (required when partyType is ORGANIZATION)"),
   }).refine(
@@ -170,7 +170,7 @@ Returns a paginated list of parties matching the criteria.
 Use this to find customers, suppliers, or any party by name, type, or role.`,
 
   inputSchema: z.object({
-    name: z.string().max(500).optional().transform(s => s?.trim()).describe("Filter by name (case-insensitive partial match)"),
+    name: z.string().max(500).optional().transform(s => s?.trim()).pipe(z.string().max(500).optional()).describe("Filter by name (case-insensitive partial match)"),
     partyType: z.enum(["PERSON", "ORGANIZATION"]).optional().describe("Filter by party type"),
     roleType: z.string().max(100).optional().transform(s => s?.trim()).describe("Filter by role type name (e.g., 'Customer', 'Supplier')"),
     limit: z.number().int().min(1).max(500).optional().default(50).describe("Maximum results to return (max 500)"),
