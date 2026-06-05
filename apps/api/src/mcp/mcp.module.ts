@@ -83,46 +83,53 @@ export class McpModule implements OnModuleInit {
       throw new Error("McpModule.buildContext: userId is required and cannot be empty.");
     }
 
-    // Validate idempotency key — trim to prevent whitespace-caused cache misses,
-    // then enforce length to prevent excessively long keys from wasting storage.
-    if (overrides.idempotencyKey) {
-      const trimmedKey = overrides.idempotencyKey.trim();
-      if (trimmedKey.length === 0) {
+    // Validate and normalise optional string fields — trim whitespace and
+    // enforce length limits. We store the TRIMMED values so that downstream
+    // code (audit logs, idempotency records) never sees padded strings.
+    let idempotencyKey = overrides.idempotencyKey;
+    if (idempotencyKey) {
+      idempotencyKey = idempotencyKey.trim();
+      if (idempotencyKey.length === 0) {
         throw new Error("McpModule.buildContext: idempotencyKey cannot be whitespace-only.");
       }
-      if (trimmedKey.length > 500) {
+      if (idempotencyKey.length > 500) {
         throw new Error(
-          `McpModule.buildContext: idempotencyKey is too long (${trimmedKey.length} chars, max 500).`
+          `McpModule.buildContext: idempotencyKey is too long (${idempotencyKey.length} chars, max 500).`
         );
       }
     }
 
-    // Validate agentId — prevents oversized or whitespace-only values in audit logs.
-    if (overrides.agentId) {
-      if (overrides.agentId.trim().length === 0) {
+    let agentId = overrides.agentId;
+    if (agentId) {
+      agentId = agentId.trim();
+      if (agentId.length === 0) {
         throw new Error("McpModule.buildContext: agentId cannot be whitespace-only.");
       }
-      if (overrides.agentId.length > 200) {
+      if (agentId.length > 200) {
         throw new Error(
-          `McpModule.buildContext: agentId is too long (${overrides.agentId.length} chars, max 200).`
+          `McpModule.buildContext: agentId is too long (${agentId.length} chars, max 200).`
         );
       }
     }
 
-    // Validate conversationId — prevents oversized or whitespace-only values in audit logs.
-    if (overrides.conversationId) {
-      if (overrides.conversationId.trim().length === 0) {
+    let conversationId = overrides.conversationId;
+    if (conversationId) {
+      conversationId = conversationId.trim();
+      if (conversationId.length === 0) {
         throw new Error("McpModule.buildContext: conversationId cannot be whitespace-only.");
       }
-      if (overrides.conversationId.length > 200) {
+      if (conversationId.length > 200) {
         throw new Error(
-          `McpModule.buildContext: conversationId is too long (${overrides.conversationId.length} chars, max 200).`
+          `McpModule.buildContext: conversationId is too long (${conversationId.length} chars, max 200).`
         );
       }
     }
 
     return {
       ...overrides,
+      agentId,
+      conversationId,
+      idempotencyKey,
       services: {
         partyService: this.partyService,
       },

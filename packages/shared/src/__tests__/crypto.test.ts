@@ -211,6 +211,22 @@ describe("hashInput", () => {
     expect(hashInput(complexObj)).toBe(hashInput(identicalComplexObj));
   });
 
+  it("should normalize NaN and Infinity to null for deterministic hashing", () => {
+    const nanHash = hashInput(NaN);
+    const infHash = hashInput(Infinity);
+    const negInfHash = hashInput(-Infinity);
+    const nullHash = hashInput(null);
+
+    // All non-finite numbers and null should produce the same hash
+    expect(nanHash).toBe(nullHash);
+    expect(infHash).toBe(nullHash);
+    expect(negInfHash).toBe(nullHash);
+
+    // Finite numbers should still hash distinctly
+    const zeroHash = hashInput(0);
+    expect(zeroHash).not.toBe(nullHash);
+  });
+
   it("should be case-sensitive for strings", () => {
     const hash1 = hashInput("Hello");
     const hash2 = hashInput("hello");

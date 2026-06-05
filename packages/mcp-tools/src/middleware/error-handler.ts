@@ -79,7 +79,7 @@ export const errorHandlerMiddleware: ToolMiddleware = async (input, context, def
     // Domain errors and known Prisma errors are expected, so they aren't logged.
     // Use stderr for server-side logging (avoid polluting MCP stdio transport).
     process.stderr.write(
-      `[MCP] Unexpected error in '${definition.name}' (tenant=${context.tenantId}, user=${context.userId}): ${message}\n` +
+      `[MCP] [${new Date().toISOString()}] Unexpected error in '${definition.name}' (tenant=${context.tenantId}, user=${context.userId}): ${message}\n` +
       (error instanceof Error ? `${error.stack}\n` : '')
     );
     return {

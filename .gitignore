@@ -8,6 +8,7 @@ node_modules/
 .nx/
 coverage/
 tmp/
+*.tsbuildinfo
 
 # Prisma
 packages/database/prisma/*.db

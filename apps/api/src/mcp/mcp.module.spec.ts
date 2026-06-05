@@ -160,6 +160,15 @@ describe("McpModule", () => {
       expect(ctx.idempotencyKey).toBe("x".repeat(500));
     });
 
+    it("should trim idempotency key before storing", () => {
+      const ctx = mcpModule.buildContext({
+        tenantId: "tenant-1",
+        userId: "user-1",
+        idempotencyKey: "  my-key  ",
+      });
+      expect(ctx.idempotencyKey).toBe("my-key");
+    });
+
     it("should reject whitespace-only idempotencyKey", () => {
       expect(() =>
         mcpModule.buildContext({
@@ -189,6 +198,15 @@ describe("McpModule", () => {
       expect(ctx.agentId).toBe("x".repeat(200));
     });
 
+    it("should trim agentId before storing", () => {
+      const ctx = mcpModule.buildContext({
+        tenantId: "tenant-1",
+        userId: "user-1",
+        agentId: "  my-agent  ",
+      });
+      expect(ctx.agentId).toBe("my-agent");
+    });
+
     it("should reject overly long conversationId", () => {
       expect(() =>
         mcpModule.buildContext({
@@ -206,6 +224,15 @@ describe("McpModule", () => {
         conversationId: "x".repeat(200),
       });
       expect(ctx.conversationId).toBe("x".repeat(200));
+    });
+
+    it("should trim conversationId before storing", () => {
+      const ctx = mcpModule.buildContext({
+        tenantId: "tenant-1",
+        userId: "user-1",
+        conversationId: "  my-conv  ",
+      });
+      expect(ctx.conversationId).toBe("my-conv");
     });
   });
 });

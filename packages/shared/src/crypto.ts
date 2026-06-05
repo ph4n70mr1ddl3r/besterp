@@ -7,6 +7,12 @@ import * as crypto from "crypto";
  */
 function sortKeysDeep(value: unknown): unknown {
   if (value === null || value === undefined) return null; // Normalize undefined to null
+  if (typeof value === 'number') {
+    // Normalize NaN and Infinity to null — JSON.stringify converts them to null,
+    // so without this normalization NaN and null would collide. This ensures
+    // deterministic hashing for edge-case numeric inputs.
+    if (!Number.isFinite(value)) return null;
+  }
   if (Array.isArray(value)) return value.map(sortKeysDeep);
   if (typeof value === "object") {
     const proto = Object.getPrototypeOf(value);
