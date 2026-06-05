@@ -72,6 +72,29 @@ const emailAddressSchema = z.object({
 
 // ─── Tool: create_party ───────────────────────────────────────────
 
+const createPartySchema = z.object({
+  idempotencyKey: z.string().min(1).max(500).describe(
+    "Unique key to prevent duplicate creation. Format: party-create-{description}-{date}"
+  ),
+  partyType: z.enum(["PERSON", "ORGANIZATION"]).describe("Type of party to create"),
+  name: z.string().min(1).max(500).transform(s => s.trim()).pipe(z.string().min(1).max(500)).describe("Display name for the party (1-500 characters)"),
+  description: z.string().max(1000).optional().transform(s => s?.trim()).pipe(z.string().max(1000).optional()).describe("Optional description (max 1000 characters)"),
+  person: personSchema.optional().describe("Person details (required when partyType is PERSON)"),
+  organization: organizationSchema.optional().describe("Organization details (required when partyType is ORGANIZATION)"),
+}).refine(
+  (data) => {
+    if (data.partyType === "PERSON") return data.person !== undefined;
+    if (data.partyType === "ORGANIZATION") return data.organization !== undefined;
+    return true;
+  },
+  {
+    message: "'person' is required when partyType is PERSON, 'organization' is required when partyType is ORGANIZATION",
+    path: ["partyType"],
+  }
+);
+
+type CreatePartyInput_z = z.infer<typeof createPartySchema>;
+
 const createParty: ToolDefinition = {
   name: "create_party",
   description: `Creates a new party (person or organization) in the ERP system.
@@ -90,32 +113,13 @@ Example: Create a customer person named "Jane Doe"
 Example: Create a supplier organization
   create_party({ partyType: "ORGANIZATION", name: "Acme Corp", organization: { legalName: "Acme Corporation Ltd." } })`,
 
-  inputSchema: z.object({
-    idempotencyKey: z.string().min(1).max(500).describe(
-      "Unique key to prevent duplicate creation. Format: party-create-{description}-{date}"
-    ),
-    partyType: z.enum(["PERSON", "ORGANIZATION"]).describe("Type of party to create"),
-    name: z.string().min(1).max(500).transform(s => s.trim()).pipe(z.string().min(1).max(500)).describe("Display name for the party (1-500 characters)"),
-    description: z.string().max(1000).optional().transform(s => s?.trim()).pipe(z.string().max(1000).optional()).describe("Optional description (max 1000 characters)"),
-    person: personSchema.optional().describe("Person details (required when partyType is PERSON)"),
-    organization: organizationSchema.optional().describe("Organization details (required when partyType is ORGANIZATION)"),
-  }).refine(
-    (data) => {
-      if (data.partyType === "PERSON") return data.person !== undefined;
-      if (data.partyType === "ORGANIZATION") return data.organization !== undefined;
-      return true;
-    },
-    {
-      message: "'person' is required when partyType is PERSON, 'organization' is required when partyType is ORGANIZATION",
-      path: ["partyType"],
-    }
-  ),
+  inputSchema: createPartySchema,
 
   riskLevel: "low",
   entity: "party",
   tags: ["party", "create", "core"],
 
-  handler: async (input: any, context: ToolContext) => {
+  handler: async (input: CreatePartyInput_z, context: ToolContext) => {
     const svc = getPartyService(context);
     const party = await svc.createParty({
       tenantId: context.tenantId,
@@ -153,7 +157,7 @@ Returns full party details. Use this to inspect a specific party's information.`
   entity: "party",
   tags: ["party", "read", "core"],
 
-  handler: async (input: any, context: ToolContext) => {
+  handler: async (input: { partyId: string }, context: ToolContext) => {
     const svc = getPartyService(context);
     const party = await svc.getParty(context.tenantId, input.partyId);
     return { success: true, data: party };
@@ -162,6 +166,16 @@ Returns full party details. Use this to inspect a specific party's information.`
 
 // ─── Tool: search_parties ─────────────────────────────────────────
 
+const searchPartiesSchema = z.object({
+  name: z.string().max(500).optional().transform(s => s?.trim()).pipe(z.string().max(500).optional()).describe("Filter by name (case-insensitive partial match)"),
+  partyType: z.enum(["PERSON", "ORGANIZATION"]).optional().describe("Filter by party type"),
+  roleType: z.string().max(100).optional().transform(s => s?.trim()).describe("Filter by role type name (e.g., 'Customer', 'Supplier')"),
+  limit: z.number().int().min(1).max(500).optional().default(50).describe("Maximum results to return (max 500)"),
+  offset: z.number().int().min(0).optional().default(0).describe("Number of results to skip (min 0)"),
+});
+
+type SearchPartiesInput_z = z.infer<typeof searchPartiesSchema>;
+
 const searchParties: ToolDefinition = {
   name: "search_parties",
   description: `Search for parties with optional filters.
@@ -169,19 +183,13 @@ const searchParties: ToolDefinition = {
 Returns a paginated list of parties matching the criteria.
 Use this to find customers, suppliers, or any party by name, type, or role.`,
 
-  inputSchema: z.object({
-    name: z.string().max(500).optional().transform(s => s?.trim()).pipe(z.string().max(500).optional()).describe("Filter by name (case-insensitive partial match)"),
-    partyType: z.enum(["PERSON", "ORGANIZATION"]).optional().describe("Filter by party type"),
-    roleType: z.string().max(100).optional().transform(s => s?.trim()).describe("Filter by role type name (e.g., 'Customer', 'Supplier')"),
-    limit: z.number().int().min(1).max(500).optional().default(50).describe("Maximum results to return (max 500)"),
-    offset: z.number().int().min(0).optional().default(0).describe("Number of results to skip (min 0)"),
-  }),
+  inputSchema: searchPartiesSchema,
 
   riskLevel: "none",
   entity: "party",
   tags: ["party", "search", "core"],
 
-  handler: async (input: any, context: ToolContext) => {
+  handler: async (input: SearchPartiesInput_z, context: ToolContext) => {
     const svc = getPartyService(context);
     const result = await svc.searchParties({
       tenantId: context.tenantId,
@@ -193,6 +201,15 @@ Use this to find customers, suppliers, or any party by name, type, or role.`,
 
 // ─── Tool: add_party_role ─────────────────────────────────────────
 
+const addPartyRoleSchema = z.object({
+  idempotencyKey: z.string().min(1).max(500).describe("Idempotency key to prevent duplicate role assignment. Format: role-{partyId}-{roleType}-{date}"),
+  partyId: z.string().min(1).describe("The party to assign the role to"),
+  roleType: z.string().min(1).max(100).transform(s => s.trim()).describe("Role type name (e.g., 'Customer', 'Supplier', 'Employee')"),
+  fromDate: z.string().optional().describe("Start date for the role (ISO 8601, default: now)"),
+});
+
+type AddPartyRoleInput_z = z.infer<typeof addPartyRoleSchema>;
+
 const addPartyRole: ToolDefinition = {
   name: "add_party_role",
   description: `Assign a role to a party.
@@ -203,18 +220,13 @@ A party can have multiple roles. Use 'get_type_table_values' with typeName "ROLE
 Example: Make a party a customer
   add_party_role({ partyId: "abc-123", roleType: "Customer" })`,
 
-  inputSchema: z.object({
-    idempotencyKey: z.string().min(1).max(500).describe("Idempotency key to prevent duplicate role assignment. Format: role-{partyId}-{roleType}-{date}"),
-    partyId: z.string().min(1).describe("The party to assign the role to"),
-    roleType: z.string().min(1).max(100).transform(s => s.trim()).describe("Role type name (e.g., 'Customer', 'Supplier', 'Employee')"),
-    fromDate: z.string().optional().describe("Start date for the role (ISO 8601, default: now)"),
-  }),
+  inputSchema: addPartyRoleSchema,
 
   riskLevel: "low",
   entity: "party",
   tags: ["party", "role", "update"],
 
-  handler: async (input: any, context: ToolContext) => {
+  handler: async (input: AddPartyRoleInput_z, context: ToolContext) => {
     const svc = getPartyService(context);
     const result = await svc.addPartyRole({
       tenantId: context.tenantId,
@@ -235,6 +247,32 @@ Example: Make a party a customer
 
 // ─── Tool: add_contact_mechanism ──────────────────────────────────
 
+const addContactMechanismSchema = z.object({
+  idempotencyKey: z.string().min(1).max(500).describe("Idempotency key to prevent duplicate contact creation. Format: contact-{partyId}-{type}-{date}"),
+  partyId: z.string().min(1).describe("The party to add the contact to"),
+  contactMechanismType: z.enum(["POSTAL_ADDRESS", "TELECOM_NUMBER", "EMAIL_ADDRESS"])
+    .describe("Type of contact mechanism"),
+  postalAddress: postalAddressSchema.optional()
+    .describe("Postal address details (required when contactMechanismType is POSTAL_ADDRESS)"),
+  telecomNumber: telecomNumberSchema.optional()
+    .describe("Phone number details (required when contactMechanismType is TELECOM_NUMBER)"),
+  emailAddress: emailAddressSchema.optional()
+    .describe("Email details (required when contactMechanismType is EMAIL_ADDRESS)"),
+}).refine(
+  (data) => {
+    if (data.contactMechanismType === "POSTAL_ADDRESS") return data.postalAddress !== undefined;
+    if (data.contactMechanismType === "TELECOM_NUMBER") return data.telecomNumber !== undefined;
+    if (data.contactMechanismType === "EMAIL_ADDRESS") return data.emailAddress !== undefined;
+    return true;
+  },
+  {
+    message: "The matching subtype data must be provided for the chosen contactMechanismType",
+    path: ["contactMechanismType"],
+  }
+);
+
+type AddContactMechanismInput_z = z.infer<typeof addContactMechanismSchema>;
+
 const addContactMechanism: ToolDefinition = {
   name: "add_contact_mechanism",
   description: `Add a contact mechanism (address, phone, or email) to a party.
@@ -244,35 +282,13 @@ A party can have multiple contacts of each type.
 
 Use 'get_type_table_values' with typeName "CONTACT_MECHANISM_TYPE" to see available types.`,
 
-  inputSchema: z.object({
-    idempotencyKey: z.string().min(1).max(500).describe("Idempotency key to prevent duplicate contact creation. Format: contact-{partyId}-{type}-{date}"),
-    partyId: z.string().min(1).describe("The party to add the contact to"),
-    contactMechanismType: z.enum(["POSTAL_ADDRESS", "TELECOM_NUMBER", "EMAIL_ADDRESS"])
-      .describe("Type of contact mechanism"),
-    postalAddress: postalAddressSchema.optional()
-      .describe("Postal address details (required when contactMechanismType is POSTAL_ADDRESS)"),
-    telecomNumber: telecomNumberSchema.optional()
-      .describe("Phone number details (required when contactMechanismType is TELECOM_NUMBER)"),
-    emailAddress: emailAddressSchema.optional()
-      .describe("Email details (required when contactMechanismType is EMAIL_ADDRESS)"),
-  }).refine(
-    (data) => {
-      if (data.contactMechanismType === "POSTAL_ADDRESS") return data.postalAddress !== undefined;
-      if (data.contactMechanismType === "TELECOM_NUMBER") return data.telecomNumber !== undefined;
-      if (data.contactMechanismType === "EMAIL_ADDRESS") return data.emailAddress !== undefined;
-      return true;
-    },
-    {
-      message: "The matching subtype data must be provided for the chosen contactMechanismType",
-      path: ["contactMechanismType"],
-    }
-  ),
+  inputSchema: addContactMechanismSchema,
 
   riskLevel: "low",
   entity: "party",
   tags: ["party", "contact", "create"],
 
-  handler: async (input: any, context: ToolContext) => {
+  handler: async (input: AddContactMechanismInput_z, context: ToolContext) => {
     const svc = getPartyService(context);
     const result = await svc.addContactMechanism({
       tenantId: context.tenantId,

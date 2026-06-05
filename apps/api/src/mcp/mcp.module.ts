@@ -153,8 +153,9 @@ export class McpModule implements OnModuleInit {
       module: McpModule,
       imports: [PrismaModule, PartyModule],
       providers: [
-        // McpModule is a provider so NestJS injects PrismaService + PartyService
-        // via constructor DI. The factory below exposes the registry for injection.
+        // McpModule is @Injectable — listed as a provider so NestJS injects
+        // PrismaService + PartyService via constructor DI. The factory below
+        // exposes the registry for injection elsewhere.
         McpModule,
         {
           provide: "TOOL_REGISTRY",

@@ -35,7 +35,7 @@ export class PartyController {
   constructor(private readonly partyService: PartyService) {}
 
   private getTenantContext(req: Request): TenantContext {
-    const ctx = (req as any).tenantContext as TenantContext | undefined;
+    const ctx = req.tenantContext;
     if (!ctx?.tenantId) {
       // This should never happen if TenantGuard is properly registered.
       // Throwing UnauthorizedException returns a 401 instead of a 500.

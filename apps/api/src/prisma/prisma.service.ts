@@ -18,14 +18,14 @@ export class PrismaService
   implements OnModuleInit, OnModuleDestroy
 {
   private readonly logger = new Logger(PrismaService.name);
-  private readonly appClient_: PrismaClient;
+  private readonly _appClient: PrismaClient;
   /** Cache of tenant-scoped Proxy clients to avoid GC pressure from repeated creation. */
   private readonly tenantClientCache = new Map<string, WeakRef<PrismaClient>>();
   /** Maximum number of tenant clients to cache before eviction. */
   private static readonly MAX_CACHE_SIZE = 256;
   // FinalizationRegistry evicts cache entries when GC collects the Proxy.
   // Note: we do NOT try to $disconnect the tenant client because the Proxy
-  // blocks $disconnect (tenant clients share the underlying appClient_ connection).
+  // blocks $disconnect (tenant clients share the underlying _appClient connection).
   // Unregister tokens are stored separately so we can always unregister without
   // needing to deref the WeakRef (which may already be GC'd).
   private readonly cacheRegistry = new FinalizationRegistry<string>((tenantId: string) => {
@@ -40,7 +40,7 @@ export class PrismaService
     });
 
     // App client uses the non-superuser URL for RLS-enforced operations
-    this.appClient_ = new PrismaClient({
+    this._appClient = new PrismaClient({
       datasourceUrl: process.env.DATABASE_URL, // must be the besterp_app role
     });
   }
@@ -61,7 +61,7 @@ export class PrismaService
     }
     try {
       await this.$connect();
-      await this.appClient_.$connect();
+      await this._appClient.$connect();
       this.logger.log("Database connections established (admin + app)");
     } catch (error) {
       this.logger.error(
@@ -83,7 +83,7 @@ export class PrismaService
 
     const disconnectResults = await Promise.allSettled([
       this.$disconnect(),
-      this.appClient_.$disconnect(),
+      this._appClient.$disconnect(),
     ]);
     const labels = ["admin", "app"];
     for (let i = 0; i < disconnectResults.length; i++) {
@@ -107,7 +107,7 @@ export class PrismaService
    * Use for health checks and other runtime connectivity verification.
    */
   get appClient(): PrismaClient {
-    return this.appClient_;
+    return this._appClient;
   }
 
   /**
@@ -130,7 +130,7 @@ export class PrismaService
     // Only run eviction when the cache is full.
     if (this.tenantClientCache.size >= PrismaService.MAX_CACHE_SIZE) {
       // Map iteration order is insertion order in modern JS, so the first live
-      // entry encountered is the oldest — effectively a FIFO/LRU eviction.
+      // entry encountered is the oldest — effectively a FIFO eviction.
       const staleKeys: string[] = [];
       let oldestKey: string | null = null;
       for (const [key, ref] of this.tenantClientCache) {
@@ -165,7 +165,7 @@ export class PrismaService
       }
     }
 
-    const client = createTenantClient(this.appClient_, tenantId);
+    const client = createTenantClient(this._appClient, tenantId);
     // Use a dedicated object as the unregister token so we can always
     // call unregister without needing to deref the WeakRef.
     const token = {};

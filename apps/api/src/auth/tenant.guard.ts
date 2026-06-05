@@ -14,6 +14,15 @@ import { JwtValidatedUser } from "./jwt.strategy.js";
 import { TenantContext } from "../common/tenant-context.js";
 import { IS_PUBLIC_KEY } from "./public.decorator.js";
 
+// Extend Express Request to include tenant context set by guards.
+// This avoids `any` casts and provides type safety for downstream consumers.
+declare module "express" {
+  interface Request {
+    user?: JwtValidatedUser;
+    tenantContext?: TenantContext;
+  }
+}
+
 @Injectable()
 export class TenantGuard implements CanActivate {
   constructor(private reflector: Reflector) {}
@@ -28,7 +37,7 @@ export class TenantGuard implements CanActivate {
     }
 
     const request = context.switchToHttp().getRequest<Request>();
-    const user = request.user as JwtValidatedUser | undefined;
+    const user = request.user;
 
     if (!user) {
       return false;
@@ -40,7 +49,7 @@ export class TenantGuard implements CanActivate {
       agentId: user.agentId,
     };
 
-    (request as any).tenantContext = tenantContext;
+    request.tenantContext = tenantContext;
     return true;
   }
 }
