@@ -216,8 +216,8 @@ model AiActionLog {
   id             String   @id @default(uuid()) @map("id")
   agentId        String?  @map("agent_id")
   conversationId String?  @map("conversation_id")
-  userId         String?  @map("user_id")
-  tenantId       String?  @map("tenant_id")
+  userId         String   @map("user_id")
+  tenantId       String   @map("tenant_id")
   toolCalled     String   @map("tool_called")
   toolInput      Json     @map("tool_input")
   toolOutput     Json?    @map("tool_output")
@@ -225,6 +225,7 @@ model AiActionLog {
   createdAt      DateTime @default(now()) @map("created_at")
 
   @@index([tenantId])
+  @@index([tenantId, toolCalled])
   @@map("ai_action_log")
 }
 
@@ -247,5 +248,6 @@ model IdempotencyRecord {
 
   @@index([tenantId])
   @@index([expiresAt])
+  @@index([status, expiresAt])
   @@map("idempotency_record")
 }

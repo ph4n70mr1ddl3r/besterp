@@ -13,15 +13,36 @@ const prisma = new PrismaClient({
 });
 
 async function main() {
-  const before = await prisma.idempotencyRecord.count();
-  const result = await prisma.idempotencyRecord.deleteMany({
-    where: { expiresAt: { lt: new Date() } },
-  });
+  const BATCH_SIZE = 5000;
+  let totalDeleted = 0;
+  let before = await prisma.idempotencyRecord.count();
+
+  // Delete in batches to avoid long-running transactions and lock contention
+  // on large tables. Without batching, a single deleteMany with millions of
+  // expired rows can hold a write lock for seconds.
+  let deleted: number;
+  do {
+    // Find IDs to delete first, then delete by ID to avoid full-table scans
+    // in the DELETE statement on databases with many non-expired rows.
+    const expired = await prisma.idempotencyRecord.findMany({
+      where: { expiresAt: { lt: new Date() } },
+      select: { idempotencyKey: true },
+      take: BATCH_SIZE,
+    });
+    if (expired.length === 0) break;
+
+    const result = await prisma.idempotencyRecord.deleteMany({
+      where: { idempotencyKey: { in: expired.map((r) => r.idempotencyKey) } },
+    });
+    deleted = result.count;
+    totalDeleted += deleted;
+  } while (deleted === BATCH_SIZE);
+
   const after = await prisma.idempotencyRecord.count();
 
   console.log(`🧹 Idempotency cleanup complete:`);
   console.log(`   Records before: ${before}`);
-  console.log(`   Records deleted: ${result.count}`);
+  console.log(`   Records deleted: ${totalDeleted}`);
   console.log(`   Records remaining: ${after}`);
 }
 

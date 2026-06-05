@@ -153,6 +153,9 @@ export class PrismaService
 
       // No stale entries found — evict the oldest live entry to make room.
       if (staleKeys.length === 0 && oldestKey) {
+        this.logger.debug(
+          `Tenant client cache full (${PrismaService.MAX_CACHE_SIZE}). Evicting oldest entry: '${oldestKey}'.`
+        );
         const token = this.unregisterTokens.get(oldestKey);
         if (token) {
           this.cacheRegistry.unregister(token);

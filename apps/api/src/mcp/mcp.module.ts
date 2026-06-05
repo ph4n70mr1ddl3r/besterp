@@ -82,6 +82,11 @@ export class McpModule implements OnModuleInit {
     if (!overrides.userId || overrides.userId.trim().length === 0) {
       throw new Error("McpModule.buildContext: userId is required and cannot be empty.");
     }
+    if (overrides.userId.length > 200) {
+      throw new Error(
+        `McpModule.buildContext: userId is too long (${overrides.userId.length} chars, max 200).`
+      );
+    }
 
     // Validate and normalise optional string fields — trim whitespace and
     // enforce length limits. We store the TRIMMED values so that downstream

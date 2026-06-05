@@ -110,6 +110,23 @@ describe("McpModule", () => {
       ).toThrow("userId is required");
     });
 
+    it("should reject overly long userId", () => {
+      expect(() =>
+        mcpModule.buildContext({
+          tenantId: "tenant-1",
+          userId: "x".repeat(201),
+        })
+      ).toThrow("userId is too long");
+    });
+
+    it("should accept userId at max length", () => {
+      const ctx = mcpModule.buildContext({
+        tenantId: "tenant-1",
+        userId: "x".repeat(200),
+      });
+      expect(ctx.userId).toBe("x".repeat(200));
+    });
+
     it("should reject whitespace-only agentId", () => {
       expect(() =>
         mcpModule.buildContext({
