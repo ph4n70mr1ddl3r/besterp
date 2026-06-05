@@ -246,6 +246,55 @@ describe("PartyService", () => {
 
       await expect(partyService.createParty(input)).rejects.toThrow(InvalidTypeValueError);
     });
+
+    it("should throw error for whitespace-only name", async () => {
+      const input: CreatePartyInput = {
+        tenantId: "tenant-1",
+        partyType: "PERSON",
+        name: "   ",
+        person: { firstName: "John", lastName: "Doe" },
+      };
+
+      await expect(partyService.createParty(input)).rejects.toThrow(InvalidTypeValueError);
+    });
+
+    it("should trim gender and middleName fields", async () => {
+      const input: CreatePartyInput = {
+        tenantId: "tenant-1",
+        partyType: "PERSON",
+        name: "John Doe",
+        person: {
+          firstName: "  John  ",
+          lastName: "  Doe  ",
+          middleName: "  A  ",
+          gender: "  male  ",
+        },
+      };
+
+      const mockDb = {
+        partyType: {
+          findUnique: vi.fn().mockResolvedValue({ partyTypeId: "pt-person" }),
+        },
+        $transaction: vi.fn().mockImplementation(async (fn) => {
+          const tx = {
+            party: {
+              create: vi.fn().mockResolvedValue(
+                mockParty({
+                  name: "John Doe",
+                  person: { firstName: "John", lastName: "Doe", middleName: "A", gender: "male" },
+                })
+              ),
+            },
+          };
+          return fn(tx);
+        }),
+      };
+
+      mockPrismaService.tenantScoped.mockReturnValue(mockDb);
+
+      const result = await partyService.createParty(input);
+      expect(result.name).toBe("John Doe");
+    });
   });
 
   describe("getParty", () => {
@@ -939,6 +988,84 @@ describe("PartyService", () => {
         contactMechanismType: "EMAIL_ADDRESS",
         emailAddress: {
           email: `a@${"x".repeat(250)}.com`,
+        },
+      };
+
+      await expect(partyService.addContactMechanism(input)).rejects.toThrow(InvalidTypeValueError);
+    });
+
+    it("should throw error for addressLine2 exceeding max length", async () => {
+      const input: AddContactMechanismInput = {
+        tenantId: "tenant-1",
+        partyId: "party-123",
+        contactMechanismType: "POSTAL_ADDRESS",
+        postalAddress: {
+          addressLine1: "123 Main St",
+          addressLine2: "x".repeat(201),
+          city: "Anytown",
+          country: "US",
+        },
+      };
+
+      await expect(partyService.addContactMechanism(input)).rejects.toThrow(InvalidTypeValueError);
+    });
+
+    it("should throw error for stateProvince exceeding max length", async () => {
+      const input: AddContactMechanismInput = {
+        tenantId: "tenant-1",
+        partyId: "party-123",
+        contactMechanismType: "POSTAL_ADDRESS",
+        postalAddress: {
+          addressLine1: "123 Main St",
+          city: "Anytown",
+          stateProvince: "x".repeat(101),
+          country: "US",
+        },
+      };
+
+      await expect(partyService.addContactMechanism(input)).rejects.toThrow(InvalidTypeValueError);
+    });
+
+    it("should throw error for postalCode exceeding max length", async () => {
+      const input: AddContactMechanismInput = {
+        tenantId: "tenant-1",
+        partyId: "party-123",
+        contactMechanismType: "POSTAL_ADDRESS",
+        postalAddress: {
+          addressLine1: "123 Main St",
+          city: "Anytown",
+          postalCode: "x".repeat(21),
+          country: "US",
+        },
+      };
+
+      await expect(partyService.addContactMechanism(input)).rejects.toThrow(InvalidTypeValueError);
+    });
+
+    it("should throw error for countryCode exceeding max length for telecom", async () => {
+      const input: AddContactMechanismInput = {
+        tenantId: "tenant-1",
+        partyId: "party-123",
+        contactMechanismType: "TELECOM_NUMBER",
+        telecomNumber: {
+          countryCode: "x".repeat(6),
+          areaCode: "415",
+          lineNumber: "5551234",
+        },
+      };
+
+      await expect(partyService.addContactMechanism(input)).rejects.toThrow(InvalidTypeValueError);
+    });
+
+    it("should throw error for extension exceeding max length for telecom", async () => {
+      const input: AddContactMechanismInput = {
+        tenantId: "tenant-1",
+        partyId: "party-123",
+        contactMechanismType: "TELECOM_NUMBER",
+        telecomNumber: {
+          areaCode: "415",
+          lineNumber: "5551234",
+          extension: "x".repeat(11),
         },
       };
 

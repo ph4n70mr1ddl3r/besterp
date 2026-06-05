@@ -3,13 +3,15 @@
 // Marked @Public() so it doesn't require JWT authentication.
 // Delegates to HealthService for actual health checks.
 
-import { Controller, Get, ServiceUnavailableException } from "@nestjs/common";
+import { Controller, Get, Logger, ServiceUnavailableException } from "@nestjs/common";
 import { Public } from "./auth/public.decorator.js";
 import { HealthService } from "./health.service.js";
 
 @Public()
 @Controller("health")
 export class HealthController {
+  private readonly logger = new Logger(HealthController.name);
+
   constructor(private readonly healthService: HealthService) {}
 
   @Get()
@@ -30,7 +32,11 @@ export class HealthController {
     const healthPromise = this.healthService.getHealth();
     // Suppress eventual rejection if timeout wins the race — without this,
     // a slow-failing DB health check becomes an unhandled promise rejection.
-    healthPromise.catch(() => {});
+    healthPromise.catch((err) => {
+      this.logger.debug(
+        `Health promise rejected after timeout won race: ${err instanceof Error ? err.message : err}`
+      );
+    });
     const timeoutPromise = new Promise<"timeout">((resolve) => {
       timeoutId = setTimeout(() => resolve("timeout"), 5000);
     });

@@ -146,7 +146,7 @@ const getParty: ToolDefinition = {
 Returns full party details. Use this to inspect a specific party's information.`,
 
   inputSchema: z.object({
-    partyId: z.string().min(1).describe("The unique ID of the party"),
+    partyId: z.string().min(1).max(200).describe("The unique ID of the party"),
   }),
 
   riskLevel: "none",

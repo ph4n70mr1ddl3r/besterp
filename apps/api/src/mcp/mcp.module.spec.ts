@@ -25,9 +25,6 @@ function createMcpModule() {
   // McpModule's constructor takes (prisma, partyService).
   const module = new McpModule(mockPrisma, mockPartyService);
 
-  // Suppress onModuleInit logging
-  vi.spyOn(module as any, "logger", "get").mockReturnValue({ log: vi.fn(), warn: vi.fn(), error: vi.fn() });
-
   return module;
 }
 
