@@ -98,6 +98,8 @@ describe("PartyController", () => {
       expect(partyService.searchParties).toHaveBeenCalledWith({
         tenantId: "tenant-1",
         name: "Test",
+        partyType: undefined,
+        roleType: undefined,
         limit: 10,
         offset: 5,
       });

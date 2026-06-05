@@ -26,7 +26,7 @@ export class QueueModule {
     const redisPort = options?.redis?.port || Number.parseInt(process.env.REDIS_PORT || "6380", 10);
     if (!Number.isFinite(redisPort) || redisPort < 1 || redisPort > 65535) {
       throw new Error(
-        `Invalid Redis port: ${process.env.REDIS_PORT}. Must be a number between 1 and 65535.`
+        `Invalid Redis port: ${redisPort}. Must be a number between 1 and 65535.`
       );
     }
     const redisPassword = options?.redis?.password || process.env.REDIS_PASSWORD;

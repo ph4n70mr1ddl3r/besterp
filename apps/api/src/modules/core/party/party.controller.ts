@@ -76,11 +76,14 @@ export class PartyController {
     @Query() query: SearchPartiesDto
   ) {
     const { tenantId } = this.getTenantContext(req);
+    const { name, partyType, roleType, limit = 50, offset = 0 } = query;
     return this.partyService.searchParties({
       tenantId,
-      ...query,
-      limit: query.limit ?? 50,
-      offset: query.offset ?? 0,
+      name,
+      partyType,
+      roleType,
+      limit,
+      offset,
     });
   }
 

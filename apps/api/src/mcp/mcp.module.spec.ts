@@ -127,6 +127,14 @@ describe("McpModule", () => {
       expect(ctx.userId).toBe("x".repeat(200));
     });
 
+    it("should trim userId before storing", () => {
+      const ctx = mcpModule.buildContext({
+        tenantId: "tenant-1",
+        userId: "  user-1  ",
+      });
+      expect(ctx.userId).toBe("user-1");
+    });
+
     it("should reject whitespace-only agentId", () => {
       expect(() =>
         mcpModule.buildContext({

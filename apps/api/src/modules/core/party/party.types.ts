@@ -64,7 +64,7 @@ export interface PartyResult {
 export interface SearchPartiesInput {
   tenantId: string;
   name?: string;
-  partyType?: string;
+  partyType?: "PERSON" | "ORGANIZATION";
   roleType?: string;
   limit?: number;
   offset?: number;

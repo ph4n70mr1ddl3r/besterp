@@ -160,6 +160,19 @@ export function createTenantClient(prisma: PrismaClient, tenantId: string) {
   };
 
   return new Proxy(prisma, {
+    // Prevent accidental mutation of the tenant-scoped proxy.
+    // All writes should go through the base PrismaClient, not the
+    // tenant-scoped wrapper.
+    set(_target, prop) {
+      throw new Error(
+        `Cannot set '${String(prop)}' on a tenant-scoped client. Use the base PrismaClient directly.`
+      );
+    },
+    deleteProperty(_target, prop) {
+      throw new Error(
+        `Cannot delete '${String(prop)}' on a tenant-scoped client. Use the base PrismaClient directly.`
+      );
+    },
     get(target, prop: string | symbol) {
       if (typeof prop !== "string") return (target as any)[prop];
 

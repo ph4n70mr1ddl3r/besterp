@@ -79,12 +79,14 @@ export class McpModule implements OnModuleInit {
     validateTenantIdEnhanced(overrides.tenantId);
 
     // Validate userId — prevents null/empty user IDs in audit logs.
-    if (!overrides.userId || overrides.userId.trim().length === 0) {
+    let userId = overrides.userId;
+    if (!userId || userId.trim().length === 0) {
       throw new Error("McpModule.buildContext: userId is required and cannot be empty.");
     }
-    if (overrides.userId.length > 200) {
+    userId = userId.trim();
+    if (userId.length > 200) {
       throw new Error(
-        `McpModule.buildContext: userId is too long (${overrides.userId.length} chars, max 200).`
+        `McpModule.buildContext: userId is too long (${userId.length} chars, max 200).`
       );
     }
 
@@ -132,6 +134,7 @@ export class McpModule implements OnModuleInit {
 
     return {
       ...overrides,
+      userId,
       agentId,
       conversationId,
       idempotencyKey,

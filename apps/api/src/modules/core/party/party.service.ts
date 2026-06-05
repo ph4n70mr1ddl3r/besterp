@@ -68,7 +68,8 @@ export class PartyService {
     const { tenantId, partyType, name, description, person: personData, organization: orgData } = input;
 
     // Input validation with better error messages
-    if (!name || name.trim().length === 0) {
+    const trimmedName = name.trim();
+    if (!trimmedName) {
       throw new InvalidTypeValueError(
         "Party name cannot be empty",
         { 
@@ -77,11 +78,11 @@ export class PartyService {
         }
       );
     }
-    this.requireMaxLength(name, "Party name", 500);
-    const trimmedName = name.trim();
+    this.requireMaxLength(trimmedName, "Party name", 500);
     // Validate description length (MCP tool path has no DTO validation)
-    if (description) {
-      this.requireMaxLength(description, "Description", 1000);
+    const trimmedDescription = description?.trim() || null;
+    if (trimmedDescription) {
+      this.requireMaxLength(trimmedDescription, "Description", 1000);
     }
 
     // Validate subtype data
@@ -169,7 +170,7 @@ export class PartyService {
         partyType: { connect: { partyTypeId: partyTypeRecord.partyTypeId } },
         tenantId,
         name: trimmedName,
-        description: description?.trim() || null,
+        description: trimmedDescription,
       };
       if (trimmedPerson) {
         data.person = {

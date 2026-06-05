@@ -201,6 +201,16 @@ describe("RLS Extension", () => {
       expect(() => (client as any)._engineConfig).toThrow(/Cannot access/);
     });
 
+    it("should block property assignment on tenant-scoped client", () => {
+      const client = createTenantClient(mockPrisma, "tenant-1");
+      expect(() => { (client as any).party = {}; }).toThrow(/Cannot set/);
+    });
+
+    it("should block property deletion on tenant-scoped client", () => {
+      const client = createTenantClient(mockPrisma, "tenant-1");
+      expect(() => delete (client as any).party).toThrow(/Cannot delete/);
+    });
+
     it("should handle batch transactions (pass through without tenant context)", async () => {
       const client = createTenantClient(mockPrisma, "tenant-1");
       
