@@ -11,6 +11,7 @@ import {
   ToolDefinition,
   ToolContext,
 } from "@besterp/mcp-tools";
+import { UUID_REGEX } from "@besterp/shared";
 import type {
   CreatePartyInput,
   SearchPartiesInput,
@@ -37,37 +38,37 @@ function getPartyService(ctx: ToolContext) {
 // ─── Schemas ──────────────────────────────────────────────────────
 
 const personSchema = z.object({
-  firstName: z.string().min(1).max(200).transform(s => s.trim()).describe("First/given name"),
-  lastName: z.string().min(1).max(200).transform(s => s.trim()).describe("Last/family name"),
+  firstName: z.string().transform(s => s.trim()).pipe(z.string().min(1).max(200)).describe("First/given name"),
+  lastName: z.string().transform(s => s.trim()).pipe(z.string().min(1).max(200)).describe("Last/family name"),
   middleName: z.string().max(100).optional().transform(s => s?.trim()).describe("Middle name"),
   birthDate: z.string().max(30).optional().describe("Date of birth (ISO 8601)"),
   gender: z.string().max(50).optional().transform(s => s?.trim()).describe("Gender"),
 });
 
 const organizationSchema = z.object({
-  legalName: z.string().min(1).max(500).transform(s => s.trim()).describe("Legal/registered name of the organization"),
+  legalName: z.string().transform(s => s.trim()).pipe(z.string().min(1).max(500)).describe("Legal/registered name of the organization"),
   taxId: z.string().max(50).optional().transform(s => s?.trim()).describe("Tax identification number"),
   registrationDate: z.string().max(30).optional().describe("Date of registration (ISO 8601)"),
 });
 
 const postalAddressSchema = z.object({
-  addressLine1: z.string().min(1).max(200).transform(s => s.trim()).describe("Street address line 1"),
+  addressLine1: z.string().transform(s => s.trim()).pipe(z.string().min(1).max(200)).describe("Street address line 1"),
   addressLine2: z.string().max(200).optional().transform(s => s?.trim()).describe("Street address line 2"),
-  city: z.string().min(1).max(100).transform(s => s.trim()).describe("City"),
+  city: z.string().transform(s => s.trim()).pipe(z.string().min(1).max(100)).describe("City"),
   stateProvince: z.string().max(100).optional().transform(s => s?.trim()).describe("State or province"),
   postalCode: z.string().max(20).optional().transform(s => s?.trim()).describe("Postal/ZIP code"),
-  country: z.string().min(1).max(3).transform(s => s.trim().toUpperCase()).describe("Country code (e.g., US, DE, JP)"),
+  country: z.string().transform(s => s.trim().toUpperCase()).pipe(z.string().min(1).max(3)).describe("Country code (e.g., US, DE, JP)"),
 });
 
 const telecomNumberSchema = z.object({
   countryCode: z.string().max(5).optional().default("+1").transform(s => s?.trim() ?? "+1").describe("Country code (default: +1)"),
-  areaCode: z.string().min(1).max(10).transform(s => s.trim()).describe("Area code"),
-  lineNumber: z.string().min(1).max(20).transform(s => s.trim()).describe("Phone line number"),
+  areaCode: z.string().transform(s => s.trim()).pipe(z.string().min(1).max(10)).describe("Area code"),
+  lineNumber: z.string().transform(s => s.trim()).pipe(z.string().min(1).max(20)).describe("Phone line number"),
   extension: z.string().max(10).optional().transform(s => s?.trim()).describe("Extension"),
 });
 
 const emailAddressSchema = z.object({
-  email: z.string().email().max(254).transform(s => s.trim().toLowerCase()).describe("Email address"),
+  email: z.string().transform(s => s.trim().toLowerCase()).pipe(z.string().email().max(254)).describe("Email address"),
 });
 
 // ─── Tool: create_party ───────────────────────────────────────────
@@ -150,7 +151,7 @@ const getParty: ToolDefinition = {
 Returns full party details. Use this to inspect a specific party's information.`,
 
   inputSchema: z.object({
-    partyId: z.string().min(1).max(200).regex(/^[0-9a-fA-F]{8}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{12}$/, "Must be a valid UUID").describe("The unique UUID of the party"),
+    partyId: z.string().min(1).max(200).regex(UUID_REGEX, "Must be a valid UUID").describe("The unique UUID of the party"),
   }),
 
   riskLevel: "none",
@@ -203,8 +204,8 @@ Use this to find customers, suppliers, or any party by name, type, or role.`,
 
 const addPartyRoleSchema = z.object({
   idempotencyKey: z.string().min(1).max(500).describe("Idempotency key to prevent duplicate role assignment. Format: role-{partyId}-{roleType}-{date}"),
-  partyId: z.string().min(1).max(200).regex(/^[0-9a-fA-F]{8}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{12}$/, "Must be a valid UUID").describe("The UUID of the party to assign the role to"),
-  roleType: z.string().min(1).max(100).transform(s => s.trim()).describe("Role type name (e.g., 'Customer', 'Supplier', 'Employee')"),
+  partyId: z.string().min(1).max(200).regex(UUID_REGEX, "Must be a valid UUID").describe("The UUID of the party to assign the role to"),
+  roleType: z.string().transform(s => s.trim()).pipe(z.string().min(1).max(100)).describe("Role type name (e.g., 'Customer', 'Supplier', 'Employee')"),
   fromDate: z.string().optional().describe("Start date for the role (ISO 8601, default: now)"),
 });
 
@@ -249,7 +250,7 @@ Example: Make a party a customer
 
 const addContactMechanismSchema = z.object({
   idempotencyKey: z.string().min(1).max(500).describe("Idempotency key to prevent duplicate contact creation. Format: contact-{partyId}-{type}-{date}"),
-  partyId: z.string().min(1).max(200).regex(/^[0-9a-fA-F]{8}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{12}$/, "Must be a valid UUID").describe("The UUID of the party to add the contact to"),
+  partyId: z.string().min(1).max(200).regex(UUID_REGEX, "Must be a valid UUID").describe("The UUID of the party to add the contact to"),
   contactMechanismType: z.enum(["POSTAL_ADDRESS", "TELECOM_NUMBER", "EMAIL_ADDRESS"])
     .describe("Type of contact mechanism"),
   postalAddress: postalAddressSchema.optional()

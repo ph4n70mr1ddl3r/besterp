@@ -21,6 +21,7 @@ import {
   BadRequestException,
 } from "@nestjs/common";
 import { Request } from "express";
+import { UUID_REGEX } from "@besterp/shared";
 import { TenantContext } from "../../../common/tenant-context.js";
 import { PartyService } from "./party.service.js";
 import {
@@ -51,7 +52,7 @@ export class PartyController {
     // Loosely match UUID format (8-4-4-4-12 hex chars with optional dashes).
     // Prisma will reject invalid UUIDs, but this gives a clear 400 error
     // instead of an opaque Prisma P2023 error.
-    if (!/^[0-9a-fA-F]{8}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{12}$/.test(value)) {
+    if (!UUID_REGEX.test(value)) {
       throw new BadRequestException(
         `Invalid '${paramName}': must be a valid UUID.`
       );

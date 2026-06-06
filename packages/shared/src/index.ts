@@ -15,3 +15,5 @@ export {
 } from "./errors.js";
 
 export { hashInput } from "./crypto.js";
+
+export { UUID_REGEX } from "./validation.js";

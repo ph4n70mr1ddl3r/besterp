@@ -24,6 +24,7 @@ import {
   InvalidTypeValueError,
   DuplicateEntityError,
   EntityNotFoundError,
+  UUID_REGEX,
 } from "@besterp/shared";
 import {
   CreatePartyInput,
@@ -651,7 +652,7 @@ export class PartyService {
   /** Validate that a value looks like a UUID. Gives a clear error instead of
    *  an opaque Prisma P2023 error for malformed IDs from MCP tool callers. */
   private requireUuid(value: string, field: string): void {
-    if (!/^[0-9a-fA-F]{8}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{12}$/.test(value)) {
+    if (!UUID_REGEX.test(value)) {
       throw new InvalidTypeValueError(
         `Invalid '${field}': must be a valid UUID.`,
         { suggestedTools: ["search_parties", "get_party"], context: { field, received: value } }
