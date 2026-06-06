@@ -155,7 +155,7 @@ export class PrismaService
     // Only run eviction when the cache is full.
     if (this.tenantClientCache.size >= PrismaService.MAX_CACHE_SIZE) {
       // Map iteration order is insertion order in modern JS, so the first live
-      // entry encountered is the oldest — effectively a FIFO eviction.
+      // entry encountered is the oldest — this is FIFO eviction, not LRU.
       const staleKeys: string[] = [];
       let oldestKey: string | null = null;
       for (const [key, ref] of this.tenantClientCache) {

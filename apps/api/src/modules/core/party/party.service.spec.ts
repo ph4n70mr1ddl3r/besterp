@@ -14,7 +14,7 @@ import {
 /** Create a mock Prisma return object with all fields toPartyResult needs. */
 function mockParty(overrides: Record<string, any> = {}) {
   return {
-    partyId: "party-123",
+    partyId: "12345678-1234-1234-1234-123456789abc",
     partyTypeId: "pt-person",
     tenantId: "tenant-1",
     name: "Test Party",
@@ -75,7 +75,7 @@ describe("PartyService", () => {
 
       const result = await partyService.createParty(input);
 
-      expect(result.partyId).toBe("party-123");
+      expect(result.partyId).toBe("12345678-1234-1234-1234-123456789abc");
       expect(result.name).toBe("John Doe");
       expect(result.person?.firstName).toBe("John");
       expect(result.person?.lastName).toBe("Doe");
@@ -115,7 +115,7 @@ describe("PartyService", () => {
 
       const result = await partyService.createParty(input);
 
-      expect(result.partyId).toBe("party-123");
+      expect(result.partyId).toBe("12345678-1234-1234-1234-123456789abc");
       expect(result.name).toBe("Acme Corp");
       expect(result.organization?.legalName).toBe("Acme Corporation");
     });
@@ -309,9 +309,9 @@ describe("PartyService", () => {
 
       mockPrismaService.tenantScoped.mockReturnValue(mockDb);
 
-      const result = await partyService.getParty("tenant-1", "party-123");
+      const result = await partyService.getParty("tenant-1", "12345678-1234-1234-1234-123456789abc");
 
-      expect(result.partyId).toBe("party-123");
+      expect(result.partyId).toBe("12345678-1234-1234-1234-123456789abc");
       expect(result.name).toBe("John Doe");
     });
 
@@ -468,7 +468,7 @@ describe("PartyService", () => {
     it("should add role to party successfully", async () => {
       const input = {
         tenantId: "tenant-1",
-        partyId: "party-123",
+        partyId: "12345678-1234-1234-1234-123456789abc",
         roleType: "Customer",
       };
 
@@ -478,12 +478,12 @@ describe("PartyService", () => {
         },
         $transaction: vi.fn().mockImplementation(async (fn) => {
           const tx = {
-            party: { findFirst: vi.fn().mockResolvedValue({ partyId: "party-123" }) },
+            party: { findFirst: vi.fn().mockResolvedValue({ partyId: "12345678-1234-1234-1234-123456789abc" }) },
             partyRole: {
               findFirst: vi.fn().mockResolvedValue(null),
               create: vi.fn().mockResolvedValue({
                 partyRoleId: "role-123",
-                partyId: "party-123",
+                partyId: "12345678-1234-1234-1234-123456789abc",
                 roleTypeId: "rt-customer",
                 fromDate: new Date(),
                 thruDate: null,
@@ -506,7 +506,7 @@ describe("PartyService", () => {
     it("should throw error for duplicate role", async () => {
       const input = {
         tenantId: "tenant-1",
-        partyId: "party-123",
+        partyId: "12345678-1234-1234-1234-123456789abc",
         roleType: "Customer",
       };
 
@@ -516,11 +516,11 @@ describe("PartyService", () => {
         },
         $transaction: vi.fn().mockImplementation(async (fn) => {
           const tx = {
-            party: { findFirst: vi.fn().mockResolvedValue({ partyId: "party-123" }) },
+            party: { findFirst: vi.fn().mockResolvedValue({ partyId: "12345678-1234-1234-1234-123456789abc" }) },
             partyRole: {
               findFirst: vi.fn().mockResolvedValue({
                 partyRoleId: "existing-role",
-                partyId: "party-123",
+                partyId: "12345678-1234-1234-1234-123456789abc",
                 roleTypeId: "rt-customer",
                 fromDate: new Date(),
                 thruDate: null,
@@ -539,7 +539,7 @@ describe("PartyService", () => {
     it("should throw error for roleType exceeding max length", async () => {
       const input = {
         tenantId: "tenant-1",
-        partyId: "party-123",
+        partyId: "12345678-1234-1234-1234-123456789abc",
         roleType: "x".repeat(101),
       };
 
@@ -549,13 +549,13 @@ describe("PartyService", () => {
     it("should throw error for invalid role type", async () => {
       const input = {
         tenantId: "tenant-1",
-        partyId: "party-123",
+        partyId: "12345678-1234-1234-1234-123456789abc",
         roleType: "InvalidRole",
       };
 
       const mockDb = {
         party: {
-          findFirst: vi.fn().mockResolvedValue({ partyId: "party-123" }),
+          findFirst: vi.fn().mockResolvedValue({ partyId: "12345678-1234-1234-1234-123456789abc" }),
         },
         roleType: {
           findUnique: vi.fn().mockResolvedValue(null),
@@ -570,7 +570,7 @@ describe("PartyService", () => {
     it("should throw EntityNotFoundError when party does not exist", async () => {
       const input = {
         tenantId: "tenant-1",
-        partyId: "nonexistent",
+        partyId: "00000000-0000-0000-0000-000000000000",
         roleType: "Customer",
       };
 
@@ -594,7 +594,7 @@ describe("PartyService", () => {
     it("should throw error for invalid fromDate format before DB lookup", async () => {
       const input = {
         tenantId: "tenant-1",
-        partyId: "party-123",
+        partyId: "12345678-1234-1234-1234-123456789abc",
         roleType: "Customer",
         fromDate: "not-a-date",
       };
@@ -604,10 +604,21 @@ describe("PartyService", () => {
       await expect(partyService.addPartyRole(input)).rejects.toThrow("Invalid fromDate format");
     });
 
-    it("should throw error for empty roleType", async () => {
+    it("should throw InvalidTypeValueError for invalid partyId format", async () => {
       const input = {
         tenantId: "tenant-1",
-        partyId: "party-123",
+        partyId: "not-a-uuid",
+        roleType: "Customer",
+      };
+
+      await expect(partyService.addPartyRole(input)).rejects.toThrow(InvalidTypeValueError);
+      await expect(partyService.addPartyRole(input)).rejects.toThrow("partyId");
+    });
+
+    it("should throw InvalidTypeValueError for empty roleType", async () => {
+      const input = {
+        tenantId: "tenant-1",
+        partyId: "12345678-1234-1234-1234-123456789abc",
         roleType: "",
       };
 
@@ -617,7 +628,7 @@ describe("PartyService", () => {
     it("should throw error for whitespace-only roleType", async () => {
       const input = {
         tenantId: "tenant-1",
-        partyId: "party-123",
+        partyId: "12345678-1234-1234-1234-123456789abc",
         roleType: "   ",
       };
 
@@ -627,7 +638,7 @@ describe("PartyService", () => {
     it("should trim roleType before lookup", async () => {
       const input = {
         tenantId: "tenant-1",
-        partyId: "party-123",
+        partyId: "12345678-1234-1234-1234-123456789abc",
         roleType: "  Customer  ",
       };
 
@@ -637,12 +648,12 @@ describe("PartyService", () => {
         },
         $transaction: vi.fn().mockImplementation(async (fn) => {
           const tx = {
-            party: { findFirst: vi.fn().mockResolvedValue({ partyId: "party-123" }) },
+            party: { findFirst: vi.fn().mockResolvedValue({ partyId: "12345678-1234-1234-1234-123456789abc" }) },
             partyRole: {
               findFirst: vi.fn().mockResolvedValue(null),
               create: vi.fn().mockResolvedValue({
                 partyRoleId: "role-123",
-                partyId: "party-123",
+                partyId: "12345678-1234-1234-1234-123456789abc",
                 roleTypeId: "rt-customer",
                 fromDate: new Date(),
                 thruDate: null,
@@ -670,7 +681,7 @@ describe("PartyService", () => {
     it("should add postal address successfully", async () => {
       const input: AddContactMechanismInput = {
         tenantId: "tenant-1",
-        partyId: "party-123",
+        partyId: "12345678-1234-1234-1234-123456789abc",
         contactMechanismType: "POSTAL_ADDRESS",
         postalAddress: {
           addressLine1: "123 Main St",
@@ -686,7 +697,7 @@ describe("PartyService", () => {
         $transaction: vi.fn().mockImplementation(async (fn) => {
           const tx = {
             party: {
-              findFirst: vi.fn().mockResolvedValue({ partyId: "party-123" }),
+              findFirst: vi.fn().mockResolvedValue({ partyId: "12345678-1234-1234-1234-123456789abc" }),
             },
             contactMechanism: {
               create: vi.fn().mockResolvedValue({
@@ -722,7 +733,7 @@ describe("PartyService", () => {
     it("should validate required postal address fields", async () => {
       const input = {
         tenantId: "tenant-1",
-        partyId: "party-123",
+        partyId: "12345678-1234-1234-1234-123456789abc",
         contactMechanismType: "POSTAL_ADDRESS" as const,
         postalAddress: {
           city: "Anytown",
@@ -736,7 +747,7 @@ describe("PartyService", () => {
     it("should validate email format", async () => {
       const input: AddContactMechanismInput = {
         tenantId: "tenant-1",
-        partyId: "party-123",
+        partyId: "12345678-1234-1234-1234-123456789abc",
         contactMechanismType: "EMAIL_ADDRESS",
         emailAddress: {
           email: "invalid-email",
@@ -757,7 +768,7 @@ describe("PartyService", () => {
     it("should throw EntityNotFoundError when party does not exist (inside transaction)", async () => {
       const input: AddContactMechanismInput = {
         tenantId: "tenant-1",
-        partyId: "nonexistent",
+        partyId: "00000000-0000-0000-0000-000000000000",
         contactMechanismType: "POSTAL_ADDRESS",
         postalAddress: {
           addressLine1: "123 Main St",
@@ -788,7 +799,7 @@ describe("PartyService", () => {
     it("should throw MissingSubtypeDataError when city is missing for postal address", async () => {
       const input = {
         tenantId: "tenant-1",
-        partyId: "party-123",
+        partyId: "12345678-1234-1234-1234-123456789abc",
         contactMechanismType: "POSTAL_ADDRESS" as const,
         postalAddress: {
           addressLine1: "123 Main St",
@@ -810,7 +821,7 @@ describe("PartyService", () => {
     it("should throw MissingSubtypeDataError when country is missing for postal address", async () => {
       const input = {
         tenantId: "tenant-1",
-        partyId: "party-123",
+        partyId: "12345678-1234-1234-1234-123456789abc",
         contactMechanismType: "POSTAL_ADDRESS" as const,
         postalAddress: {
           addressLine1: "123 Main St",
@@ -832,7 +843,7 @@ describe("PartyService", () => {
     it("should add telecom number successfully", async () => {
       const input: AddContactMechanismInput = {
         tenantId: "tenant-1",
-        partyId: "party-123",
+        partyId: "12345678-1234-1234-1234-123456789abc",
         contactMechanismType: "TELECOM_NUMBER",
         telecomNumber: {
           areaCode: "415",
@@ -847,7 +858,7 @@ describe("PartyService", () => {
         $transaction: vi.fn().mockImplementation(async (fn) => {
           const tx = {
             party: {
-              findFirst: vi.fn().mockResolvedValue({ partyId: "party-123" }),
+              findFirst: vi.fn().mockResolvedValue({ partyId: "12345678-1234-1234-1234-123456789abc" }),
             },
             contactMechanism: {
               create: vi.fn().mockResolvedValue({
@@ -882,7 +893,7 @@ describe("PartyService", () => {
     it("should add email address successfully", async () => {
       const input: AddContactMechanismInput = {
         tenantId: "tenant-1",
-        partyId: "party-123",
+        partyId: "12345678-1234-1234-1234-123456789abc",
         contactMechanismType: "EMAIL_ADDRESS",
         emailAddress: {
           email: "Test@Example.COM",
@@ -896,7 +907,7 @@ describe("PartyService", () => {
         $transaction: vi.fn().mockImplementation(async (fn) => {
           const tx = {
             party: {
-              findFirst: vi.fn().mockResolvedValue({ partyId: "party-123" }),
+              findFirst: vi.fn().mockResolvedValue({ partyId: "12345678-1234-1234-1234-123456789abc" }),
             },
             contactMechanism: {
               create: vi.fn().mockResolvedValue({
@@ -927,7 +938,7 @@ describe("PartyService", () => {
     it("should throw MissingSubtypeDataError when areaCode is missing for telecom", async () => {
       const input = {
         tenantId: "tenant-1",
-        partyId: "party-123",
+        partyId: "12345678-1234-1234-1234-123456789abc",
         contactMechanismType: "TELECOM_NUMBER" as const,
         telecomNumber: {
           lineNumber: "5551234",
@@ -945,10 +956,26 @@ describe("PartyService", () => {
       await expect(partyService.addContactMechanism(input)).rejects.toThrow(MissingSubtypeDataError);
     });
 
+    it("should throw InvalidTypeValueError for invalid partyId format", async () => {
+      const input: AddContactMechanismInput = {
+        tenantId: "tenant-1",
+        partyId: "not-a-uuid",
+        contactMechanismType: "POSTAL_ADDRESS",
+        postalAddress: {
+          addressLine1: "123 Main St",
+          city: "Anytown",
+          country: "US",
+        },
+      };
+
+      await expect(partyService.addContactMechanism(input)).rejects.toThrow(InvalidTypeValueError);
+      await expect(partyService.addContactMechanism(input)).rejects.toThrow("partyId");
+    });
+
     it("should throw MissingSubtypeDataError for empty contactMechanismType", async () => {
       const input = {
         tenantId: "tenant-1",
-        partyId: "party-123",
+        partyId: "12345678-1234-1234-1234-123456789abc",
         contactMechanismType: "",
       } as any;
 
@@ -958,7 +985,7 @@ describe("PartyService", () => {
     it("should throw InvalidTypeValueError for unknown contactMechanismType", async () => {
       const input: AddContactMechanismInput = {
         tenantId: "tenant-1",
-        partyId: "party-123",
+        partyId: "12345678-1234-1234-1234-123456789abc",
         contactMechanismType: "CARRIER_PIGEON" as any,
       };
 
@@ -969,7 +996,7 @@ describe("PartyService", () => {
     it("should throw error for country exceeding max length", async () => {
       const input: AddContactMechanismInput = {
         tenantId: "tenant-1",
-        partyId: "party-123",
+        partyId: "12345678-1234-1234-1234-123456789abc",
         contactMechanismType: "POSTAL_ADDRESS",
         postalAddress: {
           addressLine1: "123 Main St",
@@ -984,7 +1011,7 @@ describe("PartyService", () => {
     it("should throw error for email exceeding max length", async () => {
       const input: AddContactMechanismInput = {
         tenantId: "tenant-1",
-        partyId: "party-123",
+        partyId: "12345678-1234-1234-1234-123456789abc",
         contactMechanismType: "EMAIL_ADDRESS",
         emailAddress: {
           email: `a@${"x".repeat(250)}.com`,
@@ -997,7 +1024,7 @@ describe("PartyService", () => {
     it("should throw error for addressLine2 exceeding max length", async () => {
       const input: AddContactMechanismInput = {
         tenantId: "tenant-1",
-        partyId: "party-123",
+        partyId: "12345678-1234-1234-1234-123456789abc",
         contactMechanismType: "POSTAL_ADDRESS",
         postalAddress: {
           addressLine1: "123 Main St",
@@ -1013,7 +1040,7 @@ describe("PartyService", () => {
     it("should throw error for stateProvince exceeding max length", async () => {
       const input: AddContactMechanismInput = {
         tenantId: "tenant-1",
-        partyId: "party-123",
+        partyId: "12345678-1234-1234-1234-123456789abc",
         contactMechanismType: "POSTAL_ADDRESS",
         postalAddress: {
           addressLine1: "123 Main St",
@@ -1029,7 +1056,7 @@ describe("PartyService", () => {
     it("should throw error for postalCode exceeding max length", async () => {
       const input: AddContactMechanismInput = {
         tenantId: "tenant-1",
-        partyId: "party-123",
+        partyId: "12345678-1234-1234-1234-123456789abc",
         contactMechanismType: "POSTAL_ADDRESS",
         postalAddress: {
           addressLine1: "123 Main St",
@@ -1045,7 +1072,7 @@ describe("PartyService", () => {
     it("should throw error for countryCode exceeding max length for telecom", async () => {
       const input: AddContactMechanismInput = {
         tenantId: "tenant-1",
-        partyId: "party-123",
+        partyId: "12345678-1234-1234-1234-123456789abc",
         contactMechanismType: "TELECOM_NUMBER",
         telecomNumber: {
           countryCode: "x".repeat(6),
@@ -1060,7 +1087,7 @@ describe("PartyService", () => {
     it("should throw error for extension exceeding max length for telecom", async () => {
       const input: AddContactMechanismInput = {
         tenantId: "tenant-1",
-        partyId: "party-123",
+        partyId: "12345678-1234-1234-1234-123456789abc",
         contactMechanismType: "TELECOM_NUMBER",
         telecomNumber: {
           areaCode: "415",

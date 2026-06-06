@@ -295,6 +295,10 @@ export class PartyService {
   async addPartyRole(input: AddPartyRoleInput): Promise<PartyRoleResult> {
     const { tenantId, partyId, roleType, fromDate } = input;
 
+    // Validate partyId format — MCP tools don't go through the REST controller's
+    // requireUuid(), so we need defense-in-depth at the service layer.
+    this.requireUuid(partyId, "partyId");
+
     const db = this.prisma.tenantScoped(tenantId);
 
     // NOTE: Type table lookup outside transaction — safe because role types
@@ -416,6 +420,10 @@ export class PartyService {
       telecomNumber,
       emailAddress,
     } = input;
+
+    // Validate partyId format — MCP tools don't go through the REST controller's
+    // requireUuid(), so we need defense-in-depth at the service layer.
+    this.requireUuid(partyId, "partyId");
 
     const db = this.prisma.tenantScoped(tenantId);
 
@@ -636,6 +644,17 @@ export class PartyService {
       throw new MissingSubtypeDataError(
         `${field} is required for ${parentType}`,
         { suggestedTools: [tool], context: { parentType, field } }
+      );
+    }
+  }
+
+  /** Validate that a value looks like a UUID. Gives a clear error instead of
+   *  an opaque Prisma P2023 error for malformed IDs from MCP tool callers. */
+  private requireUuid(value: string, field: string): void {
+    if (!/^[0-9a-fA-F]{8}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{12}$/.test(value)) {
+      throw new InvalidTypeValueError(
+        `Invalid '${field}': must be a valid UUID.`,
+        { suggestedTools: ["search_parties", "get_party"], context: { field, received: value } }
       );
     }
   }

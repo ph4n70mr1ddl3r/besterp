@@ -150,7 +150,7 @@ const getParty: ToolDefinition = {
 Returns full party details. Use this to inspect a specific party's information.`,
 
   inputSchema: z.object({
-    partyId: z.string().min(1).max(200).describe("The unique UUID of the party"),
+    partyId: z.string().min(1).max(200).regex(/^[0-9a-fA-F]{8}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{12}$/, "Must be a valid UUID").describe("The unique UUID of the party"),
   }),
 
   riskLevel: "none",
@@ -203,7 +203,7 @@ Use this to find customers, suppliers, or any party by name, type, or role.`,
 
 const addPartyRoleSchema = z.object({
   idempotencyKey: z.string().min(1).max(500).describe("Idempotency key to prevent duplicate role assignment. Format: role-{partyId}-{roleType}-{date}"),
-  partyId: z.string().min(1).describe("The UUID of the party to assign the role to"),
+  partyId: z.string().min(1).max(200).regex(/^[0-9a-fA-F]{8}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{12}$/, "Must be a valid UUID").describe("The UUID of the party to assign the role to"),
   roleType: z.string().min(1).max(100).transform(s => s.trim()).describe("Role type name (e.g., 'Customer', 'Supplier', 'Employee')"),
   fromDate: z.string().optional().describe("Start date for the role (ISO 8601, default: now)"),
 });
@@ -249,7 +249,7 @@ Example: Make a party a customer
 
 const addContactMechanismSchema = z.object({
   idempotencyKey: z.string().min(1).max(500).describe("Idempotency key to prevent duplicate contact creation. Format: contact-{partyId}-{type}-{date}"),
-  partyId: z.string().min(1).describe("The UUID of the party to add the contact to"),
+  partyId: z.string().min(1).max(200).regex(/^[0-9a-fA-F]{8}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{12}$/, "Must be a valid UUID").describe("The UUID of the party to add the contact to"),
   contactMechanismType: z.enum(["POSTAL_ADDRESS", "TELECOM_NUMBER", "EMAIL_ADDRESS"])
     .describe("Type of contact mechanism"),
   postalAddress: postalAddressSchema.optional()
