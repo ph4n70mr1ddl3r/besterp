@@ -93,6 +93,7 @@ export class McpModule implements OnModuleInit {
     // Validate and normalise optional string fields — trim whitespace and
     // enforce length limits. We store the TRIMMED values so that downstream
     // code (audit logs, idempotency records) never sees padded strings.
+    // Empty strings are normalised to undefined to keep data consistent.
     let idempotencyKey = overrides.idempotencyKey;
     if (idempotencyKey) {
       idempotencyKey = idempotencyKey.trim();
@@ -104,6 +105,8 @@ export class McpModule implements OnModuleInit {
           `McpModule.buildContext: idempotencyKey is too long (${idempotencyKey.length} chars, max 500).`
         );
       }
+    } else if (idempotencyKey === "") {
+      idempotencyKey = undefined;
     }
 
     let agentId = overrides.agentId;
@@ -117,6 +120,8 @@ export class McpModule implements OnModuleInit {
           `McpModule.buildContext: agentId is too long (${agentId.length} chars, max 200).`
         );
       }
+    } else if (agentId === "") {
+      agentId = undefined;
     }
 
     let conversationId = overrides.conversationId;
@@ -130,6 +135,8 @@ export class McpModule implements OnModuleInit {
           `McpModule.buildContext: conversationId is too long (${conversationId.length} chars, max 200).`
         );
       }
+    } else if (conversationId === "") {
+      conversationId = undefined;
     }
 
     return {

@@ -167,9 +167,9 @@ Returns full party details. Use this to inspect a specific party's information.`
 // ─── Tool: search_parties ─────────────────────────────────────────
 
 const searchPartiesSchema = z.object({
-  name: z.string().max(500).optional().transform(s => s?.trim()).pipe(z.string().max(500).optional()).describe("Filter by name (case-insensitive partial match)"),
+  name: z.string().max(500).optional().transform(s => s?.trim() || undefined).pipe(z.string().max(500).optional()).describe("Filter by name (case-insensitive partial match)"),
   partyType: z.enum(["PERSON", "ORGANIZATION"]).optional().describe("Filter by party type"),
-  roleType: z.string().max(100).optional().transform(s => s?.trim()).describe("Filter by role type name (e.g., 'Customer', 'Supplier')"),
+  roleType: z.string().max(100).optional().transform(s => s?.trim() || undefined).describe("Filter by role type name (e.g., 'Customer', 'Supplier')"),
   limit: z.number().int().min(1).max(500).optional().default(50).describe("Maximum results to return (max 500)"),
   offset: z.number().int().min(0).optional().default(0).describe("Number of results to skip (min 0)"),
 });

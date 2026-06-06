@@ -155,6 +155,33 @@ describe("McpModule", () => {
       ).toThrow("conversationId cannot be whitespace-only");
     });
 
+    it("should normalise empty-string agentId to undefined", () => {
+      const ctx = mcpModule.buildContext({
+        tenantId: "tenant-1",
+        userId: "user-1",
+        agentId: "",
+      });
+      expect(ctx.agentId).toBeUndefined();
+    });
+
+    it("should normalise empty-string conversationId to undefined", () => {
+      const ctx = mcpModule.buildContext({
+        tenantId: "tenant-1",
+        userId: "user-1",
+        conversationId: "",
+      });
+      expect(ctx.conversationId).toBeUndefined();
+    });
+
+    it("should normalise empty-string idempotencyKey to undefined", () => {
+      const ctx = mcpModule.buildContext({
+        tenantId: "tenant-1",
+        userId: "user-1",
+        idempotencyKey: "",
+      });
+      expect(ctx.idempotencyKey).toBeUndefined();
+    });
+
     it("should accept optional fields as undefined", () => {
       const ctx = mcpModule.buildContext({
         tenantId: "tenant-1",

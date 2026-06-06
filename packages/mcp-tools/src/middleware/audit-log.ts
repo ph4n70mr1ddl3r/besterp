@@ -28,7 +28,9 @@ export function auditLogMiddleware(prisma: PrismaClient): ToolMiddleware {
     try {
       result = await next(input, context);
     } catch (error: unknown) {
-      await logAction(prisma, {
+      // Fire-and-forget on the error path too — consistent with the success path.
+      // Awaiting would delay the error re-throw and add latency for the caller.
+      logAction(prisma, {
         agentId: context.agentId,
         conversationId: context.conversationId,
         userId: context.userId,
