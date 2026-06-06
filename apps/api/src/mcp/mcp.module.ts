@@ -94,50 +94,9 @@ export class McpModule implements OnModuleInit {
     // enforce length limits. We store the TRIMMED values so that downstream
     // code (audit logs, idempotency records) never sees padded strings.
     // Empty strings are normalised to undefined to keep data consistent.
-    let idempotencyKey = overrides.idempotencyKey;
-    if (idempotencyKey) {
-      idempotencyKey = idempotencyKey.trim();
-      if (idempotencyKey.length === 0) {
-        throw new Error("McpModule.buildContext: idempotencyKey cannot be whitespace-only.");
-      }
-      if (idempotencyKey.length > 500) {
-        throw new Error(
-          `McpModule.buildContext: idempotencyKey is too long (${idempotencyKey.length} chars, max 500).`
-        );
-      }
-    } else if (idempotencyKey === "") {
-      idempotencyKey = undefined;
-    }
-
-    let agentId = overrides.agentId;
-    if (agentId) {
-      agentId = agentId.trim();
-      if (agentId.length === 0) {
-        throw new Error("McpModule.buildContext: agentId cannot be whitespace-only.");
-      }
-      if (agentId.length > 200) {
-        throw new Error(
-          `McpModule.buildContext: agentId is too long (${agentId.length} chars, max 200).`
-        );
-      }
-    } else if (agentId === "") {
-      agentId = undefined;
-    }
-
-    let conversationId = overrides.conversationId;
-    if (conversationId) {
-      conversationId = conversationId.trim();
-      if (conversationId.length === 0) {
-        throw new Error("McpModule.buildContext: conversationId cannot be whitespace-only.");
-      }
-      if (conversationId.length > 200) {
-        throw new Error(
-          `McpModule.buildContext: conversationId is too long (${conversationId.length} chars, max 200).`
-        );
-      }
-    } else if (conversationId === "") {
-      conversationId = undefined;
-    }
+    const idempotencyKey = validateOptionalField("idempotencyKey", overrides.idempotencyKey, 500);
+    const agentId = validateOptionalField("agentId", overrides.agentId, 200);
+    const conversationId = validateOptionalField("conversationId", overrides.conversationId, 200);
 
     return {
       tenantId: overrides.tenantId,
@@ -176,4 +135,37 @@ export class McpModule implements OnModuleInit {
       exports: ["TOOL_REGISTRY", McpModule],
     };
   }
+}
+
+/**
+ * Validate and normalise an optional string field.
+ * - Trims whitespace
+ * - Rejects whitespace-only values
+ * - Enforces max length
+ * - Normalises empty strings to undefined
+ *
+ * Used by McpModule.buildContext for agentId, conversationId, idempotencyKey.
+ */
+function validateOptionalField(
+  fieldName: string,
+  value: string | undefined,
+  maxLength: number,
+): string | undefined {
+  if (value) {
+    const trimmed = value.trim();
+    if (trimmed.length === 0) {
+      throw new Error(`McpModule.buildContext: ${fieldName} cannot be whitespace-only.`);
+    }
+    if (trimmed.length > maxLength) {
+      throw new Error(
+        `McpModule.buildContext: ${fieldName} is too long (${trimmed.length} chars, max ${maxLength}).`
+      );
+    }
+    return trimmed;
+  }
+  // Normalise empty strings to undefined — keeps downstream data consistent.
+  if (value === "") {
+    return undefined;
+  }
+  return value;
 }

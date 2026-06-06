@@ -211,6 +211,10 @@ export class PartyService {
   // ─── Get Party ────────────────────────────────────────────────
 
   async getParty(tenantId: string, partyId: string): Promise<PartyResult> {
+    // Validate partyId format — MCP tools don't go through the REST controller's
+    // requireUuid(), so we need defense-in-depth at the service layer.
+    this.requireUuid(partyId, "partyId");
+
     const db = this.prisma.tenantScoped(tenantId);
 
     const party = await db.party.findFirst({

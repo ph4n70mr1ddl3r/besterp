@@ -10,7 +10,7 @@
 
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from "@nestjs/common";
 import { PrismaClient } from "@prisma/client";
-import { createTenantClient } from "@besterp/database";
+import { createTenantClient, validateTenantIdEnhanced } from "@besterp/database";
 
 @Injectable()
 export class PrismaService
@@ -148,6 +148,11 @@ export class PrismaService
         "This usually means the application is shutting down."
       );
     }
+
+    // Validate tenant ID format early — before Map cache lookup and before
+    // createTenantClient. Gives a clearer error from the service layer and
+    // prevents invalid strings from polluting the cache as Map keys.
+    validateTenantIdEnhanced(tenantId);
 
     const cached = this.tenantClientCache.get(tenantId)?.deref();
     if (cached) return cached;

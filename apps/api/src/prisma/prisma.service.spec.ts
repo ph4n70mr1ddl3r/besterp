@@ -21,6 +21,23 @@ vi.mock("@besterp/database", () => ({
     party: {},
     _tenantId: tenantId,
   })),
+  validateTenantIdEnhanced: vi.fn((tenantId: string) => {
+    // Mirror the real validation logic for testing
+    if (!tenantId || !/^[a-zA-Z0-9_-]+$/.test(tenantId)) {
+      const { InvalidTypeValueError } = require("@besterp/shared");
+      throw new InvalidTypeValueError(
+        `Invalid tenant ID: "${tenantId}".`,
+        { context: { field: "tenantId", received: tenantId } }
+      );
+    }
+    if (tenantId.length > 100) {
+      const { InvalidTypeValueError } = require("@besterp/shared");
+      throw new InvalidTypeValueError(
+        "Tenant ID is too long (max 100 characters)",
+        { context: { field: "tenantId", received: tenantId, maxLength: 100 } }
+      );
+    }
+  }),
 }));
 
 import { PrismaService } from "./prisma.service.js";
@@ -57,6 +74,12 @@ describe("PrismaService", () => {
       expect(() => service.tenantScoped("tenant-1")).toThrow(
         "PrismaService is destroyed"
       );
+    });
+
+    it("should reject invalid tenant ID format", () => {
+      const service = new PrismaService();
+      expect(() => service.tenantScoped("bad@tenant")).toThrow();
+      expect(() => service.tenantScoped("")).toThrow();
     });
   });
 

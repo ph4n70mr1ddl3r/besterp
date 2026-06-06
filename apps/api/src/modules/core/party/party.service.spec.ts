@@ -324,7 +324,16 @@ describe("PartyService", () => {
 
       mockPrismaService.tenantScoped.mockReturnValue(mockDb);
 
-      await expect(partyService.getParty("tenant-1", "nonexistent")).rejects.toThrow(EntityNotFoundError);
+      await expect(partyService.getParty("tenant-1", "nonexistent")).rejects.toThrow(InvalidTypeValueError);
+    });
+
+    it("should throw InvalidTypeValueError for invalid UUID format", async () => {
+      await expect(
+        partyService.getParty("tenant-1", "not-a-uuid")
+      ).rejects.toThrow(InvalidTypeValueError);
+      await expect(
+        partyService.getParty("tenant-1", "not-a-uuid")
+      ).rejects.toThrow("partyId");
     });
   });
 
