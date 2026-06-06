@@ -396,6 +396,18 @@ describe("Error Handler Middleware", () => {
     expect(result.error?.suggestedTools).toEqual(["test_tool"]);
   });
 
+  it("should provide fallback suggested tools for domain errors with no suggestedTools", async () => {
+    const domainError = new DomainError(
+      "TEST_ERROR",
+      "No tools suggested",
+    );
+
+    const result = await errorHandlerMiddleware({}, mockContext, mockDefinition, throwingNext(domainError));
+
+    expect(result.success).toBe(false);
+    expect(result.error?.suggestedTools).toEqual(["test_tool", "list_available_tools"]);
+  });
+
   it("should handle Prisma unique constraint violations", async () => {
     const prismaError: any = new Error("Unique constraint violation");
     prismaError.code = "P2002";
@@ -416,6 +428,18 @@ describe("Error Handler Middleware", () => {
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe("ENTITY_NOT_FOUND");
     expect(result.error?.suggestedTools).toEqual(["search_test", "get_test"]);
+  });
+
+  it("should handle Prisma optimistic concurrency / deadlock (P2034)", async () => {
+    const prismaError: any = new Error("Transaction failed due to a write conflict");
+    prismaError.code = "P2034";
+
+    const result = await errorHandlerMiddleware({}, mockContext, mockDefinition, throwingNext(prismaError));
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe("CONCURRENCY_CONFLICT");
+    expect(result.error?.message).toContain("test_tool");
+    expect(result.error?.suggestedTools).toContain("get_test");
   });
 
   it("should handle generic errors with fallback", async () => {

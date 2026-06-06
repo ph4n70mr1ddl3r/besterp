@@ -281,6 +281,19 @@ const addContactMechanismSchema = z.object({
     message: "The matching subtype data must be provided for the chosen contactMechanismType",
     path: ["contactMechanismType"],
   }
+).refine(
+  (data) => {
+    // Enforce exclusivity: only the matching subtype should be provided.
+    // Mirrors ContactSubtypeExclusiveConstraint in the REST DTO.
+    if (data.contactMechanismType === "POSTAL_ADDRESS" && (data.telecomNumber || data.emailAddress)) return false;
+    if (data.contactMechanismType === "TELECOM_NUMBER" && (data.postalAddress || data.emailAddress)) return false;
+    if (data.contactMechanismType === "EMAIL_ADDRESS" && (data.postalAddress || data.telecomNumber)) return false;
+    return true;
+  },
+  {
+    message: "Only the subtype matching contactMechanismType should be provided",
+    path: ["contactMechanismType"],
+  }
 );
 
 type AddContactMechanismInput_z = z.infer<typeof addContactMechanismSchema>;
