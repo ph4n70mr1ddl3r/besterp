@@ -181,6 +181,32 @@ describe("PartyService", () => {
       await expect(partyService.createParty(input)).rejects.toThrow(MissingSubtypeDataError);
     });
 
+    it("should throw error when PERSON partyType has organization data", async () => {
+      const input: CreatePartyInput = {
+        tenantId: "tenant-1",
+        partyType: "PERSON",
+        name: "John Doe",
+        person: { firstName: "John", lastName: "Doe" },
+        organization: { legalName: "Acme Corp" },
+      } as any;
+
+      await expect(partyService.createParty(input)).rejects.toThrow(InvalidTypeValueError);
+      await expect(partyService.createParty(input)).rejects.toThrow("organization");
+    });
+
+    it("should throw error when ORGANIZATION partyType has person data", async () => {
+      const input: CreatePartyInput = {
+        tenantId: "tenant-1",
+        partyType: "ORGANIZATION",
+        name: "Acme Corp",
+        person: { firstName: "John", lastName: "Doe" },
+        organization: { legalName: "Acme Corporation" },
+      } as any;
+
+      await expect(partyService.createParty(input)).rejects.toThrow(InvalidTypeValueError);
+      await expect(partyService.createParty(input)).rejects.toThrow("person");
+    });
+
     it("should throw error for invalid party type", async () => {
       const input: CreatePartyInput = {
         tenantId: "tenant-1",
@@ -315,7 +341,11 @@ describe("PartyService", () => {
       expect(result.name).toBe("John Doe");
     });
 
-    it("should throw error when party not found", async () => {
+    it("should throw InvalidTypeValueError for non-UUID partyId", async () => {
+      await expect(partyService.getParty("tenant-1", "nonexistent")).rejects.toThrow(InvalidTypeValueError);
+    });
+
+    it("should throw EntityNotFoundError when partyId is valid UUID but party doesn't exist", async () => {
       const mockDb = {
         party: {
           findFirst: vi.fn().mockResolvedValue(null),
@@ -324,7 +354,9 @@ describe("PartyService", () => {
 
       mockPrismaService.tenantScoped.mockReturnValue(mockDb);
 
-      await expect(partyService.getParty("tenant-1", "nonexistent")).rejects.toThrow(InvalidTypeValueError);
+      await expect(
+        partyService.getParty("tenant-1", "00000000-0000-0000-0000-000000000000")
+      ).rejects.toThrow(EntityNotFoundError);
     });
 
     it("should throw InvalidTypeValueError for invalid UUID format", async () => {

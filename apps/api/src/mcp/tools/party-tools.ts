@@ -92,6 +92,17 @@ const createPartySchema = z.object({
     message: "'person' is required when partyType is PERSON, 'organization' is required when partyType is ORGANIZATION",
     path: ["partyType"],
   }
+).refine(
+  (data) => {
+    // Enforce exclusivity: only the matching subtype should be provided.
+    if (data.partyType === "PERSON" && data.organization !== undefined) return false;
+    if (data.partyType === "ORGANIZATION" && data.person !== undefined) return false;
+    return true;
+  },
+  {
+    message: "Only the subtype matching partyType should be provided (e.g., don't send 'organization' when partyType is PERSON)",
+    path: ["partyType"],
+  }
 );
 
 type CreatePartyInput_z = z.infer<typeof createPartySchema>;

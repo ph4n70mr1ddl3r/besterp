@@ -61,10 +61,15 @@ export class DomainExceptionFilter implements ExceptionFilter {
         );
       }
 
+      const isProd = process.env.NODE_ENV === "production";
       response.status(status).json({
         statusCode: status,
         error: exception.code,
-        message: exception.message,
+        // In production, omit message for unexpected domain errors (status 500)
+        // to avoid leaking internals. Expected domain errors (4xx) are safe to include.
+        ...(status === 500 && isProd
+          ? { message: "An unexpected error occurred" }
+          : { message: exception.message }),
         // suggestedTools and context are intentionally omitted from REST responses.
         // They contain AI-oriented guidance (tool names, internal field names) that
         // is useful for MCP agents but could confuse or leak internals to API consumers.

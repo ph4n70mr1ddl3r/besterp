@@ -102,6 +102,21 @@ export class PartyService {
         { suggestedTools: ["create_party"], context: { partyType, missingField: "organization" } }
       );
     }
+    // Enforce subtype exclusivity — only the matching subtype data should be provided.
+    // The REST path enforces this via PartySubtypeExclusiveConstraint in the DTO,
+    // but MCP tools call the service directly without DTO validation.
+    if (partyType === "PERSON" && orgData) {
+      throw new InvalidTypeValueError(
+        "When partyType is PERSON, 'organization' data must not be provided. Only 'person' data is expected.",
+        { suggestedTools: ["create_party"], context: { partyType, unexpectedField: "organization" } }
+      );
+    }
+    if (partyType === "ORGANIZATION" && personData) {
+      throw new InvalidTypeValueError(
+        "When partyType is ORGANIZATION, 'person' data must not be provided. Only 'organization' data is expected.",
+        { suggestedTools: ["create_party"], context: { partyType, unexpectedField: "person" } }
+      );
+    }
     
     // Validate person data if provided
     if (personData) {
@@ -252,6 +267,11 @@ export class PartyService {
     if (name) {
       // Use contains for flexible partial matching (case-insensitive).
       // Trim whitespace to avoid useless LIKE '%  %' queries.
+      //
+      // TODO: For production, add a pg_trgm GIN index on party.name
+      // to avoid sequential scans on large tables:
+      //   CREATE EXTENSION IF NOT EXISTS pg_trgm;
+      //   CREATE INDEX CONCURRENTLY party_name_trgm_idx ON party USING gin (name gin_trgm_ops);
       const trimmedName = name.trim();
       if (trimmedName.length > 0) {
         where.name = { contains: trimmedName, mode: "insensitive" };
