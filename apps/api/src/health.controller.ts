@@ -28,26 +28,21 @@ export class HealthController {
   async ready() {
     // Verify database connectivity with a 5-second timeout to prevent
     // the endpoint from hanging when the database is unreachable.
-    const controller = new AbortController();
-    const { signal } = controller;
+    // NOTE: The timeout only aborts the HTTP response — the underlying DB
+    // query continues running until it completes or the connection pool
+    // is torn down. This is acceptable because:
+    // 1. The query is a trivial `SELECT 1` that should resolve in milliseconds.
+    // 2. If it doesn't, the DB is catastrophically slow and the connection
+    //    will eventually time out per the driver's socket timeout.
     let timeoutId: ReturnType<typeof setTimeout> | undefined;
 
     const healthPromise = this.healthService.getHealth();
     // Suppress eventual rejection if timeout wins the race — without this,
     // a slow-failing DB health check becomes an unhandled promise rejection.
-    healthPromise.catch((err) => {
-      if (!signal.aborted) {
-        this.logger.debug(
-          `Health promise rejected before timeout: ${err instanceof Error ? err.message : err}`
-        );
-      }
-    });
+    healthPromise.catch(() => {});
 
     const timeoutPromise = new Promise<"timeout">((resolve) => {
-      timeoutId = setTimeout(() => {
-        controller.abort();
-        resolve("timeout");
-      }, 5000);
+      timeoutId = setTimeout(() => resolve("timeout"), 5000);
       // Prevent the timer from keeping the process alive during shutdown.
       if (timeoutId.unref) timeoutId.unref();
     });
@@ -61,7 +56,7 @@ export class HealthController {
         throw new ServiceUnavailableException("not ready");
       }
       // Health check succeeded before timeout — clear the timer to avoid
-      // a useless abort() call and unnecessary event-loop work.
+      // unnecessary event-loop work.
       if (timeoutId) clearTimeout(timeoutId);
       return { status: "ready" };
     } catch (error) {

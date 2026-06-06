@@ -140,7 +140,7 @@ export class McpModule implements OnModuleInit {
     }
 
     return {
-      ...overrides,
+      tenantId: overrides.tenantId,
       userId,
       agentId,
       conversationId,

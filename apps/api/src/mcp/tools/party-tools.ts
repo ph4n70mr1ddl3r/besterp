@@ -22,11 +22,11 @@ import type {
 // the MCP module must satisfy when building ToolContext.
 interface PartyServices {
   partyService: {
-    createParty(input: CreatePartyInput): Promise<any>;
-    getParty(tenantId: string, partyId: string): Promise<any>;
-    searchParties(input: SearchPartiesInput): Promise<any>;
-    addPartyRole(input: AddPartyRoleInput): Promise<any>;
-    addContactMechanism(input: AddContactMechanismInput): Promise<any>;
+    createParty(input: CreatePartyInput): Promise<import("../../modules/core/party/party.types.js").PartyResult>;
+    getParty(tenantId: string, partyId: string): Promise<import("../../modules/core/party/party.types.js").PartyResult>;
+    searchParties(input: SearchPartiesInput): Promise<import("../../modules/core/party/party.types.js").SearchPartiesResult>;
+    addPartyRole(input: AddPartyRoleInput): Promise<import("../../modules/core/party/party.types.js").PartyRoleResult>;
+    addContactMechanism(input: AddContactMechanismInput): Promise<import("../../modules/core/party/party.types.js").ContactMechanismResult>;
   };
 }
 

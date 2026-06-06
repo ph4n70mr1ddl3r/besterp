@@ -43,11 +43,19 @@ export class PrismaService
     // Base client uses admin URL for migrations, seed, cross-tenant ops
     super({
       datasourceUrl: process.env.DATABASE_ADMIN_URL || process.env.DATABASE_URL,
+      log: [
+        { emit: "stdout", level: "warn" },
+        { emit: "stdout", level: "error" },
+      ],
     });
 
     // App client uses the non-superuser URL for RLS-enforced operations
     this._appClient = new PrismaClient({
       datasourceUrl: process.env.DATABASE_URL, // must be the besterp_app role
+      log: [
+        { emit: "stdout", level: "warn" },
+        { emit: "stdout", level: "error" },
+      ],
     });
   }
 
