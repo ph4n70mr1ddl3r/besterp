@@ -355,6 +355,24 @@ describe("Audit Log Middleware", () => {
     expect(storedOutput._originalSize).toBeGreaterThan(65536);
     expect(typeof storedOutput._preview).toBe("string");
   });
+
+  it("should truncate oversized error-path outputs", async () => {
+    const input = { test: "value" };
+    const longMessage = "x".repeat(70000);
+    const error = new Error(longMessage);
+
+    mockPrisma.aiActionLog.create.mockResolvedValue({ id: "log-id" });
+
+    const middleware = auditLogMiddleware(mockPrisma as any);
+    await expect(
+      middleware(input, mockContext, mockDefinition, throwingNext(error))
+    ).rejects.toThrow(error);
+
+    const createCall = mockPrisma.aiActionLog.create.mock.calls[0];
+    const storedOutput = createCall[0].data.toolOutput;
+    // Error output should be truncated consistently with the success path
+    expect(storedOutput._truncated).toBe(true);
+  });
 });
 
 describe("Error Handler Middleware", () => {

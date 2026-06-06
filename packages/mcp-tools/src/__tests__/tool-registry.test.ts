@@ -182,6 +182,63 @@ describe("ToolRegistry", () => {
       expect(result.error?.suggestedTools!.length).toBeGreaterThan(1); // includes list_available_tools
     });
   });
+
+  describe("idempotency key promotion", () => {
+    it("should promote idempotencyKey from raw input into context", async () => {
+      const handler = vi.fn().mockResolvedValue({ success: true, data: "ok" });
+      const contextReceived: ToolContext[] = [];
+
+      // Use a middleware that captures the context to verify promotion
+      const captureMw: ToolMiddleware = async (_input, ctx, _def, next) => {
+        contextReceived.push(ctx);
+        return next(_input, ctx);
+      };
+
+      registry.addGlobalMiddleware(captureMw);
+      registry.register({
+        name: "test_idem_tool",
+        description: "test",
+        inputSchema: z.object({ idempotencyKey: z.string() }),
+        riskLevel: "low",
+        handler,
+      });
+
+      await registry.execute(
+        "test_idem_tool",
+        { idempotencyKey: "key-from-input" },
+        { tenantId: "t1", userId: "u1", services: {} },
+      );
+
+      expect(contextReceived[0].idempotencyKey).toBe("key-from-input");
+      expect(handler).toHaveBeenCalled();
+    });
+
+    it("should not override context.idempotencyKey if already set", async () => {
+      const contextReceived: ToolContext[] = [];
+      const captureMw: ToolMiddleware = async (_input, ctx, _def, next) => {
+        contextReceived.push(ctx);
+        return next(_input, ctx);
+      };
+
+      registry.addGlobalMiddleware(captureMw);
+      registry.register({
+        name: "test_idem_tool2",
+        description: "test",
+        inputSchema: z.object({ idempotencyKey: z.string() }),
+        riskLevel: "low",
+        handler: async () => ({ success: true }),
+      });
+
+      await registry.execute(
+        "test_idem_tool2",
+        { idempotencyKey: "from-input" },
+        { tenantId: "t1", userId: "u1", idempotencyKey: "from-context", services: {} },
+      );
+
+      // Context value should win — input should not override it
+      expect(contextReceived[0].idempotencyKey).toBe("from-context");
+    });
+  });
 });
 
 // ─── Helpers ─────────────────────────────────────────────────

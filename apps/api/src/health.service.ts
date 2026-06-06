@@ -53,44 +53,38 @@ export class HealthService {
   }
 
   private async initPackageInfo(): Promise<void> {
-    try {
-      const __dirname = dirname(fileURLToPath(import.meta.url));
-      // In development: dist/ is at the same level as src/ so ../package.json works.
-      // In production (compiled): __dirname IS dist/ and package.json is a sibling.
-      // Try both paths to handle both layouts.
-      const candidates = [
-        join(__dirname, "../package.json"),  // dev: src/../package.json or dist/../package.json
-        join(__dirname, "package.json"),       // flat dist layout
-        join(__dirname, "../../package.json"), // monorepo: dist/ inside package
-      ];
-      let raw: string | undefined;
-      for (const p of candidates) {
-        try {
-          raw = await fs.readFile(p, "utf-8");
-          break;
-        } catch {
-          // try next
-        }
-      }
-      if (!raw) {
-        this.logger.warn("Could not find package.json in any expected location");
-        return;
-      }
+    const __dirname = dirname(fileURLToPath(import.meta.url));
+    // In development: dist/ is at the same level as src/ so ../package.json works.
+    // In production (compiled): __dirname IS dist/ and package.json is a sibling.
+    // Try both paths to handle both layouts.
+    const candidates = [
+      join(__dirname, "../package.json"),  // dev: src/../package.json or dist/../package.json
+      join(__dirname, "package.json"),       // flat dist layout
+      join(__dirname, "../../package.json"), // monorepo: dist/ inside package
+    ];
+    let raw: string | undefined;
+    for (const p of candidates) {
       try {
-        const pkg = JSON.parse(raw);
-        this.packageInfo = {
-          version: pkg.version || "0.0.0",
-          name: pkg.name || "unknown",
-        };
-        this.initialized = true;
-      } catch (parseErr) {
-        this.logger.warn(
-          `package.json found but could not be parsed: ${parseErr instanceof Error ? parseErr.message : parseErr}`
-        );
+        raw = await fs.readFile(p, "utf-8");
+        break;
+      } catch {
+        // try next
       }
-    } catch (err) {
+    }
+    if (!raw) {
+      this.logger.warn("Could not find package.json in any expected location");
+      return;
+    }
+    try {
+      const pkg = JSON.parse(raw);
+      this.packageInfo = {
+        version: pkg.version || "0.0.0",
+        name: pkg.name || "unknown",
+      };
+      this.initialized = true;
+    } catch (parseErr) {
       this.logger.warn(
-        `Could not read package.json: ${err instanceof Error ? err.message : err}`
+        `package.json found but could not be parsed: ${parseErr instanceof Error ? parseErr.message : parseErr}`
       );
     }
   }

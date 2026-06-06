@@ -358,12 +358,14 @@ export class PartyService {
         );
       }
 
-      // Check for existing active role (inside tx to prevent TOCTOU race)
+      // Check for existing active role (inside tx to prevent TOCTOU race).
+      // Explicit tenantId filter is defense-in-depth alongside RLS.
       const existingRole = await tx.partyRole.findFirst({
         where: {
           partyId,
           roleTypeId: roleTypeRecord.roleTypeId,
           thruDate: null,
+          party: { tenantId },
         },
       });
       if (existingRole) {

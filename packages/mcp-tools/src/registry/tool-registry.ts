@@ -79,6 +79,15 @@ export class ToolRegistry {
 
     const { definition, middlewares } = entry;
 
+    // Promote idempotency key from raw input into context so the
+    // idempotency middleware can see it. Tool schemas validate the key,
+    // but the middleware reads from context — not from parsed input.
+    const raw = rawInput as Record<string, unknown> | null | undefined;
+    const effectiveContext: ToolContext =
+      raw?.idempotencyKey && typeof raw.idempotencyKey === "string" && !context.idempotencyKey
+        ? { ...context, idempotencyKey: raw.idempotencyKey }
+        : context;
+
     // Build the pipeline: handler is the innermost function
     const allMiddlewares = [...this.globalMiddlewares, ...middlewares];
 
@@ -107,7 +116,7 @@ export class ToolRegistry {
       }
     );
 
-    return pipeline(rawInput, context);
+    return pipeline(rawInput, effectiveContext);
   }
 
   /**

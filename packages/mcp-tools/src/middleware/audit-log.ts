@@ -37,7 +37,10 @@ export function auditLogMiddleware(prisma: PrismaClient): ToolMiddleware {
         tenantId: context.tenantId,
         toolCalled: definition.name,
         toolInput: input as any,
-        toolOutput: { error: { message: error instanceof Error ? error.message : String(error), code: (error as Record<string, unknown>).code as string | undefined } },
+        toolOutput: truncateValue(
+          { error: { message: error instanceof Error ? error.message : String(error), code: (error as Record<string, unknown>).code as string | undefined } },
+          MAX_AUDIT_OUTPUT_SIZE,
+        ),
         reasoning: undefined,
       }).catch((logErr) => {
         process.stderr.write(
