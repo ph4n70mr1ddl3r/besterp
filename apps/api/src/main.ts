@@ -18,6 +18,10 @@ async function bootstrap() {
       "❌ Unhandled promise rejection:",
       reason instanceof Error ? reason.stack : reason
     );
+    // Exit with non-zero code so orchestrators (Docker, systemd, K8s) restart the pod.
+    // Unhandled rejections indicate a programming error — the process is in an
+    // unknown state and should not continue serving requests.
+    process.exit(1);
   });
   // Validate required environment variables
   const requiredInProduction = ["DATABASE_URL", "JWT_SECRET"];
@@ -70,8 +74,15 @@ async function bootstrap() {
     console.error(`❌ FATAL: Invalid PORT "${rawPort}". Must be a number between 1 and 65535.`);
     process.exit(1);
   }
-  await app.listen(port);
-  console.log(`🚀 BestERP API running on http://localhost:${port}`);
+  try {
+    await app.listen(port);
+    console.log(`🚀 BestERP API running on http://localhost:${port}`);
+  } catch (err) {
+    console.error(
+      `❌ FATAL: Failed to listen on port ${port}: ${err instanceof Error ? err.message : err}`
+    );
+    process.exit(1);
+  }
 }
 
 bootstrap();

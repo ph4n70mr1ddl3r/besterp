@@ -81,8 +81,11 @@ export class PartyService {
     this.requireMaxLength(trimmedName, "Party name", 500);
     // Validate description length (MCP tool path has no DTO validation)
     const trimmedDescription = description?.trim() || null;
-    if (trimmedDescription) {
-      this.requireMaxLength(trimmedDescription, "Description", 1000);
+    if (trimmedDescription && trimmedDescription.length > 1000) {
+      throw new InvalidTypeValueError(
+        `Description is too long (${trimmedDescription.length} characters, max 1000)`,
+        { suggestedTools: ["create_party"], context: { field: "description", length: trimmedDescription.length, maxLength: 1000 } }
+      );
     }
 
     // Validate subtype data
@@ -635,7 +638,8 @@ export class PartyService {
     }
   }
 
-  /** Validate that a trimmed string does not exceed maxLength, throwing InvalidTypeValueError. */
+  /** Validate that a string does not exceed maxLength after trimming.
+   *  Trimming is done internally so callers don't need to pre-trim. */
   private requireMaxLength(
     value: string,
     field: string,

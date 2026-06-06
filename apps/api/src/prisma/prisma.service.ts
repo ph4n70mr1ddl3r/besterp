@@ -19,6 +19,7 @@ export class PrismaService
 {
   private readonly logger = new Logger(PrismaService.name);
   private readonly _appClient: PrismaClient;
+  private _destroyed = false;
   /** Cache of tenant-scoped Proxy clients to avoid GC pressure from repeated creation. */
   private readonly tenantClientCache = new Map<string, WeakRef<PrismaClient>>();
   /** Maximum number of tenant clients to cache before eviction. */
@@ -29,7 +30,12 @@ export class PrismaService
   // Unregister tokens are stored separately so we can always unregister without
   // needing to deref the WeakRef (which may already be GC'd).
   private readonly cacheRegistry = new FinalizationRegistry<string>((tenantId: string) => {
+    // Guard: the registry callback can fire after onModuleDestroy clears the maps.
+    // The Map.delete() on a non-existent key is a no-op, so this is safe, but
+    // we skip the token cleanup if the service is already destroyed.
+    if (this._destroyed) return;
     this.tenantClientCache.delete(tenantId);
+    this.unregisterTokens.delete(tenantId);
   });
   private readonly unregisterTokens = new Map<string, object>();
 
@@ -73,6 +79,10 @@ export class PrismaService
   }
 
   async onModuleDestroy() {
+    // Mark as destroyed to reject new tenant client requests and prevent
+    // FinalizationRegistry callbacks from operating on cleared maps.
+    this._destroyed = true;
+
     // Clear tenant client cache and unregister from FinalizationRegistry
     // to prevent phantom callbacks after the service is destroyed.
     for (const [tenantId, token] of this.unregisterTokens) {
@@ -124,6 +134,13 @@ export class PrismaService
    * @returns A Proxy-wrapped PrismaClient with automatic RLS scoping
    */
   tenantScoped(tenantId: string): PrismaClient {
+    if (this._destroyed) {
+      throw new Error(
+        "PrismaService is destroyed — cannot create tenant-scoped client. " +
+        "This usually means the application is shutting down."
+      );
+    }
+
     const cached = this.tenantClientCache.get(tenantId)?.deref();
     if (cached) return cached;
 

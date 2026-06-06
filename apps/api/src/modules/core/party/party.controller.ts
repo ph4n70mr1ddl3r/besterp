@@ -64,9 +64,11 @@ export class PartyController {
     @Body() body: CreatePartyDto
   ) {
     const { tenantId } = this.getTenantContext(req);
-    // tenantId is placed AFTER spread to guarantee JWT context wins,
-    // though ValidationPipe (whitelist + forbidNonWhitelisted) would
-    // strip a body-level tenantId anyway.
+    // tenantId is placed AFTER spread to guarantee JWT context wins.
+    // ValidationPipe (whitelist + forbidNonWhitelisted) would reject a
+    // body containing a `tenantId` field with a 400 error since
+    // CreatePartyDto doesn't declare it. The spread-after pattern is
+    // the definitive safety net.
     return this.partyService.createParty({ ...body, tenantId });
   }
 
