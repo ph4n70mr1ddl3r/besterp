@@ -98,6 +98,12 @@ describe("McpModule", () => {
           tenantId: "tenant-1",
           userId: "",
         })
+      ).toThrow(InvalidTypeValueError);
+      expect(() =>
+        mcpModule.buildContext({
+          tenantId: "tenant-1",
+          userId: "",
+        })
       ).toThrow("userId is required");
     });
 
@@ -107,10 +113,22 @@ describe("McpModule", () => {
           tenantId: "tenant-1",
           userId: "   ",
         })
+      ).toThrow(InvalidTypeValueError);
+      expect(() =>
+        mcpModule.buildContext({
+          tenantId: "tenant-1",
+          userId: "   ",
+        })
       ).toThrow("userId is required");
     });
 
     it("should reject overly long userId", () => {
+      expect(() =>
+        mcpModule.buildContext({
+          tenantId: "tenant-1",
+          userId: "x".repeat(201),
+        })
+      ).toThrow(InvalidTypeValueError);
       expect(() =>
         mcpModule.buildContext({
           tenantId: "tenant-1",
@@ -142,10 +160,24 @@ describe("McpModule", () => {
           userId: "user-1",
           agentId: "   ",
         })
+      ).toThrow(InvalidTypeValueError);
+      expect(() =>
+        mcpModule.buildContext({
+          tenantId: "tenant-1",
+          userId: "user-1",
+          agentId: "   ",
+        })
       ).toThrow("agentId cannot be whitespace-only");
     });
 
     it("should reject whitespace-only conversationId", () => {
+      expect(() =>
+        mcpModule.buildContext({
+          tenantId: "tenant-1",
+          userId: "user-1",
+          conversationId: "   ",
+        })
+      ).toThrow(InvalidTypeValueError);
       expect(() =>
         mcpModule.buildContext({
           tenantId: "tenant-1",
@@ -200,6 +232,13 @@ describe("McpModule", () => {
           userId: "user-1",
           idempotencyKey: "x".repeat(501),
         })
+      ).toThrow(InvalidTypeValueError);
+      expect(() =>
+        mcpModule.buildContext({
+          tenantId: "tenant-1",
+          userId: "user-1",
+          idempotencyKey: "x".repeat(501),
+        })
       ).toThrow("idempotencyKey is too long");
     });
 
@@ -228,10 +267,24 @@ describe("McpModule", () => {
           userId: "user-1",
           idempotencyKey: "   ",
         })
+      ).toThrow(InvalidTypeValueError);
+      expect(() =>
+        mcpModule.buildContext({
+          tenantId: "tenant-1",
+          userId: "user-1",
+          idempotencyKey: "   ",
+        })
       ).toThrow("idempotencyKey cannot be whitespace-only");
     });
 
     it("should reject overly long agentId", () => {
+      expect(() =>
+        mcpModule.buildContext({
+          tenantId: "tenant-1",
+          userId: "user-1",
+          agentId: "x".repeat(201),
+        })
+      ).toThrow(InvalidTypeValueError);
       expect(() =>
         mcpModule.buildContext({
           tenantId: "tenant-1",
@@ -260,6 +313,13 @@ describe("McpModule", () => {
     });
 
     it("should reject overly long conversationId", () => {
+      expect(() =>
+        mcpModule.buildContext({
+          tenantId: "tenant-1",
+          userId: "user-1",
+          conversationId: "x".repeat(201),
+        })
+      ).toThrow(InvalidTypeValueError);
       expect(() =>
         mcpModule.buildContext({
           tenantId: "tenant-1",

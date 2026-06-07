@@ -16,3 +16,17 @@
  */
 export const UUID_REGEX =
   /^[0-9a-fA-F]{8}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{12}$/;
+
+/**
+ * Pragmatic email validation regex — accepts the vast majority of real-world
+ * addresses while rejecting obvious garbage (missing `@`, missing domain,
+ * embedded whitespace, missing TLD). Intentionally NOT RFC 5322-compliant:
+ * strict compliance produces a regex thousands of characters long and still
+ * rejects addresses that are valid in practice (e.g. `user+tag@example.com`).
+ *
+ * Used by:
+ * - PartyService.addContactMechanism (email type)
+ * - Zod schemas in party-tools.ts (via .email() — kept aligned by tests)
+ * - DTOs in party.dto.ts (via class-validator's @IsEmail — kept aligned by tests)
+ */
+export const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;

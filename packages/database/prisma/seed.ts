@@ -6,6 +6,25 @@ const prisma = new PrismaClient({
 });
 
 async function main() {
+  // Refuse to run in production. Seed is for local/dev/staging only.
+  // The seed is mostly idempotent (uses upsert), but it also inserts
+  // hard-coded tenant records (tenant-acme, tenant-globex) that should
+  // never appear in a real production environment. An accidental
+  // `npm run seed` against prod would silently pollute the database.
+  if (process.env.NODE_ENV === "production") {
+    console.error(
+      "❌ Refusing to seed in NODE_ENV=production. " +
+      "Set NODE_ENV to something other than 'production' to run the seed."
+    );
+    process.exit(1);
+  }
+  if (!process.env.NODE_ENV) {
+    console.warn(
+      "⚠️  NODE_ENV is not set — assuming development. " +
+      "Set NODE_ENV=development explicitly for clarity."
+    );
+  }
+
   console.log("🌱 Seeding type tables with AI-facing descriptions...\n");
 
   // ─── Party Types ─────────────────────────────────────────────

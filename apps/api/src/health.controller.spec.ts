@@ -32,7 +32,10 @@ describe("HealthController", () => {
       expect(mockHealthService.getHealth).toHaveBeenCalled();
     });
 
-    it("should handle database connection errors", async () => {
+    it("should throw ServiceUnavailableException when database is disconnected (fail-closed)", async () => {
+      // The basic /health endpoint now returns 503 when the database is
+      // unreachable so load balancers and orchestrators can route traffic
+      // away. /ready is still available for explicit readiness probes.
       const errorResponse: HealthStatus = {
         status: "error",
         timestamp: new Date().toISOString(),
@@ -48,10 +51,10 @@ describe("HealthController", () => {
       };
 
       const controller = new HealthController(mockHealthService as any);
-      const result = await controller.getHealth();
 
-      expect(result.status).toBe("error");
-      expect(result.database).toBe("disconnected");
+      await expect(controller.getHealth()).rejects.toMatchObject({
+        status: 503,
+      });
     });
   });
 

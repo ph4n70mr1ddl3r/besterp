@@ -16,7 +16,25 @@ export class HealthController {
 
   @Get()
   async getHealth() {
-    return this.healthService.getHealth();
+    // Run the health check and surface a 503 when the database is unreachable.
+    // Load balancers and orchestrators (k8s readiness, AWS ELB, etc.) typically
+    // only inspect the HTTP status code — if we return 200 with a body that
+    // says "database: disconnected", the service is treated as healthy and
+    // traffic keeps flowing to a broken instance. Returning 503 here makes
+    // the failure mode visible to infrastructure.
+    // NOTE: The /ready endpoint is still the recommended readiness probe (it
+    // has a 5s timeout). This endpoint is a fail-closed alternative for
+    // operators who only configure one health check.
+    const status = await this.healthService.getHealth();
+    if (status.database !== "connected") {
+      throw new ServiceUnavailableException({
+        status: status.status,
+        timestamp: status.timestamp,
+        database: status.database,
+        message: "Database is not connected",
+      });
+    }
+    return status;
   }
 
   @Get("version")

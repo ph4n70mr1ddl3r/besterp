@@ -20,13 +20,14 @@
 
 import { Injectable, Logger } from "@nestjs/common";
 import { PrismaService } from "../../../prisma/prisma.service.js";
-import { Prisma } from "@prisma/client";
+import type { Prisma } from "@prisma/client";
 import {
   MissingSubtypeDataError,
   InvalidTypeValueError,
   DuplicateEntityError,
   EntityNotFoundError,
   UUID_REGEX,
+  EMAIL_REGEX,
 } from "@besterp/shared";
 import {
   CreatePartyInput,
@@ -277,9 +278,16 @@ export class PartyService {
       const trimmedName = name.trim();
       if (trimmedName.length > 0) {
         where.name = { contains: trimmedName, mode: "insensitive" };
+      } else {
+        // Whitespace-only name: silently widening the query to "return all
+        // parties" is a footgun — a caller who types "   " probably meant
+        // a real filter, and the response size can be surprising. Reject
+        // explicitly so the caller gets a clear error.
+        throw new InvalidTypeValueError(
+          "name filter cannot be whitespace-only.",
+          { suggestedTools: ["search_parties"], context: { field: "name" } }
+        );
       }
-      // If trimmed name is empty, skip the filter — returning all parties
-      // is more useful than an empty result set.
     }
     
     if (partyType) {
@@ -290,6 +298,12 @@ export class PartyService {
       const trimmedRoleType = roleType.trim();
       if (trimmedRoleType.length > 0) {
         where.roles = { some: { roleType: { name: trimmedRoleType } } };
+      } else {
+        // See `name` filter above for rationale.
+        throw new InvalidTypeValueError(
+          "roleType filter cannot be whitespace-only.",
+          { suggestedTools: ["search_parties", "get_type_table_values"], context: { field: "roleType" } }
+        );
       }
     }
 
@@ -511,8 +525,7 @@ export class PartyService {
       this.requireNonEmpty(emailAddress.email, "email", "email address");
       this.requireMaxLength(emailAddress.email, "email", 254, "add_contact_mechanism");
       const normalizedEmail = emailAddress.email.trim().toLowerCase();
-      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      if (!emailRegex.test(normalizedEmail)) {
+      if (!EMAIL_REGEX.test(normalizedEmail)) {
         throw new InvalidTypeValueError(
           `Invalid email format: ${emailAddress.email}`,
           { suggestedTools: ["add_contact_mechanism"], context: { contactMechanismType: trimmedCmType, field: "email", invalidValue: emailAddress.email } }

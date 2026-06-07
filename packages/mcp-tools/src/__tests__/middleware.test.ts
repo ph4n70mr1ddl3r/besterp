@@ -407,6 +407,66 @@ describe("Idempotency Middleware", () => {
       .join("\n");
     expect(allArgs).toContain("test-update-fails");
   });
+
+  it("should pass through when idempotencyKey is absurdly long (defensive pre-check)", async () => {
+    // The middleware sees the raw key BEFORE Zod validation. Without the
+    // pre-check, a 5KB junk key would create a `pending` record, Zod would
+    // then mark it `failed`, and the junk would sit in the table for 24h.
+    const input = { test: "value" };
+    const contextWithKey = { ...mockContext, idempotencyKey: "x".repeat(501) };
+
+    const middleware = idempotencyMiddleware(mockPrisma as any);
+    const result = await middleware(input, contextWithKey, mockDefinition, successNext({ success: true, data: "passed through" }));
+
+    expect(result.success).toBe(true);
+    expect(result.data).toBe("passed through");
+    // No record should have been created — the middleware bailed out early.
+    expect(mockPrisma.idempotencyRecord.create).not.toHaveBeenCalled();
+    expect(mockPrisma.idempotencyRecord.findUnique).not.toHaveBeenCalled();
+  });
+
+  it("should pass through when idempotencyKey is not a string (defensive pre-check)", async () => {
+    // The key type isn't enforced at the boundary, so a buggy caller could
+    // send a number, object, or boolean. Pass through to Zod to reject
+    // rather than TypeError inside the middleware.
+    const input = { test: "value" };
+    const contextWithKey = { ...mockContext, idempotencyKey: 12345 as unknown as string };
+
+    const middleware = idempotencyMiddleware(mockPrisma as any);
+    const result = await middleware(input, contextWithKey, mockDefinition, successNext({ success: true, data: "passed through" }));
+
+    expect(result.success).toBe(true);
+    expect(mockPrisma.idempotencyRecord.create).not.toHaveBeenCalled();
+  });
+
+  it("should truncate oversized stored result data to 64 KB", async () => {
+    // A 100 KB tool response would otherwise produce a 100 KB row in
+    // `idempotency_record.result`. The middleware must cap the stored value.
+    const input = { test: "value" };
+    const idempotencyKey = "test-truncate";
+    const contextWithKey = { ...mockContext, idempotencyKey };
+    const largeData = { blob: "y".repeat(70000) };
+
+    mockFindInTransaction(null);
+    mockPrisma.idempotencyRecord.create.mockResolvedValue({
+      idempotencyKey,
+      status: "pending",
+    });
+    mockPrisma.idempotencyRecord.update.mockResolvedValue({});
+
+    const middleware = idempotencyMiddleware(mockPrisma as any);
+    await middleware(
+      input,
+      contextWithKey,
+      mockDefinition,
+      successNext({ success: true, data: largeData })
+    );
+
+    const updateCall = mockPrisma.idempotencyRecord.update.mock.calls[0];
+    const stored = updateCall[0].data.result;
+    expect(stored._truncated).toBe(true);
+    expect(stored._originalSize).toBeGreaterThan(65536);
+  });
 });
 
 describe("Audit Log Middleware", () => {

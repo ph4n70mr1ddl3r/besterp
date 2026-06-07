@@ -87,13 +87,14 @@ describe("JwtStrategy.validate", () => {
   it("rejects tenantId with disallowed characters (SQL-injection guard)", async () => {
     // The signed JWT may be valid, but the payload is user-controlled.
     // A tenantId containing ';' or ' ' would propagate into RLS context
-    // if not caught here.
+    // if not caught here. The strategy re-throws as UnauthorizedException
+    // so the response is 401 ("bad token"), not 422 ("bad request").
     await expect(
       strategy.validate({
         sub: "user-1",
         tenantId: "'; DROP TABLE party;--",
       })
-    ).rejects.toThrow(); // InvalidTypeValueError from validateTenantIdEnhanced
+    ).rejects.toThrow(UnauthorizedException);
   });
 
   it("rejects tenantId that is too long", async () => {
@@ -102,7 +103,7 @@ describe("JwtStrategy.validate", () => {
         sub: "user-1",
         tenantId: "a".repeat(101),
       })
-    ).rejects.toThrow();
+    ).rejects.toThrow(UnauthorizedException);
   });
 
   it("rejects tenantId containing whitespace", async () => {
@@ -111,6 +112,6 @@ describe("JwtStrategy.validate", () => {
         sub: "user-1",
         tenantId: "tenant with spaces",
       })
-    ).rejects.toThrow();
+    ).rejects.toThrow(UnauthorizedException);
   });
 });

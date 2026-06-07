@@ -503,6 +503,30 @@ describe("PartyService", () => {
       // it was called and didn't throw.
       expect(mockDb.$transaction).toHaveBeenCalled();
     });
+
+    it("should reject whitespace-only name filter (don't silently widen to all parties)", async () => {
+      // Regression guard: the old code silently dropped a whitespace-only
+      // `name` filter and returned every party in the tenant. That's a UX
+      // footgun (caller types '   ' and gets 10,000 results) and a minor
+      // information-disclosure risk. The fix is to throw explicitly.
+      const input: SearchPartiesInput = {
+        tenantId: "tenant-1",
+        name: "   ",
+      };
+
+      await expect(partyService.searchParties(input)).rejects.toThrow(InvalidTypeValueError);
+      await expect(partyService.searchParties(input)).rejects.toThrow(/whitespace-only/);
+    });
+
+    it("should reject whitespace-only roleType filter", async () => {
+      const input: SearchPartiesInput = {
+        tenantId: "tenant-1",
+        roleType: "   ",
+      };
+
+      await expect(partyService.searchParties(input)).rejects.toThrow(InvalidTypeValueError);
+      await expect(partyService.searchParties(input)).rejects.toThrow(/whitespace-only/);
+    });
   });
 
   describe("addPartyRole", () => {

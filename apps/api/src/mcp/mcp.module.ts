@@ -20,6 +20,7 @@ import {
   OnModuleInit,
 } from "@nestjs/common";
 import { validateTenantIdEnhanced } from "@besterp/database";
+import { InvalidTypeValueError } from "@besterp/shared";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { PrismaModule } from "../prisma/prisma.module.js";
 import { PartyService } from "../modules/core/party/party.service.js";
@@ -81,12 +82,16 @@ export class McpModule implements OnModuleInit {
     // Validate userId — prevents null/empty user IDs in audit logs.
     let userId = overrides.userId;
     if (!userId || userId.trim().length === 0) {
-      throw new Error("McpModule.buildContext: userId is required and cannot be empty.");
+      throw new InvalidTypeValueError(
+        "McpModule.buildContext: userId is required and cannot be empty.",
+        { context: { field: "userId" } }
+      );
     }
     userId = userId.trim();
     if (userId.length > 200) {
-      throw new Error(
-        `McpModule.buildContext: userId is too long (${userId.length} chars, max 200).`
+      throw new InvalidTypeValueError(
+        `McpModule.buildContext: userId is too long (${userId.length} chars, max 200).`,
+        { context: { field: "userId", length: userId.length, maxLength: 200 } }
       );
     }
 
@@ -144,6 +149,10 @@ export class McpModule implements OnModuleInit {
  * - Enforces max length
  * - Normalises empty strings to undefined
  *
+ * Throws `InvalidTypeValueError` (a DomainError) so the MCP error handler
+ * returns a structured response with `INVALID_TYPE_VALUE` and the field
+ * name in `context`, instead of the generic `INTERNAL_ERROR` path.
+ *
  * Used by McpModule.buildContext for agentId, conversationId, idempotencyKey.
  */
 function validateOptionalField(
@@ -154,18 +163,19 @@ function validateOptionalField(
   if (value) {
     const trimmed = value.trim();
     if (trimmed.length === 0) {
-      throw new Error(`McpModule.buildContext: ${fieldName} cannot be whitespace-only.`);
+      throw new InvalidTypeValueError(
+        `McpModule.buildContext: ${fieldName} cannot be whitespace-only.`,
+        { context: { field: fieldName } }
+      );
     }
     if (trimmed.length > maxLength) {
-      throw new Error(
-        `McpModule.buildContext: ${fieldName} is too long (${trimmed.length} chars, max ${maxLength}).`
+      throw new InvalidTypeValueError(
+        `McpModule.buildContext: ${fieldName} is too long (${trimmed.length} chars, max ${maxLength}).`,
+        { context: { field: fieldName, length: trimmed.length, maxLength } }
       );
     }
     return trimmed;
   }
   // Normalise empty strings to undefined — keeps downstream data consistent.
-  if (value === "") {
-    return undefined;
-  }
-  return value;
+  return undefined;
 }

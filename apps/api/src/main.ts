@@ -14,7 +14,11 @@ import { AppModule } from "./app.module.js";
 async function bootstrap() {
   // Validate required environment variables BEFORE creating the Nest app
   // (before any work that might be torn down on shutdown).
-  const requiredInProduction = ["DATABASE_URL", "JWT_SECRET"];
+  // DATABASE_ADMIN_URL is required so the admin PrismaClient (used for audit
+  // logs and idempotency records) connects as a superuser. Without it the
+  // admin client falls back to DATABASE_URL (the RLS-enforced role) and
+  // cross-tenant writes are silently rejected.
+  const requiredInProduction = ["DATABASE_URL", "DATABASE_ADMIN_URL", "JWT_SECRET"];
   const missing = requiredInProduction.filter((v) => !process.env[v]);
   if (missing.length > 0 && process.env.NODE_ENV === "production") {
     console.error(

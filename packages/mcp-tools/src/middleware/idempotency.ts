@@ -18,6 +18,7 @@
 import { PrismaClient } from "@prisma/client";
 import { hashInput } from "@besterp/shared";
 import { ToolMiddleware, ToolDefinition, ToolResult, ToolContext } from "../schema/tool-definition.js";
+import { truncateValue, MAX_STORED_PAYLOAD_SIZE } from "./truncate.js";
 
 /**
  * Create an idempotency middleware backed by PostgreSQL.
@@ -36,6 +37,17 @@ export function idempotencyMiddleware(prisma: PrismaClient): ToolMiddleware {
 
     // No key = no idempotency — pass through
     if (!idempotencyKey) {
+      return next(input, context);
+    }
+
+    // Defensive pre-check: the idempotency middleware runs BEFORE the Zod
+    // input validator, so it sees the raw key the caller provided. If the
+    // key is absurdly long (e.g., 5 KB of garbage from a buggy client), the
+    // validator will reject it with INVALID_INPUT — but the middleware has
+    // already created a `pending` record, the Zod layer marks it `failed`,
+    // and the junk sits in the table for 24h. Bailing out here keeps the
+    // table clean and matches the Zod schema's `min(1).max(500)` limit.
+    if (typeof idempotencyKey !== "string" || idempotencyKey.length > 500) {
       return next(input, context);
     }
 
@@ -195,7 +207,13 @@ export function idempotencyMiddleware(prisma: PrismaClient): ToolMiddleware {
         where: { idempotencyKey },
         data: {
           status: isSoftFailure ? "failed" : "completed",
-          result: (result.data as any) ?? null,
+          // Truncate stored result to 64 KB to match the audit log cap.
+          // A single tool response with a 100 MB payload would otherwise
+          // produce a 100 MB row in `idempotency_record.result` that the
+          // 24h-TTL cleanup job cannot control in width.
+          result: result.data !== undefined
+            ? (truncateValue(result.data, MAX_STORED_PAYLOAD_SIZE) as any)
+            : null,
           error: isSoftFailure
             ? {
                 message: result.error?.message ?? "Tool returned a soft failure",

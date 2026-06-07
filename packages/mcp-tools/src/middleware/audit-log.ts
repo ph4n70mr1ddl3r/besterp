@@ -10,6 +10,11 @@
 
 import { PrismaClient } from "@prisma/client";
 import { ToolMiddleware, ToolDefinition, ToolResult } from "../schema/tool-definition.js";
+import { truncateValue, MAX_STORED_PAYLOAD_SIZE } from "./truncate.js";
+
+/** Audit log uses the same 64 KB cap as other stored payloads. */
+const MAX_AUDIT_INPUT_SIZE = MAX_STORED_PAYLOAD_SIZE;
+const MAX_AUDIT_OUTPUT_SIZE = MAX_STORED_PAYLOAD_SIZE;
 
 /**
  * Create an audit log middleware backed by PostgreSQL.
@@ -30,6 +35,10 @@ export function auditLogMiddleware(prisma: PrismaClient): ToolMiddleware {
     } catch (error: unknown) {
       // Fire-and-forget on the error path too — consistent with the success path.
       // Awaiting would delay the error re-throw and add latency for the caller.
+      //
+      // Note: We don't repeat the `if (!prisma?.aiActionLog)` guard here —
+      // the success-path early return already short-circuits when prisma is
+      // null, so reaching this catch block implies prisma is non-null.
       logAction(prisma, {
         agentId: context.agentId,
         conversationId: context.conversationId,
@@ -86,25 +95,6 @@ interface AuditLogEntry {
   toolInput: unknown;
   toolOutput: unknown;
   reasoning?: string;
-}
-
-const MAX_AUDIT_INPUT_SIZE = 65536; // 64 KB — prevents unbounded JSON storage
-const MAX_AUDIT_OUTPUT_SIZE = 65536; // 64 KB — prevents unbounded JSON storage
-
-function truncateValue(value: unknown, maxSize: number): unknown {
-  try {
-    const serialized = JSON.stringify(value);
-    if (serialized.length > maxSize) {
-      return {
-        _truncated: true,
-        _originalSize: serialized.length,
-        _preview: serialized.slice(0, 1024),
-      };
-    }
-  } catch {
-    return { _error: "Failed to serialize value" };
-  }
-  return value;
 }
 
 async function logAction(prisma: PrismaClient, entry: AuditLogEntry): Promise<void> {

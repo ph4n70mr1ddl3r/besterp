@@ -66,11 +66,20 @@ export class PrismaService
         "The app client requires DATABASE_URL to connect as the RLS-enforced role."
       );
     }
-    if (!process.env.DATABASE_ADMIN_URL && process.env.NODE_ENV === "production") {
-      this.logger.warn(
+    if (!process.env.DATABASE_ADMIN_URL) {
+      // The admin client falls back to DATABASE_URL when DATABASE_ADMIN_URL
+      // is unset. In production this is a misconfiguration; in dev it often
+      // works (operators may only set DATABASE_URL) but it means the admin
+      // client connects as besterp_app — so any write that bypasses RLS
+      // (audit logs, idempotency records) will silently hit RLS policies
+      // and fail. Warn in all environments so the operator notices.
+      const severity = process.env.NODE_ENV === "production" ? "warn" : "log";
+      this.logger[severity](
         "DATABASE_ADMIN_URL is not set — admin client falls back to DATABASE_URL. " +
         "In production the admin client should use a superuser connection to bypass RLS. " +
-        "Without it, admin/cross-tenant operations may be silently blocked by RLS policies."
+        "In dev, this means audit logs and idempotency records (which use this client " +
+        "to bypass RLS) will be silently rejected by RLS policies. Set DATABASE_ADMIN_URL " +
+        "to a superuser connection string to fix."
       );
     }
     try {
