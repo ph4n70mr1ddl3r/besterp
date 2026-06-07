@@ -5,6 +5,7 @@
 import { describe, it, expect } from "vitest";
 import { validateTenantId, withTenant } from "../tenant.js";
 import { richError } from "../errors.js";
+import { COUNTRY_CODE_REGEX, EMAIL_REGEX, UUID_REGEX } from "../validation.js";
 
 describe("validateTenantId", () => {
   it("accepts valid tenant IDs", () => {
@@ -92,5 +93,51 @@ describe("richError", () => {
     const parsed = JSON.parse(result.content[0].text);
     expect(parsed.suggestedTools).toEqual([]);
     expect(parsed.context).toEqual({});
+  });
+});
+
+describe("COUNTRY_CODE_REGEX (E.164 country code)", () => {
+  it("accepts common E.164 country codes", () => {
+    expect(COUNTRY_CODE_REGEX.test("+1")).toBe(true);
+    expect(COUNTRY_CODE_REGEX.test("+44")).toBe(true);
+    expect(COUNTRY_CODE_REGEX.test("+81")).toBe(true);
+    expect(COUNTRY_CODE_REGEX.test("+86")).toBe(true);
+    expect(COUNTRY_CODE_REGEX.test("+999")).toBe(true);
+  });
+
+  it("rejects values without a leading +", () => {
+    expect(COUNTRY_CODE_REGEX.test("1")).toBe(false);
+    expect(COUNTRY_CODE_REGEX.test("44")).toBe(false);
+  });
+
+  it("rejects non-numeric values", () => {
+    expect(COUNTRY_CODE_REGEX.test("+abc")).toBe(false);
+    expect(COUNTRY_CODE_REGEX.test("++")).toBe(false);
+  });
+
+  it("rejects values with more than 3 digits", () => {
+    // ITU-T E.164 country codes are 1-3 digits; longer values are
+    // subscriber numbers and shouldn't be accepted as a country code.
+    expect(COUNTRY_CODE_REGEX.test("+1234")).toBe(false);
+  });
+
+  it("rejects empty string and whitespace", () => {
+    expect(COUNTRY_CODE_REGEX.test("")).toBe(false);
+    expect(COUNTRY_CODE_REGEX.test("+")).toBe(false);
+    expect(COUNTRY_CODE_REGEX.test("+ ")).toBe(false);
+  });
+});
+
+describe("UUID_REGEX / EMAIL_REGEX sanity check", () => {
+  // Light smoke tests — the constants are heavily exercised in the
+  // services that use them. These just guard against accidental
+  // regressions in the exported regex source.
+  it("UUID_REGEX matches standard UUID format", () => {
+    expect(UUID_REGEX.test("550e8400-e29b-41d4-a716-446655440000")).toBe(true);
+    expect(UUID_REGEX.test("not-a-uuid")).toBe(false);
+  });
+  it("EMAIL_REGEX matches a simple address", () => {
+    expect(EMAIL_REGEX.test("user@example.com")).toBe(true);
+    expect(EMAIL_REGEX.test("not-an-email")).toBe(false);
   });
 });

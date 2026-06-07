@@ -626,16 +626,61 @@ describe("Error Handler Middleware", () => {
     expect(result.error?.suggestedTools).toEqual(["test_tool", "list_available_tools"]);
   });
 
-  it("should handle Prisma unique constraint violations", async () => {
-    const prismaError: any = new Error("Unique constraint violation");
-    prismaError.code = "P2002";
+    it("should handle Prisma unique constraint violations", async () => {
+      const prismaError: any = new Error("Unique constraint violation");
+      prismaError.code = "P2002";
 
-    const result = await errorHandlerMiddleware({}, mockContext, mockDefinition, throwingNext(prismaError));
+      const result = await errorHandlerMiddleware({}, mockContext, mockDefinition, throwingNext(prismaError));
 
-    expect(result.success).toBe(false);
-    expect(result.error?.code).toBe("DUPLICATE_ENTITY");
-    expect(result.error?.suggestedTools).toEqual(["search_test", "test_tool"]);
-  });
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe("DUPLICATE_ENTITY");
+      expect(result.error?.suggestedTools).toEqual(["search_test", "test_tool"]);
+    });
+
+    it("should surface Prisma P2002 meta.target in the error message and context", async () => {
+      // Prisma carries the conflicting field(s) in `meta.target`. The
+      // handler should include them so the AI can correct the input
+      // rather than re-trying the same operation blindly.
+      const prismaError: any = new Error("Unique constraint violation");
+      prismaError.code = "P2002";
+      prismaError.meta = { target: "email" };
+
+      const result = await errorHandlerMiddleware({}, mockContext, mockDefinition, throwingNext(prismaError));
+
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe("DUPLICATE_ENTITY");
+      expect(result.error?.message).toContain("email");
+      expect(result.error?.context?.conflictingFields).toBe("email");
+    });
+
+    it("should join P2002 meta.target arrays into a comma-separated list", async () => {
+      // Compound unique constraints produce a string[] target — both
+      // field names should be surfaced in the message and context.
+      const prismaError: any = new Error("Unique constraint violation");
+      prismaError.code = "P2002";
+      prismaError.meta = { target: ["party_id", "role_type_id"] };
+
+      const result = await errorHandlerMiddleware({}, mockContext, mockDefinition, throwingNext(prismaError));
+
+      expect(result.error?.message).toContain("party_id");
+      expect(result.error?.message).toContain("role_type_id");
+      expect(result.error?.context?.conflictingFields).toBe("party_id, role_type_id");
+    });
+
+    it("should fall back to the generic P2002 message when meta is absent", async () => {
+      // Older Prisma versions or non-Prisma throwables that just happen
+      // to carry `code: "P2002"` may not include `meta`. The handler
+      // must still produce a useful response without crashing.
+      const prismaError: any = new Error("Unique constraint violation");
+      prismaError.code = "P2002";
+      // No `meta` attached
+
+      const result = await errorHandlerMiddleware({}, mockContext, mockDefinition, throwingNext(prismaError));
+
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe("DUPLICATE_ENTITY");
+      expect(result.error?.context?.conflictingFields).toBeUndefined();
+    });
 
   it("should handle Prisma not found errors", async () => {
     const prismaError: any = new Error("Record not found");

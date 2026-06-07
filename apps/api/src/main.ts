@@ -42,7 +42,10 @@ async function bootstrap() {
   // Guard against unhandled promise rejections crashing the process without
   // running onModuleDestroy. We must close the app first so PrismaService,
   // BullMQ workers, and the tenant client cache tear down cleanly. If close
-  // itself fails, fall back to a hard exit so the process doesn't hang.
+  // itself fails or hangs (e.g., stalled DB connection), fall back to a hard
+  // exit so the process doesn't get stuck — orchestrators that have given up
+  // waiting will SIGKILL the pod, which can leave pooled resources in a bad
+  // state and pollute logs with OOM-killer noise.
   let shuttingDown = false;
   process.on("unhandledRejection", async (reason) => {
     console.error(
@@ -51,6 +54,22 @@ async function bootstrap() {
     );
     if (shuttingDown) process.exit(1);
     shuttingDown = true;
+
+    // Race the close() against a hard-exit deadline. If close() hangs (e.g.,
+    // a stuck DB connection drain), we exit anyway so the process doesn't
+    // outlive its usefulness. Without this, a single misbehaving resource
+    // can keep the process alive indefinitely while the orchestrator's
+    // shutdown grace period ticks down.
+    const HARD_EXIT_TIMEOUT_MS = 10_000;
+    const hardExitTimer = setTimeout(() => {
+      console.error(
+        `❌ Graceful shutdown exceeded ${HARD_EXIT_TIMEOUT_MS}ms — forcing exit.`
+      );
+      process.exit(1);
+    }, HARD_EXIT_TIMEOUT_MS);
+    // Don't let the timer itself keep the process alive.
+    if (hardExitTimer.unref) hardExitTimer.unref();
+
     try {
       await app.close();
     } catch (closeErr) {
@@ -59,6 +78,7 @@ async function bootstrap() {
         closeErr instanceof Error ? closeErr.stack : closeErr
       );
     }
+    clearTimeout(hardExitTimer);
     // Exit with non-zero so orchestrators (Docker, systemd, K8s) restart the pod.
     process.exit(1);
   });

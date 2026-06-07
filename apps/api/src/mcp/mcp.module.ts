@@ -144,6 +144,11 @@ export class McpModule implements OnModuleInit {
 
 /**
  * Validate and normalise an optional string field.
+ * - Type-checks the value is a string (defensive — caller is TypeScript-typed
+ *   but a forged or malformed request could pass a number, boolean, or
+ *   object that would crash `value.trim()` with a TypeError, which would
+ *   surface as an unstructured `INTERNAL_ERROR` rather than the
+ *   structured `INVALID_TYPE_VALUE` the caller can recover from).
  * - Trims whitespace
  * - Rejects whitespace-only values
  * - Enforces max length
@@ -160,22 +165,32 @@ function validateOptionalField(
   value: string | undefined,
   maxLength: number,
 ): string | undefined {
-  if (value) {
-    const trimmed = value.trim();
-    if (trimmed.length === 0) {
-      throw new InvalidTypeValueError(
-        `McpModule.buildContext: ${fieldName} cannot be whitespace-only.`,
-        { context: { field: fieldName } }
-      );
-    }
-    if (trimmed.length > maxLength) {
-      throw new InvalidTypeValueError(
-        `McpModule.buildContext: ${fieldName} is too long (${trimmed.length} chars, max ${maxLength}).`,
-        { context: { field: fieldName, length: trimmed.length, maxLength } }
-      );
-    }
-    return trimmed;
+  if (value === undefined || value === null) {
+    return undefined;
   }
-  // Normalise empty strings to undefined — keeps downstream data consistent.
-  return undefined;
+  // Type guard: must be a string. A non-string value (e.g. number, object)
+  // would crash the .trim() call below with a TypeError.
+  if (typeof value !== "string") {
+    throw new InvalidTypeValueError(
+      `McpModule.buildContext: ${fieldName} must be a string, received ${typeof value}.`,
+      { context: { field: fieldName, receivedType: typeof value } }
+    );
+  }
+  if (value.length === 0) {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  if (trimmed.length === 0) {
+    throw new InvalidTypeValueError(
+      `McpModule.buildContext: ${fieldName} cannot be whitespace-only.`,
+      { context: { field: fieldName } }
+    );
+  }
+  if (trimmed.length > maxLength) {
+    throw new InvalidTypeValueError(
+      `McpModule.buildContext: ${fieldName} is too long (${trimmed.length} chars, max ${maxLength}).`,
+      { context: { field: fieldName, length: trimmed.length, maxLength } }
+    );
+  }
+  return trimmed;
 }

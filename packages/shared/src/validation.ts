@@ -30,3 +30,12 @@ export const UUID_REGEX =
  * - DTOs in party.dto.ts (via class-validator's @IsEmail — kept aligned by tests)
  */
 export const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/**
+ * E.164 country code validation — `+` followed by 1 to 3 digits.
+ * Covers all real country codes (e.g. +1, +44, +81, +86) without allowing
+ * arbitrary strings like "abc" or "+99999" to be stored as a country code.
+ *
+ * Used by PartyService.addContactMechanism (telecom type).
+ */
+export const COUNTRY_CODE_REGEX = /^\+\d{1,3}$/;

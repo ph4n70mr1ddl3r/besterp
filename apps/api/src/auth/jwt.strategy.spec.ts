@@ -114,4 +114,66 @@ describe("JwtStrategy.validate", () => {
       })
     ).rejects.toThrow(UnauthorizedException);
   });
+
+  it("rejects non-string sub (forged token with numeric sub claim)", async () => {
+    // The JWT spec says sub is a StringOrURI, but a forged token could
+    // carry a number. Without the typeof guard, payload.sub (42) would
+    // pass the truthy check and propagate to req.user.userId = 42, then
+    // crash the MCP layer with a TypeError on userId.trim().
+    await expect(
+      strategy.validate({ sub: 42 as any, tenantId: "tenant-1" })
+    ).rejects.toThrow(UnauthorizedException);
+  });
+
+  it("rejects sub exceeding the length cap", async () => {
+    // Defense against multi-megabyte identifiers in forged tokens.
+    await expect(
+      strategy.validate({ sub: "x".repeat(201), tenantId: "tenant-1" })
+    ).rejects.toThrow(/user ID \(sub\) is too long/);
+  });
+
+  it("accepts sub at the length cap", async () => {
+    const user = await strategy.validate({
+      sub: "x".repeat(200),
+      tenantId: "tenant-1",
+    });
+    expect(user.userId).toBe("x".repeat(200));
+  });
+
+  it("rejects non-string agentId", async () => {
+    await expect(
+      strategy.validate({
+        sub: "user-1",
+        tenantId: "tenant-1",
+        agentId: 42 as any,
+      })
+    ).rejects.toThrow(UnauthorizedException);
+  });
+
+  it("rejects agentId exceeding the length cap", async () => {
+    await expect(
+      strategy.validate({
+        sub: "user-1",
+        tenantId: "tenant-1",
+        agentId: "x".repeat(201),
+      })
+    ).rejects.toThrow(/agentId is too long/);
+  });
+
+  it("accepts agentId at the length cap", async () => {
+    const user = await strategy.validate({
+      sub: "user-1",
+      tenantId: "tenant-1",
+      agentId: "x".repeat(200),
+    });
+    expect(user.agentId).toBe("x".repeat(200));
+  });
+
+  it("omits agentId when not in the payload", async () => {
+    const user = await strategy.validate({
+      sub: "user-1",
+      tenantId: "tenant-1",
+    });
+    expect(user.agentId).toBeUndefined();
+  });
 });

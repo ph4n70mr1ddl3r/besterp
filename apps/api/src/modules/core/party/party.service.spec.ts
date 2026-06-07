@@ -1207,5 +1207,77 @@ describe("PartyService", () => {
 
       await expect(partyService.addContactMechanism(input)).rejects.toThrow(InvalidTypeValueError);
     });
+
+    it("should reject countryCode that is not an E.164 country code", async () => {
+      // Length check alone accepts arbitrary 5-char strings. The E.164
+      // format check rejects values like "abc" or "++++" so a malformed
+      // value doesn't get stored verbatim.
+      const input: AddContactMechanismInput = {
+        tenantId: "tenant-1",
+        partyId: "12345678-1234-1234-1234-123456789abc",
+        contactMechanismType: "TELECOM_NUMBER",
+        telecomNumber: {
+          countryCode: "abc",
+          areaCode: "415",
+          lineNumber: "5551234",
+        },
+      };
+
+      await expect(partyService.addContactMechanism(input)).rejects.toThrow(/E\.164 country code/);
+    });
+
+    it("should reject countryCode that is not an E.164 country code (no + prefix)", async () => {
+      const input: AddContactMechanismInput = {
+        tenantId: "tenant-1",
+        partyId: "12345678-1234-1234-1234-123456789abc",
+        contactMechanismType: "TELECOM_NUMBER",
+        telecomNumber: {
+          countryCode: "1",
+          areaCode: "415",
+          lineNumber: "5551234",
+        },
+      };
+
+      await expect(partyService.addContactMechanism(input)).rejects.toThrow(InvalidTypeValueError);
+    });
+
+    it("should accept valid E.164 country codes", async () => {
+      // Real country codes (+1, +44, +81, +86) should all pass validation.
+      const mockDb = {
+        contactMechanismType: {
+          findUnique: vi.fn().mockResolvedValue({ contactMechanismTypeId: "cmt-telecom" }),
+        },
+        $transaction: vi.fn().mockImplementation(async (fn) => {
+          const tx = {
+            party: { findFirst: vi.fn().mockResolvedValue({ partyId: "12345678-1234-1234-1234-123456789abc" }) },
+            contactMechanism: {
+              create: vi.fn().mockResolvedValue({
+                contactMechanismId: "contact-telecom-1",
+                contactMechanismType: { name: "TELECOM_NUMBER" },
+                postalAddress: null,
+                telecomNumber: { countryCode: "+44", areaCode: "20", lineNumber: "79461234", extension: null },
+                emailAddress: null,
+              }),
+            },
+          };
+          return fn(tx);
+        }),
+      };
+      mockPrismaService.tenantScoped.mockReturnValue(mockDb);
+
+      const input: AddContactMechanismInput = {
+        tenantId: "tenant-1",
+        partyId: "12345678-1234-1234-1234-123456789abc",
+        contactMechanismType: "TELECOM_NUMBER",
+        telecomNumber: {
+          countryCode: "+44",
+          areaCode: "20",
+          lineNumber: "79461234",
+        },
+      };
+
+      const result = await partyService.addContactMechanism(input);
+      expect(result.telecomNumber?.countryCode).toBe("+44");
+    });
   });
 });

@@ -28,6 +28,7 @@ import {
   EntityNotFoundError,
   UUID_REGEX,
   EMAIL_REGEX,
+  COUNTRY_CODE_REGEX,
 } from "@besterp/shared";
 import {
   CreatePartyInput,
@@ -512,7 +513,19 @@ export class PartyService {
       this.requireMaxLength(telecomNumber.areaCode, "areaCode", 10, "add_contact_mechanism");
       this.requireNonEmpty(telecomNumber.lineNumber, "lineNumber", "telecom number");
       this.requireMaxLength(telecomNumber.lineNumber, "lineNumber", 20, "add_contact_mechanism");
-      if (telecomNumber.countryCode) this.requireMaxLength(telecomNumber.countryCode, "countryCode", 5, "add_contact_mechanism");
+      if (telecomNumber.countryCode) {
+        this.requireMaxLength(telecomNumber.countryCode, "countryCode", 5, "add_contact_mechanism");
+        // Length check alone accepts arbitrary strings (e.g. "abc" or
+        // "++++") up to 5 chars. Validate the E.164 shape explicitly so
+        // a malformed value produces a clear error rather than being
+        // stored verbatim and breaking downstream phone-number parsing.
+        if (!COUNTRY_CODE_REGEX.test(telecomNumber.countryCode)) {
+          throw new InvalidTypeValueError(
+            `countryCode must be an E.164 country code (e.g., '+1', '+44'). Received: ${telecomNumber.countryCode}.`,
+            { suggestedTools: ["add_contact_mechanism"], context: { field: "countryCode", invalidValue: telecomNumber.countryCode } }
+          );
+        }
+      }
       if (telecomNumber.extension) this.requireMaxLength(telecomNumber.extension, "extension", 10, "add_contact_mechanism");
       validContactData = telecomNumber;
     } else if (trimmedCmType === "EMAIL_ADDRESS") {

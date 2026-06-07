@@ -346,5 +346,57 @@ describe("McpModule", () => {
       });
       expect(ctx.conversationId).toBe("my-conv");
     });
+
+    it("should reject non-string agentId with a structured error", () => {
+      // Defensive: a forged or malformed request could pass a number,
+      // boolean, or object instead of a string. Without the typeof guard,
+      // .trim() would throw a raw TypeError and surface as INTERNAL_ERROR.
+      // The type guard returns the structured INVALID_TYPE_VALUE instead.
+      expect(() =>
+        mcpModule.buildContext({
+          tenantId: "tenant-1",
+          userId: "user-1",
+          agentId: 42 as unknown as string,
+        })
+      ).toThrow(InvalidTypeValueError);
+      expect(() =>
+        mcpModule.buildContext({
+          tenantId: "tenant-1",
+          userId: "user-1",
+          agentId: 42 as unknown as string,
+        })
+      ).toThrow(/agentId must be a string/);
+    });
+
+    it("should reject non-string idempotencyKey with a structured error", () => {
+      expect(() =>
+        mcpModule.buildContext({
+          tenantId: "tenant-1",
+          userId: "user-1",
+          idempotencyKey: { not: "a string" } as unknown as string,
+        })
+      ).toThrow(/idempotencyKey must be a string/);
+    });
+
+    it("should reject non-string conversationId with a structured error", () => {
+      expect(() =>
+        mcpModule.buildContext({
+          tenantId: "tenant-1",
+          userId: "user-1",
+          conversationId: true as unknown as string,
+        })
+      ).toThrow(/conversationId must be a string/);
+    });
+
+    it("should normalise null agentId to undefined", () => {
+      // JavaScript callers might pass null instead of undefined; treat
+      // both as "not provided" so downstream code never sees a null agentId.
+      const ctx = mcpModule.buildContext({
+        tenantId: "tenant-1",
+        userId: "user-1",
+        agentId: null as unknown as string,
+      });
+      expect(ctx.agentId).toBeUndefined();
+    });
   });
 });

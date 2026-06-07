@@ -36,15 +36,28 @@ export const errorHandlerMiddleware: ToolMiddleware = async (input, context, def
 
     const message = error instanceof Error ? error.message : "Unknown error";
     const prismaCode = (error as Record<string, unknown>).code as string | undefined;
+    const prismaMeta = (error as Record<string, unknown>).meta as
+      | { target?: string | string[] }
+      | undefined;
 
     // ─── Prisma unique constraint violation ────────────────────────
     if (prismaCode === "P2002") {
+      // Prisma includes the conflicting field(s) in `meta.target` (e.g.,
+      // "email" or ["party_id", "role_type_id"]). Surface them so the AI
+      // can correct the input rather than re-trying the same operation
+      // blindly. Falls back to the generic message when meta is missing
+      // (e.g., non-Prisma throwables that just happen to carry P2002).
+      const target = Array.isArray(prismaMeta?.target)
+        ? prismaMeta?.target.join(", ")
+        : prismaMeta?.target;
+      const detail = target ? ` Conflicting field(s): ${target}.` : "";
       return {
         success: false,
         error: {
           code: "DUPLICATE_ENTITY",
-          message: `A duplicate entity already exists. Use 'search_${definition.entity || "entities"}' to find existing records.`,
+          message: `A duplicate entity already exists.${detail} Use 'search_${definition.entity || "entities"}' to find existing records.`,
           suggestedTools: [`search_${definition.entity || "entities"}`, definition.name],
+          context: target ? { conflictingFields: target } : undefined,
         },
       };
     }
