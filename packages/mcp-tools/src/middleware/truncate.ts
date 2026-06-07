@@ -22,6 +22,30 @@ export const MAX_STORED_PAYLOAD_SIZE = 65536; // 64 KB
 const PREVIEW_BYTES = 1024;
 
 /**
+ * Cap an individual string at `maxBytes` characters (approximated as
+ * UTF-16 code units — sufficient for soft-failure error messages where
+ * each "character" is at most a few bytes in practice).
+ *
+ * The idempotency middleware stores soft-failure error messages verbatim
+ * in `idempotency_record.error.message`. A Zod validation failure with
+ * many issues (or a deeply nested object) can produce multi-KB error
+ * strings, which would otherwise create very wide rows and bloat the
+ * 24h-TTL cleanup job's I/O. Capping at 4 KB keeps the message useful
+ * for diagnostics while bounding the row size.
+ */
+export function capString(value: unknown, maxBytes: number): string {
+  if (typeof value !== "string") {
+    return "Tool returned a soft failure";
+  }
+  if (value.length <= maxBytes) {
+    return value;
+  }
+  // Slice to the byte cap, then append a marker so operators can tell
+  // the message was elided (rather than assuming the text just ends).
+  return `${value.slice(0, maxBytes)}... [truncated, original was ${value.length} chars]`;
+}
+
+/**
  * Truncate a JSONB payload to `maxSize` bytes, replacing oversize values
  * with a structured marker. Never throws — returns an error marker on
  * serialisation failure.

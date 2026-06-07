@@ -49,10 +49,25 @@ export class TenantGuard implements CanActivate {
       );
     }
 
+    // Defense-in-depth trim. JwtStrategy already trims sub and agentId
+    // for well-formed payloads, but if a future code path bypasses the
+    // strategy (e.g., a test double or a custom AuthGuard) the values
+    // here could carry whitespace from a misconfigured token issuer.
+    // Trimming here keeps the contract honest: tenantContext fields are
+    // always canonical (no leading/trailing whitespace), so downstream
+    // equality checks (audit logs, idempotency keys, RLS) never see
+    // " user-1" and "user-1" as distinct.
+    const tenantId = typeof user.tenantId === "string" ? user.tenantId.trim() : user.tenantId;
+    const userId = typeof user.userId === "string" ? user.userId.trim() : user.userId;
+    const agentId =
+      user.agentId === undefined || user.agentId === null
+        ? undefined
+        : (typeof user.agentId === "string" ? user.agentId.trim() : user.agentId);
+
     const tenantContext: TenantContext = {
-      tenantId: user.tenantId,
-      userId: user.userId,
-      agentId: user.agentId,
+      tenantId,
+      userId,
+      agentId: agentId === "" ? undefined : agentId,
     };
 
     request.tenantContext = tenantContext;

@@ -76,4 +76,37 @@ describe("TenantGuard", () => {
       agentId: "a1",
     });
   });
+
+  it("trims userId, tenantId, and agentId when building tenantContext", () => {
+    // Defense-in-depth: if a future code path bypasses JwtStrategy's
+    // trimming, the guard still canonicalises the values so audit logs
+    // and idempotency records never see padded strings.
+    (reflector.getAllAndOverride as any).mockReturnValue(false);
+    const ctx = makeContext({
+      user: { userId: "  u1  ", tenantId: "  t1  ", agentId: "  a1  " },
+    });
+
+    guard.canActivate(ctx);
+
+    const req = ctx.switchToHttp().getRequest() as any;
+    expect(req.tenantContext).toEqual({
+      tenantId: "t1",
+      userId: "u1",
+      agentId: "a1",
+    });
+  });
+
+  it("normalises empty-string agentId to undefined in tenantContext", async () => {
+    // Consistency with JwtStrategy: an empty-string agentId from any
+    // source is treated as "no agent" downstream.
+    (reflector.getAllAndOverride as any).mockReturnValue(false);
+    const ctx = makeContext({
+      user: { userId: "u1", tenantId: "t1", agentId: "" },
+    });
+
+    guard.canActivate(ctx);
+
+    const req = ctx.switchToHttp().getRequest() as any;
+    expect(req.tenantContext.agentId).toBeUndefined();
+  });
 });

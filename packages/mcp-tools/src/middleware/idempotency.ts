@@ -18,7 +18,15 @@
 import { PrismaClient } from "@prisma/client";
 import { hashInput } from "@besterp/shared";
 import { ToolMiddleware, ToolDefinition, ToolResult, ToolContext } from "../schema/tool-definition.js";
-import { truncateValue, MAX_STORED_PAYLOAD_SIZE } from "./truncate.js";
+import { truncateValue, MAX_STORED_PAYLOAD_SIZE, capString } from "./truncate.js";
+
+/**
+ * Cap (bytes) for the `error.message` field stored on a soft-failure
+ * idempotency record. A typical Zod validation message is a few hundred
+ * bytes; deeply nested inputs can push it into the KB range. 4 KB is
+ * generous for diagnostics while bounding the row width.
+ */
+const MAX_SOFT_FAILURE_MESSAGE_SIZE = 4096;
 
 /**
  * Create an idempotency middleware backed by PostgreSQL.
@@ -214,9 +222,14 @@ export function idempotencyMiddleware(prisma: PrismaClient): ToolMiddleware {
           result: result.data !== undefined
             ? (truncateValue(result.data, MAX_STORED_PAYLOAD_SIZE) as any)
             : null,
+          // Cap the soft-failure message at 4 KB. A Zod validation error
+          // with many issues (or a deeply nested input) can produce a
+          // multi-KB message; storing it verbatim would create very wide
+          // rows and bloat the cleanup-job I/O. The cap is generous enough
+          // to capture every issue path Zod produces in practice.
           error: isSoftFailure
             ? {
-                message: result.error?.message ?? "Tool returned a soft failure",
+                message: capString(result.error?.message, MAX_SOFT_FAILURE_MESSAGE_SIZE),
                 code: result.error?.code,
               }
             : undefined,

@@ -34,6 +34,7 @@ export const JWT_DEV_SECRET = "besterp-dev-secret-change-me";
 // into req.user / req.tenantContext / audit logs.
 const MAX_USER_ID_LENGTH = 200;
 const MAX_AGENT_ID_LENGTH = 200;
+const MAX_ROLE_LENGTH = 100;
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
@@ -69,6 +70,19 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         `Invalid token: user ID (sub) is too long (${payload.sub.length} chars, max ${MAX_USER_ID_LENGTH}).`
       );
     }
+    // Trim sub so a forged-but-signed token carrying "  user-1  " can't
+    // bypass equality checks (e.g., "user-1" vs " user-1 ") in
+    // tenant-scoped audit logs and idempotency records. The MCP layer
+    // already trims userId; doing it here keeps the REST path consistent.
+    const userId = payload.sub.trim();
+    if (userId.length === 0) {
+      throw new UnauthorizedException("Invalid token: user ID (sub) is whitespace-only.");
+    }
+    if (userId.length > MAX_USER_ID_LENGTH) {
+      throw new UnauthorizedException(
+        `Invalid token: user ID (sub) is too long after trim (${userId.length} chars, max ${MAX_USER_ID_LENGTH}).`
+      );
+    }
     if (typeof payload.tenantId !== "string" || payload.tenantId.length === 0) {
       throw new UnauthorizedException("Invalid token: missing tenantId.");
     }
@@ -95,23 +109,56 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     // Optional agentId — if present, must be a string within the length
     // cap. Same rationale as `sub` above: prevent a multi-megabyte value
     // from reaching req.user / req.tenantContext / MCP buildContext.
+    //
+    // Empty strings are normalised to undefined so the rest of the codebase
+    // (audit logs, MCP buildContext, tenant context) never has to
+    // distinguish between "no agent" and "empty-string agent". This matches
+    // the behaviour of McpModule.validateOptionalField for idempotencyKey /
+    // agentId / conversationId.
     let agentId: string | undefined;
-    if (payload.agentId !== undefined) {
+    if (payload.agentId !== undefined && payload.agentId !== null) {
       if (typeof payload.agentId !== "string") {
         throw new UnauthorizedException("Invalid token: agentId must be a string.");
       }
-      if (payload.agentId.length > MAX_AGENT_ID_LENGTH) {
-        throw new UnauthorizedException(
-          `Invalid token: agentId is too long (${payload.agentId.length} chars, max ${MAX_AGENT_ID_LENGTH}).`
-        );
+      const trimmedAgentId = payload.agentId.trim();
+      if (trimmedAgentId.length > 0) {
+        if (trimmedAgentId.length > MAX_AGENT_ID_LENGTH) {
+          throw new UnauthorizedException(
+            `Invalid token: agentId is too long (${trimmedAgentId.length} chars, max ${MAX_AGENT_ID_LENGTH}).`
+          );
+        }
+        agentId = trimmedAgentId;
       }
-      agentId = payload.agentId;
+    }
+
+    // Optional role — must be a string within the length cap if present.
+    // Without this, a forged token could carry role: <10MB string> or
+    // role: 42 (number), and the value would propagate to req.user.role.
+    // role is currently unused downstream, but the same defense-in-depth
+    // rationale as sub/agentId applies: reject malformed claims at the
+    // auth boundary rather than carrying them through the system.
+    let role: string | undefined;
+    if (payload.role !== undefined && payload.role !== null) {
+      if (typeof payload.role !== "string") {
+        throw new UnauthorizedException("Invalid token: role must be a string.");
+      }
+      const trimmedRole = payload.role.trim();
+      if (trimmedRole.length === 0) {
+        // Whitespace-only role: treat as not provided, consistent with agentId.
+        role = undefined;
+      } else if (trimmedRole.length > MAX_ROLE_LENGTH) {
+        throw new UnauthorizedException(
+          `Invalid token: role is too long (${trimmedRole.length} chars, max ${MAX_ROLE_LENGTH}).`
+        );
+      } else {
+        role = trimmedRole;
+      }
     }
 
     return {
-      userId: payload.sub,
+      userId,
       tenantId: payload.tenantId,
-      role: payload.role,
+      role,
       agentId,
     };
   }

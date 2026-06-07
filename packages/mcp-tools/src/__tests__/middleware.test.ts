@@ -467,6 +467,43 @@ describe("Idempotency Middleware", () => {
     expect(stored._truncated).toBe(true);
     expect(stored._originalSize).toBeGreaterThan(65536);
   });
+
+  it("should cap oversized soft-failure error.message at 4 KB", async () => {
+    // A Zod validation failure with many issues, or a deeply nested input,
+    // can produce a multi-KB error string. Storing it verbatim in
+    // idempotency_record.error.message would bloat the row and the
+    // 24h-TTL cleanup job's I/O. The middleware must cap the message.
+    const input = { test: "value" };
+    const idempotencyKey = "test-soft-msg-cap";
+    const contextWithKey = { ...mockContext, idempotencyKey };
+    const hugeMessage = "x".repeat(8000);
+
+    mockFindInTransaction(null);
+    mockPrisma.idempotencyRecord.create.mockResolvedValue({
+      idempotencyKey,
+      status: "pending",
+    });
+    mockPrisma.idempotencyRecord.update.mockResolvedValue({});
+
+    const softFailureNext = async () => ({
+      success: false as const,
+      error: {
+        code: "INVALID_INPUT",
+        message: hugeMessage,
+      },
+    });
+
+    const middleware = idempotencyMiddleware(mockPrisma as any);
+    await middleware(input, contextWithKey, mockDefinition, softFailureNext);
+
+    const updateCall = mockPrisma.idempotencyRecord.update.mock.calls[0];
+    const stored = updateCall[0].data.error.message;
+    // Cap is 4 KB; the marker suffix adds a few dozen bytes.
+    expect(stored.length).toBeLessThan(4500);
+    expect(stored.length).toBeGreaterThan(0);
+    // Truncation marker should be present so operators can tell.
+    expect(stored).toMatch(/truncated/);
+  });
 });
 
 describe("Audit Log Middleware", () => {

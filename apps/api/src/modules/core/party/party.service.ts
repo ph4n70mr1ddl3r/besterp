@@ -138,8 +138,17 @@ export class PartyService {
         );
       }
       this.requireMaxLength(personData.lastName, "Last name", 200);
+      // Defense-in-depth: validate birthDate shape before passing to Prisma.
+      // The REST DTO uses @IsDateString (strict ISO 8601) but the MCP Zod
+      // schema only enforces a 30-char max length. A typo like "2024-13-40"
+      // would otherwise reach `new Date(...)` and produce Invalid Date,
+      // which Prisma rejects with an opaque P2009 / serialization error
+      // that the MCP layer can't translate into a structured response.
+      if (personData.birthDate !== undefined && personData.birthDate !== null) {
+        this.requireValidDate(personData.birthDate, "birthDate");
+      }
     }
-    
+
     // Validate organization data if provided
     if (orgData) {
       if (!orgData.legalName || orgData.legalName.trim().length === 0) {
@@ -149,6 +158,10 @@ export class PartyService {
         );
       }
       this.requireMaxLength(orgData.legalName, "Legal name", 500);
+      // See personData.birthDate comment — same defense-in-depth rationale.
+      if (orgData.registrationDate !== undefined && orgData.registrationDate !== null) {
+        this.requireValidDate(orgData.registrationDate, "registrationDate");
+      }
     }
 
     // Trim all name fields before storage to prevent whitespace-padded names.
@@ -726,6 +739,27 @@ export class PartyService {
       throw new InvalidTypeValueError(
         `${field} is too long (${trimmed.length} characters, max ${maxLength})`,
         { suggestedTools: [tool], context: { field, length: trimmed.length, maxLength } }
+      );
+    }
+  }
+
+  /** Validate that a date string parses to a real Date.
+   *  Defense-in-depth — the DTO path validates with @IsDateString and
+   *  the Zod path validates with .date() / .iso(), but the service is
+   *  the last line of defense and is called from contexts (MCP, future
+   *  internal callers) that may skip the boundary validation. */
+  private requireValidDate(value: string, field: string): void {
+    if (typeof value !== "string" || value.trim().length === 0) {
+      throw new InvalidTypeValueError(
+        `${field} must be a non-empty ISO 8601 date string.`,
+        { suggestedTools: ["create_party"], context: { field, received: value } }
+      );
+    }
+    const parsed = new Date(value);
+    if (isNaN(parsed.getTime())) {
+      throw new InvalidTypeValueError(
+        `${field} is not a valid ISO 8601 date. Received: ${value}.`,
+        { suggestedTools: ["create_party"], context: { field, invalidValue: value } }
       );
     }
   }

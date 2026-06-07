@@ -37,6 +37,42 @@ describe("ToolRegistry", () => {
       registry.register(makeTool("tool_c"));
       expect(registry.names).toEqual(["tool_a", "tool_b", "tool_c"]);
     });
+
+    it("should reject a tool whose inputSchema lacks .safeParse()", () => {
+      // The registry calls inputSchema.safeParse(input) when executing a
+      // tool. A plain JSONSchema object (or any non-Zod schema) would
+      // otherwise crash with `TypeError: ... .safeParse is not a function`
+      // at first execution — far from the registration site. Failing
+      // fast at registration time produces a clear error.
+      const badTool: ToolDefinition = {
+        name: "bad_schema_tool",
+        description: "uses a plain JSONSchema object, not Zod",
+        inputSchema: { type: "object", properties: { x: { type: "string" } } } as any,
+        riskLevel: "none",
+        handler: async () => ({ success: true }),
+      };
+
+      expect(() => registry.register(badTool)).toThrow(/invalid inputSchema/);
+      expect(() => registry.register(badTool)).toThrow(/bad_schema_tool/);
+    });
+
+    it("should accept a tool whose inputSchema exposes .safeParse()", () => {
+      // Positive case: any object with a safeParse method works. We don't
+      // require it to be a Zod schema specifically — the contract is the
+      // method, not the class.
+      const customSchema = {
+        safeParse: (input: unknown) => ({ success: true, data: input }),
+      };
+      const customTool: ToolDefinition = {
+        name: "custom_schema_tool",
+        description: "uses a non-Zod schema that still exposes safeParse",
+        inputSchema: customSchema as any,
+        riskLevel: "none",
+        handler: async () => ({ success: true }),
+      };
+
+      expect(() => registry.register(customTool)).not.toThrow();
+    });
   });
 
   describe("get", () => {

@@ -32,6 +32,28 @@ export class ToolRegistry {
       throw new Error(`Tool '${definition.name}' is already registered.`);
     }
 
+    // Runtime check: the registry calls `inputSchema.safeParse(...)` when
+    // executing the tool, which is Zod-specific. A tool registered with a
+    // plain JSONSchema object (or anything that lacks `.safeParse`) would
+    // otherwise crash with a `TypeError: ... .safeParse is not a function`
+    // at first execution — far from the registration site and hard to
+    // diagnose. Failing fast at registration time produces a clear error
+    // pointing at the offending tool name.
+    //
+    // The type system can't catch this: `inputSchema` is typed as `any`
+    // in `ToolDefinition` to avoid coupling @besterp/mcp-tools to Zod's
+    // exact type names. This runtime guard is the only enforcement.
+    if (
+      !definition.inputSchema ||
+      typeof (definition.inputSchema as { safeParse?: unknown }).safeParse !== "function"
+    ) {
+      throw new Error(
+        `Tool '${definition.name}' has an invalid inputSchema: ` +
+        `expected a Zod schema (or anything exposing a .safeParse() method), ` +
+        `got ${typeof definition.inputSchema}.`
+      );
+    }
+
     this.tools.set(definition.name, {
       definition,
       middlewares,

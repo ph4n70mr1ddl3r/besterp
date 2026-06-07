@@ -176,4 +176,104 @@ describe("JwtStrategy.validate", () => {
     });
     expect(user.agentId).toBeUndefined();
   });
+
+  it("trims sub (leading/trailing whitespace) before returning the user", async () => {
+    // Defense-in-depth: a forged-but-signed token with "  user-1  " would
+    // otherwise carry that padded string into req.user.userId and into
+    // audit logs, breaking equality checks like "user-1" vs " user-1 ".
+    // The MCP layer already trims userId; doing it here keeps the REST
+    // path consistent.
+    const user = await strategy.validate({
+      sub: "  user-1  ",
+      tenantId: "tenant-1",
+    });
+    expect(user.userId).toBe("user-1");
+  });
+
+  it("rejects whitespace-only sub", async () => {
+    // After trim, "   " is empty — same failure mode as a missing sub.
+    await expect(
+      strategy.validate({ sub: "   ", tenantId: "tenant-1" })
+    ).rejects.toThrow(UnauthorizedException);
+    await expect(
+      strategy.validate({ sub: "   ", tenantId: "tenant-1" })
+    ).rejects.toThrow(/whitespace-only/);
+  });
+
+  it("trims agentId before returning", async () => {
+    const user = await strategy.validate({
+      sub: "user-1",
+      tenantId: "tenant-1",
+      agentId: "  agent-007  ",
+    });
+    expect(user.agentId).toBe("agent-007");
+  });
+
+  it("normalises empty-string agentId to undefined", async () => {
+    // Inconsistency guard: without normalisation, agentId: "" propagates
+    // to req.user.agentId = "" and bypasses the MCP buildContext's
+    // "empty-string → undefined" rule. Downstream code then has to
+    // distinguish "no agent" from "empty-string agent".
+    const user = await strategy.validate({
+      sub: "user-1",
+      tenantId: "tenant-1",
+      agentId: "",
+    });
+    expect(user.agentId).toBeUndefined();
+  });
+
+  it("normalises whitespace-only agentId to undefined", async () => {
+    const user = await strategy.validate({
+      sub: "user-1",
+      tenantId: "tenant-1",
+      agentId: "   ",
+    });
+    expect(user.agentId).toBeUndefined();
+  });
+
+  it("rejects non-string role (forged token with numeric role claim)", async () => {
+    // Defense-in-depth: role is currently unused downstream, but a forged
+    // token could carry role: 42 (number) and the value would propagate
+    // to req.user.role. Reject at the auth boundary for consistency with
+    // the sub / agentId checks.
+    await expect(
+      strategy.validate({ sub: "user-1", tenantId: "tenant-1", role: 42 as any })
+    ).rejects.toThrow(UnauthorizedException);
+  });
+
+  it("rejects role exceeding the length cap", async () => {
+    await expect(
+      strategy.validate({
+        sub: "user-1",
+        tenantId: "tenant-1",
+        role: "x".repeat(101),
+      })
+    ).rejects.toThrow(/role is too long/);
+  });
+
+  it("trims and stores a valid role", async () => {
+    const user = await strategy.validate({
+      sub: "user-1",
+      tenantId: "tenant-1",
+      role: "  admin  ",
+    });
+    expect(user.role).toBe("admin");
+  });
+
+  it("normalises whitespace-only role to undefined", async () => {
+    const user = await strategy.validate({
+      sub: "user-1",
+      tenantId: "tenant-1",
+      role: "   ",
+    });
+    expect(user.role).toBeUndefined();
+  });
+
+  it("omits role when not in the payload", async () => {
+    const user = await strategy.validate({
+      sub: "user-1",
+      tenantId: "tenant-1",
+    });
+    expect(user.role).toBeUndefined();
+  });
 });

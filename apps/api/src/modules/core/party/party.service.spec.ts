@@ -321,6 +321,95 @@ describe("PartyService", () => {
       const result = await partyService.createParty(input);
       expect(result.name).toBe("John Doe");
     });
+
+    it("should reject an invalid birthDate before reaching Prisma", async () => {
+      // Regression guard: the MCP Zod schema only enforces a length cap on
+      // birthDate, so a value like "2024-13-40" or "not-a-date" reaches the
+      // service. Without service-level validation, `new Date("not-a-date")`
+      // produces Invalid Date, which Prisma rejects with an opaque
+      // serialization error that the MCP layer can't translate into a
+      // structured INVALID_TYPE_VALUE response.
+      const input: CreatePartyInput = {
+        tenantId: "tenant-1",
+        partyType: "PERSON",
+        name: "John Doe",
+        person: {
+          firstName: "John",
+          lastName: "Doe",
+          birthDate: "not-a-date",
+        },
+      };
+
+      await expect(partyService.createParty(input)).rejects.toThrow(InvalidTypeValueError);
+      await expect(partyService.createParty(input)).rejects.toThrow(/birthDate/);
+    });
+
+    it("should reject an impossible calendar date (e.g. month 13) for birthDate", async () => {
+      const input: CreatePartyInput = {
+        tenantId: "tenant-1",
+        partyType: "PERSON",
+        name: "John Doe",
+        person: {
+          firstName: "John",
+          lastName: "Doe",
+          birthDate: "2024-13-40",
+        },
+      };
+
+      await expect(partyService.createParty(input)).rejects.toThrow(/birthDate/);
+    });
+
+    it("should reject an invalid registrationDate for organization", async () => {
+      const input: CreatePartyInput = {
+        tenantId: "tenant-1",
+        partyType: "ORGANIZATION",
+        name: "Acme Corp",
+        organization: {
+          legalName: "Acme Corporation",
+          registrationDate: "not-a-date",
+        },
+      };
+
+      await expect(partyService.createParty(input)).rejects.toThrow(InvalidTypeValueError);
+      await expect(partyService.createParty(input)).rejects.toThrow(/registrationDate/);
+    });
+
+    it("should accept a valid ISO 8601 birthDate", async () => {
+      // Sanity check: a real ISO date should not trip the new guard.
+      const input: CreatePartyInput = {
+        tenantId: "tenant-1",
+        partyType: "PERSON",
+        name: "John Doe",
+        person: {
+          firstName: "John",
+          lastName: "Doe",
+          birthDate: "1990-06-15",
+        },
+      };
+
+      const mockDb = {
+        partyType: {
+          findUnique: vi.fn().mockResolvedValue({ partyTypeId: "pt-person" }),
+        },
+        $transaction: vi.fn().mockImplementation(async (fn) => {
+          const tx = {
+            party: {
+              create: vi.fn().mockResolvedValue(
+                mockParty({
+                  name: "John Doe",
+                  person: { firstName: "John", lastName: "Doe", birthDate: new Date("1990-06-15") },
+                })
+              ),
+            },
+          };
+          return fn(tx);
+        }),
+      };
+      mockPrismaService.tenantScoped.mockReturnValue(mockDb);
+
+      const result = await partyService.createParty(input);
+      expect(result.person?.birthDate).toBe("1990-06-15T00:00:00.000Z");
+    });
   });
 
   describe("getParty", () => {
