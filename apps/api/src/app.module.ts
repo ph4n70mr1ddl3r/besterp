@@ -8,7 +8,9 @@
 // - QueueModule: Redis/BullMQ for domain events & async jobs
 // - HealthModule: Health check endpoints
 
-import "reflect-metadata";
+// reflect-metadata is imported once in main.ts (the entry point). The first
+// import enables the decorator metadata globally; subsequent imports are
+// no-ops but pollute the dependency graph.
 import { Module } from "@nestjs/common";
 import { APP_FILTER, APP_GUARD } from "@nestjs/core";
 import { AuthModule } from "./auth/auth.module.js";

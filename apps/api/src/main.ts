@@ -12,18 +12,8 @@ import { ValidationPipe } from "@nestjs/common";
 import { AppModule } from "./app.module.js";
 
 async function bootstrap() {
-  // Guard against unhandled promise rejections crashing the process silently.
-  process.on("unhandledRejection", (reason) => {
-    console.error(
-      "❌ Unhandled promise rejection:",
-      reason instanceof Error ? reason.stack : reason
-    );
-    // Exit with non-zero code so orchestrators (Docker, systemd, K8s) restart the pod.
-    // Unhandled rejections indicate a programming error — the process is in an
-    // unknown state and should not continue serving requests.
-    process.exit(1);
-  });
-  // Validate required environment variables
+  // Validate required environment variables BEFORE creating the Nest app
+  // (before any work that might be torn down on shutdown).
   const requiredInProduction = ["DATABASE_URL", "JWT_SECRET"];
   const missing = requiredInProduction.filter((v) => !process.env[v]);
   if (missing.length > 0 && process.env.NODE_ENV === "production") {
@@ -45,19 +35,52 @@ async function bootstrap() {
 
   const app = await NestFactory.create(AppModule);
 
+  // Guard against unhandled promise rejections crashing the process without
+  // running onModuleDestroy. We must close the app first so PrismaService,
+  // BullMQ workers, and the tenant client cache tear down cleanly. If close
+  // itself fails, fall back to a hard exit so the process doesn't hang.
+  let shuttingDown = false;
+  process.on("unhandledRejection", async (reason) => {
+    console.error(
+      "❌ Unhandled promise rejection:",
+      reason instanceof Error ? reason.stack : reason
+    );
+    if (shuttingDown) process.exit(1);
+    shuttingDown = true;
+    try {
+      await app.close();
+    } catch (closeErr) {
+      console.error(
+        "❌ Error during graceful shutdown:",
+        closeErr instanceof Error ? closeErr.stack : closeErr
+      );
+    }
+    // Exit with non-zero so orchestrators (Docker, systemd, K8s) restart the pod.
+    process.exit(1);
+  });
+
   // Enable graceful shutdown so PrismaService.onModuleDestroy fires
   app.enableShutdownHooks();
 
   // Global prefix for REST endpoints
   app.setGlobalPrefix("api");
 
-  // CORS — configurable via CORS_ORIGINS env var (comma-separated)
+  // CORS — configurable via CORS_ORIGINS env var (comma-separated).
+  // Default: no CORS (origin: false). This is fail-closed: the API only
+  // accepts cross-origin requests from an explicit allowlist. The previous
+  // default (origin: true + credentials: true) reflected any request origin
+  // and is equivalent to disabling the same-origin policy for browsers.
   const corsOrigins = process.env.CORS_ORIGINS;
-  app.enableCors(
-    corsOrigins
-      ? { origin: corsOrigins.split(",").map((o) => o.trim()), credentials: true }
-      : { origin: true, credentials: true }
-  );
+  if (corsOrigins) {
+    app.enableCors({
+      origin: corsOrigins.split(",").map((o) => o.trim()).filter((o) => o.length > 0),
+      credentials: true,
+    });
+  } else if (process.env.NODE_ENV !== "production") {
+    // Dev-only convenience: allow all origins (no credentials) so a local
+    // browser UI (e.g., a SPA on a different port) can hit the API.
+    app.enableCors({ origin: true, credentials: false });
+  }
 
   // Global validation pipe — strips unknown properties, validates DTOs
   app.useGlobalPipes(
@@ -70,8 +93,8 @@ async function bootstrap() {
 
   const rawPort = process.env.PORT || "3000";
   const port = Number(rawPort);
-  if (!Number.isFinite(port) || port < 1 || port > 65535) {
-    console.error(`❌ FATAL: Invalid PORT "${rawPort}". Must be a number between 1 and 65535.`);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    console.error(`❌ FATAL: Invalid PORT "${rawPort}". Must be an integer between 1 and 65535.`);
     process.exit(1);
   }
   try {

@@ -10,6 +10,7 @@
 import { Injectable, UnauthorizedException } from "@nestjs/common";
 import { PassportStrategy } from "@nestjs/passport";
 import { ExtractJwt, Strategy } from "passport-jwt";
+import { validateTenantIdEnhanced } from "@besterp/database";
 
 export interface JwtPayload {
   sub: string;      // user ID
@@ -54,6 +55,11 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     if (!payload.tenantId) {
       throw new UnauthorizedException("Invalid token: missing tenantId.");
     }
+    // Defense-in-depth: validate tenantId format at the auth boundary so a
+    // forged-but-signed token carrying a malicious tenantId never reaches
+    // tenant-scoped database operations. The check throws InvalidTypeValueError,
+    // which the global DomainExceptionFilter maps to 422.
+    validateTenantIdEnhanced(payload.tenantId);
 
     return {
       userId: payload.sub,

@@ -174,5 +174,58 @@ describe("HealthController", () => {
 
       await expect(controller.ready()).rejects.toThrow("connection refused");
     });
+
+    it("should clear the timeout on the success path (no leaked timer)", async () => {
+      // Regression guard: the old code only cleared the timer in the success
+      // branch and the throw path left a 5s timer pending (it was .unref()'d
+      // so it didn't keep the process alive, but the callback still ran).
+      vi.useFakeTimers();
+      const clearSpy = vi.spyOn(global, "clearTimeout");
+
+      const mockHealthService = {
+        getHealth: vi.fn().mockResolvedValue({
+          status: "ok",
+          timestamp: new Date().toISOString(),
+          uptime: 1000,
+          environment: "test",
+          database: "connected",
+          memory: { heapUsed: 100, heapTotal: 200, rss: 150, heapPercentage: 50 },
+        }),
+        getVersion: vi.fn(),
+      };
+
+      const controller = new HealthController(mockHealthService as any);
+      await controller.ready();
+
+      expect(clearSpy).toHaveBeenCalled();
+      clearSpy.mockRestore();
+      vi.useRealTimers();
+    });
+
+    it("should clear the timeout on the failure path (finally block)", async () => {
+      // Regression guard: the finally block must run on the failure path too,
+      // so the 5s timer doesn't fire uselessly after a failed health check.
+      vi.useFakeTimers();
+      const clearSpy = vi.spyOn(global, "clearTimeout");
+
+      const mockHealthService = {
+        getHealth: vi.fn().mockResolvedValue({
+          status: "error",
+          timestamp: new Date().toISOString(),
+          uptime: 1000,
+          environment: "test",
+          database: "disconnected",
+          memory: { heapUsed: 100, heapTotal: 200, rss: 150, heapPercentage: 50 },
+        }),
+        getVersion: vi.fn(),
+      };
+
+      const controller = new HealthController(mockHealthService as any);
+      await expect(controller.ready()).rejects.toThrow();
+
+      expect(clearSpy).toHaveBeenCalled();
+      clearSpy.mockRestore();
+      vi.useRealTimers();
+    });
   });
 });

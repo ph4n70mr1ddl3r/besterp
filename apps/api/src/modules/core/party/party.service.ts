@@ -13,8 +13,10 @@
 // 2. Application-level: Explicit `tenantId` filters are still applied as a
 //    secondary safeguard and for query performance.
 //
-// OPTIMISTIC CONCURRENCY: Updates check the `version` field to prevent
-// lost updates when multiple agents modify the same entity concurrently.
+// This service is a create-and-relation path — it does not perform
+// general-purpose updates. Duplicate-role prevention is enforced by the
+// `party_active_role_unique` DB constraint (and caught as P2002 if the
+// application-level check is ever removed).
 
 import { Injectable, Logger } from "@nestjs/common";
 import { PrismaService } from "../../../prisma/prisma.service.js";
@@ -401,14 +403,15 @@ export class PartyService {
         throw new DuplicateEntityError(
           `Party '${partyId}' already has active role '${trimmedRoleType}'. ` +
           `Existing role started on ${existingRole.fromDate.toISOString()}. ` +
-          `Use 'update_party_role' to modify it or set thruDate first.`,
+          `To change a party's role, first end the current role by setting a thruDate, ` +
+          `then re-call add_party_role.`,
           {
-            suggestedTools: ["get_party", "update_party_role"],
+            suggestedTools: ["get_party"],
             context: {
               partyId,
               roleType: trimmedRoleType,
               existingRoleId: existingRole.partyRoleId,
-              existingRoleDate: existingRole.fromDate.toISOString()
+              existingRoleDate: existingRole.fromDate.toISOString(),
             },
           }
         );

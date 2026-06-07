@@ -70,16 +70,6 @@ export class EntityNotFoundError extends DomainError {
   }
 }
 
-/** Thrown when an optimistic concurrency check fails (version mismatch). */
-export class ConcurrencyError extends DomainError {
-  constructor(
-    message: string,
-    options?: { suggestedTools?: string[]; context?: Record<string, unknown> }
-  ) {
-    super("CONCURRENCY_CONFLICT", message, options);
-  }
-}
-
 /**
  * Type guard — check if an error is a DomainError (or any subclass).
  */
@@ -88,7 +78,9 @@ export function isDomainError(error: unknown): error is DomainError {
 }
 
 // ─── Legacy Rich Error Formatting ───────────────────────────────
-// Retained for backward compatibility with MCP tool response formatting.
+// Retained only for the deprecated Phase 0a MCP spike
+// (packages/mcp-tools/spikes/server.ts). Production code uses DomainError
+// subclasses and the errorHandlerMiddleware. Remove when the spike is deleted.
 
 export interface RichErrorContent {
   error: string;
@@ -105,6 +97,11 @@ export interface RichErrorContent {
  * @param suggestedTools - Tools the agent should consider using next
  * @param context        - Additional structured context for debugging
  * @returns MCP-compatible error response object
+ *
+ * @deprecated Use DomainError subclasses instead. The production error
+ *   handler middleware in @besterp/mcp-tools catches thrown DomainErrors
+ *   and formats them — this function is only kept for the deprecated
+ *   Phase 0a spike in packages/mcp-tools/spikes/.
  */
 export function richError(
   code: string,

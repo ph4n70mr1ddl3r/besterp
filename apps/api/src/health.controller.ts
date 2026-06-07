@@ -55,9 +55,6 @@ export class HealthController {
       if (result.database !== "connected") {
         throw new ServiceUnavailableException("not ready");
       }
-      // Health check succeeded before timeout — clear the timer to avoid
-      // unnecessary event-loop work.
-      if (timeoutId) clearTimeout(timeoutId);
       return { status: "ready" };
     } catch (error) {
       // Re-throw ServiceUnavailableException as-is
@@ -66,6 +63,11 @@ export class HealthController {
       throw new ServiceUnavailableException(
         error instanceof Error ? error.message : "not ready"
       );
+    } finally {
+      // Always clear the timer, regardless of which path we took. Without this,
+      // the timer fires uselessly 5s after a throw. .unref() on line 47 keeps
+      // it from holding the process open, but the callback still allocates.
+      if (timeoutId) clearTimeout(timeoutId);
     }
   }
 }

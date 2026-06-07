@@ -227,6 +227,19 @@ export function createTenantClient(prisma: PrismaClient, tenantId: string) {
       if (!delegate || typeof delegate !== "object") return delegate;
 
       const proxy = new Proxy(delegate, {
+        // Block property writes on the model delegate. Without these traps,
+        // `scoped.party.someField = "x"` would silently mutate the underlying
+        // shared model delegate and pollute it across all tenants.
+        set(_modelTarget, modelProp) {
+          throw new Error(
+            `Cannot set '${String(modelProp)}' on model '${String(prop)}' of a tenant-scoped client.`
+          );
+        },
+        deleteProperty(_modelTarget, modelProp) {
+          throw new Error(
+            `Cannot delete '${String(modelProp)}' on model '${String(prop)}' of a tenant-scoped client.`
+          );
+        },
         get(modelTarget, method: string | symbol) {
           if (typeof method !== "string") return (modelTarget as any)[method];
 

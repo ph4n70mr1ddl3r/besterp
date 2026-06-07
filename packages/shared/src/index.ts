@@ -8,7 +8,6 @@ export {
   InvalidTypeValueError,
   DuplicateEntityError,
   EntityNotFoundError,
-  ConcurrencyError,
   isDomainError,
   richError,
   type RichErrorContent,

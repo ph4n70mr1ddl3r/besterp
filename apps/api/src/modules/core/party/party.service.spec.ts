@@ -577,6 +577,50 @@ describe("PartyService", () => {
       await expect(partyService.addPartyRole(input)).rejects.toThrow(DuplicateEntityError);
     });
 
+    it("should not suggest the nonexistent 'update_party_role' tool", async () => {
+      // Regression guard: the duplicate-role error used to suggest
+      // 'update_party_role' as a next action, but no such tool exists.
+      // AI agents following the suggestion would loop on UNKNOWN_TOOL.
+      const input = {
+        tenantId: "tenant-1",
+        partyId: "12345678-1234-1234-1234-123456789abc",
+        roleType: "Customer",
+      };
+
+      const mockDb = {
+        roleType: {
+          findUnique: vi.fn().mockResolvedValue({ roleTypeId: "rt-customer" }),
+        },
+        $transaction: vi.fn().mockImplementation(async (fn) => {
+          const tx = {
+            party: { findFirst: vi.fn().mockResolvedValue({ partyId: "12345678-1234-1234-1234-123456789abc" }) },
+            partyRole: {
+              findFirst: vi.fn().mockResolvedValue({
+                partyRoleId: "existing-role",
+                partyId: "12345678-1234-1234-1234-123456789abc",
+                roleTypeId: "rt-customer",
+                fromDate: new Date(),
+                thruDate: null,
+              }),
+            },
+          };
+          return fn(tx);
+        }),
+      };
+
+      mockPrismaService.tenantScoped.mockReturnValue(mockDb);
+
+      try {
+        await partyService.addPartyRole(input);
+        expect.fail("expected DuplicateEntityError to be thrown");
+      } catch (err) {
+        expect(err).toBeInstanceOf(DuplicateEntityError);
+        const domainErr = err as DuplicateEntityError;
+        expect(domainErr.suggestedTools).not.toContain("update_party_role");
+        expect(domainErr.suggestedTools).toContain("get_party");
+      }
+    });
+
     it("should throw error for roleType exceeding max length", async () => {
       const input = {
         tenantId: "tenant-1",

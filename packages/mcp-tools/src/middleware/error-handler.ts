@@ -82,11 +82,17 @@ export const errorHandlerMiddleware: ToolMiddleware = async (input, context, def
       `[MCP] [${new Date().toISOString()}] Unexpected error in '${definition.name}' (tenant=${context.tenantId}, user=${context.userId}): ${message}\n` +
       (error instanceof Error ? `${error.stack}\n` : '')
     );
+    // In production, do NOT echo the raw error message to the agent — it may
+    // contain DB internals, stack frames, or SQL. Send a generic message and
+    // keep the detailed message on the server side (logged above).
+    const isProd = process.env.NODE_ENV === "production";
     return {
       success: false,
       error: {
         code: "INTERNAL_ERROR",
-        message: `Unexpected error in '${definition.name}': ${message}. Try again with a new idempotency key if applicable.`,
+        message: isProd
+          ? `Unexpected error in '${definition.name}'. Try again with a new idempotency key if applicable.`
+          : `Unexpected error in '${definition.name}': ${message}. Try again with a new idempotency key if applicable.`,
         suggestedTools: [definition.name, "list_available_tools"],
       },
     };

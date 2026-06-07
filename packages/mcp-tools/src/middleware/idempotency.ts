@@ -183,12 +183,25 @@ export function idempotencyMiddleware(prisma: PrismaClient): ToolMiddleware {
     try {
       const result = await next(input, context);
 
-      // Store result in idempotency record
+      // A handler can return a soft failure `{ success: false, error: { code, message, ... } }`
+      // (e.g., Zod validation failure, missing reference) without throwing.
+      // Treat soft failures the same as thrown errors for idempotency purposes:
+      // store the result in the record and mark it `failed` so retries can re-execute
+      // (or in the case of validation errors, the caller gets a consistent answer
+      // on replay rather than a stale `success: true`).
+      const isSoftFailure = result.success === false;
+
       await prisma.idempotencyRecord.update({
         where: { idempotencyKey },
         data: {
-          status: "completed",
-          result: result.data as any ?? null,
+          status: isSoftFailure ? "failed" : "completed",
+          result: (result.data as any) ?? null,
+          error: isSoftFailure
+            ? {
+                message: result.error?.message ?? "Tool returned a soft failure",
+                code: result.error?.code,
+              }
+            : undefined,
           completedAt: new Date(),
         },
       });
@@ -202,7 +215,14 @@ export function idempotencyMiddleware(prisma: PrismaClient): ToolMiddleware {
           status: "failed",
           error: { message: error instanceof Error ? error.message : String(error), code: (error as Record<string, unknown>).code as string | undefined },
         },
-      }).catch(() => {}); // ignore update errors
+      }).catch((updateErr) => {
+        // Log to stderr at minimum — silently swallowing means a stuck `pending`
+        // record would block all future retries for this key.
+        process.stderr.write(
+          `[Idempotency] Failed to mark record '${idempotencyKey}' as failed: ` +
+          `${updateErr instanceof Error ? updateErr.message : updateErr}\n`
+        );
+      });
 
       throw error; // re-throw for error handler middleware
     }

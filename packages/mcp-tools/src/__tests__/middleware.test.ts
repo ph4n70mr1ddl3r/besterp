@@ -1,7 +1,7 @@
 // Unit tests for MCP middleware functionality
 // Tests idempotency, audit logging, and error handling
 
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { 
   idempotencyMiddleware, 
   auditLogMiddleware, 
@@ -260,6 +260,153 @@ describe("Idempotency Middleware", () => {
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe("IDEMPOTENCY_CONTENTION");
   });
+
+  it("should record soft-failure results (success:false) as 'failed', not 'completed'", async () => {
+    const input = { test: "value" };
+    const idempotencyKey = "test-soft-fail";
+    const contextWithKey = { ...mockContext, idempotencyKey };
+
+    mockFindInTransaction(null);
+    mockPrisma.idempotencyRecord.create.mockResolvedValue({
+      idempotencyKey,
+      status: "pending",
+    });
+    mockPrisma.idempotencyRecord.update.mockResolvedValue({});
+
+    // Handler returns a soft failure (success: false) instead of throwing.
+    // This is the Zod-validation path: the registry's pipeline returns
+    // `{ success: false, error: ... }` for invalid input rather than throwing.
+    const softFailureNext = async () => ({
+      success: false as const,
+      error: {
+        code: "INVALID_INPUT",
+        message: "Input validation failed: test: Required",
+      },
+    });
+
+    const middleware = idempotencyMiddleware(mockPrisma as any);
+    const result = await middleware(input, contextWithKey, mockDefinition, softFailureNext);
+
+    // Result is propagated unchanged
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe("INVALID_INPUT");
+
+    // The idempotency record must be stored as 'failed', not 'completed' —
+    // a completed record would let a retry receive a stale (or absent) success
+    // response. The 'failed' status forces re-execution on the next call.
+    expect(mockPrisma.idempotencyRecord.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { idempotencyKey },
+        data: expect.objectContaining({
+          status: "failed",
+          error: expect.objectContaining({
+            code: "INVALID_INPUT",
+            message: expect.stringContaining("Input validation failed"),
+          }),
+        }),
+      })
+    );
+  });
+
+  it("should record successful results (success:true) as 'completed'", async () => {
+    const input = { test: "value" };
+    const idempotencyKey = "test-success";
+    const contextWithKey = { ...mockContext, idempotencyKey };
+
+    mockFindInTransaction(null);
+    mockPrisma.idempotencyRecord.create.mockResolvedValue({
+      idempotencyKey,
+      status: "pending",
+    });
+    mockPrisma.idempotencyRecord.update.mockResolvedValue({});
+
+    const middleware = idempotencyMiddleware(mockPrisma as any);
+    const result = await middleware(
+      input,
+      contextWithKey,
+      mockDefinition,
+      successNext({ success: true, data: "ok" })
+    );
+
+    expect(result.success).toBe(true);
+    expect(mockPrisma.idempotencyRecord.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: "completed",
+          result: "ok",
+        }),
+      })
+    );
+  });
+
+  it("should not record an error field on successful completions", async () => {
+    const input = { test: "value" };
+    const idempotencyKey = "test-no-error-field";
+    const contextWithKey = { ...mockContext, idempotencyKey };
+
+    mockFindInTransaction(null);
+    mockPrisma.idempotencyRecord.create.mockResolvedValue({
+      idempotencyKey,
+      status: "pending",
+    });
+    mockPrisma.idempotencyRecord.update.mockResolvedValue({});
+
+    const middleware = idempotencyMiddleware(mockPrisma as any);
+    await middleware(input, contextWithKey, mockDefinition, successNext({ success: true, data: "ok" }));
+
+    const updateCall = mockPrisma.idempotencyRecord.update.mock.calls[0];
+    const updateData = updateCall[0].data;
+    // Either undefined or null — both mean "no error to record"
+    expect(updateData.error == null).toBe(true);
+  });
+
+  it("should log to stderr when the failed-status update itself fails", async () => {
+    const input = { test: "value" };
+    const idempotencyKey = "test-update-fails";
+    const contextWithKey = { ...mockContext, idempotencyKey };
+
+    mockFindInTransaction(null);
+    mockPrisma.idempotencyRecord.create.mockResolvedValue({
+      idempotencyKey,
+      status: "pending",
+    });
+    // First update (the catch-up to 'failed') rejects; subsequent updates ignored.
+    mockPrisma.idempotencyRecord.update.mockRejectedValue(new Error("DB down"));
+
+    // Spy on stderr.write to verify the log line. process.stderr is a native
+    // WritableStream — its `write` method has multiple overloads and the
+    // vitest spy interacts with all of them. We replace the method with a
+    // vi.fn() rather than mockImplementation on the spy to make assertion
+    // straightforward.
+    const originalWrite = process.stderr.write.bind(process.stderr);
+    const stderrCalls: unknown[][] = [];
+    const writeSpy = vi.fn((...args: unknown[]) => {
+      stderrCalls.push(args);
+      return true;
+    });
+    process.stderr.write = writeSpy as typeof process.stderr.write;
+
+    try {
+      const middleware = idempotencyMiddleware(mockPrisma as any);
+      await expect(
+        middleware(input, contextWithKey, mockDefinition, throwingNext(new Error("boom")))
+      ).rejects.toThrow("boom");
+
+      // The catch handler runs as a microtask after the rejected update is
+      // caught. Let the event loop flush so the fire-and-forget stderr.write
+      // lands in the spy before we assert.
+      await new Promise<void>((resolve) => setImmediate(resolve));
+    } finally {
+      process.stderr.write = originalWrite;
+    }
+
+    // Stringify all call args — process.stderr.write can be called with
+    // (string | Uint8Array, encoding?, cb?), so we coerce to string and join.
+    const allArgs = stderrCalls
+      .map((args) => args.map((a) => (typeof a === "string" ? a : "<binary>")).join(" "))
+      .join("\n");
+    expect(allArgs).toContain("test-update-fails");
+  });
 });
 
 describe("Audit Log Middleware", () => {
@@ -376,8 +523,19 @@ describe("Audit Log Middleware", () => {
 });
 
 describe("Error Handler Middleware", () => {
+  let originalNodeEnv: string | undefined;
+
   beforeEach(() => {
     vi.clearAllMocks();
+    originalNodeEnv = process.env.NODE_ENV;
+  });
+
+  afterEach(() => {
+    if (originalNodeEnv === undefined) {
+      delete process.env.NODE_ENV;
+    } else {
+      process.env.NODE_ENV = originalNodeEnv;
+    }
   });
 
   it("should format domain errors correctly", async () => {
@@ -442,13 +600,32 @@ describe("Error Handler Middleware", () => {
     expect(result.error?.suggestedTools).toContain("get_test");
   });
 
-  it("should handle generic errors with fallback", async () => {
-    const genericError = new Error("Unexpected error");
+  it("should handle generic errors with fallback (non-prod: includes raw message)", async () => {
+    process.env.NODE_ENV = "development";
+    const genericError = new Error("connection to db at 10.0.0.5:5432 failed");
 
     const result = await errorHandlerMiddleware({}, mockContext, mockDefinition, throwingNext(genericError));
 
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe("INTERNAL_ERROR");
+    // Non-prod preserves the message for debugging.
+    expect(result.error?.message).toContain("connection to db at 10.0.0.5:5432 failed");
+  });
+
+  it("should strip the raw error message in production (no internals leak)", async () => {
+    process.env.NODE_ENV = "production";
+    const sensitiveMessage = "PrismaClientKnownRequestError: Invalid `prisma.party.create()` invocation: connect ECONNREFUSED 10.0.0.5:5432";
+    const genericError = new Error(sensitiveMessage);
+
+    const result = await errorHandlerMiddleware({}, mockContext, mockDefinition, throwingNext(genericError));
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe("INTERNAL_ERROR");
+    // Production must not echo the raw message (which can contain hostnames,
+    // stack frames, SQL, etc.). A generic message is sent instead.
+    expect(result.error?.message).not.toContain("10.0.0.5");
+    expect(result.error?.message).not.toContain("PrismaClient");
+    expect(result.error?.message).not.toContain("ECONNREFUSED");
     expect(result.error?.message).toContain("test_tool");
   });
 

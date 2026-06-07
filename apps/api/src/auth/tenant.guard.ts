@@ -7,7 +7,7 @@
 // request-scoped. It accesses the request via the ExecutionContext,
 // which is safe because NestJS provides a fresh ExecutionContext per request.
 
-import { Injectable, ExecutionContext, CanActivate } from "@nestjs/common";
+import { Injectable, ExecutionContext, CanActivate, InternalServerErrorException } from "@nestjs/common";
 import { Reflector } from "@nestjs/core";
 import { Request } from "express";
 import { JwtValidatedUser } from "./jwt.strategy.js";
@@ -40,7 +40,13 @@ export class TenantGuard implements CanActivate {
     const user = request.user;
 
     if (!user) {
-      return false;
+      // JwtAuthGuard should always run before TenantGuard and populate
+      // req.user. If we reach this branch, the guards are misconfigured.
+      // Throw a 500 with a clear message rather than silently returning false
+      // (which NestJS would convert to a bare 403 with no diagnostic context).
+      throw new InternalServerErrorException(
+        "TenantGuard: req.user is missing. JwtAuthGuard must run before TenantGuard."
+      );
     }
 
     const tenantContext: TenantContext = {
