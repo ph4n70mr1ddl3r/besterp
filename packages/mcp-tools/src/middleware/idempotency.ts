@@ -16,17 +16,9 @@
 // If no idempotency key is provided, the middleware is a no-op pass-through.
 
 import { PrismaClient } from "@prisma/client";
-import { hashInput } from "@besterp/shared";
+import { hashInput, MAX_SOFT_FAILURE_MESSAGE_SIZE } from "@besterp/shared";
 import { ToolMiddleware, ToolDefinition, ToolResult, ToolContext } from "../schema/tool-definition.js";
 import { truncateValue, MAX_STORED_PAYLOAD_SIZE, capString } from "./truncate.js";
-
-/**
- * Cap (bytes) for the `error.message` field stored on a soft-failure
- * idempotency record. A typical Zod validation message is a few hundred
- * bytes; deeply nested inputs can push it into the KB range. 4 KB is
- * generous for diagnostics while bounding the row width.
- */
-const MAX_SOFT_FAILURE_MESSAGE_SIZE = 4096;
 
 /**
  * Create an idempotency middleware backed by PostgreSQL.

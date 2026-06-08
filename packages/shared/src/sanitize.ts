@@ -39,34 +39,23 @@ export function stripHtmlTags(input: string): string {
   // Remove all remaining HTML tags
   sanitized = sanitized.replace(/<[^>]*>/g, "");
 
-  // Decode common HTML entities that might have been double-encoded
-  // This prevents bypasses like &lt;script&gt; → <script>
-  sanitized = sanitized
-    .replace(/&lt;/gi, "<")
-    .replace(/&gt;/gi, ">")
-    .replace(/&amp;/gi, "&")
-    .replace(/&quot;/gi, '"')
-    .replace(/&#x27;/gi, "'")
-    .replace(/&#39;/gi, "'");
-
-  // After decoding, strip any tags that were revealed
-  sanitized = sanitized.replace(/<[^>]*>/g, "");
+  // Decode common HTML entities that might have been double-encoded.
+  // Order matters: decode &amp; LAST because &amp;lt; → &lt; → <.
+  // A second pass catches triple-encoding (e.g., &amp;amp;lt; → &amp;lt; → &lt; → <).
+  for (let pass = 0; pass < 2; pass++) {
+    const before = sanitized;
+    sanitized = sanitized
+      .replace(/&lt;/gi, "<")
+      .replace(/&gt;/gi, ">")
+      .replace(/&amp;/gi, "&")
+      .replace(/&quot;/gi, '"')
+      .replace(/&#x27;/gi, "'")
+      .replace(/&#39;/gi, "'");
+    // After decoding, strip any tags that were revealed
+    sanitized = sanitized.replace(/<[^>]*>/g, "");
+    // If nothing changed, no more entities to decode
+    if (sanitized === before) break;
+  }
 
   return sanitized;
-}
-
-/**
- * Sanitize a text field for storage. Trims whitespace and strips HTML tags.
- *
- * @param value - The raw string to sanitize
- * @returns Trimmed, tag-stripped string, or undefined if input is empty/null
- */
-export function sanitizeTextField(value: string | undefined | null): string | undefined {
-  if (value === undefined || value === null) return undefined;
-  if (typeof value !== "string") return value as unknown as string;
-
-  const trimmed = value.trim();
-  if (trimmed.length === 0) return undefined;
-
-  return stripHtmlTags(trimmed);
 }

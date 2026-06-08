@@ -12,7 +12,7 @@ import { PassportStrategy } from "@nestjs/passport";
 import { ExtractJwt, Strategy } from "passport-jwt";
 import { randomBytes } from "node:crypto";
 import { validateTenantIdEnhanced } from "@besterp/database";
-import { InvalidTypeValueError } from "@besterp/shared";
+import { InvalidTypeValueError, MAX_USER_ID_LENGTH, MAX_AGENT_ID_LENGTH, MAX_ROLE_LENGTH } from "@besterp/shared";
 
 export interface JwtPayload {
   sub: string;      // user ID
@@ -45,13 +45,9 @@ export function resolveJwtSecret(): string {
   return randomBytes(32).toString("hex");
 }
 
-// Length cap for user/agent identifiers in the JWT. Matches the limit
-// enforced later in McpModule.buildContext so a forged token carrying a
-// 10MB identifier is rejected at the auth boundary rather than propagated
-// into req.user / req.tenantContext / audit logs.
-const MAX_USER_ID_LENGTH = 200;
-const MAX_AGENT_ID_LENGTH = 200;
-const MAX_ROLE_LENGTH = 100;
+// Length caps for user/agent/role identifiers in the JWT. Imported from
+// @besterp/shared/constants to avoid duplication and ensure the same limits
+// are enforced at the auth boundary and in McpModule.buildContext.
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {

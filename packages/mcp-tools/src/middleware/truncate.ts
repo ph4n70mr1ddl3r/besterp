@@ -15,14 +15,15 @@
 //   `{ _error: "Failed to serialize value" }` — never throw from a middleware
 //   side-effect like audit/idempotency logging.
 
-/** Maximum size (bytes) of stored audit log and idempotency payloads. */
-export const MAX_STORED_PAYLOAD_SIZE = 65536; // 64 KB
+import { MAX_STORED_PAYLOAD_SIZE } from "@besterp/shared";
+export { MAX_STORED_PAYLOAD_SIZE };
 
 /** Preview length (bytes) when a payload is truncated. */
 const PREVIEW_BYTES = 1024;
 
-/** Shared TextEncoder instance — avoids allocation in hot paths. */
+/** Shared TextEncoder/TextDecoder instances — avoids allocation in hot paths. */
 const textEncoder = new TextEncoder();
+const textDecoder = new TextDecoder();
 
 /**
  * Cap an individual string at `maxBytes` bytes (measured in UTF-8).
@@ -45,7 +46,7 @@ export function capString(value: unknown, maxBytes: number): string {
   // Truncate to maxBytes, accounting for the marker length
   const marker = `... [truncated, original was ${encoded.byteLength} bytes]`;
   const markerBytes = textEncoder.encode(marker).byteLength;
-  const truncated = new TextDecoder().decode(encoded.slice(0, Math.max(0, maxBytes - markerBytes)));
+  const truncated = textDecoder.decode(encoded.slice(0, Math.max(0, maxBytes - markerBytes)));
   return `${truncated}${marker}`;
 }
 

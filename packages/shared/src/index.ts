@@ -15,6 +15,6 @@ export { hashInput } from "./crypto.js";
 
 export { UUID_REGEX, EMAIL_REGEX, COUNTRY_CODE_REGEX } from "./validation.js";
 
-export { stripHtmlTags, sanitizeTextField } from "./sanitize.js";
+export { stripHtmlTags } from "./sanitize.js";
 
 export * from "./constants.js";
