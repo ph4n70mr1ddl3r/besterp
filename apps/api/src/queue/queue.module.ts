@@ -53,14 +53,25 @@ export class QueueModule {
       host: string;
       port: number;
       maxRetriesPerRequest: null;
-      retryStrategy: (times: number) => number;
+      retryStrategy: (times: number) => number | undefined;
       connectTimeout: number;
       password?: string;
     } = {
       host: redisHost,
       port: redisPort,
       maxRetriesPerRequest: null, // required by BullMQ for sticky connections
-      retryStrategy: (times: number): number => Math.min(times * 200, 5000),
+      retryStrategy: (times: number) => {
+        // Cap retries to prevent infinite reconnect loops when Redis is
+        // unreachable. After MAX_RETRIES, return an Error to abort connection.
+        const MAX_RETRIES = 10;
+        if (times > MAX_RETRIES) {
+          QueueModule.logger.error(
+            `Redis connection failed after ${MAX_RETRIES} retries — aborting.`
+          );
+          return undefined; // Returning undefined signals the client to stop retrying
+        }
+        return Math.min(times * 200, 5000);
+      },
       connectTimeout: 10000,
       ...(redisPassword ? { password: redisPassword } : {}),
     };

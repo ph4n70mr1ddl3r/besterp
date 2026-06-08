@@ -35,8 +35,11 @@ export class PrismaService
     if (this._destroyed) return;
     this.tenantClientCache.delete(tenantId);
     this.unregisterTokens.delete(tenantId);
+    this.lastAccessed.delete(tenantId);
   });
   private readonly unregisterTokens = new Map<string, object>();
+  /** Access timestamps for LRU eviction — updated on each cache hit. */
+  private readonly lastAccessed = new Map<string, number>();
 
   constructor() {
     // Base client uses admin URL for migrations, seed, cross-tenant ops
@@ -106,6 +109,7 @@ export class PrismaService
     }
     this.tenantClientCache.clear();
     this.unregisterTokens.clear();
+    this.lastAccessed.clear();
 
     const disconnectResults = await Promise.allSettled([
       this.$disconnect(),
@@ -163,19 +167,27 @@ export class PrismaService
     validateTenantIdEnhanced(tenantId);
 
     const cached = this.tenantClientCache.get(tenantId)?.deref();
-    if (cached) return cached;
+    if (cached) {
+      this.lastAccessed.set(tenantId, Date.now());
+      return cached;
+    }
 
     // Only run eviction when the cache is full.
     if (this.tenantClientCache.size >= MAX_TENANT_CACHE_SIZE) {
-      // Map iteration order is insertion order in modern JS, so the first live
-      // entry encountered is the oldest — this is FIFO eviction, not LRU.
+      // LRU eviction: evict the stale entries first, then the least recently
+      // used live entry (lowest lastAccessed timestamp).
       const staleKeys: string[] = [];
-      let oldestKey: string | null = null;
+      let lruKey: string | null = null;
+      let lruTime = Infinity;
       for (const [key, ref] of this.tenantClientCache) {
         if (!ref.deref()) {
           staleKeys.push(key);
-        } else if (!oldestKey) {
-          oldestKey = key;
+        } else {
+          const ts = this.lastAccessed.get(key) ?? 0;
+          if (ts < lruTime) {
+            lruTime = ts;
+            lruKey = key;
+          }
         }
       }
 
@@ -187,19 +199,21 @@ export class PrismaService
           this.unregisterTokens.delete(key);
         }
         this.tenantClientCache.delete(key);
+        this.lastAccessed.delete(key);
       }
 
-      // No stale entries found — evict the oldest live entry to make room.
-      if (staleKeys.length === 0 && oldestKey) {
+      // No stale entries found — evict the least recently used live entry.
+      if (staleKeys.length === 0 && lruKey) {
         this.logger.warn(
-          `Tenant client cache full (${MAX_TENANT_CACHE_SIZE}). Evicting oldest entry: '${oldestKey}'.`
+          `Tenant client cache full (${MAX_TENANT_CACHE_SIZE}). Evicting LRU entry: '${lruKey}'.`
         );
-        const token = this.unregisterTokens.get(oldestKey);
+        const token = this.unregisterTokens.get(lruKey);
         if (token) {
           this.cacheRegistry.unregister(token);
         }
-        this.tenantClientCache.delete(oldestKey);
-        this.unregisterTokens.delete(oldestKey);
+        this.tenantClientCache.delete(lruKey);
+        this.unregisterTokens.delete(lruKey);
+        this.lastAccessed.delete(lruKey);
       }
     }
 

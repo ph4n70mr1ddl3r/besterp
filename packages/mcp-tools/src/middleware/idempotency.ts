@@ -73,8 +73,12 @@ export function idempotencyMiddleware(prisma: PrismaClient): ToolMiddleware {
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
       try {
         const { existing, created } = await prisma.$transaction(async (tx) => {
-          const record = await tx.idempotencyRecord.findUnique({
-            where: { idempotencyKey },
+          // Use findFirst with tenantId for defense-in-depth tenant isolation.
+          // The primary key (idempotencyKey) should be globally unique by design,
+          // but adding tenantId prevents cross-tenant result leakage if callers
+          // ever reuse keys across tenants.
+          const record = await tx.idempotencyRecord.findFirst({
+            where: { idempotencyKey, tenantId },
           });
 
           if (!record) {

@@ -41,14 +41,18 @@ const personSchema = z.object({
   firstName: z.string().transform(s => s.trim()).pipe(z.string().min(1).max(200)).describe("First/given name"),
   lastName: z.string().transform(s => s.trim()).pipe(z.string().min(1).max(200)).describe("Last/family name"),
   middleName: z.string().max(100).optional().transform(s => s?.trim() || undefined).describe("Middle name"),
-  birthDate: z.string().max(30).optional().describe("Date of birth (ISO 8601)"),
+  birthDate: z.string().max(30).optional()
+    .refine(v => v === undefined || !isNaN(new Date(v).getTime()), "Invalid date format")
+    .describe("Date of birth (ISO 8601)"),
   gender: z.string().max(50).optional().transform(s => s?.trim()).describe("Gender"),
 });
 
 const organizationSchema = z.object({
   legalName: z.string().transform(s => s.trim()).pipe(z.string().min(1).max(500)).describe("Legal/registered name of the organization"),
   taxId: z.string().max(50).optional().transform(s => s?.trim()).describe("Tax identification number"),
-  registrationDate: z.string().max(30).optional().describe("Date of registration (ISO 8601)"),
+  registrationDate: z.string().max(30).optional()
+    .refine(v => v === undefined || !isNaN(new Date(v).getTime()), "Invalid date format")
+    .describe("Date of registration (ISO 8601)"),
 });
 
 const postalAddressSchema = z.object({

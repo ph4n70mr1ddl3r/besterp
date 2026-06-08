@@ -21,6 +21,7 @@ async function main() {
   let lockAcquired = false;
   let totalDeleted = 0;
   let before: number;
+  let after: number;
 
   // Try to acquire the advisory lock. pg_try_advisory_lock returns false
   // immediately if another process already holds it — the script exits
@@ -67,6 +68,8 @@ async function main() {
       totalDeleted += deleted;
     } while (deleted === BATCH_SIZE);
   } finally {
+    // Capture count while lock is still held for accurate before/after comparison.
+    after = await prisma.idempotencyRecord.count();
     if (lockAcquired) {
       try {
         await prisma.$queryRaw`SELECT pg_advisory_unlock(${ADVISORY_LOCK_KEY})`;
@@ -75,8 +78,6 @@ async function main() {
       }
     }
   }
-
-  const after = await prisma.idempotencyRecord.count();
 
   console.log(`🧹 Idempotency cleanup complete:`);
   console.log(`   Records before: ${before}`);
