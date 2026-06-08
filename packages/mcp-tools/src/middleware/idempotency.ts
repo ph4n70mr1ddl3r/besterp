@@ -123,7 +123,8 @@ export function idempotencyMiddleware(prisma: PrismaClient): ToolMiddleware {
         recordCreated = created;
         break;
       } catch (e) {
-        if ((e as Record<string, unknown>).code === "P2034" && attempt < MAX_RETRIES - 1) {
+        const code = (e != null && typeof e === "object") ? (e as Record<string, unknown>).code : undefined;
+        if (code === "P2034" && attempt < MAX_RETRIES - 1) {
           // Serialization failure — back off and retry
           await new Promise((r) => setTimeout(r, 50 * (attempt + 1)));
           continue;
@@ -131,7 +132,7 @@ export function idempotencyMiddleware(prisma: PrismaClient): ToolMiddleware {
         // On last attempt or non-P2034 error, break out of the loop.
         // The contention guard below will handle the case where no record
         // was created. Non-P2034 errors are re-thrown after the guard.
-        if ((e as Record<string, unknown>).code !== "P2034") {
+        if (code !== "P2034") {
           throw e;
         }
         // P2034 on last attempt — fall through to contention guard
@@ -216,7 +217,7 @@ export function idempotencyMiddleware(prisma: PrismaClient): ToolMiddleware {
           where: { idempotencyKey },
           data: {
             status: "failed",
-            error: { message: error instanceof Error ? error.message : String(error), code: (error as Record<string, unknown>).code as string | undefined },
+            error: { message: error instanceof Error ? error.message : String(error), code: (error != null && typeof error === "object") ? (error as Record<string, unknown>).code as string | undefined : undefined },
           },
         }).catch((updateErr) => {
           process.stderr.write(
@@ -235,30 +236,43 @@ export function idempotencyMiddleware(prisma: PrismaClient): ToolMiddleware {
     // store the result in the record and mark it `failed` so retries can re-execute.
     const isSoftFailure = toolResult.success === false;
 
-    await prisma.idempotencyRecord.update({
-      where: { idempotencyKey },
-      data: {
-        status: isSoftFailure ? "failed" : "completed",
-        result: toolResult.data !== undefined
-          ? (truncateValue(toolResult.data, MAX_STORED_PAYLOAD_SIZE) as unknown as Prisma.InputJsonValue)
-          : Prisma.DbNull,
-        error: isSoftFailure
-          ? {
-              message: capString(toolResult.error?.message, MAX_SOFT_FAILURE_MESSAGE_SIZE),
-              code: toolResult.error?.code,
-            }
-          : undefined,
-        completedAt: new Date(),
-      },
-    }).catch((updateErr) => {
-      // Log but do not swallow — the tool result is still returned to the caller.
-      // The worst case is a stuck `pending` record that blocks retries for this
-      // key until the 24h TTL cleanup. The caller sees success, which is correct.
-      process.stderr.write(
-        `[Idempotency] Failed to update record '${idempotencyKey}' after tool execution: ` +
-        `${updateErr instanceof Error ? updateErr.message : updateErr}\n`
-      );
-    });
+    // Retry the final update up to 3 times to avoid a stuck "pending" record.
+    // If the update fails, retries see REQUEST_IN_PROGRESS and can never replay
+    // the result until the 24h TTL cleanup. A short retry loop mitigates
+    // transient DB/network errors that would otherwise break the idempotency
+    // contract (caller sees success but retries get stuck).
+    for (let updateAttempt = 0; updateAttempt < 3; updateAttempt++) {
+      try {
+        await prisma.idempotencyRecord.update({
+          where: { idempotencyKey },
+          data: {
+            status: isSoftFailure ? "failed" : "completed",
+            result: toolResult.data !== undefined
+              ? (truncateValue(toolResult.data, MAX_STORED_PAYLOAD_SIZE) as unknown as Prisma.InputJsonValue)
+              : Prisma.DbNull,
+            error: isSoftFailure
+              ? {
+                  message: capString(toolResult.error?.message, MAX_SOFT_FAILURE_MESSAGE_SIZE),
+                  code: toolResult.error?.code,
+                }
+              : undefined,
+            completedAt: new Date(),
+          },
+        });
+        break;
+      } catch (updateErr) {
+        if (updateAttempt < 2) {
+          await new Promise((r) => setTimeout(r, 50 * (updateAttempt + 1)));
+          continue;
+        }
+        // All retries exhausted — log and accept stuck record.
+        // The caller still receives the tool result (correct behavior).
+        process.stderr.write(
+          `[Idempotency] Failed to update record '${idempotencyKey}' after tool execution ` +
+          `(3 attempts): ${updateErr instanceof Error ? updateErr.message : updateErr}\n`
+        );
+      }
+    }
 
     return toolResult;
   };

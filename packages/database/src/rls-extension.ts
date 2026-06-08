@@ -36,8 +36,9 @@ export function validateTenantIdEnhanced(tenantId: string): void {
   } catch (e) {
     // Re-throw as a structured DomainError so callers only need to
     // catch InvalidTypeValueError instead of plain Error.
-    // Truncate preview to avoid leaking untrusted input in error context.
-    const preview = tenantId.length > 20 ? `${tenantId.slice(0, 20)}...` : tenantId;
+    // Sanitize preview to avoid leaking untrusted input in error context.
+    const sanitized = tenantId.replace(/[^a-zA-Z0-9_-]/g, "?");
+    const preview = sanitized.length > 20 ? `${sanitized.slice(0, 20)}...` : sanitized;
     throw new InvalidTypeValueError(
       (e as Error).message,
       { context: { field: "tenantId", received: preview } }

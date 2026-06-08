@@ -20,7 +20,7 @@
 
 import { Injectable, Logger } from "@nestjs/common";
 import { PrismaService } from "../../../prisma/prisma.service.js";
-import type { Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import {
   MissingSubtypeDataError,
   InvalidTypeValueError,
@@ -348,9 +348,12 @@ export class PartyService {
       }
     }
 
-    // Use a transaction to ensure count + findMany see a consistent snapshot.
-    // Without this, a concurrent insert between the two queries could cause
-    // hasMore to be inaccurate (count says N+1, but findMany returns N).
+    // NOTE: Under PostgreSQL READ COMMITTED, each statement inside the
+    // transaction gets a fresh snapshot, so a concurrent INSERT between
+    // count and findMany can cause `total` and `items.length` to disagree.
+    // This is acceptable for search pagination — the worst case is an
+    // off-by-one in `hasMore`. Using REPEATABLE READ would prevent this
+    // but adds contention overhead that isn't justified for a search endpoint.
     const [total, items] = await db.$transaction(async (tx: Prisma.TransactionClient) => {
       const count = await tx.party.count({ where });
       const rows = await tx.party.findMany({
@@ -480,6 +483,22 @@ export class PartyService {
         },
         include: { roleType: true },
       });
+    }).catch((err) => {
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
+        throw new DuplicateEntityError(
+          `Party '${partyId}' already has active role '${trimmedRoleType}' (unique constraint violation). ` +
+          `To change a party's role, first end the current role by setting a thruDate, ` +
+          `then re-call add_party_role.`,
+          {
+            suggestedTools: ["get_party"],
+            context: {
+              partyId,
+              roleType: trimmedRoleType,
+            },
+          }
+        );
+      }
+      throw err;
     });
 
     this.logger.log(`Added role '${trimmedRoleType}' to party ${partyId} (ID: ${role.partyRoleId})`);
