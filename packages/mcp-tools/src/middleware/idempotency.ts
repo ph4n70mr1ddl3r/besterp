@@ -16,7 +16,7 @@
 // If no idempotency key is provided, the middleware is a no-op pass-through.
 
 import { PrismaClient } from "@prisma/client";
-import { hashInput, MAX_SOFT_FAILURE_MESSAGE_SIZE } from "@besterp/shared";
+import { hashInput, MAX_SOFT_FAILURE_MESSAGE_SIZE, IDEMPOTENCY_TTL_MS } from "@besterp/shared";
 import { ToolMiddleware, ToolDefinition, ToolResult, ToolContext } from "../schema/tool-definition.js";
 import { truncateValue, MAX_STORED_PAYLOAD_SIZE, capString } from "./truncate.js";
 
@@ -89,7 +89,7 @@ export function idempotencyMiddleware(prisma: PrismaClient): ToolMiddleware {
                 conversationId: conversationId || null,
                 status: "pending",
                 inputHash,
-                expiresAt: new Date(Date.now() + 86400000), // 24h TTL
+                expiresAt: new Date(Date.now() + IDEMPOTENCY_TTL_MS),
               },
             });
             return { existing: null, created: true };
@@ -101,7 +101,7 @@ export function idempotencyMiddleware(prisma: PrismaClient): ToolMiddleware {
           if (record.status === "failed") {
             await tx.idempotencyRecord.update({
               where: { idempotencyKey },
-              data: { status: "pending", inputHash, expiresAt: new Date(Date.now() + 86400000) },
+              data: { status: "pending", inputHash, expiresAt: new Date(Date.now() + IDEMPOTENCY_TTL_MS) },
             });
             return { existing: null, created: true };
           }
@@ -192,44 +192,9 @@ export function idempotencyMiddleware(prisma: PrismaClient): ToolMiddleware {
     }
 
     // ─── Execute the tool ─────────────────────────────────────────
+    let toolResult: ToolResult;
     try {
-      const result = await next(input, context);
-
-      // A handler can return a soft failure `{ success: false, error: { code, message, ... } }`
-      // (e.g., Zod validation failure, missing reference) without throwing.
-      // Treat soft failures the same as thrown errors for idempotency purposes:
-      // store the result in the record and mark it `failed` so retries can re-execute
-      // (or in the case of validation errors, the caller gets a consistent answer
-      // on replay rather than a stale `success: true`).
-      const isSoftFailure = result.success === false;
-
-      await prisma.idempotencyRecord.update({
-        where: { idempotencyKey },
-        data: {
-          status: isSoftFailure ? "failed" : "completed",
-          // Truncate stored result to 64 KB to match the audit log cap.
-          // A single tool response with a 100 MB payload would otherwise
-          // produce a 100 MB row in `idempotency_record.result` that the
-          // 24h-TTL cleanup job cannot control in width.
-          result: result.data !== undefined
-            ? (truncateValue(result.data, MAX_STORED_PAYLOAD_SIZE) as any)
-            : null,
-          // Cap the soft-failure message at 4 KB. A Zod validation error
-          // with many issues (or a deeply nested input) can produce a
-          // multi-KB message; storing it verbatim would create very wide
-          // rows and bloat the cleanup-job I/O. The cap is generous enough
-          // to capture every issue path Zod produces in practice.
-          error: isSoftFailure
-            ? {
-                message: capString(result.error?.message, MAX_SOFT_FAILURE_MESSAGE_SIZE),
-                code: result.error?.code,
-              }
-            : undefined,
-          completedAt: new Date(),
-        },
-      });
-
-      return result;
+      toolResult = await next(input, context);
     } catch (error: unknown) {
       // Mark as failed
       await prisma.idempotencyRecord.update({
@@ -239,8 +204,6 @@ export function idempotencyMiddleware(prisma: PrismaClient): ToolMiddleware {
           error: { message: error instanceof Error ? error.message : String(error), code: (error as Record<string, unknown>).code as string | undefined },
         },
       }).catch((updateErr) => {
-        // Log to stderr at minimum — silently swallowing means a stuck `pending`
-        // record would block all future retries for this key.
         process.stderr.write(
           `[Idempotency] Failed to mark record '${idempotencyKey}' as failed: ` +
           `${updateErr instanceof Error ? updateErr.message : updateErr}\n`
@@ -249,5 +212,38 @@ export function idempotencyMiddleware(prisma: PrismaClient): ToolMiddleware {
 
       throw error; // re-throw for error handler middleware
     }
+
+    // A handler can return a soft failure `{ success: false, error: { code, message, ... } }`
+    // (e.g., Zod validation failure, missing reference) without throwing.
+    // Treat soft failures the same as thrown errors for idempotency purposes:
+    // store the result in the record and mark it `failed` so retries can re-execute.
+    const isSoftFailure = toolResult.success === false;
+
+    await prisma.idempotencyRecord.update({
+      where: { idempotencyKey },
+      data: {
+        status: isSoftFailure ? "failed" : "completed",
+        result: toolResult.data !== undefined
+          ? (truncateValue(toolResult.data, MAX_STORED_PAYLOAD_SIZE) as any)
+          : null,
+        error: isSoftFailure
+          ? {
+              message: capString(toolResult.error?.message, MAX_SOFT_FAILURE_MESSAGE_SIZE),
+              code: toolResult.error?.code,
+            }
+          : undefined,
+        completedAt: new Date(),
+      },
+    }).catch((updateErr) => {
+      // Log but do not swallow — the tool result is still returned to the caller.
+      // The worst case is a stuck `pending` record that blocks retries for this
+      // key until the 24h TTL cleanup. The caller sees success, which is correct.
+      process.stderr.write(
+        `[Idempotency] Failed to update record '${idempotencyKey}' after tool execution: ` +
+        `${updateErr instanceof Error ? updateErr.message : updateErr}\n`
+      );
+    });
+
+    return toolResult;
   };
 }

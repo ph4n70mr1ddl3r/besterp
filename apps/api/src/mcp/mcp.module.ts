@@ -20,7 +20,7 @@ import {
   OnModuleInit,
 } from "@nestjs/common";
 import { validateTenantIdEnhanced } from "@besterp/database";
-import { InvalidTypeValueError } from "@besterp/shared";
+import { InvalidTypeValueError, MAX_USER_ID_LENGTH } from "@besterp/shared";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { PrismaModule } from "../prisma/prisma.module.js";
 import { PartyService } from "../modules/core/party/party.service.js";
@@ -88,10 +88,10 @@ export class McpModule implements OnModuleInit {
       );
     }
     userId = userId.trim();
-    if (userId.length > 200) {
+    if (userId.length > MAX_USER_ID_LENGTH) {
       throw new InvalidTypeValueError(
-        `McpModule.buildContext: userId is too long (${userId.length} chars, max 200).`,
-        { context: { field: "userId", length: userId.length, maxLength: 200 } }
+        `McpModule.buildContext: userId is too long (${userId.length} chars, max ${MAX_USER_ID_LENGTH}).`,
+        { context: { field: "userId", length: userId.length, maxLength: MAX_USER_ID_LENGTH } }
       );
     }
 

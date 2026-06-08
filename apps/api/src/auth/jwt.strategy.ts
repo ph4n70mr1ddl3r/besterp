@@ -32,17 +32,26 @@ export interface JwtValidatedUser {
  * Resolve the JWT secret from the environment. In production, JWT_SECRET is
  * required. In development, a random secret is generated at startup so there
  * is no hardcoded value that could leak via stack traces or source control.
+ *
+ * The result is cached so both AuthModule (signing) and JwtStrategy
+ * (verification) share the same secret.
  */
+let _cachedSecret: string | undefined;
 export function resolveJwtSecret(): string {
+  if (_cachedSecret !== undefined) return _cachedSecret;
   const secret = process.env.JWT_SECRET;
-  if (secret) return secret;
+  if (secret) {
+    _cachedSecret = secret;
+    return secret;
+  }
   if (process.env.NODE_ENV === "production") {
     throw new Error("JWT_SECRET must be set in production. Refusing to start with insecure default.");
   }
   console.warn(
     "⚠️  JWT_SECRET not set — generating ephemeral secret for this session. Set JWT_SECRET in production!"
   );
-  return randomBytes(32).toString("hex");
+  _cachedSecret = randomBytes(32).toString("hex");
+  return _cachedSecret;
 }
 
 // Length caps for user/agent/role identifiers in the JWT. Imported from
@@ -160,7 +169,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
 
     return {
       userId,
-      tenantId: payload.tenantId,
+      tenantId: payload.tenantId.trim(),
       role,
       agentId,
     };

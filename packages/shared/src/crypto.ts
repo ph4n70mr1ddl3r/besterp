@@ -15,7 +15,7 @@ import * as crypto from "crypto";
  * - undefined/NaN/Infinity: normalized to null
  * - Date/Error/RegExp: passed through for JSON.stringify
  */
-function sortKeysDeep(value: unknown): unknown {
+function sortKeysDeep(value: unknown, seen = new WeakSet()): unknown {
   if (value === null || value === undefined) return null; // Normalize undefined to null
   if (typeof value === 'number') {
     // Normalize NaN and Infinity to null — JSON.stringify converts them to null,
@@ -23,33 +23,39 @@ function sortKeysDeep(value: unknown): unknown {
     // deterministic hashing for edge-case numeric inputs.
     if (!Number.isFinite(value)) return null;
   }
-  if (Array.isArray(value)) return value.map(sortKeysDeep);
+  if (Array.isArray(value)) return value.map((v) => sortKeysDeep(v, seen));
   if (value instanceof Map) {
     // Convert Map to sorted array of [key, value] pairs for deterministic hashing
     const sortedEntries = Array.from(value.entries())
       .sort(([a], [b]) => {
-        const aStr = String(a);
-        const bStr = String(b);
+        const aStr = typeof a === "object" && a !== null ? JSON.stringify(sortKeysDeep(a, seen)) : String(a);
+        const bStr = typeof b === "object" && b !== null ? JSON.stringify(sortKeysDeep(b, seen)) : String(b);
         return aStr < bStr ? -1 : aStr > bStr ? 1 : 0;
       });
-    return sortedEntries.map(([k, v]) => [sortKeysDeep(k), sortKeysDeep(v)]);
+    return sortedEntries.map(([k, v]) => [sortKeysDeep(k, seen), sortKeysDeep(v, seen)]);
   }
   if (value instanceof Set) {
     // Convert Set to sorted array for deterministic hashing
-    return Array.from(value).map(sortKeysDeep).sort((a, b) => {
+    return Array.from(value).map((v) => sortKeysDeep(v, seen)).sort((a, b) => {
       const aStr = JSON.stringify(a);
       const bStr = JSON.stringify(b);
       return aStr < bStr ? -1 : aStr > bStr ? 1 : 0;
     });
   }
   if (typeof value === "object") {
+    // Detect circular references — prevent infinite recursion / stack overflow
+    if (seen.has(value as object)) {
+      throw new Error("Circular reference detected in hash input");
+    }
+    seen.add(value as object);
+
     const proto = Object.getPrototypeOf(value);
     // Handle plain objects: {}, Object.create(null), etc.
     // Skip custom class instances (Date, etc.) that have their own serialization.
     if (proto === Object.prototype || proto === null) {
       const sorted: Record<string, unknown> = {};
       for (const key of Object.keys(value as Record<string, unknown>).sort()) {
-        sorted[key] = sortKeysDeep((value as Record<string, unknown>)[key]);
+        sorted[key] = sortKeysDeep((value as Record<string, unknown>)[key], seen);
       }
       return sorted;
     }

@@ -18,3 +18,7 @@ export {
   auditLogMiddleware,
   errorHandlerMiddleware,
 } from "./middleware/index.js";
+
+// Truncation utilities (re-exported for custom middleware authors)
+export { truncateValue, capString } from "./middleware/truncate.js";
+export { MAX_STORED_PAYLOAD_SIZE } from "./middleware/truncate.js";

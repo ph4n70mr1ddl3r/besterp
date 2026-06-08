@@ -98,14 +98,16 @@ export const errorHandlerMiddleware: ToolMiddleware = async (input, context, def
     // In production, do NOT echo the raw error message to the agent — it may
     // contain DB internals, stack frames, or SQL. Send a generic message and
     // keep the detailed message on the server side (logged above).
-    const isProd = process.env.NODE_ENV === "production";
+    // Only expose raw messages in explicit development mode to avoid leaking
+    // internals in staging, test, or environments with unset NODE_ENV.
+    const isDev = process.env.NODE_ENV === "development";
     return {
       success: false,
       error: {
         code: "INTERNAL_ERROR",
-        message: isProd
-          ? `Unexpected error in '${definition.name}'. Try again with a new idempotency key if applicable.`
-          : `Unexpected error in '${definition.name}': ${message}. Try again with a new idempotency key if applicable.`,
+        message: isDev
+          ? `Unexpected error in '${definition.name}': ${message}. Try again with a new idempotency key if applicable.`
+          : `Unexpected error in '${definition.name}'. Try again with a new idempotency key if applicable.`,
         suggestedTools: [definition.name, "list_available_tools"],
       },
     };

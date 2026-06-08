@@ -2,7 +2,7 @@
 // Tests REST endpoint behavior: tenant context extraction, error handling, delegation
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { UnauthorizedException, BadRequestException } from "@nestjs/common";
+import { UnauthorizedException } from "@nestjs/common";
 import { PartyController } from "./party.controller.js";
 import { PartyService } from "./party.service.js";
 
@@ -33,7 +33,6 @@ describe("PartyController", () => {
   describe("getTenantContext", () => {
     it("should extract tenant context from request", async () => {
       const req = mockRequest({ tenantId: "tenant-1", userId: "user-1" });
-      // create() internally calls getTenantContext
       await controller.create(req, { partyType: "PERSON", name: "Test", person: { firstName: "A", lastName: "B" } } as any);
       expect(partyService.createParty).toHaveBeenCalledWith(
         expect.objectContaining({ tenantId: "tenant-1" })
@@ -133,11 +132,14 @@ describe("PartyController", () => {
       ).rejects.toThrow(UnauthorizedException);
     });
 
-    it("should throw BadRequestException for invalid UUID", async () => {
+    it("should pass partyId to service (ParseUUIDPipe validates at HTTP layer)", async () => {
       const req = mockRequest({ tenantId: "tenant-1", userId: "user-1" });
-      await expect(
-        controller.get(req, "not-a-uuid")
-      ).rejects.toThrow(BadRequestException);
+
+      await controller.get(req, "not-a-uuid");
+
+      // ParseUUIDPipe runs in the NestJS HTTP pipeline, not in unit tests.
+      // Here we verify the controller delegates to the service.
+      expect(partyService.getParty).toHaveBeenCalledWith("tenant-1", "not-a-uuid");
     });
   });
 
@@ -162,11 +164,14 @@ describe("PartyController", () => {
       ).rejects.toThrow(UnauthorizedException);
     });
 
-    it("should throw BadRequestException for invalid UUID", async () => {
+    it("should pass partyId to service (ParseUUIDPipe validates at HTTP layer)", async () => {
       const req = mockRequest({ tenantId: "tenant-1", userId: "user-1" });
-      await expect(
-        controller.addRole(req, "not-a-uuid", { roleType: "Customer" } as any)
-      ).rejects.toThrow(BadRequestException);
+
+      await controller.addRole(req, "not-a-uuid", { roleType: "Customer" } as any);
+
+      expect(partyService.addPartyRole).toHaveBeenCalledWith(
+        expect.objectContaining({ partyId: "not-a-uuid", tenantId: "tenant-1" })
+      );
     });
   });
 
@@ -192,11 +197,14 @@ describe("PartyController", () => {
       ).rejects.toThrow(UnauthorizedException);
     });
 
-    it("should throw BadRequestException for invalid UUID", async () => {
+    it("should pass partyId to service (ParseUUIDPipe validates at HTTP layer)", async () => {
       const req = mockRequest({ tenantId: "tenant-1", userId: "user-1" });
-      await expect(
-        controller.addContact(req, "not-a-uuid", {} as any)
-      ).rejects.toThrow(BadRequestException);
+
+      await controller.addContact(req, "not-a-uuid", {} as any);
+
+      expect(partyService.addContactMechanism).toHaveBeenCalledWith(
+        expect.objectContaining({ partyId: "not-a-uuid", tenantId: "tenant-1" })
+      );
     });
   });
 });

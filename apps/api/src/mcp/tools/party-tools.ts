@@ -40,7 +40,7 @@ function getPartyService(ctx: ToolContext) {
 const personSchema = z.object({
   firstName: z.string().transform(s => s.trim()).pipe(z.string().min(1).max(200)).describe("First/given name"),
   lastName: z.string().transform(s => s.trim()).pipe(z.string().min(1).max(200)).describe("Last/family name"),
-  middleName: z.string().max(100).optional().transform(s => s?.trim()).describe("Middle name"),
+  middleName: z.string().max(100).optional().transform(s => s?.trim() || undefined).describe("Middle name"),
   birthDate: z.string().max(30).optional().describe("Date of birth (ISO 8601)"),
   gender: z.string().max(50).optional().transform(s => s?.trim()).describe("Gender"),
 });

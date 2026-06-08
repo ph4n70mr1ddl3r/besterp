@@ -23,10 +23,20 @@
  * @returns Sanitized string with HTML tags removed
  */
 export function stripHtmlTags(input: string): string {
-  if (!input || typeof input !== "string") return input;
+  if (typeof input !== "string") return "";
 
   // Remove null bytes (can confuse parsers and bypass filters)
   let sanitized = input.replace(/\0/g, "");
+
+  // Decode numeric character references FIRST — they can bypass tag stripping
+  // when embedded in attributes or content. Must run before tag removal.
+  // e.g. &#60;script&#62; → <script>
+  sanitized = sanitized.replace(/&#x([0-9a-fA-F]+);/gi, (_, hex) =>
+    String.fromCharCode(parseInt(hex, 16))
+  );
+  sanitized = sanitized.replace(/&#(\d+);/g, (_, dec) =>
+    String.fromCharCode(parseInt(dec, 10))
+  );
 
   // Remove script/style content including the tags themselves
   // Handles: <script>...</script>, <style>...</style>, with attributes

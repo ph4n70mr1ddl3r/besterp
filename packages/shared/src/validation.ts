@@ -4,10 +4,10 @@
 // duplication and ensure consistency.
 
 /**
- * UUID validation regex — loosely matches standard UUID format.
+ * UUID validation regex — matches standard hyphenated UUID format.
  *
- * Allows both hyphenated (`550e8400-e29b-41d4-a716-446655440000`)
- * and non-hyphenated (`550e8400e29b41d4a716446655440000`) forms.
+ * Accepts `550e8400-e29b-41d4-a716-446655440000` (8-4-4-4-12 with hyphens).
+ * Rejects malformed UUIDs with hyphens in wrong positions.
  *
  * Used by:
  * - Zod schemas in party-tools.ts
@@ -15,7 +15,7 @@
  * - PartyController.requireUuid()
  */
 export const UUID_REGEX =
-  /^[0-9a-fA-F]{8}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{12}$/;
+  /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
 
 /**
  * Pragmatic email validation regex — accepts the vast majority of real-world

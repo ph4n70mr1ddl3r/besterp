@@ -17,6 +17,7 @@ import {
   Param,
   Query,
   Req,
+  ParseUUIDPipe,
   UnauthorizedException,
 } from "@nestjs/common";
 import { Request } from "express";
@@ -79,17 +80,16 @@ export class PartyController {
   @Get(":id")
   async get(
     @Req() req: Request,
-    @Param("id") partyId: string
+    @Param("id", ParseUUIDPipe) partyId: string
   ) {
     const { tenantId } = this.getTenantContext(req);
-    // UUID validation is handled by PartyService.requireUuid() — single source of truth.
     return this.partyService.getParty(tenantId, partyId);
   }
 
   @Post(":id/roles")
   async addRole(
     @Req() req: Request,
-    @Param("id") partyId: string,
+    @Param("id", ParseUUIDPipe) partyId: string,
     @Body() body: AddPartyRoleDto
   ) {
     const { tenantId } = this.getTenantContext(req);
@@ -103,7 +103,7 @@ export class PartyController {
   @Post(":id/contacts")
   async addContact(
     @Req() req: Request,
-    @Param("id") partyId: string,
+    @Param("id", ParseUUIDPipe) partyId: string,
     @Body() body: AddContactMechanismDto
   ) {
     const { tenantId } = this.getTenantContext(req);

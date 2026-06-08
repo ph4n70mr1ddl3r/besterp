@@ -60,10 +60,11 @@ export function truncateValue(value: unknown, maxSize: number = MAX_STORED_PAYLO
     const serialized = JSON.stringify(value);
     const byteLength = textEncoder.encode(serialized).byteLength;
     if (byteLength > maxSize) {
+      const previewBytes = textEncoder.encode(serialized).slice(0, PREVIEW_BYTES);
       return {
         _truncated: true,
         _originalSize: byteLength,
-        _preview: serialized.slice(0, PREVIEW_BYTES),
+        _preview: textDecoder.decode(previewBytes),
       };
     }
   } catch {
