@@ -77,45 +77,4 @@ export function isDomainError(error: unknown): error is DomainError {
   return error instanceof DomainError;
 }
 
-// ─── Legacy Rich Error Formatting ───────────────────────────────
-// Retained only for the deprecated Phase 0a MCP spike
-// (packages/mcp-tools/spikes/server.ts). Production code uses DomainError
-// subclasses and the errorHandlerMiddleware. Remove when the spike is deleted.
 
-export interface RichErrorContent {
-  error: string;
-  message: string;
-  suggestedTools: string[];
-  context: Record<string, unknown>;
-}
-
-/**
- * Format a rich, actionable error for AI agent consumption.
- *
- * @param code           - Machine-readable error code (e.g., "MISSING_SUBTYPE_DATA")
- * @param message        - Human-readable description of what went wrong
- * @param suggestedTools - Tools the agent should consider using next
- * @param context        - Additional structured context for debugging
- * @returns MCP-compatible error response object
- *
- * @deprecated Use DomainError subclasses instead. The production error
- *   handler middleware in @besterp/mcp-tools catches thrown DomainErrors
- *   and formats them — this function is only kept for the deprecated
- *   Phase 0a spike in packages/mcp-tools/spikes/.
- */
-export function richError(
-  code: string,
-  message: string,
-  suggestedTools: string[] = [],
-  context: Record<string, unknown> = {}
-) {
-  return {
-    isError: true,
-    content: [
-      {
-        type: "text" as const,
-        text: JSON.stringify({ error: code, message, suggestedTools, context }),
-      },
-    ],
-  };
-}

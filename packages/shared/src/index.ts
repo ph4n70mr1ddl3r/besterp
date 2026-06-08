@@ -9,8 +9,6 @@ export {
   DuplicateEntityError,
   EntityNotFoundError,
   isDomainError,
-  richError,
-  type RichErrorContent,
 } from "./errors.js";
 
 export { hashInput } from "./crypto.js";

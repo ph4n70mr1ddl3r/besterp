@@ -1,9 +1,6 @@
 -- RLS setup for BestERP Phase 0a spike
 -- Applied after Prisma migration
 
--- Enable pgvector extension
-CREATE EXTENSION IF NOT EXISTS vector;
-
 -- ─── Tenant Context Function ────────────────────────────────
 -- Parameterized function for setting tenant context, avoiding
 -- string interpolation in application code. Eliminates the SQL

@@ -14,8 +14,8 @@
 //   context automatically — callers don't need to do anything special.
 // - Individual model operations outside `$transaction` (e.g., `db.party.findMany()`)
 //   are wrapped in their own transaction with `SET LOCAL`.
-// - Batch `$transaction([...promises])` calls pass through without tenant
-//   context. Use interactive transactions for tenant-scoped batch operations.
+// - Batch `$transaction([...promises])` calls are rejected with an error
+//   because they cannot receive tenant context. Use interactive transactions.
 
 import { PrismaClient } from "@prisma/client";
 import { validateTenantId, InvalidTypeValueError } from "@besterp/shared";
@@ -149,10 +149,15 @@ export function createTenantClient(prisma: PrismaClient, tenantId: string) {
     }
 
     // Batch transaction: $transaction([...promises])
-    // These pass through without tenant context. Use interactive
-    // transactions for tenant-scoped batch operations.
+    // These pass through without tenant context, which is a silent RLS bypass.
+    // Throw instead of silently passing through to prevent accidental
+    // cross-tenant data leaks. Callers must use interactive transactions
+    // ($transaction(fn)) for tenant-scoped batch operations.
     if (Array.isArray(first)) {
-      return (prisma as any).$transaction(first);
+      throw new Error(
+        "Batch $transaction([...promises]) is not supported on a tenant-scoped client. " +
+        "Use an interactive transaction: $transaction(async (tx) => { ... })"
+      );
     }
 
     // Fallback — unknown overload, pass through

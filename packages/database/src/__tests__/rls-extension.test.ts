@@ -229,21 +229,17 @@ describe("RLS Extension", () => {
     );
   });
 
-    it("should handle batch transactions (pass through without tenant context)", async () => {
+    it("should reject batch transactions on tenant-scoped client", () => {
       const client = createTenantClient(mockPrisma, "tenant-1");
-      
+
       const operations = [
         mockPrisma.party.findMany(),
         mockPrisma.partyRole.create({ data: {} }),
       ];
-      
-      // Mock the batch transaction
-      mockPrisma.$transaction.mockResolvedValue([[], {}]);
-      
-      const result = await client.$transaction(operations);
-      expect(result).toEqual([[], {}]);
-      // Note: Batch transactions don't get tenant context automatically
-      // This is by design - use interactive transactions for tenant-scoped operations
+
+      expect(() => client.$transaction(operations)).toThrow(
+        /Batch \$transaction\(\[\.\.\.promises\]\) is not supported/
+      );
     });
   });
 
