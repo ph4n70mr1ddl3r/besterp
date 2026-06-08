@@ -21,6 +21,9 @@ export const MAX_STORED_PAYLOAD_SIZE = 65536; // 64 KB
 /** Preview length (bytes) when a payload is truncated. */
 const PREVIEW_BYTES = 1024;
 
+/** Shared TextEncoder instance — avoids allocation in hot paths. */
+const textEncoder = new TextEncoder();
+
 /**
  * Cap an individual string at `maxBytes` bytes (measured in UTF-8).
  *
@@ -35,14 +38,13 @@ export function capString(value: unknown, maxBytes: number): string {
   if (typeof value !== "string") {
     return "Tool returned a soft failure";
   }
-  const encoder = new TextEncoder();
-  const encoded = encoder.encode(value);
+  const encoded = textEncoder.encode(value);
   if (encoded.byteLength <= maxBytes) {
     return value;
   }
   // Truncate to maxBytes, accounting for the marker length
   const marker = `... [truncated, original was ${encoded.byteLength} bytes]`;
-  const markerBytes = encoder.encode(marker).byteLength;
+  const markerBytes = textEncoder.encode(marker).byteLength;
   const truncated = new TextDecoder().decode(encoded.slice(0, Math.max(0, maxBytes - markerBytes)));
   return `${truncated}${marker}`;
 }
@@ -55,7 +57,7 @@ export function capString(value: unknown, maxBytes: number): string {
 export function truncateValue(value: unknown, maxSize: number = MAX_STORED_PAYLOAD_SIZE): unknown {
   try {
     const serialized = JSON.stringify(value);
-    const byteLength = new TextEncoder().encode(serialized).byteLength;
+    const byteLength = textEncoder.encode(serialized).byteLength;
     if (byteLength > maxSize) {
       return {
         _truncated: true,

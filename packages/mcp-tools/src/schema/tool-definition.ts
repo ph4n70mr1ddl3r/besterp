@@ -10,6 +10,19 @@
 
 export type RiskLevel = "none" | "low" | "medium" | "high" | "critical";
 
+// ─── Service Types ────────────────────────────────────────────────
+
+/**
+ * Typed service locator interface. Tools access domain services through
+ * this typed interface instead of using `Record<string, unknown>`.
+ *
+ * Each domain module registers its services here. The MCP module
+ * populates the services map when building the tool context.
+ */
+export interface ToolServices {
+  [key: string]: unknown;
+}
+
 // ─── Tool Context ─────────────────────────────────────────────────
 
 /**
@@ -30,8 +43,10 @@ export interface ToolContext {
   /**
    * Service locator — allows tools to access domain services
    * without importing NestJS directly. Populated by the MCP module.
+   * Typed as ToolServices for type safety; tools cast to their specific
+   * service interface when accessing services.
    */
-  services: Record<string, unknown>;
+  services: ToolServices;
 }
 
 // ─── Tool Result ──────────────────────────────────────────────────

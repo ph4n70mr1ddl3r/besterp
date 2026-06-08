@@ -4,6 +4,16 @@ import * as crypto from "crypto";
  * Deterministically sort object keys at all nesting levels.
  * Produces a canonical key ordering so JSON.stringify is consistent
  * regardless of insertion order.
+ *
+ * Handles:
+ * - Plain objects: sorted by key
+ * - Arrays: elements recursively processed
+ * - Maps: converted to sorted [key, value] pairs
+ * - Sets: converted to sorted array of values
+ * - BigInt: converted to string representation
+ * - Symbol: converted to string representation
+ * - undefined/NaN/Infinity: normalized to null
+ * - Date/Error/RegExp: passed through for JSON.stringify
  */
 function sortKeysDeep(value: unknown): unknown {
   if (value === null || value === undefined) return null; // Normalize undefined to null
@@ -14,6 +24,24 @@ function sortKeysDeep(value: unknown): unknown {
     if (!Number.isFinite(value)) return null;
   }
   if (Array.isArray(value)) return value.map(sortKeysDeep);
+  if (value instanceof Map) {
+    // Convert Map to sorted array of [key, value] pairs for deterministic hashing
+    const sortedEntries = Array.from(value.entries())
+      .sort(([a], [b]) => {
+        const aStr = String(a);
+        const bStr = String(b);
+        return aStr < bStr ? -1 : aStr > bStr ? 1 : 0;
+      });
+    return sortedEntries.map(([k, v]) => [sortKeysDeep(k), sortKeysDeep(v)]);
+  }
+  if (value instanceof Set) {
+    // Convert Set to sorted array for deterministic hashing
+    return Array.from(value).map(sortKeysDeep).sort((a, b) => {
+      const aStr = JSON.stringify(a);
+      const bStr = JSON.stringify(b);
+      return aStr < bStr ? -1 : aStr > bStr ? 1 : 0;
+    });
+  }
   if (typeof value === "object") {
     const proto = Object.getPrototypeOf(value);
     // Handle plain objects: {}, Object.create(null), etc.
@@ -39,7 +67,8 @@ function sortKeysDeep(value: unknown): unknown {
  * Produces a deterministic SHA-256 hash of the JSON-serialized input.
  * Keys are sorted recursively so `{ a: 1, b: 2 }` and `{ b: 2, a: 1 }`
  * produce the same hash.
- * Handles problematic types like BigInt, Symbol, and undefined values.
+ * Handles problematic types like BigInt, Symbol, undefined values,
+ * Maps, and Sets.
  */
 export function hashInput(input: unknown): string {
   const canonical = sortKeysDeep(input);

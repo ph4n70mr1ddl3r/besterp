@@ -29,6 +29,27 @@ import {
   UUID_REGEX,
   EMAIL_REGEX,
   COUNTRY_CODE_REGEX,
+  stripHtmlTags,
+  MAX_PARTY_NAME_LENGTH,
+  MAX_PARTY_DESCRIPTION_LENGTH,
+  MAX_PERSON_NAME_LENGTH,
+  MAX_LEGAL_NAME_LENGTH,
+  MAX_ROLE_TYPE_LENGTH,
+  MAX_CONTACT_MECHANISM_TYPE_LENGTH,
+  MAX_ADDRESS_LINE_LENGTH,
+  MAX_CITY_LENGTH,
+  MAX_STATE_PROVINCE_LENGTH,
+  MAX_POSTAL_CODE_LENGTH,
+  MAX_COUNTRY_CODE_LENGTH,
+  MAX_AREA_CODE_LENGTH,
+  MAX_LINE_NUMBER_LENGTH,
+  MAX_EXTENSION_LENGTH,
+  MAX_PHONE_COUNTRY_CODE_LENGTH,
+  MAX_EMAIL_LENGTH,
+  MAX_SEARCH_LIMIT,
+  MIN_SEARCH_LIMIT,
+  MIN_SEARCH_OFFSET,
+  DEFAULT_SEARCH_LIMIT,
 } from "@besterp/shared";
 import {
   CreatePartyInput,
@@ -83,13 +104,13 @@ export class PartyService {
         }
       );
     }
-    this.requireMaxLength(trimmedName, "Party name", 500);
+    this.requireMaxLength(trimmedName, "Party name", MAX_PARTY_NAME_LENGTH);
     // Validate description length (MCP tool path has no DTO validation)
     const trimmedDescription = description?.trim() || null;
-    if (trimmedDescription && trimmedDescription.length > 1000) {
+    if (trimmedDescription && trimmedDescription.length > MAX_PARTY_DESCRIPTION_LENGTH) {
       throw new InvalidTypeValueError(
-        `Description is too long (${trimmedDescription.length} characters, max 1000)`,
-        { suggestedTools: ["create_party"], context: { field: "description", length: trimmedDescription.length, maxLength: 1000 } }
+        `Description is too long (${trimmedDescription.length} characters, max ${MAX_PARTY_DESCRIPTION_LENGTH})`,
+        { suggestedTools: ["create_party"], context: { field: "description", length: trimmedDescription.length, maxLength: MAX_PARTY_DESCRIPTION_LENGTH } }
       );
     }
 
@@ -130,14 +151,14 @@ export class PartyService {
           { suggestedTools: ["create_party"], context: { field: "firstName" } }
         );
       }
-      this.requireMaxLength(personData.firstName, "First name", 200);
+      this.requireMaxLength(personData.firstName, "First name", MAX_PERSON_NAME_LENGTH);
       if (!personData.lastName || personData.lastName.trim().length === 0) {
         throw new MissingSubtypeDataError(
           "lastName is required for person data",
           { suggestedTools: ["create_party"], context: { field: "lastName" } }
         );
       }
-      this.requireMaxLength(personData.lastName, "Last name", 200);
+      this.requireMaxLength(personData.lastName, "Last name", MAX_PERSON_NAME_LENGTH);
       // Defense-in-depth: validate birthDate shape before passing to Prisma.
       // The REST DTO uses @IsDateString (strict ISO 8601) but the MCP Zod
       // schema only enforces a 30-char max length. A typo like "2024-13-40"
@@ -157,25 +178,25 @@ export class PartyService {
           { suggestedTools: ["create_party"], context: { field: "legalName" } }
         );
       }
-      this.requireMaxLength(orgData.legalName, "Legal name", 500);
+      this.requireMaxLength(orgData.legalName, "Legal name", MAX_LEGAL_NAME_LENGTH);
       // See personData.birthDate comment — same defense-in-depth rationale.
       if (orgData.registrationDate !== undefined && orgData.registrationDate !== null) {
         this.requireValidDate(orgData.registrationDate, "registrationDate");
       }
     }
 
-    // Trim all name fields before storage to prevent whitespace-padded names.
-    // DTOs handle this for the REST path via @Transform, but the MCP tool path
-    // calls the service directly without DTO normalization.
+    // Trim and sanitize all name fields before storage to prevent whitespace-padded
+    // and HTML-injected names. DTOs handle this for the REST path via @Transform,
+    // but the MCP tool path calls the service directly without DTO normalization.
     const trimmedPerson = personData ? {
       ...personData,
-      firstName: personData.firstName.trim(),
-      lastName: personData.lastName.trim(),
-      middleName: personData.middleName?.trim() || undefined,
+      firstName: stripHtmlTags(personData.firstName.trim()),
+      lastName: stripHtmlTags(personData.lastName.trim()),
+      middleName: personData.middleName?.trim() ? stripHtmlTags(personData.middleName.trim()) : undefined,
     } : undefined;
     const trimmedOrg = orgData ? {
       ...orgData,
-      legalName: orgData.legalName.trim(),
+      legalName: stripHtmlTags(orgData.legalName.trim()),
       taxId: orgData.taxId?.trim() || undefined,
     } : undefined;
 
@@ -200,13 +221,19 @@ export class PartyService {
       );
     }
 
+    // Sanitize text fields — strip HTML tags to prevent stored XSS.
+    // Defense-in-depth: the API layer should also escape on render, but
+    // sanitizing at storage time prevents malicious content from persisting.
+    const sanitizedName = stripHtmlTags(trimmedName);
+    const sanitizedDescription = trimmedDescription ? stripHtmlTags(trimmedDescription) : null;
+
     // Create party with supertype/subtype in a transaction
     const party = await db.$transaction(async (tx: Prisma.TransactionClient) => {
       const data: Prisma.PartyCreateInput = {
         partyType: { connect: { partyTypeId: partyTypeRecord.partyTypeId } },
         tenantId,
-        name: trimmedName,
-        description: trimmedDescription,
+        name: sanitizedName,
+        description: sanitizedDescription,
       };
       if (trimmedPerson) {
         data.person = {
@@ -270,11 +297,11 @@ export class PartyService {
   // ─── Search Parties ───────────────────────────────────────────
 
   async searchParties(input: SearchPartiesInput): Promise<SearchPartiesResult> {
-    const { tenantId, name, partyType, roleType, limit = 50, offset = 0 } = input;
+    const { tenantId, name, partyType, roleType, limit = DEFAULT_SEARCH_LIMIT, offset = MIN_SEARCH_OFFSET } = input;
 
     // Validate pagination parameters
-    const validatedLimit = Math.min(Math.max(limit, 1), 500); // Clamp between 1-500
-    const validatedOffset = Math.max(offset, 0);
+    const validatedLimit = Math.min(Math.max(limit, MIN_SEARCH_LIMIT), MAX_SEARCH_LIMIT); // Clamp between 1-500
+    const validatedOffset = Math.max(offset, MIN_SEARCH_OFFSET);
 
     const db = this.prisma.tenantScoped(tenantId);
 
@@ -289,7 +316,7 @@ export class PartyService {
       // to avoid sequential scans on large tables:
       //   CREATE EXTENSION IF NOT EXISTS pg_trgm;
       //   CREATE INDEX CONCURRENTLY party_name_trgm_idx ON party USING gin (name gin_trgm_ops);
-      const trimmedName = name.trim();
+      const trimmedName = stripHtmlTags(name.trim());
       if (trimmedName.length > 0) {
         where.name = { contains: trimmedName, mode: "insensitive" };
       } else {
@@ -369,7 +396,7 @@ export class PartyService {
         }
       );
     }
-    this.requireMaxLength(roleType, "Role type", 100, "get_type_table_values");
+    this.requireMaxLength(roleType, "Role type", MAX_ROLE_TYPE_LENGTH, "get_type_table_values");
     const trimmedRoleType = roleType.trim();
 
     // Validate and parse fromDate BEFORE any DB access (pure computation)
@@ -494,7 +521,7 @@ export class PartyService {
       );
     }
     const trimmedCmType = contactMechanismType.trim();
-    this.requireMaxLength(trimmedCmType, "Contact mechanism type", 50, "get_type_table_values");
+    this.requireMaxLength(trimmedCmType, "Contact mechanism type", MAX_CONTACT_MECHANISM_TYPE_LENGTH, "get_type_table_values");
 
     // Validate subtype data early — avoids wasting a DB round-trip on invalid input.
     let validContactData: PostalAddressInput | TelecomNumberInput | EmailAddressInput;
@@ -506,14 +533,14 @@ export class PartyService {
         );
       }
       this.requireNonEmpty(postalAddress.addressLine1, "addressLine1", "postal address");
-      this.requireMaxLength(postalAddress.addressLine1, "addressLine1", 200, "add_contact_mechanism");
+      this.requireMaxLength(postalAddress.addressLine1, "addressLine1", MAX_ADDRESS_LINE_LENGTH, "add_contact_mechanism");
       this.requireNonEmpty(postalAddress.city, "city", "postal address");
-      this.requireMaxLength(postalAddress.city, "city", 100, "add_contact_mechanism");
+      this.requireMaxLength(postalAddress.city, "city", MAX_CITY_LENGTH, "add_contact_mechanism");
       this.requireNonEmpty(postalAddress.country, "country", "postal address");
-      this.requireMaxLength(postalAddress.country, "country", 3, "add_contact_mechanism");
-      if (postalAddress.addressLine2) this.requireMaxLength(postalAddress.addressLine2, "addressLine2", 200, "add_contact_mechanism");
-      if (postalAddress.stateProvince) this.requireMaxLength(postalAddress.stateProvince, "stateProvince", 100, "add_contact_mechanism");
-      if (postalAddress.postalCode) this.requireMaxLength(postalAddress.postalCode, "postalCode", 20, "add_contact_mechanism");
+      this.requireMaxLength(postalAddress.country, "country", MAX_COUNTRY_CODE_LENGTH, "add_contact_mechanism");
+      if (postalAddress.addressLine2) this.requireMaxLength(postalAddress.addressLine2, "addressLine2", MAX_ADDRESS_LINE_LENGTH, "add_contact_mechanism");
+      if (postalAddress.stateProvince) this.requireMaxLength(postalAddress.stateProvince, "stateProvince", MAX_STATE_PROVINCE_LENGTH, "add_contact_mechanism");
+      if (postalAddress.postalCode) this.requireMaxLength(postalAddress.postalCode, "postalCode", MAX_POSTAL_CODE_LENGTH, "add_contact_mechanism");
       validContactData = postalAddress;
     } else if (trimmedCmType === "TELECOM_NUMBER") {
       if (!telecomNumber) {
@@ -523,11 +550,11 @@ export class PartyService {
         );
       }
       this.requireNonEmpty(telecomNumber.areaCode, "areaCode", "telecom number");
-      this.requireMaxLength(telecomNumber.areaCode, "areaCode", 10, "add_contact_mechanism");
+      this.requireMaxLength(telecomNumber.areaCode, "areaCode", MAX_AREA_CODE_LENGTH, "add_contact_mechanism");
       this.requireNonEmpty(telecomNumber.lineNumber, "lineNumber", "telecom number");
-      this.requireMaxLength(telecomNumber.lineNumber, "lineNumber", 20, "add_contact_mechanism");
+      this.requireMaxLength(telecomNumber.lineNumber, "lineNumber", MAX_LINE_NUMBER_LENGTH, "add_contact_mechanism");
       if (telecomNumber.countryCode) {
-        this.requireMaxLength(telecomNumber.countryCode, "countryCode", 5, "add_contact_mechanism");
+        this.requireMaxLength(telecomNumber.countryCode, "countryCode", MAX_PHONE_COUNTRY_CODE_LENGTH, "add_contact_mechanism");
         // Length check alone accepts arbitrary strings (e.g. "abc" or
         // "++++") up to 5 chars. Validate the E.164 shape explicitly so
         // a malformed value produces a clear error rather than being
@@ -539,7 +566,7 @@ export class PartyService {
           );
         }
       }
-      if (telecomNumber.extension) this.requireMaxLength(telecomNumber.extension, "extension", 10, "add_contact_mechanism");
+      if (telecomNumber.extension) this.requireMaxLength(telecomNumber.extension, "extension", MAX_EXTENSION_LENGTH, "add_contact_mechanism");
       validContactData = telecomNumber;
     } else if (trimmedCmType === "EMAIL_ADDRESS") {
       if (!emailAddress) {
@@ -549,7 +576,7 @@ export class PartyService {
         );
       }
       this.requireNonEmpty(emailAddress.email, "email", "email address");
-      this.requireMaxLength(emailAddress.email, "email", 254, "add_contact_mechanism");
+      this.requireMaxLength(emailAddress.email, "email", MAX_EMAIL_LENGTH, "add_contact_mechanism");
       const normalizedEmail = emailAddress.email.trim().toLowerCase();
       if (!EMAIL_REGEX.test(normalizedEmail)) {
         throw new InvalidTypeValueError(

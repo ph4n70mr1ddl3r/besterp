@@ -1,6 +1,7 @@
 // MCP Tool Definition types
 export type {
   RiskLevel,
+  ToolServices,
   ToolContext,
   ToolResult,
   ToolDefinition,
