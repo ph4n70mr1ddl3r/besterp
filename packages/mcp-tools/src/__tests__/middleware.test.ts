@@ -71,7 +71,7 @@ describe("Idempotency Middleware", () => {
     mockPrisma.$transaction.mockImplementation(async (fn: Function, _opts?: any) => {
       const tx = {
         idempotencyRecord: {
-          findUnique: vi.fn().mockResolvedValue(record),
+          findFirst: vi.fn().mockResolvedValue(record),
           create: mockPrisma.idempotencyRecord.create,
         },
       };
@@ -224,7 +224,7 @@ describe("Idempotency Middleware", () => {
     mockPrisma.$transaction.mockImplementation(async (fn: Function, _opts?: any) => {
       const tx = {
         idempotencyRecord: {
-          findUnique: vi.fn().mockResolvedValue({
+          findFirst: vi.fn().mockResolvedValue({
             idempotencyKey,
             status: "failed",
             inputHash: "old-hash",

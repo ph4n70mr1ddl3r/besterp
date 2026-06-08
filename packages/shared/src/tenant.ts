@@ -12,6 +12,7 @@
 
 import type { PrismaClient, Prisma } from "@prisma/client";
 import { DomainError } from "./errors.js";
+import { MAX_TENANT_ID_LENGTH } from "./constants.js";
 
 /** Prisma's interactive transaction client with all model delegates. */
 type PrismaTransactionClient = Prisma.TransactionClient;
@@ -26,6 +27,12 @@ const TENANT_ID_PATTERN = /^[a-zA-Z0-9_-]+$/;
  * obviously invalid tenant IDs early with a clear error message.
  */
 export function validateTenantId(tenantId: string): void {
+  if (tenantId.length > MAX_TENANT_ID_LENGTH) {
+    throw new DomainError(
+      "INVALID_TENANT_ID",
+      `Tenant ID is too long (max ${MAX_TENANT_ID_LENGTH} characters).`
+    );
+  }
   if (!TENANT_ID_PATTERN.test(tenantId)) {
     // Sanitize: show only first 20 chars to prevent log injection and
     // information disclosure from untrusted input.

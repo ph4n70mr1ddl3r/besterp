@@ -50,7 +50,6 @@ export function auditLogMiddleware(prisma: PrismaClient): ToolMiddleware {
           { error: { message: error instanceof Error ? error.message : String(error), code: (error as Record<string, unknown>).code as string | undefined } },
           MAX_AUDIT_OUTPUT_SIZE,
         ),
-        reasoning: undefined,
       }).catch((logErr) => {
         process.stderr.write(
           `[AuditLog] Failed to write error-path audit log for tool '${definition.name}' ` +
@@ -73,7 +72,6 @@ export function auditLogMiddleware(prisma: PrismaClient): ToolMiddleware {
       toolCalled: definition.name,
       toolInput: input as any,
       toolOutput: result.data ?? null,
-      reasoning: undefined,
     }).catch((logErr) => {
       process.stderr.write(
         `[AuditLog] Failed to write audit log for tool '${definition.name}' ` +
@@ -94,7 +92,6 @@ interface AuditLogEntry {
   toolCalled: string;
   toolInput: unknown;
   toolOutput: unknown;
-  reasoning?: string;
 }
 
 async function logAction(prisma: PrismaClient, entry: AuditLogEntry): Promise<void> {
@@ -112,7 +109,7 @@ async function logAction(prisma: PrismaClient, entry: AuditLogEntry): Promise<vo
       toolCalled: entry.toolCalled,
       toolInput: toolInput as any,
       toolOutput: truncateValue(entry.toolOutput, MAX_AUDIT_OUTPUT_SIZE) as any,
-      reasoning: entry.reasoning || null,
+      reasoning: null,
     },
   });
 }

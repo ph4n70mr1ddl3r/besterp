@@ -57,7 +57,7 @@ function sortKeysDeep(value: unknown, seen = new WeakSet()): unknown {
       for (const key of Object.keys(value as Record<string, unknown>).sort()) {
         // Skip prototype pollution keys — these could affect the resulting
         // object's prototype chain if the sorted output is used beyond hashing.
-        if (key === "__proto__" || key === "constructor") continue;
+        if (key === "__proto__" || key === "constructor" || key === "prototype") continue;
         sorted[key] = sortKeysDeep((value as Record<string, unknown>)[key], seen);
       }
       return sorted;

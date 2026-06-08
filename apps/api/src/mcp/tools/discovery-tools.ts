@@ -66,11 +66,8 @@ Type tables are the ERP's vocabulary — they define what classifications are av
 
     handler: async (input: { typeName: string }, _context: ToolContext) => {
       type TypeTableRow = { id: string; name: string; description: string | null; aiPromptHint: string | null };
-      let values: TypeTableRow[];
 
-      // NOTE: The Zod enum above validates typeName at the registry level,
-      // so the default branch is unreachable. We enumerate all valid cases
-      // explicitly and throw for safety if the schema is ever relaxed.
+      // Zod enum validates typeName at the registry level — all cases are exhaustive.
       const handlers: Record<string, () => Promise<TypeTableRow[]>> = {
         PARTY_TYPE: async () => (await prisma.partyType.findMany({
           select: { partyTypeId: true, name: true, description: true, aiPromptHint: true },
@@ -84,18 +81,11 @@ Type tables are the ERP's vocabulary — they define what classifications are av
       };
 
       const handler = handlers[input.typeName];
+      // Safety net — Zod enum should make this unreachable
       if (!handler) {
-        return {
-          success: false,
-          error: {
-            code: "INVALID_TYPE_TABLE",
-            message: `Type table '${input.typeName}' not found. Valid tables: ['PARTY_TYPE', 'ROLE_TYPE', 'CONTACT_MECHANISM_TYPE']`,
-            suggestedTools: ["get_type_table_values"],
-            context: { validTypeTables: ["PARTY_TYPE", "ROLE_TYPE", "CONTACT_MECHANISM_TYPE"] },
-          },
-        };
+        throw new Error(`Unhandled type table: ${input.typeName}`);
       }
-      values = await handler();
+      const values = await handler();
 
       return {
         success: true,

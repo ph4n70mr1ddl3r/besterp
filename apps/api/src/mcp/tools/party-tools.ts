@@ -32,7 +32,11 @@ interface PartyServices {
 }
 
 function getPartyService(ctx: ToolContext) {
-  return (ctx.services as unknown as PartyServices).partyService;
+  const svc = (ctx.services as Record<string, unknown> | undefined)?.partyService;
+  if (!svc || typeof svc !== "object") {
+    throw new Error("PartyService not available in ToolContext.services");
+  }
+  return svc as PartyServices["partyService"];
 }
 
 // ─── Schemas ──────────────────────────────────────────────────────

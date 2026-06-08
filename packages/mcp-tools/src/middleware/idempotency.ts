@@ -16,7 +16,7 @@
 // If no idempotency key is provided, the middleware is a no-op pass-through.
 
 import { PrismaClient, IdempotencyRecord } from "@prisma/client";
-import { hashInput, MAX_SOFT_FAILURE_MESSAGE_SIZE, IDEMPOTENCY_TTL_MS } from "@besterp/shared";
+import { hashInput, MAX_SOFT_FAILURE_MESSAGE_SIZE, IDEMPOTENCY_TTL_MS, MAX_IDEMPOTENCY_KEY_LENGTH } from "@besterp/shared";
 import { ToolMiddleware, ToolDefinition, ToolResult, ToolContext } from "../schema/tool-definition.js";
 import { truncateValue, MAX_STORED_PAYLOAD_SIZE, capString } from "./truncate.js";
 
@@ -47,7 +47,7 @@ export function idempotencyMiddleware(prisma: PrismaClient): ToolMiddleware {
     // already created a `pending` record, the Zod layer marks it `failed`,
     // and the junk sits in the table for 24h. Bailing out here keeps the
     // table clean and matches the Zod schema's `min(1).max(500)` limit.
-    if (typeof idempotencyKey !== "string" || idempotencyKey.length > 500) {
+    if (typeof idempotencyKey !== "string" || idempotencyKey.length > MAX_IDEMPOTENCY_KEY_LENGTH) {
       return next(input, context);
     }
 
@@ -103,6 +103,8 @@ export function idempotencyMiddleware(prisma: PrismaClient): ToolMiddleware {
           // serializable transaction — eliminates the TOCTOU race where two
           // concurrent requests both see 'failed' and both re-execute.
           if (record.status === "failed") {
+            // NOTE: Using PK-only where clause. The idempotencyKey is the primary key
+            // and globally unique, so tenantId filtering is not needed here.
             await tx.idempotencyRecord.update({
               where: { idempotencyKey },
               data: { status: "pending", inputHash, expiresAt: new Date(Date.now() + IDEMPOTENCY_TTL_MS) },
@@ -200,8 +202,9 @@ export function idempotencyMiddleware(prisma: PrismaClient): ToolMiddleware {
     try {
       toolResult = await next(input, context);
     } catch (error: unknown) {
-      // Mark as failed
-      await prisma.idempotencyRecord.update({
+      // Mark as failed — PK-only where clause (idempotencyKey is globally unique)
+    // PK-only where clause — idempotencyKey is globally unique by design
+    await prisma.idempotencyRecord.update({
         where: { idempotencyKey },
         data: {
           status: "failed",

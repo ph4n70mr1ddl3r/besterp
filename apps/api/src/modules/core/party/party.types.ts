@@ -35,7 +35,6 @@ export interface PartyResult {
   partyId: string;
   name: string;
   partyType: string;
-  tenantId: string;
   description?: string | null;
   person: {
     firstName: string;

@@ -36,16 +36,18 @@ export function validateTenantIdEnhanced(tenantId: string): void {
   } catch (e) {
     // Re-throw as a structured DomainError so callers only need to
     // catch InvalidTypeValueError instead of plain Error.
+    // Truncate preview to avoid leaking untrusted input in error context.
+    const preview = tenantId.length > 20 ? `${tenantId.slice(0, 20)}...` : tenantId;
     throw new InvalidTypeValueError(
       (e as Error).message,
-      { context: { field: "tenantId", received: tenantId } }
+      { context: { field: "tenantId", received: preview } }
     );
   }
 
   if (tenantId.length > MAX_TENANT_ID_LENGTH) {
     throw new InvalidTypeValueError(
       `Tenant ID is too long (max ${MAX_TENANT_ID_LENGTH} characters)`,
-      { context: { field: "tenantId", received: tenantId, maxLength: MAX_TENANT_ID_LENGTH } }
+      { context: { field: "tenantId", maxLength: MAX_TENANT_ID_LENGTH } }
     );
   }
 }

@@ -283,10 +283,10 @@ export class PartyService {
 
     if (!party) {
       throw new EntityNotFoundError(
-        `Party '${partyId}' not found in tenant '${tenantId}'.`,
+        `Party '${partyId}' not found.`,
         {
           suggestedTools: ["search_parties", "get_party"],
-          context: { partyId, tenantId },
+          context: { partyId },
         }
       );
     }
@@ -436,10 +436,10 @@ export class PartyService {
       });
       if (!party) {
         throw new EntityNotFoundError(
-          `Party '${partyId}' not found in tenant '${tenantId}'.`,
+          `Party '${partyId}' not found.`,
           {
             suggestedTools: ["search_parties", "get_party"],
-            context: { partyId, tenantId },
+            context: { partyId },
           }
         );
       }
@@ -640,10 +640,10 @@ export class PartyService {
       });
       if (!existingParty) {
         throw new EntityNotFoundError(
-          `Party '${partyId}' not found in tenant '${tenantId}'.`,
+          `Party '${partyId}' not found.`,
           {
             suggestedTools: ["search_parties", "get_party"],
-            context: { partyId, tenantId },
+            context: { partyId },
           }
         );
       }
@@ -796,7 +796,6 @@ export class PartyService {
       partyId: party.partyId,
       name: party.name,
       partyType: party.partyType?.name ?? "UNKNOWN",
-      tenantId: party.tenantId,
       description: party.description,
       person: party.person
         ? {
