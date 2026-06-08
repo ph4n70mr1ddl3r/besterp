@@ -111,11 +111,13 @@ describeIntegration("RLS Tenant Isolation", () => {
       lastName: "Test",
     });
 
+    const cmId = uniqueId(prefix);
+
     // Create a postal address for tenant A's person
     await withTenant(app, TENANT_A, async (tx) => {
       return tx.contactMechanism.create({
         data: {
-          contactMechanismId: uniqueId(prefix),
+          contactMechanismId: cmId,
           contactMechanismTypeId: "cmt-postal",
           tenantId: TENANT_A,
           postalAddress: {
@@ -138,7 +140,7 @@ describeIntegration("RLS Tenant Isolation", () => {
     });
     const tenantBIds = tenantBContacts.map((c) => c.contactMechanismId);
 
-    expect(tenantBIds).not.toContain(person.partyId);
+    expect(tenantBIds).not.toContain(cmId);
   });
 
   // ─── Admin client bypasses RLS ──────────────────────────

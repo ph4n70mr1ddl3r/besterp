@@ -11,6 +11,7 @@
 // is retained as defense-in-depth.
 
 import type { PrismaClient, Prisma } from "@prisma/client";
+import { DomainError } from "./errors.js";
 
 /** Prisma's interactive transaction client with all model delegates. */
 type PrismaTransactionClient = Prisma.TransactionClient;
@@ -26,8 +27,12 @@ const TENANT_ID_PATTERN = /^[a-zA-Z0-9_-]+$/;
  */
 export function validateTenantId(tenantId: string): void {
   if (!TENANT_ID_PATTERN.test(tenantId)) {
-    throw new Error(
-      `Invalid tenant ID: "${tenantId}". ` +
+    // Sanitize: show only first 20 chars to prevent log injection and
+    // information disclosure from untrusted input.
+    const preview = tenantId.length > 20 ? `${tenantId.slice(0, 20)}...` : tenantId;
+    throw new DomainError(
+      "INVALID_TENANT_ID",
+      `Invalid tenant ID: "${preview}". ` +
         `Tenant IDs must match ${TENANT_ID_PATTERN.source}.`
     );
   }
@@ -70,7 +75,15 @@ export async function withTenant<T>(
   return prisma.$transaction(async (tx) => {
     // Parameterized query via tagged template — tenant ID is sent as $1,
     // not interpolated into the SQL string. No string-concat injection risk.
-    await tx.$executeRaw`SELECT set_tenant_context(${tenantId})`;
+    try {
+      await tx.$executeRaw`SELECT set_tenant_context(${tenantId})`;
+    } catch (e) {
+      throw new DomainError(
+        "TENANT_CONTEXT_FAILED",
+        "Failed to set tenant context. Ensure the set_tenant_context() function exists and the database role has correct permissions.",
+        { cause: e as Error, context: { tenantId } }
+      );
+    }
     return fn(tx);
   });
 }

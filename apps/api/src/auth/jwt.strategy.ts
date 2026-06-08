@@ -10,6 +10,7 @@
 import { Injectable, UnauthorizedException } from "@nestjs/common";
 import { PassportStrategy } from "@nestjs/passport";
 import { ExtractJwt, Strategy } from "passport-jwt";
+import { randomBytes } from "node:crypto";
 import { validateTenantIdEnhanced } from "@besterp/database";
 import { InvalidTypeValueError } from "@besterp/shared";
 
@@ -27,7 +28,23 @@ export interface JwtValidatedUser {
   agentId?: string;
 }
 
-export const JWT_DEV_SECRET = "besterp-dev-secret-change-me";
+/**
+ * Resolve the JWT secret from the environment. In production, JWT_SECRET is
+ * required. In development, a random secret is generated at startup so there
+ * is no hardcoded value that could leak via stack traces or source control.
+ */
+export function resolveJwtSecret(): string {
+  const secret = process.env.JWT_SECRET;
+  if (secret) return secret;
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("JWT_SECRET must be set in production. Refusing to start with insecure default.");
+  }
+  console.warn(
+    "⚠️  JWT_SECRET not set — generating ephemeral secret for this session. Set JWT_SECRET in production!"
+  );
+  return randomBytes(32).toString("hex");
+}
+
 // Length cap for user/agent identifiers in the JWT. Matches the limit
 // enforced later in McpModule.buildContext so a forged token carrying a
 // 10MB identifier is rejected at the auth boundary rather than propagated
@@ -39,20 +56,10 @@ const MAX_ROLE_LENGTH = 100;
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
   constructor() {
-    const secret = process.env.JWT_SECRET;
-    if (!secret) {
-      if (process.env.NODE_ENV === "production") {
-        throw new Error("JWT_SECRET must be set in production. Refusing to start with insecure default.");
-      }
-      console.warn(
-        "⚠️  JWT_SECRET not set — using insecure default. Set JWT_SECRET in production!"
-      );
-    }
-
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
-      secretOrKey: secret || JWT_DEV_SECRET,
+      secretOrKey: resolveJwtSecret(),
     });
   }
 

@@ -17,7 +17,7 @@
 // - Batch `$transaction([...promises])` calls are rejected with an error
 //   because they cannot receive tenant context. Use interactive transactions.
 
-import { PrismaClient } from "@prisma/client";
+import { PrismaClient, Prisma } from "@prisma/client";
 import { validateTenantId, InvalidTypeValueError } from "@besterp/shared";
 
 // ─── Validation ───────────────────────────────────────────────────
@@ -64,11 +64,6 @@ export function validatePrismaClientForRls(prisma: PrismaClient): void {
 
 // ─── Data-access methods to wrap with tenant context ──────────────
 
-// Whitelist of known safe $ properties on the tenant-scoped proxy.
-// Only $transaction is allowed — all others are blocked to prevent
-// future Prisma methods from silently bypassing RLS scoping.
-const SAFE_DOLLAR_PROPS = new Set(["$transaction"]);
-
 const DATA_METHODS = new Set([
   "findMany", "findUnique", "findFirst", "create", "update",
   "delete", "upsert", "count", "aggregate", "groupBy",
@@ -77,7 +72,7 @@ const DATA_METHODS = new Set([
 ]);
 
 /** Operations that should never be called on a tenant-scoped proxy. */
-const BLOCKED_LIFECYCLE = new Set(["$connect", "$disconnect", "$extends", "$on", "$use"]);
+const BLOCKED_LIFECYCLE = new Set(["$connect", "$disconnect", "$extends"]);
 
 /** Raw SQL operations that bypass RLS scoping. */
 const BLOCKED_RAW_SQL = new Set([
@@ -126,11 +121,11 @@ export function createTenantClient(prisma: PrismaClient, tenantId: string) {
   // Cache for wrapped methods to avoid creating new closures on every access.
   // This reduces GC pressure in high-throughput scenarios where the same methods
   // (e.g., party.findMany, $transaction) are called repeatedly.
-  const methodCache = new Map<string, Function>();
+  const methodCache = new Map<string, (...args: unknown[]) => Promise<unknown>>();
 
   // Cache for model delegate proxies to avoid creating a new Proxy on every property access.
   // Without this, each access to `scoped.party` creates a new Proxy wrapping the delegate.
-  const delegateCache = new Map<string, any>();
+  const delegateCache = new Map<string, object>();
 
   // Pre-build the $transaction wrapper so it's allocated once, not per-access.
   const transactionWrapper = (...args: unknown[]) => {
@@ -139,7 +134,7 @@ export function createTenantClient(prisma: PrismaClient, tenantId: string) {
     // Interactive transaction: $transaction(fn) or $transaction(fn, options)
     if (typeof first === "function") {
       const options = (typeof second === "object" && second !== null) ? second : undefined;
-      const wrappedFn = async (tx: any) => {
+      const wrappedFn = async (tx: Prisma.TransactionClient) => {
         await tx.$executeRaw`SELECT set_tenant_context(${tenantId})`;
         return first(tx);
       };
@@ -160,8 +155,11 @@ export function createTenantClient(prisma: PrismaClient, tenantId: string) {
       );
     }
 
-    // Fallback — unknown overload, pass through
-    return (prisma as any).$transaction(...args);
+    // Unknown overload — throw instead of silently passing through,
+    // which would bypass RLS scoping.
+    throw new Error(
+      "Unsupported $transaction arguments. Use $transaction(async (tx) => { ... })"
+    );
   };
 
   return new Proxy(prisma, {
@@ -209,11 +207,6 @@ export function createTenantClient(prisma: PrismaClient, tenantId: string) {
       // This prevents future Prisma methods (e.g., $metrics, $queryRawSafe)
       // from silently bypassing RLS scoping.
       if (prop.startsWith("$")) {
-        if (SAFE_DOLLAR_PROPS.has(prop)) {
-          // $transaction is already intercepted above; this branch is
-          // unreachable but kept for clarity.
-          return transactionWrapper;
-        }
         throw new Error(
           `Cannot call '${prop}' on a tenant-scoped client. Only $transaction is allowed. Use the base PrismaClient for other operations.`
         );
@@ -282,5 +275,5 @@ export function createTenantClient(prisma: PrismaClient, tenantId: string) {
       delegateCache.set(prop, proxy);
       return proxy;
     },
-  }) as any as PrismaClient;
+  }) as unknown as PrismaClient;
 }

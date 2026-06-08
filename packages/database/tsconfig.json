@@ -6,7 +6,6 @@
   },
   "include": ["src"],
   "exclude": [
-    "src/spike-rls.ts",
     "src/__tests__/**/*"
   ]
 }

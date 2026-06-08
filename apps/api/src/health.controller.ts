@@ -57,7 +57,7 @@ export class HealthController {
     const healthPromise = this.healthService.getHealth();
     // Suppress eventual rejection if timeout wins the race — without this,
     // a slow-failing DB health check becomes an unhandled promise rejection.
-    healthPromise.catch(() => {});
+    healthPromise.catch((err) => this.logger.debug("Health check failed (suppressed):", err));
 
     const timeoutPromise = new Promise<"timeout">((resolve) => {
       timeoutId = setTimeout(() => resolve("timeout"), 5000);

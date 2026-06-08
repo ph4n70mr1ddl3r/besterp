@@ -23,7 +23,9 @@ export class DomainError extends Error {
     }
   ) {
     super(message, options?.cause ? { cause: options.cause } : undefined);
-    this.name = this.constructor.name;
+    // Hardcode name to survive minification (terser/mangle renames classes).
+    // Subclasses must override this.name with their own class name.
+    this.name = "DomainError";
     this.code = code;
     this.suggestedTools = options?.suggestedTools ?? [];
     this.context = options?.context ?? {};
@@ -37,6 +39,7 @@ export class MissingSubtypeDataError extends DomainError {
     options?: { suggestedTools?: string[]; context?: Record<string, unknown> }
   ) {
     super("MISSING_SUBTYPE_DATA", message, options);
+    this.name = "MissingSubtypeDataError";
   }
 }
 
@@ -47,6 +50,7 @@ export class InvalidTypeValueError extends DomainError {
     options?: { suggestedTools?: string[]; context?: Record<string, unknown> }
   ) {
     super("INVALID_TYPE_VALUE", message, options);
+    this.name = "InvalidTypeValueError";
   }
 }
 
@@ -57,6 +61,7 @@ export class DuplicateEntityError extends DomainError {
     options?: { suggestedTools?: string[]; context?: Record<string, unknown> }
   ) {
     super("DUPLICATE_ENTITY", message, options);
+    this.name = "DuplicateEntityError";
   }
 }
 
@@ -67,6 +72,7 @@ export class EntityNotFoundError extends DomainError {
     options?: { suggestedTools?: string[]; context?: Record<string, unknown> }
   ) {
     super("ENTITY_NOT_FOUND", message, options);
+    this.name = "EntityNotFoundError";
   }
 }
 

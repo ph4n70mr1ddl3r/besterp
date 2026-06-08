@@ -22,9 +22,7 @@ export const MAX_STORED_PAYLOAD_SIZE = 65536; // 64 KB
 const PREVIEW_BYTES = 1024;
 
 /**
- * Cap an individual string at `maxBytes` characters (approximated as
- * UTF-16 code units — sufficient for soft-failure error messages where
- * each "character" is at most a few bytes in practice).
+ * Cap an individual string at `maxBytes` bytes (measured in UTF-8).
  *
  * The idempotency middleware stores soft-failure error messages verbatim
  * in `idempotency_record.error.message`. A Zod validation failure with
@@ -37,12 +35,16 @@ export function capString(value: unknown, maxBytes: number): string {
   if (typeof value !== "string") {
     return "Tool returned a soft failure";
   }
-  if (value.length <= maxBytes) {
+  const encoder = new TextEncoder();
+  const encoded = encoder.encode(value);
+  if (encoded.byteLength <= maxBytes) {
     return value;
   }
-  // Slice to the byte cap, then append a marker so operators can tell
-  // the message was elided (rather than assuming the text just ends).
-  return `${value.slice(0, maxBytes)}... [truncated, original was ${value.length} chars]`;
+  // Truncate to maxBytes, accounting for the marker length
+  const marker = `... [truncated, original was ${encoded.byteLength} bytes]`;
+  const markerBytes = encoder.encode(marker).byteLength;
+  const truncated = new TextDecoder().decode(encoded.slice(0, Math.max(0, maxBytes - markerBytes)));
+  return `${truncated}${marker}`;
 }
 
 /**
@@ -53,10 +55,11 @@ export function capString(value: unknown, maxBytes: number): string {
 export function truncateValue(value: unknown, maxSize: number = MAX_STORED_PAYLOAD_SIZE): unknown {
   try {
     const serialized = JSON.stringify(value);
-    if (serialized.length > maxSize) {
+    const byteLength = new TextEncoder().encode(serialized).byteLength;
+    if (byteLength > maxSize) {
       return {
         _truncated: true,
-        _originalSize: serialized.length,
+        _originalSize: byteLength,
         _preview: serialized.slice(0, PREVIEW_BYTES),
       };
     }

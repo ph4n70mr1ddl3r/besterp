@@ -8,7 +8,7 @@
 import { Module } from "@nestjs/common";
 import { JwtModule } from "@nestjs/jwt";
 import { PassportModule } from "@nestjs/passport";
-import { JwtStrategy, JWT_DEV_SECRET } from "./jwt.strategy.js";
+import { JwtStrategy, resolveJwtSecret } from "./jwt.strategy.js";
 
 @Module({
   imports: [
@@ -18,7 +18,7 @@ import { JwtStrategy, JWT_DEV_SECRET } from "./jwt.strategy.js";
       // production if the env var is missing, preventing the app from starting.
       // We read the resolved secret here so both JwtModule and JwtStrategy
       // use the same value without duplicating the validation logic.
-      secret: process.env.JWT_SECRET || JWT_DEV_SECRET,
+      secret: resolveJwtSecret(),
       signOptions: { expiresIn: "24h" },
     }),
   ],

@@ -20,7 +20,7 @@ async function main() {
   const ADVISORY_LOCK_KEY = 0x62657374657270; // 'besterp' in ASCII hex bytes
   let lockAcquired = false;
   let totalDeleted = 0;
-  let before = await prisma.idempotencyRecord.count();
+  let before: number;
 
   // Try to acquire the advisory lock. pg_try_advisory_lock returns false
   // immediately if another process already holds it — the script exits
@@ -35,8 +35,12 @@ async function main() {
       return;
     }
   } catch (e) {
-    console.warn("⚠️  Could not acquire advisory lock — proceeding without it:", e);
+    console.error("❌ Could not query advisory lock — aborting:", e);
+    process.exit(1);
   }
+
+  // Capture count after lock acquisition for accurate before/after comparison
+  before = await prisma.idempotencyRecord.count();
 
   try {
     // Delete in batches to avoid long-running transactions and lock contention
