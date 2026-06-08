@@ -18,7 +18,7 @@
 //   because they cannot receive tenant context. Use interactive transactions.
 
 import { PrismaClient, Prisma } from "@prisma/client";
-import { validateTenantId, InvalidTypeValueError } from "@besterp/shared";
+import { validateTenantId, InvalidTypeValueError, MAX_TENANT_ID_LENGTH } from "@besterp/shared";
 
 // ─── Validation ───────────────────────────────────────────────────
 
@@ -42,10 +42,10 @@ export function validateTenantIdEnhanced(tenantId: string): void {
     );
   }
 
-  if (tenantId.length > 100) {
+  if (tenantId.length > MAX_TENANT_ID_LENGTH) {
     throw new InvalidTypeValueError(
-      "Tenant ID is too long (max 100 characters)",
-      { context: { field: "tenantId", received: tenantId, maxLength: 100 } }
+      `Tenant ID is too long (max ${MAX_TENANT_ID_LENGTH} characters)`,
+      { context: { field: "tenantId", received: tenantId, maxLength: MAX_TENANT_ID_LENGTH } }
     );
   }
 }

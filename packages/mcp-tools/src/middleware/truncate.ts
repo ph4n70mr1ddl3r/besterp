@@ -43,7 +43,9 @@ export function capString(value: unknown, maxBytes: number): string {
   if (encoded.byteLength <= maxBytes) {
     return value;
   }
-  // Truncate to maxBytes, accounting for the marker length
+  // Truncate to maxBytes, accounting for the marker length.
+  // Use a conservative estimate: "..." + "[truncated, original was XXXXX bytes]"
+  // is at most ~60 bytes, which is safe for all realistic original sizes.
   const marker = `... [truncated, original was ${encoded.byteLength} bytes]`;
   const markerBytes = textEncoder.encode(marker).byteLength;
   const truncated = textDecoder.decode(encoded.slice(0, Math.max(0, maxBytes - markerBytes)));
@@ -58,13 +60,12 @@ export function capString(value: unknown, maxBytes: number): string {
 export function truncateValue(value: unknown, maxSize: number = MAX_STORED_PAYLOAD_SIZE): unknown {
   try {
     const serialized = JSON.stringify(value);
-    const byteLength = textEncoder.encode(serialized).byteLength;
-    if (byteLength > maxSize) {
-      const previewBytes = textEncoder.encode(serialized).slice(0, PREVIEW_BYTES);
+    const encoded = textEncoder.encode(serialized);
+    if (encoded.byteLength > maxSize) {
       return {
         _truncated: true,
-        _originalSize: byteLength,
-        _preview: textDecoder.decode(previewBytes),
+        _originalSize: encoded.byteLength,
+        _preview: textDecoder.decode(encoded.slice(0, PREVIEW_BYTES)),
       };
     }
   } catch {

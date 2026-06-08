@@ -128,7 +128,7 @@ export class ToolRegistry {
             success: false,
             error: {
               code: "INVALID_INPUT",
-              message: `Input validation failed: ${parsed.error.issues.map((i: any) => `${i.path.join(".")}: ${i.message}`).join("; ")}`,
+              message: `Input validation failed: ${parsed.error.issues.map((i: { path: (string | number)[]; message: string }) => `${i.path.join(".")}: ${i.message}`).join("; ")}`,
               suggestedTools: [name],
               context: { issues: parsed.error.issues },
             },

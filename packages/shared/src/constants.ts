@@ -73,6 +73,11 @@ export const MAX_AGENT_ID_LENGTH = 200;
 /** Maximum length for role strings in JWT tokens. */
 export const MAX_ROLE_LENGTH = 100;
 
+// ─── Tenant ────────────────────────────────────────────────────
+
+/** Maximum length for tenant IDs. */
+export const MAX_TENANT_ID_LENGTH = 100;
+
 // ─── Pagination ────────────────────────────────────────────────
 
 /** Default page size for search results. */

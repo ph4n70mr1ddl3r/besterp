@@ -15,7 +15,7 @@
 //
 // If no idempotency key is provided, the middleware is a no-op pass-through.
 
-import { PrismaClient } from "@prisma/client";
+import { PrismaClient, IdempotencyRecord } from "@prisma/client";
 import { hashInput, MAX_SOFT_FAILURE_MESSAGE_SIZE, IDEMPOTENCY_TTL_MS } from "@besterp/shared";
 import { ToolMiddleware, ToolDefinition, ToolResult, ToolContext } from "../schema/tool-definition.js";
 import { truncateValue, MAX_STORED_PAYLOAD_SIZE, capString } from "./truncate.js";
@@ -67,7 +67,7 @@ export function idempotencyMiddleware(prisma: PrismaClient): ToolMiddleware {
     // If ALL retries are exhausted, we must NOT proceed without a pending
     // record (the final update would fail). Instead, return a retryable error.
     const MAX_RETRIES = 3;
-    let existingRecord: any = null;
+    let existingRecord: IdempotencyRecord | null = null;
     let recordCreated = false;
 
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {

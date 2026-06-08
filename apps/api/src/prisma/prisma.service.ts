@@ -11,6 +11,7 @@
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from "@nestjs/common";
 import { PrismaClient } from "@prisma/client";
 import { createTenantClient, validateTenantIdEnhanced } from "@besterp/database";
+import { MAX_TENANT_CACHE_SIZE } from "@besterp/shared";
 
 @Injectable()
 export class PrismaService
@@ -22,8 +23,6 @@ export class PrismaService
   private _destroyed = false;
   /** Cache of tenant-scoped Proxy clients to avoid GC pressure from repeated creation. */
   private readonly tenantClientCache = new Map<string, WeakRef<PrismaClient>>();
-  /** Maximum number of tenant clients to cache before eviction. */
-  private static readonly MAX_CACHE_SIZE = 256;
   // FinalizationRegistry evicts cache entries when GC collects the Proxy.
   // Note: we do NOT try to $disconnect the tenant client because the Proxy
   // blocks $disconnect (tenant clients share the underlying _appClient connection).
@@ -167,7 +166,7 @@ export class PrismaService
     if (cached) return cached;
 
     // Only run eviction when the cache is full.
-    if (this.tenantClientCache.size >= PrismaService.MAX_CACHE_SIZE) {
+    if (this.tenantClientCache.size >= MAX_TENANT_CACHE_SIZE) {
       // Map iteration order is insertion order in modern JS, so the first live
       // entry encountered is the oldest — this is FIFO eviction, not LRU.
       const staleKeys: string[] = [];
@@ -193,7 +192,7 @@ export class PrismaService
       // No stale entries found — evict the oldest live entry to make room.
       if (staleKeys.length === 0 && oldestKey) {
         this.logger.warn(
-          `Tenant client cache full (${PrismaService.MAX_CACHE_SIZE}). Evicting oldest entry: '${oldestKey}'.`
+          `Tenant client cache full (${MAX_TENANT_CACHE_SIZE}). Evicting oldest entry: '${oldestKey}'.`
         );
         const token = this.unregisterTokens.get(oldestKey);
         if (token) {
