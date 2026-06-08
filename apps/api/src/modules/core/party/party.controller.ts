@@ -20,7 +20,7 @@ import {
   ParseUUIDPipe,
   UnauthorizedException,
 } from "@nestjs/common";
-import { Request } from "express";
+import type { Request } from "express";
 import { TenantContext } from "../../../common/tenant-context.js";
 import { PartyService } from "./party.service.js";
 import {

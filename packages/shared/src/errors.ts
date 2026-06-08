@@ -30,6 +30,22 @@ export class DomainError extends Error {
     this.suggestedTools = options?.suggestedTools ?? [];
     this.context = options?.context ?? {};
   }
+
+  /**
+   * Override toJSON to ensure DomainError properties survive JSON serialization.
+   * Error properties are non-enumerable by default, so JSON.stringify produces {}.
+   * This method explicitly exposes the structured fields for audit logs, idempotency
+   * records, and any other context where errors are serialized.
+   */
+  toJSON(): Record<string, unknown> {
+    return {
+      name: this.name,
+      code: this.code,
+      message: this.message,
+      suggestedTools: this.suggestedTools,
+      context: this.context,
+    };
+  }
 }
 
 /** Thrown when required subtype data is missing (e.g., person details for PERSON party type). */

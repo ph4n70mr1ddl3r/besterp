@@ -98,11 +98,13 @@ export class HealthService {
     const uptime = Math.round(process.uptime() * 1000); // ms since process started
     const environment = process.env.NODE_ENV || "development";
     
-    // Check database connectivity — use the app client (RLS-enforced path)
-    // rather than the admin client to verify the actual runtime connection.
+    // Check database connectivity — use the admin client (bypasses RLS) for
+    // health checks. The app client requires a tenant context via set_tenant_context(),
+    // which is not set during health checks. The admin client verifies the database
+    // connection is alive without depending on RLS configuration.
     let databaseStatus: "connected" | "disconnected";
     try {
-      await this.prisma.appClient.$queryRaw`SELECT 1`;
+      await this.prisma.admin.$queryRaw`SELECT 1`;
       databaseStatus = "connected";
     } catch (error) {
       this.logger.error(

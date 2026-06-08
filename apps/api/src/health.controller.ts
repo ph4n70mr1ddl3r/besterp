@@ -27,11 +27,11 @@ export class HealthController {
     // operators who only configure one health check.
     const status = await this.healthService.getHealth();
     if (status.database !== "connected") {
+      // Return generic error without database details to avoid information
+      // disclosure that could help an attacker understand infrastructure state.
       throw new ServiceUnavailableException({
-        status: status.status,
-        timestamp: status.timestamp,
-        database: status.database,
-        message: "Database is not connected",
+        status: "error",
+        message: "Service is not ready",
       });
     }
     return status;

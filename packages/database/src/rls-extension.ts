@@ -137,6 +137,10 @@ export function createTenantClient(prisma: PrismaClient, tenantId: string) {
     if (typeof first === "function") {
       const options = (typeof second === "object" && second !== null) ? second : undefined;
       const wrappedFn = async (tx: Prisma.TransactionClient) => {
+        // $executeRaw returns affected row count (number). set_tenant_context() returns
+        // void, so Prisma coerces it to 0. This works in practice but is fragile —
+        // if Prisma strictens type checking for $executeRaw results in the future,
+        // this may need to switch to $queryRaw or a cast (SELECT set_tenant_context(...)::bigint).
         await tx.$executeRaw`SELECT set_tenant_context(${tenantId})`;
         return first(tx);
       };

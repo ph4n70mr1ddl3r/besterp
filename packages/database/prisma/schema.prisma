@@ -31,6 +31,7 @@ model PartyType {
 
   parties Party[]
 
+  @@index([parentTypeId])
   @@map("party_type")
 }
 
@@ -60,6 +61,8 @@ model Party {
   partyContacts PartyContactMechanism[]
 
   @@index([tenantId])
+  @@index([partyTypeId])
+  @@index([tenantId, partyTypeId])
   // NOTE: For production, consider adding a pg_trgm GIN index for efficient
   // case-insensitive LIKE searches on `name`:
   //   CREATE EXTENSION IF NOT EXISTS pg_trgm;
@@ -129,6 +132,8 @@ model PartyRole {
   @@index([partyId])
   @@index([roleTypeId])
   @@index([partyId, roleTypeId])
+  @@index([fromDate])
+  @@index([thruDate])
   @@map("party_role")
 }
 
@@ -231,6 +236,9 @@ model AiActionLog {
 
   @@index([tenantId])
   @@index([tenantId, toolCalled])
+  @@index([userId])
+  @@index([agentId])
+  @@index([conversationId])
   @@map("ai_action_log")
 }
 
@@ -254,5 +262,6 @@ model IdempotencyRecord {
   @@index([tenantId])
   @@index([expiresAt])
   @@index([status, expiresAt])
+  @@index([toolName])
   @@map("idempotency_record")
 }

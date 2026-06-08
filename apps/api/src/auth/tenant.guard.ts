@@ -57,12 +57,22 @@ export class TenantGuard implements CanActivate {
     // always canonical (no leading/trailing whitespace), so downstream
     // equality checks (audit logs, idempotency keys, RLS) never see
     // " user-1" and "user-1" as distinct.
-    const tenantId = typeof user.tenantId === "string" ? user.tenantId.trim() : user.tenantId;
-    const userId = typeof user.userId === "string" ? user.userId.trim() : user.userId;
+    if (typeof user.tenantId !== "string") {
+      throw new InternalServerErrorException(
+        "TenantGuard: tenantId is not a string. JWT payload is malformed."
+      );
+    }
+    if (typeof user.userId !== "string") {
+      throw new InternalServerErrorException(
+        "TenantGuard: userId is not a string. JWT payload is malformed."
+      );
+    }
+    const tenantId = user.tenantId.trim();
+    const userId = user.userId.trim();
     const agentId =
       user.agentId === undefined || user.agentId === null
         ? undefined
-        : (typeof user.agentId === "string" ? user.agentId.trim() : user.agentId);
+        : (typeof user.agentId === "string" ? user.agentId.trim() : undefined);
 
     const tenantContext: TenantContext = {
       tenantId,

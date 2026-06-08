@@ -15,7 +15,7 @@
 //
 // If no idempotency key is provided, the middleware is a no-op pass-through.
 
-import { PrismaClient, IdempotencyRecord } from "@prisma/client";
+import { PrismaClient, Prisma, IdempotencyRecord } from "@prisma/client";
 import { hashInput, MAX_SOFT_FAILURE_MESSAGE_SIZE, IDEMPOTENCY_TTL_MS, MAX_IDEMPOTENCY_KEY_LENGTH, IDEMPOTENCY_MAX_RETRIES } from "@besterp/shared";
 import { ToolMiddleware, ToolResult } from "../schema/tool-definition.js";
 import { truncateValue, MAX_STORED_PAYLOAD_SIZE, capString } from "./truncate.js";
@@ -103,8 +103,11 @@ export function idempotencyMiddleware(prisma: PrismaClient): ToolMiddleware {
           // serializable transaction — eliminates the TOCTOU race where two
           // concurrent requests both see 'failed' and both re-execute.
           if (record.status === "failed") {
-            // NOTE: Using PK-only where clause. The idempotencyKey is the primary key
-            // and globally unique, so tenantId filtering is not needed here.
+            // Reset to pending inside the SAME serializable transaction.
+            // PK-only where clause is safe here because the enclosing serializable
+            // transaction already verified tenant ownership via findFirst above.
+            // The record cannot have been created by another tenant between the
+            // findFirst and this update (serializable isolation prevents phantoms).
             await tx.idempotencyRecord.update({
               where: { idempotencyKey },
               data: { status: "pending", inputHash, expiresAt: new Date(Date.now() + IDEMPOTENCY_TTL_MS) },
@@ -202,20 +205,26 @@ export function idempotencyMiddleware(prisma: PrismaClient): ToolMiddleware {
     try {
       toolResult = await next(input, context);
     } catch (error: unknown) {
-      // Mark as failed — idempotencyKey is globally unique by design,
-      // so a PK-only where clause suffices (no tenantId filtering needed).
-      await prisma.idempotencyRecord.update({
-        where: { idempotencyKey },
-        data: {
-          status: "failed",
-          error: { message: error instanceof Error ? error.message : String(error), code: (error as Record<string, unknown>).code as string | undefined },
-        },
-      }).catch((updateErr) => {
-        process.stderr.write(
-          `[Idempotency] Failed to mark record '${idempotencyKey}' as failed: ` +
-          `${updateErr instanceof Error ? updateErr.message : updateErr}\n`
-        );
-      });
+      // Mark as failed. Verify tenant ownership first to prevent cross-tenant
+      // updates if an idempotency key is ever reused across tenants.
+      const record = await prisma.idempotencyRecord.findFirst({
+        where: { idempotencyKey, tenantId },
+        select: { idempotencyKey: true },
+      }).catch(() => null);
+      if (record) {
+        await prisma.idempotencyRecord.update({
+          where: { idempotencyKey },
+          data: {
+            status: "failed",
+            error: { message: error instanceof Error ? error.message : String(error), code: (error as Record<string, unknown>).code as string | undefined },
+          },
+        }).catch((updateErr) => {
+          process.stderr.write(
+            `[Idempotency] Failed to mark record '${idempotencyKey}' as failed: ` +
+            `${updateErr instanceof Error ? updateErr.message : updateErr}\n`
+          );
+        });
+      }
 
       throw error; // re-throw for error handler middleware
     }
@@ -231,8 +240,8 @@ export function idempotencyMiddleware(prisma: PrismaClient): ToolMiddleware {
       data: {
         status: isSoftFailure ? "failed" : "completed",
         result: toolResult.data !== undefined
-          ? (truncateValue(toolResult.data, MAX_STORED_PAYLOAD_SIZE) as any)
-          : null,
+          ? (truncateValue(toolResult.data, MAX_STORED_PAYLOAD_SIZE) as unknown as Prisma.InputJsonValue)
+          : Prisma.DbNull,
         error: isSoftFailure
           ? {
               message: capString(toolResult.error?.message, MAX_SOFT_FAILURE_MESSAGE_SIZE),

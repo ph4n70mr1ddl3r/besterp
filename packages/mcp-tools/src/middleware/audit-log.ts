@@ -8,7 +8,7 @@
 // blocks tool execution. Log failures are silently ignored (audit should
 // never break the tool).
 
-import { PrismaClient } from "@prisma/client";
+import { PrismaClient, Prisma } from "@prisma/client";
 import { ToolMiddleware, ToolResult } from "../schema/tool-definition.js";
 import { truncateValue, MAX_STORED_PAYLOAD_SIZE } from "./truncate.js";
 
@@ -45,7 +45,7 @@ export function auditLogMiddleware(prisma: PrismaClient): ToolMiddleware {
         userId: context.userId,
         tenantId: context.tenantId,
         toolCalled: definition.name,
-        toolInput: input as any,
+        toolInput: input as Record<string, unknown>,
         toolOutput: truncateValue(
           { error: { message: error instanceof Error ? error.message : String(error), code: (error as Record<string, unknown>).code as string | undefined } },
           MAX_AUDIT_OUTPUT_SIZE,
@@ -70,7 +70,7 @@ export function auditLogMiddleware(prisma: PrismaClient): ToolMiddleware {
       userId: context.userId,
       tenantId: context.tenantId,
       toolCalled: definition.name,
-      toolInput: input as any,
+      toolInput: input as Record<string, unknown>,
       toolOutput: result.data ?? null,
     }).catch((logErr) => {
       process.stderr.write(
@@ -107,8 +107,8 @@ async function logAction(prisma: PrismaClient, entry: AuditLogEntry): Promise<vo
       userId: entry.userId,
       tenantId: entry.tenantId,
       toolCalled: entry.toolCalled,
-      toolInput: toolInput as any,
-      toolOutput: truncateValue(entry.toolOutput, MAX_AUDIT_OUTPUT_SIZE) as any,
+      toolInput: toolInput as unknown as Prisma.InputJsonValue,
+      toolOutput: (truncateValue(entry.toolOutput, MAX_AUDIT_OUTPUT_SIZE) ?? undefined) as Prisma.InputJsonValue | undefined,
       reasoning: null,
     },
   });
