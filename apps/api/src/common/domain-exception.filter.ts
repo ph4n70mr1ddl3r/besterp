@@ -92,18 +92,20 @@ export class DomainExceptionFilter implements ExceptionFilter {
     }
 
     // Unexpected errors — return 500 to avoid leaking internals.
-    // In production, never include the raw error message in the response.
+    // Only show raw error messages in development; staging/test/production
+    // get a generic message to prevent leaking internal details (DB errors,
+    // stack traces, etc.).
     // The server-side log captures the full details for debugging.
     this.logger.error(
       `Unhandled exception: ${exception instanceof Error ? exception.message : exception}`,
       exception instanceof Error ? exception.stack : undefined
     );
-    const isProd = process.env.NODE_ENV === "production";
+    const isDev = process.env.NODE_ENV === "development";
     response.status(500).json({
       statusCode: 500,
-      message: isProd
-        ? "Internal server error"
-        : (exception instanceof Error ? exception.message : "Internal server error"),
+      message: isDev
+        ? (exception instanceof Error ? exception.message : "Internal server error")
+        : "Internal server error",
     });
   }
 }

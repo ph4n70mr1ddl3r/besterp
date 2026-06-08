@@ -13,6 +13,7 @@ import { fileURLToPath } from "url";
 export interface HealthStatus {
   status: "ok" | "error";
   timestamp: string;
+  /** Process uptime in milliseconds since start. */
   uptime: number;
   environment: string;
   database: "connected" | "disconnected";

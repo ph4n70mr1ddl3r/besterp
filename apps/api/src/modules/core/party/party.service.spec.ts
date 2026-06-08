@@ -586,7 +586,7 @@ describe("PartyService", () => {
       await partyService.searchParties(input);
 
       // Verify the trimmed roleType was used in the query
-      const txCall = mockDb.$transaction.mock.calls[0][0];
+      const txCall = mockDb.$transaction.mock.calls[0]?.[0];
       // The transaction callback receives the tx — we verify by checking the where clause
       // was constructed with trimmed value. Since we mock $transaction, we just confirm
       // it was called and didn't throw.

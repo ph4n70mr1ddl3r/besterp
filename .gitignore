@@ -3,12 +3,26 @@ node_modules/
 .env
 .env.local
 .env.*.local
+.env.development
+.env.test
+.env.production
 *.log
 .turbo/
 .nx/
 coverage/
 tmp/
 *.tsbuildinfo
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+
+# Editor
+*.swp
+*.swo
 
 # Prisma
 packages/database/prisma/*.db

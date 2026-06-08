@@ -32,10 +32,10 @@ export const UUID_REGEX =
 export const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 /**
- * E.164 country code validation — `+` followed by 1 to 3 digits.
- * Covers all real country codes (e.g. +1, +44, +81, +86) without allowing
- * arbitrary strings like "abc" or "+99999" to be stored as a country code.
+ * E.164 country code validation — `+` followed by 1 to 3 digits, first digit
+ * non-zero. Covers all real country codes (e.g. +1, +44, +81, +86) while
+ * rejecting invalid codes like +0 or +01.
  *
  * Used by PartyService.addContactMechanism (telecom type).
  */
-export const COUNTRY_CODE_REGEX = /^\+\d{1,3}$/;
+export const COUNTRY_CODE_REGEX = /^\+[1-9]\d{0,2}$/;

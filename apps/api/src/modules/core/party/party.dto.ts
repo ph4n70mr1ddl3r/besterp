@@ -19,9 +19,11 @@ import {
   Min,
   Max,
   MaxLength,
+  MinLength,
   ValidatorConstraint,
   ValidatorConstraintInterface,
   Validate,
+  ValidationArguments,
 } from "class-validator";
 import { Type, Transform } from "class-transformer";
 
@@ -33,14 +35,14 @@ import { Type, Transform } from "class-transformer";
  */
 @ValidatorConstraint({ name: "partySubtypeMatch", async: false })
 class PartySubtypeMatchConstraint implements ValidatorConstraintInterface {
-  validate(_value: unknown, args: any): boolean {
+  validate(_value: unknown, args: ValidationArguments): boolean {
     const obj = args.object as CreatePartyDto;
     if (obj.partyType === "PERSON" && !obj.person) return false;
     if (obj.partyType === "ORGANIZATION" && !obj.organization) return false;
     return true;
   }
 
-  defaultMessage(args: any): string {
+  defaultMessage(args: ValidationArguments): string {
     const obj = args.object as CreatePartyDto;
     if (obj.partyType === "PERSON")
       return "'person' is required when partyType is PERSON";
@@ -55,7 +57,7 @@ class PartySubtypeMatchConstraint implements ValidatorConstraintInterface {
  */
 @ValidatorConstraint({ name: "partySubtypeExclusive", async: false })
 class PartySubtypeExclusiveConstraint implements ValidatorConstraintInterface {
-  validate(_value: unknown, args: any): boolean {
+  validate(_value: unknown, args: ValidationArguments): boolean {
     const obj = args.object as CreatePartyDto;
     // ORGANIZATION type should not include person data, and vice versa
     if (obj.partyType === "PERSON" && obj.organization) return false;
@@ -238,6 +240,7 @@ export class PostalAddressDto {
   @Transform(({ value }: { value: string }) => (typeof value === "string" ? value.trim().toUpperCase() : value))
   @IsString()
   @IsNotEmpty()
+  @MinLength(2)
   @MaxLength(3)
   country!: string;
 }
@@ -285,7 +288,7 @@ export class EmailAddressDto {
  */
 @ValidatorConstraint({ name: "contactSubtypeMatch", async: false })
 class ContactSubtypeMatchConstraint implements ValidatorConstraintInterface {
-  validate(_value: unknown, args: any): boolean {
+  validate(_value: unknown, args: ValidationArguments): boolean {
     const obj = args.object as AddContactMechanismDto;
     if (obj.contactMechanismType === "POSTAL_ADDRESS" && !obj.postalAddress) return false;
     if (obj.contactMechanismType === "TELECOM_NUMBER" && !obj.telecomNumber) return false;
@@ -293,7 +296,7 @@ class ContactSubtypeMatchConstraint implements ValidatorConstraintInterface {
     return true;
   }
 
-  defaultMessage(args: any): string {
+  defaultMessage(args: ValidationArguments): string {
     const obj = args.object as AddContactMechanismDto;
     const map: Record<string, string> = {
       POSTAL_ADDRESS: "postalAddress",
@@ -310,7 +313,7 @@ class ContactSubtypeMatchConstraint implements ValidatorConstraintInterface {
  */
 @ValidatorConstraint({ name: "contactSubtypeExclusive", async: false })
 class ContactSubtypeExclusiveConstraint implements ValidatorConstraintInterface {
-  validate(_value: unknown, args: any): boolean {
+  validate(_value: unknown, args: ValidationArguments): boolean {
     const obj = args.object as AddContactMechanismDto;
     if (obj.contactMechanismType === "POSTAL_ADDRESS" && (obj.telecomNumber || obj.emailAddress)) return false;
     if (obj.contactMechanismType === "TELECOM_NUMBER" && (obj.postalAddress || obj.emailAddress)) return false;

@@ -104,7 +104,7 @@ export class McpModule implements OnModuleInit {
     const conversationId = validateOptionalField("conversationId", overrides.conversationId, 200);
 
     return {
-      tenantId: overrides.tenantId,
+      tenantId: overrides.tenantId.trim(),
       userId,
       agentId,
       conversationId,

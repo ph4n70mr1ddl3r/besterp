@@ -62,7 +62,8 @@ export class QueueModule {
       maxRetriesPerRequest: null, // required by BullMQ for sticky connections
       retryStrategy: (times: number) => {
         // Cap retries to prevent infinite reconnect loops when Redis is
-        // unreachable. After MAX_RETRIES, return an Error to abort connection.
+        // unreachable. After MAX_RETRIES, return undefined to signal the
+        // client to stop retrying.
         const MAX_RETRIES = 10;
         if (times > MAX_RETRIES) {
           QueueModule.logger.error(

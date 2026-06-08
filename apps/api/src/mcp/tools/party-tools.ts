@@ -225,7 +225,9 @@ const addPartyRoleSchema = z.object({
   idempotencyKey: z.string().min(1).max(500).describe("Idempotency key to prevent duplicate role assignment. Format: role-{partyId}-{roleType}-{date}"),
   partyId: z.string().min(1).max(200).regex(UUID_REGEX, "Must be a valid UUID").describe("The UUID of the party to assign the role to"),
   roleType: z.string().transform(s => s.trim()).pipe(z.string().min(1).max(100)).describe("Role type name (e.g., 'Customer', 'Supplier', 'Employee')"),
-  fromDate: z.string().optional().describe("Start date for the role (ISO 8601, default: now)"),
+  fromDate: z.string().optional()
+    .refine(v => v === undefined || !isNaN(new Date(v).getTime()), "Invalid date format")
+    .describe("Start date for the role (ISO 8601, default: now)"),
 });
 
 type AddPartyRoleInput_z = z.infer<typeof addPartyRoleSchema>;

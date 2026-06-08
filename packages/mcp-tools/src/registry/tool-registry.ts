@@ -154,7 +154,7 @@ export class ToolRegistry {
   }> {
     return Array.from(this.tools.values()).map((entry) => ({
       name: entry.definition.name,
-      description: entry.definition.description.split("\n")[0], // First line only
+      description: entry.definition.description.split("\n")[0] ?? entry.definition.description,
       riskLevel: entry.definition.riskLevel,
       entity: entry.definition.entity,
       tags: entry.definition.tags,
