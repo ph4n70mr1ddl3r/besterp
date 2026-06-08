@@ -9,10 +9,12 @@ import {
 } from "../middleware/index.js";
 import { ToolDefinition, ToolContext, ToolResult } from "../schema/tool-definition.js";
 import { DomainError } from "@besterp/shared";
+import { Prisma } from "@prisma/client";
 
 // Mock Prisma client for testing
 const mockPrisma = {
   idempotencyRecord: {
+    findFirst: vi.fn(),
     findUnique: vi.fn(),
     create: vi.fn(),
     update: vi.fn(),
@@ -356,8 +358,8 @@ describe("Idempotency Middleware", () => {
 
     const updateCall = mockPrisma.idempotencyRecord.update.mock.calls[0];
     const updateData = updateCall[0].data;
-    // Either undefined or null — both mean "no error to record"
-    expect(updateData.error == null).toBe(true);
+    // Prisma.DbNull explicitly nulls out the error column in the database
+    expect(updateData.error).toBe(Prisma.DbNull);
   });
 
   it("should log to stderr when the failed-status update itself fails", async () => {
@@ -370,6 +372,8 @@ describe("Idempotency Middleware", () => {
       idempotencyKey,
       status: "pending",
     });
+    // Top-level findFirst for tenant ownership check in error path
+    mockPrisma.idempotencyRecord.findFirst.mockResolvedValue({ idempotencyKey });
     // First update (the catch-up to 'failed') rejects; subsequent updates ignored.
     mockPrisma.idempotencyRecord.update.mockRejectedValue(new Error("DB down"));
 

@@ -82,7 +82,7 @@ const emailAddressSchema = z.object({
 // ─── Tool: create_party ───────────────────────────────────────────
 
 const createPartySchema = z.object({
-  idempotencyKey: z.string().min(1).max(500).describe(
+  idempotencyKey: z.string().min(1).max(500).optional().describe(
     "Unique key to prevent duplicate creation. Format: party-create-{description}-{date}"
   ),
   partyType: z.enum(["PERSON", "ORGANIZATION"]).describe("Type of party to create"),
@@ -222,7 +222,7 @@ Use this to find customers, suppliers, or any party by name, type, or role.`,
 // ─── Tool: add_party_role ─────────────────────────────────────────
 
 const addPartyRoleSchema = z.object({
-  idempotencyKey: z.string().min(1).max(500).describe("Idempotency key to prevent duplicate role assignment. Format: role-{partyId}-{roleType}-{date}"),
+  idempotencyKey: z.string().min(1).max(500).optional().describe("Idempotency key to prevent duplicate role assignment. Format: role-{partyId}-{roleType}-{date}"),
   partyId: z.string().min(1).max(200).regex(UUID_REGEX, "Must be a valid UUID").describe("The UUID of the party to assign the role to"),
   roleType: z.string().transform(s => s.trim()).pipe(z.string().min(1).max(100)).describe("Role type name (e.g., 'Customer', 'Supplier', 'Employee')"),
   fromDate: z.string().optional()
@@ -270,7 +270,7 @@ Example: Make a party a customer
 // ─── Tool: add_contact_mechanism ──────────────────────────────────
 
 const addContactMechanismSchema = z.object({
-  idempotencyKey: z.string().min(1).max(500).describe("Idempotency key to prevent duplicate contact creation. Format: contact-{partyId}-{type}-{date}"),
+  idempotencyKey: z.string().min(1).max(500).optional().describe("Idempotency key to prevent duplicate contact creation. Format: contact-{partyId}-{type}-{date}"),
   partyId: z.string().min(1).max(200).regex(UUID_REGEX, "Must be a valid UUID").describe("The UUID of the party to add the contact to"),
   contactMechanismType: z.enum(["POSTAL_ADDRESS", "TELECOM_NUMBER", "EMAIL_ADDRESS"])
     .describe("Type of contact mechanism"),

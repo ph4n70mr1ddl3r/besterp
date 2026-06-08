@@ -34,10 +34,14 @@ export const errorHandlerMiddleware: ToolMiddleware = async (input, context, def
     }
 
     const message = error instanceof Error ? error.message : "Unknown error";
-    const prismaCode = (error as Record<string, unknown>).code as string | undefined;
-    const prismaMeta = (error as Record<string, unknown>).meta as
-      | { target?: string | string[] }
-      | undefined;
+    let prismaCode: string | undefined;
+    let prismaMeta: { target?: string | string[] } | undefined;
+    if (error != null && typeof error === "object") {
+      prismaCode = (error as Record<string, unknown>).code as string | undefined;
+      prismaMeta = (error as Record<string, unknown>).meta as
+        | { target?: string | string[] }
+        | undefined;
+    }
 
     // ─── Prisma unique constraint violation ────────────────────────
     if (prismaCode === "P2002") {
@@ -99,12 +103,12 @@ export const errorHandlerMiddleware: ToolMiddleware = async (input, context, def
     // keep the detailed message on the server side (logged above).
     // Only expose raw messages in explicit development mode to avoid leaking
     // internals in staging, test, or environments with unset NODE_ENV.
-    const isDev = process.env.NODE_ENV === "development";
+    const isProd = process.env.NODE_ENV === "production";
     return {
       success: false,
       error: {
         code: "INTERNAL_ERROR",
-        message: isDev
+        message: !isProd
           ? `Unexpected error in '${definition.name}': ${message}. Try again with a new idempotency key if applicable.`
           : `Unexpected error in '${definition.name}'. Try again with a new idempotency key if applicable.`,
         suggestedTools: [definition.name, "list_available_tools"],

@@ -100,10 +100,10 @@ export class DomainExceptionFilter implements ExceptionFilter {
       `Unhandled exception: ${exception instanceof Error ? exception.message : exception}`,
       exception instanceof Error ? exception.stack : undefined
     );
-    const isDev = process.env.NODE_ENV === "development";
+    const isProd = process.env.NODE_ENV === "production";
     response.status(500).json({
       statusCode: 500,
-      message: isDev
+      message: !isProd
         ? (exception instanceof Error ? exception.message : "Internal server error")
         : "Internal server error",
     });

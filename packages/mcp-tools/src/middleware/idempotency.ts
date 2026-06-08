@@ -110,7 +110,7 @@ export function idempotencyMiddleware(prisma: PrismaClient): ToolMiddleware {
             // findFirst and this update (serializable isolation prevents phantoms).
             await tx.idempotencyRecord.update({
               where: { idempotencyKey },
-              data: { status: "pending", inputHash, expiresAt: new Date(Date.now() + IDEMPOTENCY_TTL_MS) },
+              data: { status: "pending", inputHash, expiresAt: new Date(Date.now() + IDEMPOTENCY_TTL_MS), error: Prisma.DbNull },
             });
             return { existing: null, created: true };
           }
@@ -255,7 +255,7 @@ export function idempotencyMiddleware(prisma: PrismaClient): ToolMiddleware {
                   message: capString(toolResult.error?.message, MAX_SOFT_FAILURE_MESSAGE_SIZE),
                   code: toolResult.error?.code,
                 }
-              : undefined,
+              : Prisma.DbNull,
             completedAt: new Date(),
           },
         });

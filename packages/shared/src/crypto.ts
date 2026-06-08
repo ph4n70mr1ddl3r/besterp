@@ -15,7 +15,7 @@ import * as crypto from "crypto";
  * - undefined/NaN/Infinity: normalized to null
  * - Date/Error/RegExp: passed through for JSON.stringify
  */
-function sortKeysDeep(value: unknown, seen = new WeakSet()): unknown {
+function sortKeysDeep(value: unknown, ancestors = new Set<object>()): unknown {
   if (value === null || value === undefined) return null; // Normalize undefined to null
   if (typeof value === 'number') {
     // Normalize NaN and Infinity to null — JSON.stringify converts them to null,
@@ -23,47 +23,57 @@ function sortKeysDeep(value: unknown, seen = new WeakSet()): unknown {
     // deterministic hashing for edge-case numeric inputs.
     if (!Number.isFinite(value)) return null;
   }
-  if (Array.isArray(value)) return value.map((v) => sortKeysDeep(v, seen));
+  if (Array.isArray(value)) return value.map((v) => sortKeysDeep(v, ancestors));
   if (value instanceof Map) {
     // Convert Map to sorted array of [key, value] pairs for deterministic hashing
     const sortedEntries = Array.from(value.entries())
       .sort(([a], [b]) => {
-        const aStr = typeof a === "object" && a !== null ? JSON.stringify(sortKeysDeep(a, seen)) : String(a);
-        const bStr = typeof b === "object" && b !== null ? JSON.stringify(sortKeysDeep(b, seen)) : String(b);
+        const aStr = typeof a === "object" && a !== null ? JSON.stringify(sortKeysDeep(a, ancestors)) : String(a);
+        const bStr = typeof b === "object" && b !== null ? JSON.stringify(sortKeysDeep(b, ancestors)) : String(b);
         return aStr < bStr ? -1 : aStr > bStr ? 1 : 0;
       });
-    return sortedEntries.map(([k, v]) => [sortKeysDeep(k, seen), sortKeysDeep(v, seen)]);
+    return sortedEntries.map(([k, v]) => [sortKeysDeep(k, ancestors), sortKeysDeep(v, ancestors)]);
   }
   if (value instanceof Set) {
     // Convert Set to sorted array for deterministic hashing
-    return Array.from(value).map((v) => sortKeysDeep(v, seen)).sort((a, b) => {
+    return Array.from(value).map((v) => sortKeysDeep(v, ancestors)).sort((a, b) => {
       const aStr = JSON.stringify(a);
       const bStr = JSON.stringify(b);
       return aStr < bStr ? -1 : aStr > bStr ? 1 : 0;
     });
   }
   if (typeof value === "object") {
-    // Detect circular references — prevent infinite recursion / stack overflow
-    if (seen.has(value as object)) {
+    // Detect circular references — prevent infinite recursion / stack overflow.
+    // Track only ancestors (objects currently on the recursion stack), not all
+    // visited objects. This correctly detects true cycles (A→B→A) while allowing
+    // DAGs (A→C, B→C) where the same object appears in multiple branches.
+    if (ancestors.has(value as object)) {
       throw new Error("Circular reference detected in hash input");
     }
-    seen.add(value as object);
+    ancestors.add(value as object);
 
     const proto = Object.getPrototypeOf(value);
     // Handle plain objects: {}, Object.create(null), etc.
     // Skip custom class instances (Date, etc.) that have their own serialization.
+    let result: unknown;
     if (proto === Object.prototype || proto === null) {
       const sorted: Record<string, unknown> = {};
       for (const key of Object.keys(value as Record<string, unknown>).sort()) {
         // Skip prototype pollution keys — these could affect the resulting
         // object's prototype chain if the sorted output is used beyond hashing.
         if (key === "__proto__" || key === "constructor" || key === "prototype") continue;
-        sorted[key] = sortKeysDeep((value as Record<string, unknown>)[key], seen);
+        sorted[key] = sortKeysDeep((value as Record<string, unknown>)[key], ancestors);
       }
-      return sorted;
+      result = sorted;
+    } else {
+      // Non-plain objects (Date, class instances, etc.) pass through for JSON.stringify to handle
+      result = value;
     }
-    // Non-plain objects (Date, class instances, etc.) pass through for JSON.stringify to handle
-    return value;
+
+    // Remove from ancestor set after processing so the same object can
+    // appear in different branches of the tree (DAG, not cycle).
+    ancestors.delete(value as object);
+    return result;
   }
   if (typeof value === "bigint") return `BigInt:${value.toString()}`;
   if (typeof value === "symbol") return `Symbol:${value.toString()}`;

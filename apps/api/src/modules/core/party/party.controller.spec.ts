@@ -110,8 +110,10 @@ describe("PartyController", () => {
 
       await controller.search(req, query as any);
 
+      // Defaults are now handled by the service, not the controller.
+      // Controller passes through undefined values.
       expect(partyService.searchParties).toHaveBeenCalledWith(
-        expect.objectContaining({ limit: 50, offset: 0 })
+        expect.objectContaining({ limit: undefined, offset: undefined })
       );
     });
   });

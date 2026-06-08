@@ -79,10 +79,17 @@ export class TenantGuard implements CanActivate {
         "TenantGuard: userId is empty after trimming. JWT payload is malformed."
       );
     }
+    if (user.agentId !== undefined && user.agentId !== null) {
+      if (typeof user.agentId !== "string") {
+        throw new InternalServerErrorException(
+          "TenantGuard: agentId is not a string. JWT payload is malformed."
+        );
+      }
+    }
     const agentId =
       user.agentId === undefined || user.agentId === null
         ? undefined
-        : (typeof user.agentId === "string" ? user.agentId.trim() : undefined);
+        : user.agentId.trim();
 
     const tenantContext: TenantContext = {
       tenantId,
