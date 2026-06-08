@@ -10,6 +10,27 @@
 
 export type RiskLevel = "none" | "low" | "medium" | "high" | "critical";
 
+// ─── Schema Types ────────────────────────────────────────────────
+
+/**
+ * Minimal interface for a Zod-like schema that exposes `.safeParse()`.
+ *
+ * Replaces `any` on `ToolDefinition.inputSchema` to provide compile-time
+ * safety — the registry calls `.safeParse()` at runtime and would crash
+ * with a `TypeError` if the schema lacks the method. This interface
+ * enforces the method signature at the type level while remaining
+ * decoupled from Zod's exact class names (no `import { z }` needed).
+ *
+ * The `path` field uses `PropertyKey[]` (not `(string | number)[]`) to
+ * accommodate Zod 3.25's `$ZodIssue` type, which uses `PropertyKey` for
+ * issue paths.
+ */
+export interface ZodSchemaLike {
+  safeParse(input: unknown):
+    | { success: true; data: unknown }
+    | { success: false; error: { issues: Array<{ path: PropertyKey[]; message: string }> } };
+}
+
 // ─── Service Types ────────────────────────────────────────────────
 
 /**
@@ -18,6 +39,10 @@ export type RiskLevel = "none" | "low" | "medium" | "high" | "critical";
  *
  * Each domain module registers its services here. The MCP module
  * populates the services map when building the tool context.
+ *
+ * Services are typed as `unknown` — each tool casts to its specific
+ * service interface when accessing `context.services`. This avoids a
+ * central registry that would grow with every new domain.
  */
 export interface ToolServices {
   [key: string]: unknown;
@@ -87,8 +112,13 @@ export interface ToolDefinition<TInput = unknown, TResult = unknown> {
   /** Natural language description the AI reads to decide whether to use this tool. */
   description: string;
 
-  /** Zod schema for input validation and JSON Schema generation. Must support `.safeParse()`. */
-  inputSchema: any; // Should be ZodTypeAny from 'zod', typed as `any` to avoid import coupling
+  /**
+   * Schema for input validation and JSON Schema generation.
+   * Must support `.safeParse()` — the runtime guard in `ToolRegistry.register()`
+   * enforces this at registration time. Typed as `ZodSchemaLike` for
+   * compile-time safety instead of `any`.
+   */
+  inputSchema: ZodSchemaLike;
 
   /** Risk level — determines confirmation gate behavior. */
   riskLevel: RiskLevel;
@@ -102,7 +132,14 @@ export interface ToolDefinition<TInput = unknown, TResult = unknown> {
   /**
    * The actual tool handler — pure business logic.
    * Receives validated input and context, returns a result.
+   *
+   * The input parameter is typed as `any` because TypeScript's strict
+   * function parameter checking prevents assigning `(input: SpecificType, ...)`
+   * to `(input: unknown, ...)`. The handler receives Zod-validated data at
+   * runtime — the `inputSchema` field (typed as `ZodSchemaLike`) is the
+   * actual compile-time + runtime type safety boundary.
    */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   handler: (input: any, context: ToolContext) => Promise<ToolResult<TResult>>;
 }
 

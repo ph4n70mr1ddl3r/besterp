@@ -10,6 +10,7 @@ import {
   RegistryEntry,
   ToolResult,
   ToolContext,
+  ZodSchemaLike,
 } from "../schema/tool-definition.js";
 
 export class ToolRegistry {
@@ -40,12 +41,12 @@ export class ToolRegistry {
     // diagnose. Failing fast at registration time produces a clear error
     // pointing at the offending tool name.
     //
-    // The type system can't catch this: `inputSchema` is typed as `any`
-    // in `ToolDefinition` to avoid coupling @besterp/mcp-tools to Zod's
-    // exact type names. This runtime guard is the only enforcement.
+    // The type system now enforces `.safeParse()` via `ZodSchemaLike`, but
+    // this runtime guard is the final safety net: it catches cases where
+    // `as any` casts bypass the type check.
     if (
       !definition.inputSchema ||
-      typeof (definition.inputSchema as { safeParse?: unknown }).safeParse !== "function"
+      typeof (definition.inputSchema as ZodSchemaLike).safeParse !== "function"
     ) {
       throw new Error(
         `Tool '${definition.name}' has an invalid inputSchema: ` +
@@ -128,7 +129,7 @@ export class ToolRegistry {
             success: false,
             error: {
               code: "INVALID_INPUT",
-              message: `Input validation failed: ${parsed.error.issues.map((i: { path: (string | number)[]; message: string }) => `${i.path.join(".")}: ${i.message}`).join("; ")}`,
+              message: `Input validation failed: ${parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ")}`,
               suggestedTools: [name],
               context: { issues: parsed.error.issues },
             },

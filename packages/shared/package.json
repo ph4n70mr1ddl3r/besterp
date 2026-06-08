@@ -8,7 +8,8 @@
   "scripts": {
     "build": "tsc",
     "test": "vitest run",
-    "lint": "tsc --noEmit"
+    "lint": "eslint src/",
+    "typecheck": "tsc --noEmit"
   },
   "peerDependencies": {
     "@prisma/client": "^6.8.0"

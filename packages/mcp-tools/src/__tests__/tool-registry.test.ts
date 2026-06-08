@@ -3,7 +3,7 @@
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { ToolRegistry } from "../registry/tool-registry.js";
-import { ToolDefinition, ToolResult, ToolContext, ToolMiddleware } from "../schema/tool-definition.js";
+import { ToolDefinition, ToolContext, ToolMiddleware } from "../schema/tool-definition.js";
 import { z } from "zod";
 
 const mockContext: ToolContext = {

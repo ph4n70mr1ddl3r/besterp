@@ -9,7 +9,7 @@
 // never break the tool).
 
 import { PrismaClient } from "@prisma/client";
-import { ToolMiddleware, ToolDefinition, ToolResult } from "../schema/tool-definition.js";
+import { ToolMiddleware, ToolResult } from "../schema/tool-definition.js";
 import { truncateValue, MAX_STORED_PAYLOAD_SIZE } from "./truncate.js";
 
 /** Audit log uses the same 64 KB cap as other stored payloads. */

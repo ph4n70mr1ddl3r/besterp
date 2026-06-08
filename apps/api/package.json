@@ -11,7 +11,8 @@
     "start:prod": "node dist/main.js",
     "test": "vitest run",
     "test:watch": "vitest",
-    "lint": "tsc --noEmit"
+    "lint": "eslint src/",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@besterp/database": "*",

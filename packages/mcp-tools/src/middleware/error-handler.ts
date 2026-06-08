@@ -8,9 +8,8 @@
 
 import {
   isDomainError,
-  DomainError,
 } from "@besterp/shared";
-import { ToolMiddleware, ToolDefinition, ToolResult } from "../schema/tool-definition.js";
+import { ToolMiddleware } from "../schema/tool-definition.js";
 
 /**
  * Error handler middleware — catches all exceptions and returns rich errors.

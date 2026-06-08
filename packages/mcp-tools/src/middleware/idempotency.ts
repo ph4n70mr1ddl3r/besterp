@@ -16,8 +16,8 @@
 // If no idempotency key is provided, the middleware is a no-op pass-through.
 
 import { PrismaClient, IdempotencyRecord } from "@prisma/client";
-import { hashInput, MAX_SOFT_FAILURE_MESSAGE_SIZE, IDEMPOTENCY_TTL_MS, MAX_IDEMPOTENCY_KEY_LENGTH } from "@besterp/shared";
-import { ToolMiddleware, ToolDefinition, ToolResult, ToolContext } from "../schema/tool-definition.js";
+import { hashInput, MAX_SOFT_FAILURE_MESSAGE_SIZE, IDEMPOTENCY_TTL_MS, MAX_IDEMPOTENCY_KEY_LENGTH, IDEMPOTENCY_MAX_RETRIES } from "@besterp/shared";
+import { ToolMiddleware, ToolResult } from "../schema/tool-definition.js";
 import { truncateValue, MAX_STORED_PAYLOAD_SIZE, capString } from "./truncate.js";
 
 /**
@@ -66,7 +66,7 @@ export function idempotencyMiddleware(prisma: PrismaClient): ToolMiddleware {
     // Retry on serialization failure (P2034) — transient under concurrency.
     // If ALL retries are exhausted, we must NOT proceed without a pending
     // record (the final update would fail). Instead, return a retryable error.
-    const MAX_RETRIES = 3;
+    const MAX_RETRIES = IDEMPOTENCY_MAX_RETRIES;
     let existingRecord: IdempotencyRecord | null = null;
     let recordCreated = false;
 
@@ -202,9 +202,9 @@ export function idempotencyMiddleware(prisma: PrismaClient): ToolMiddleware {
     try {
       toolResult = await next(input, context);
     } catch (error: unknown) {
-      // Mark as failed — PK-only where clause (idempotencyKey is globally unique)
-    // PK-only where clause — idempotencyKey is globally unique by design
-    await prisma.idempotencyRecord.update({
+      // Mark as failed — idempotencyKey is globally unique by design,
+      // so a PK-only where clause suffices (no tenantId filtering needed).
+      await prisma.idempotencyRecord.update({
         where: { idempotencyKey },
         data: {
           status: "failed",

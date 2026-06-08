@@ -68,7 +68,7 @@ describe("Idempotency Middleware", () => {
 
   /** Setup $transaction mock: when tx has a record, return it; when null, create it. */
   function mockFindInTransaction(record: any | null) {
-    mockPrisma.$transaction.mockImplementation(async (fn: Function, _opts?: any) => {
+    mockPrisma.$transaction.mockImplementation(async (fn: (tx: any) => Promise<any>, _opts?: any) => {
       const tx = {
         idempotencyRecord: {
           findFirst: vi.fn().mockResolvedValue(record),
@@ -221,7 +221,7 @@ describe("Idempotency Middleware", () => {
     const contextWithKey = { ...mockContext, idempotencyKey };
 
     // Simulate a failed record being found and reset inside the transaction
-    mockPrisma.$transaction.mockImplementation(async (fn: Function, _opts?: any) => {
+    mockPrisma.$transaction.mockImplementation(async (fn: (tx: any) => Promise<any>, _opts?: any) => {
       const tx = {
         idempotencyRecord: {
           findFirst: vi.fn().mockResolvedValue({
