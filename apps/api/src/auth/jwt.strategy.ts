@@ -54,6 +54,14 @@ export function resolveJwtSecret(): string {
   return _cachedSecret;
 }
 
+/**
+ * Reset the cached JWT secret. Intended for use in tests between suites
+ * to prevent cross-contamination from module-level state.
+ */
+export function resetJwtSecretCache(): void {
+  _cachedSecret = undefined;
+}
+
 // Length caps for user/agent/role identifiers in the JWT. Imported from
 // @besterp/shared/constants to avoid duplication and ensure the same limits
 // are enforced at the auth boundary and in McpModule.buildContext.

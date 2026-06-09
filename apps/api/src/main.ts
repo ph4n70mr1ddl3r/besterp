@@ -31,6 +31,16 @@ async function bootstrap() {
       "⚠️  DATABASE_URL not set — database operations will fail. Set DATABASE_URL before running the API."
     );
   }
+  // Redis is strongly recommended for queue/worker functionality. In production
+  // the process can start without it (BullMQ will retry connections), but warn
+  // loudly so operators don't silently lose async job processing.
+  const REDIS_WARN_VARS = ["REDIS_HOST", "REDIS_PORT"];
+  const missingRedis = REDIS_WARN_VARS.filter((v) => !process.env[v]);
+  if (missingRedis.length > 0 && process.env.NODE_ENV === "production") {
+    console.warn(
+      `⚠️  Missing Redis env vars: ${missingRedis.join(", ")}. Queues and background jobs will fail.`
+    );
+  }
 
   const app = await NestFactory.create(AppModule);
 
@@ -41,7 +51,7 @@ async function bootstrap() {
   // exit so the process doesn't get stuck — orchestrators that have given up
   // waiting will SIGKILL the pod, which can leave pooled resources in a bad
   // state and pollute logs with OOM-killer noise.
-  const HARD_EXIT_TIMEOUT_MS = 10_000;
+  const HARD_EXIT_TIMEOUT_MS = Number(process.env.HARD_EXIT_TIMEOUT_MS) || 10_000;
   let shuttingDown = false;
 
   async function gracefulShutdown(label: string, detail: unknown): Promise<void> {

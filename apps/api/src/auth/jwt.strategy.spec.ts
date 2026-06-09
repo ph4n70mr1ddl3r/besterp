@@ -26,7 +26,7 @@ vi.mock("passport-jwt", () => ({
 }));
 
 // Re-import after mocks are in place.
-const { JwtStrategy } = await import("./jwt.strategy.js");
+const { JwtStrategy, resetJwtSecretCache } = await import("./jwt.strategy.js");
 
 function makeStrategy() {
   // The constructor reads JWT_SECRET / NODE_ENV from process.env. The
@@ -41,12 +41,14 @@ describe("JwtStrategy.validate", () => {
   let strategy: InstanceType<typeof JwtStrategy>;
 
   beforeEach(() => {
+    resetJwtSecretCache();
     strategy = makeStrategy();
   });
 
   afterEach(() => {
     delete process.env.JWT_SECRET;
     delete process.env.NODE_ENV;
+    resetJwtSecretCache();
   });
 
   it("returns the validated user for a well-formed payload", async () => {

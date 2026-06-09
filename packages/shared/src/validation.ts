@@ -14,7 +14,7 @@
  * - PartyService.requireUuid()
  * - PartyController.requireUuid()
  */
-export const UUID_REGEX =
+export const UUID_REGEX: Readonly<RegExp> =
   /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
 
 /**
@@ -29,7 +29,7 @@ export const UUID_REGEX =
  * - Zod schemas in party-tools.ts (via .email() — kept aligned by tests)
  * - DTOs in party.dto.ts (via class-validator's @IsEmail — kept aligned by tests)
  */
-export const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+export const EMAIL_REGEX: Readonly<RegExp> = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 /**
  * E.164 country code validation — `+` followed by 1 to 3 digits, first digit
@@ -38,4 +38,4 @@ export const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
  *
  * Used by PartyService.addContactMechanism (telecom type).
  */
-export const COUNTRY_CODE_REGEX = /^\+[1-9]\d{0,2}$/;
+export const COUNTRY_CODE_REGEX: Readonly<RegExp> = /^\+[1-9]\d{0,2}$/;

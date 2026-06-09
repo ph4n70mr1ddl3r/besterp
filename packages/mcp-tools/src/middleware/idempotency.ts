@@ -126,7 +126,7 @@ export function idempotencyMiddleware(prisma: PrismaClient): ToolMiddleware {
         const code = getErrorCode(e);
         if (code === "P2034" && attempt < MAX_RETRIES - 1) {
           // Serialization failure — back off and retry
-          await new Promise((r) => setTimeout(r, 50 * (attempt + 1)));
+          await new Promise<void>((r) => { const t = setTimeout(r, 50 * (attempt + 1)); t.unref?.(); });
           continue;
         }
         // On last attempt or non-P2034 error, break out of the loop.
@@ -262,7 +262,7 @@ export function idempotencyMiddleware(prisma: PrismaClient): ToolMiddleware {
         break;
       } catch (updateErr) {
         if (updateAttempt < 2) {
-          await new Promise((r) => setTimeout(r, 50 * (updateAttempt + 1)));
+          await new Promise<void>((r) => { const t = setTimeout(r, 50 * (updateAttempt + 1)); t.unref?.(); });
           continue;
         }
         // All retries exhausted — log and accept stuck record.

@@ -7,7 +7,7 @@
 // request-scoped. It accesses the request via the ExecutionContext,
 // which is safe because NestJS provides a fresh ExecutionContext per request.
 
-import { Injectable, ExecutionContext, CanActivate, InternalServerErrorException } from "@nestjs/common";
+import { Injectable, ExecutionContext, CanActivate, InternalServerErrorException, UnauthorizedException } from "@nestjs/common";
 import { Reflector } from "@nestjs/core";
 import { Request } from "express";
 import { JwtValidatedUser } from "./jwt.strategy.js";
@@ -58,30 +58,30 @@ export class TenantGuard implements CanActivate {
     // equality checks (audit logs, idempotency keys, RLS) never see
     // " user-1" and "user-1" as distinct.
     if (typeof user.tenantId !== "string") {
-      throw new InternalServerErrorException(
+      throw new UnauthorizedException(
         "TenantGuard: tenantId is not a string. JWT payload is malformed."
       );
     }
     if (typeof user.userId !== "string") {
-      throw new InternalServerErrorException(
+      throw new UnauthorizedException(
         "TenantGuard: userId is not a string. JWT payload is malformed."
       );
     }
     const tenantId = user.tenantId.trim();
     const userId = user.userId.trim();
     if (!tenantId) {
-      throw new InternalServerErrorException(
+      throw new UnauthorizedException(
         "TenantGuard: tenantId is empty after trimming. JWT payload is malformed."
       );
     }
     if (!userId) {
-      throw new InternalServerErrorException(
+      throw new UnauthorizedException(
         "TenantGuard: userId is empty after trimming. JWT payload is malformed."
       );
     }
     if (user.agentId !== undefined && user.agentId !== null) {
       if (typeof user.agentId !== "string") {
-        throw new InternalServerErrorException(
+        throw new UnauthorizedException(
           "TenantGuard: agentId is not a string. JWT payload is malformed."
         );
       }

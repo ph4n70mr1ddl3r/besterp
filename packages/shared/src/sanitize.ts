@@ -22,9 +22,9 @@
  * @param input - The raw string to sanitize
  * @returns Sanitized string with HTML tags removed
  */
-export function stripHtmlTags(input: string): string {
-  if (typeof input !== "string") return "";
+const MAX_SANITIZE_ITERATIONS = 10;
 
+export function stripHtmlTags(input: string): string {
   // Remove null bytes (can confuse parsers and bypass filters)
   let sanitized = input.replace(/\0/g, "");
 
@@ -41,7 +41,9 @@ export function stripHtmlTags(input: string): string {
   // Decode-then-strip loop: decode HTML entities, then strip any tags that
   // were revealed. Repeats until stable to handle nested/triple encoding
   // (e.g., &amp;amp;lt; → &amp;lt; → &lt; → < → stripped).
+  // Capped at MAX_SANITIZE_ITERATIONS to prevent DoS via deeply nested encoding.
   let prev: string;
+  let iterations = 0;
   do {
     prev = sanitized;
     // Decode common HTML entities. Order matters: decode &amp; LAST because
@@ -60,7 +62,8 @@ export function stripHtmlTags(input: string): string {
     sanitized = sanitized.replace(/<!--[\s\S]*?-->/g, "");
     // Remove all remaining HTML tags
     sanitized = sanitized.replace(/<[^>]*>/g, "");
-  } while (sanitized !== prev);
+    iterations++;
+  } while (sanitized !== prev && iterations < MAX_SANITIZE_ITERATIONS);
 
   return sanitized;
 }
