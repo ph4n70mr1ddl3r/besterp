@@ -92,10 +92,36 @@ export class EntityNotFoundError extends DomainError {
   }
 }
 
+/** Thrown when a concurrency conflict is detected (e.g., stale version, serialization failure). */
+export class ConcurrencyConflictError extends DomainError {
+  constructor(
+    message: string,
+    options?: { suggestedTools?: string[]; context?: Record<string, unknown> }
+  ) {
+    super("CONCURRENCY_CONFLICT", message, options);
+    this.name = "ConcurrencyConflictError";
+  }
+}
+
 /**
  * Type guard — check if an error is a DomainError (or any subclass).
  */
 export function isDomainError(error: unknown): error is DomainError {
   return error instanceof DomainError;
+}
+
+/**
+ * Safely extract an error code (e.g., Prisma P2002, P2034) from a caught error,
+ * returning undefined if the error or its code property is absent.
+ *
+ * This avoids repetitive `(e != null && typeof e === "object") ...` boilerplate
+ * in catch blocks throughout the codebase.
+ */
+export function getErrorCode(error: unknown): string | undefined {
+  if (error != null && typeof error === "object") {
+    const code = (error as Record<string, unknown>).code;
+    return typeof code === "string" ? code : undefined;
+  }
+  return undefined;
 }
 

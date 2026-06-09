@@ -8,7 +8,9 @@ export {
   InvalidTypeValueError,
   DuplicateEntityError,
   EntityNotFoundError,
+  ConcurrencyConflictError,
   isDomainError,
+  getErrorCode,
 } from "./errors.js";
 
 export { hashInput } from "./crypto.js";

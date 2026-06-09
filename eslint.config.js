@@ -14,6 +14,11 @@ export default tseslint.config(
       ],
       "@typescript-eslint/no-require-imports": "error",
 
+      // Catch accidentally unhandled promises (fire-and-forget is explicitly
+      // used in audit-log middleware and idempotency middleware, but any
+      // other forgotten await should be flagged).
+      "@typescript-eslint/no-floating-promises": "error",
+
       // General code quality
       "no-console": "off", // Allow console in server code
       "no-debugger": "error",

@@ -15,7 +15,8 @@ import * as crypto from "crypto";
  * - undefined/NaN/Infinity: normalized to null
  * - Date/Error/RegExp: passed through for JSON.stringify
  */
-function sortKeysDeep(value: unknown, ancestors = new Set<object>()): unknown {
+function sortKeysDeep(value: unknown, ancestors?: Set<object>): unknown {
+  ancestors = ancestors ?? new Set<object>();
   if (value === null || value === undefined) return null; // Normalize undefined to null
   if (typeof value === 'number') {
     // Normalize NaN and Infinity to null — JSON.stringify converts them to null,

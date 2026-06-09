@@ -5,6 +5,7 @@
 import { describe, it, expect } from "vitest";
 import { validateTenantId, withTenant } from "../tenant.js";
 import { COUNTRY_CODE_REGEX, EMAIL_REGEX, UUID_REGEX } from "../validation.js";
+import { ConcurrencyConflictError, getErrorCode } from "../errors.js";
 
 describe("validateTenantId", () => {
   it("accepts valid tenant IDs", () => {
@@ -92,5 +93,55 @@ describe("UUID_REGEX / EMAIL_REGEX sanity check", () => {
   it("EMAIL_REGEX matches a simple address", () => {
     expect(EMAIL_REGEX.test("user@example.com")).toBe(true);
     expect(EMAIL_REGEX.test("not-an-email")).toBe(false);
+  });
+});
+
+describe("ConcurrencyConflictError", () => {
+  it("creates an error with CONCURRENCY_CONFLICT code", () => {
+    const error = new ConcurrencyConflictError("Conflict detected", {
+      suggestedTools: ["retry_operation"],
+      context: { version: 2 },
+    });
+    expect(error).toBeInstanceOf(Error);
+    expect(error.code).toBe("CONCURRENCY_CONFLICT");
+    expect(error.name).toBe("ConcurrencyConflictError");
+    expect(error.message).toBe("Conflict detected");
+    expect(error.suggestedTools).toEqual(["retry_operation"]);
+    expect(error.context).toEqual({ version: 2 });
+  });
+
+  it("serializes correctly via toJSON", () => {
+    const error = new ConcurrencyConflictError("stale version", {
+      suggestedTools: ["reload_and_retry"],
+    });
+    const json = error.toJSON();
+    expect(json.code).toBe("CONCURRENCY_CONFLICT");
+    expect(json.name).toBe("ConcurrencyConflictError");
+    expect(json.message).toBe("stale version");
+  });
+});
+
+describe("getErrorCode", () => {
+  it("extracts string code from error-like objects", () => {
+    expect(getErrorCode({ code: "P2034" })).toBe("P2034");
+    expect(getErrorCode({ code: "P2002" })).toBe("P2002");
+  });
+
+  it("returns undefined for non-object inputs", () => {
+    expect(getErrorCode(null)).toBeUndefined();
+    expect(getErrorCode(undefined)).toBeUndefined();
+    expect(getErrorCode("string")).toBeUndefined();
+    expect(getErrorCode(42)).toBeUndefined();
+  });
+
+  it("returns undefined when code is not a string", () => {
+    expect(getErrorCode({ code: 42 })).toBeUndefined();
+    expect(getErrorCode({ code: true })).toBeUndefined();
+    expect(getErrorCode({ code: null })).toBeUndefined();
+    expect(getErrorCode({})).toBeUndefined();
+  });
+
+  it("returns undefined for plain Error instances (no Prisma code)", () => {
+    expect(getErrorCode(new Error("something broke"))).toBeUndefined();
   });
 });

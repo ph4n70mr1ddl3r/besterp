@@ -47,6 +47,32 @@ async function bootstrap() {
   // waiting will SIGKILL the pod, which can leave pooled resources in a bad
   // state and pollute logs with OOM-killer noise.
   let shuttingDown = false;
+
+  // Handle uncaught exceptions the same way as unhandled rejections.
+  // An uncaught exception leaves the process in an undefined state (any
+  // module may have partially completed work, and further operations are
+  // unsafe). The standard Node.js behavior prints the error and exits; our
+  // handler additionally runs a graceful shutdown so PrismaService,
+  // BullMQ workers, and the tenant client cache tear down cleanly.
+  process.on("uncaughtException", async (error) => {
+    console.error("❌ Uncaught exception:", error instanceof Error ? error.stack : error);
+    if (shuttingDown) process.exit(1);
+    shuttingDown = true;
+    const HARD_EXIT_TIMEOUT_MS = 10_000;
+    const hardExitTimer = setTimeout(() => {
+      console.error(`❌ Graceful shutdown exceeded ${HARD_EXIT_TIMEOUT_MS}ms — forcing exit.`);
+      process.exit(1);
+    }, HARD_EXIT_TIMEOUT_MS);
+    if (hardExitTimer.unref) hardExitTimer.unref();
+    try {
+      await app.close();
+    } catch (closeErr) {
+      console.error("❌ Error during graceful shutdown:", closeErr instanceof Error ? closeErr.stack : closeErr);
+    }
+    clearTimeout(hardExitTimer);
+    process.exit(1);
+  });
+
   process.on("unhandledRejection", async (reason) => {
     console.error(
       "❌ Unhandled promise rejection:",

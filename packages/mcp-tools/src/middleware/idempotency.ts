@@ -16,7 +16,7 @@
 // If no idempotency key is provided, the middleware is a no-op pass-through.
 
 import { PrismaClient, Prisma, IdempotencyRecord } from "@prisma/client";
-import { hashInput, MAX_SOFT_FAILURE_MESSAGE_SIZE, IDEMPOTENCY_TTL_MS, MAX_IDEMPOTENCY_KEY_LENGTH, IDEMPOTENCY_MAX_RETRIES } from "@besterp/shared";
+import { hashInput, getErrorCode, MAX_SOFT_FAILURE_MESSAGE_SIZE, IDEMPOTENCY_TTL_MS, MAX_IDEMPOTENCY_KEY_LENGTH, IDEMPOTENCY_MAX_RETRIES } from "@besterp/shared";
 import { ToolMiddleware, ToolResult } from "../schema/tool-definition.js";
 import { truncateValue, MAX_STORED_PAYLOAD_SIZE, capString } from "./truncate.js";
 
@@ -123,7 +123,7 @@ export function idempotencyMiddleware(prisma: PrismaClient): ToolMiddleware {
         recordCreated = created;
         break;
       } catch (e) {
-        const code = (e != null && typeof e === "object") ? (e as Record<string, unknown>).code : undefined;
+        const code = getErrorCode(e);
         if (code === "P2034" && attempt < MAX_RETRIES - 1) {
           // Serialization failure — back off and retry
           await new Promise((r) => setTimeout(r, 50 * (attempt + 1)));
@@ -217,7 +217,7 @@ export function idempotencyMiddleware(prisma: PrismaClient): ToolMiddleware {
           where: { idempotencyKey },
           data: {
             status: "failed",
-            error: { message: error instanceof Error ? error.message : String(error), code: (error != null && typeof error === "object") ? (error as Record<string, unknown>).code as string | undefined : undefined },
+            error: { message: error instanceof Error ? error.message : String(error), code: getErrorCode(error) },
           },
         }).catch((updateErr) => {
           process.stderr.write(
