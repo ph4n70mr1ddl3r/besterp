@@ -11,7 +11,27 @@ import {
   ToolDefinition,
   ToolContext,
 } from "@besterp/mcp-tools";
-import { UUID_REGEX } from "@besterp/shared";
+import {
+  UUID_REGEX,
+  MAX_PERSON_NAME_LENGTH,
+  MAX_MIDDLE_NAME_LENGTH,
+  MAX_PARTY_NAME_LENGTH,
+  MAX_PARTY_DESCRIPTION_LENGTH,
+  MAX_LEGAL_NAME_LENGTH,
+  MAX_ROLE_TYPE_LENGTH,
+  MAX_GENDER_LENGTH,
+  MAX_ADDRESS_LINE_LENGTH,
+  MAX_CITY_LENGTH,
+  MAX_STATE_PROVINCE_LENGTH,
+  MAX_POSTAL_CODE_LENGTH,
+  MAX_COUNTRY_CODE_LENGTH,
+  MAX_AREA_CODE_LENGTH,
+  MAX_LINE_NUMBER_LENGTH,
+  MAX_EXTENSION_LENGTH,
+  MAX_PHONE_COUNTRY_CODE_LENGTH,
+  MAX_EMAIL_LENGTH,
+  MAX_IDEMPOTENCY_KEY_LENGTH,
+} from "@besterp/shared";
 import type {
   CreatePartyInput,
   SearchPartiesInput,
@@ -42,17 +62,17 @@ function getPartyService(ctx: ToolContext) {
 // ─── Schemas ──────────────────────────────────────────────────────
 
 const personSchema = z.object({
-  firstName: z.string().transform(s => s.trim()).pipe(z.string().min(1).max(200)).describe("First/given name"),
-  lastName: z.string().transform(s => s.trim()).pipe(z.string().min(1).max(200)).describe("Last/family name"),
-  middleName: z.string().max(100).optional().transform(s => s?.trim() || undefined).describe("Middle name"),
+  firstName: z.string().transform(s => s.trim()).pipe(z.string().min(1).max(MAX_PERSON_NAME_LENGTH)).describe("First/given name"),
+  lastName: z.string().transform(s => s.trim()).pipe(z.string().min(1).max(MAX_PERSON_NAME_LENGTH)).describe("Last/family name"),
+  middleName: z.string().max(MAX_MIDDLE_NAME_LENGTH).optional().transform(s => s?.trim() || undefined).describe("Middle name"),
   birthDate: z.string().max(30).optional()
     .refine(v => v === undefined || !isNaN(new Date(v).getTime()), "Invalid date format")
     .describe("Date of birth (ISO 8601)"),
-  gender: z.string().max(50).optional().transform(s => s?.trim()).describe("Gender"),
+  gender: z.string().max(MAX_GENDER_LENGTH).optional().transform(s => s?.trim()).describe("Gender"),
 });
 
 const organizationSchema = z.object({
-  legalName: z.string().transform(s => s.trim()).pipe(z.string().min(1).max(500)).describe("Legal/registered name of the organization"),
+  legalName: z.string().transform(s => s.trim()).pipe(z.string().min(1).max(MAX_LEGAL_NAME_LENGTH)).describe("Legal/registered name of the organization"),
   taxId: z.string().max(50).optional().transform(s => s?.trim()).describe("Tax identification number"),
   registrationDate: z.string().max(30).optional()
     .refine(v => v === undefined || !isNaN(new Date(v).getTime()), "Invalid date format")
@@ -60,34 +80,34 @@ const organizationSchema = z.object({
 });
 
 const postalAddressSchema = z.object({
-  addressLine1: z.string().transform(s => s.trim()).pipe(z.string().min(1).max(200)).describe("Street address line 1"),
-  addressLine2: z.string().max(200).optional().transform(s => s?.trim()).describe("Street address line 2"),
-  city: z.string().transform(s => s.trim()).pipe(z.string().min(1).max(100)).describe("City"),
-  stateProvince: z.string().max(100).optional().transform(s => s?.trim()).describe("State or province"),
-  postalCode: z.string().max(20).optional().transform(s => s?.trim()).describe("Postal/ZIP code"),
-  country: z.string().transform(s => s.trim().toUpperCase()).pipe(z.string().min(1).max(3)).describe("Country code (e.g., US, DE, JP)"),
+  addressLine1: z.string().transform(s => s.trim()).pipe(z.string().min(1).max(MAX_ADDRESS_LINE_LENGTH)).describe("Street address line 1"),
+  addressLine2: z.string().max(MAX_ADDRESS_LINE_LENGTH).optional().transform(s => s?.trim()).describe("Street address line 2"),
+  city: z.string().transform(s => s.trim()).pipe(z.string().min(1).max(MAX_CITY_LENGTH)).describe("City"),
+  stateProvince: z.string().max(MAX_STATE_PROVINCE_LENGTH).optional().transform(s => s?.trim()).describe("State or province"),
+  postalCode: z.string().max(MAX_POSTAL_CODE_LENGTH).optional().transform(s => s?.trim()).describe("Postal/ZIP code"),
+  country: z.string().transform(s => s.trim().toUpperCase()).pipe(z.string().min(1).max(MAX_COUNTRY_CODE_LENGTH)).describe("Country code (e.g., US, DE, JP)"),
 });
 
 const telecomNumberSchema = z.object({
-  countryCode: z.string().max(5).optional().default("+1").transform(s => s?.trim() ?? "+1").describe("Country code (default: +1)"),
-  areaCode: z.string().transform(s => s.trim()).pipe(z.string().min(1).max(10)).describe("Area code"),
-  lineNumber: z.string().transform(s => s.trim()).pipe(z.string().min(1).max(20)).describe("Phone line number"),
-  extension: z.string().max(10).optional().transform(s => s?.trim()).describe("Extension"),
+  countryCode: z.string().max(MAX_PHONE_COUNTRY_CODE_LENGTH).optional().default("+1").transform(s => s?.trim() ?? "+1").describe("Country code (default: +1)"),
+  areaCode: z.string().transform(s => s.trim()).pipe(z.string().min(1).max(MAX_AREA_CODE_LENGTH)).describe("Area code"),
+  lineNumber: z.string().transform(s => s.trim()).pipe(z.string().min(1).max(MAX_LINE_NUMBER_LENGTH)).describe("Phone line number"),
+  extension: z.string().max(MAX_EXTENSION_LENGTH).optional().transform(s => s?.trim()).describe("Extension"),
 });
 
 const emailAddressSchema = z.object({
-  email: z.string().transform(s => s.trim().toLowerCase()).pipe(z.string().email().max(254)).describe("Email address"),
+  email: z.string().transform(s => s.trim().toLowerCase()).pipe(z.string().email().max(MAX_EMAIL_LENGTH)).describe("Email address"),
 });
 
 // ─── Tool: create_party ───────────────────────────────────────────
 
 const createPartySchema = z.object({
-  idempotencyKey: z.string().min(1).max(500).optional().describe(
+  idempotencyKey: z.string().min(1).max(MAX_IDEMPOTENCY_KEY_LENGTH).optional().describe(
     "Unique key to prevent duplicate creation. Format: party-create-{description}-{date}"
   ),
   partyType: z.enum(["PERSON", "ORGANIZATION"]).describe("Type of party to create"),
-  name: z.string().min(1).max(500).transform(s => s.trim()).pipe(z.string().min(1).max(500)).describe("Display name for the party (1-500 characters)"),
-  description: z.string().max(1000).optional().transform(s => s?.trim()).pipe(z.string().max(1000).optional()).describe("Optional description (max 1000 characters)"),
+  name: z.string().min(1).max(MAX_PARTY_NAME_LENGTH).transform(s => s.trim()).pipe(z.string().min(1).max(MAX_PARTY_NAME_LENGTH)).describe("Display name for the party (1-500 characters)"),
+  description: z.string().max(MAX_PARTY_DESCRIPTION_LENGTH).optional().transform(s => s?.trim()).pipe(z.string().max(MAX_PARTY_DESCRIPTION_LENGTH).optional()).describe("Optional description (max 1000 characters)"),
   person: personSchema.optional().describe("Person details (required when partyType is PERSON)"),
   organization: organizationSchema.optional().describe("Organization details (required when partyType is ORGANIZATION)"),
 }).refine(
@@ -187,9 +207,9 @@ Returns full party details. Use this to inspect a specific party's information.`
 // ─── Tool: search_parties ─────────────────────────────────────────
 
 const searchPartiesSchema = z.object({
-  name: z.string().max(500).optional().transform(s => s?.trim() || undefined).pipe(z.string().max(500).optional()).describe("Filter by name (case-insensitive partial match)"),
+  name: z.string().max(MAX_PARTY_NAME_LENGTH).optional().transform(s => s?.trim() || undefined).pipe(z.string().max(MAX_PARTY_NAME_LENGTH).optional()).describe("Filter by name (case-insensitive partial match)"),
   partyType: z.enum(["PERSON", "ORGANIZATION"]).optional().describe("Filter by party type"),
-  roleType: z.string().max(100).optional().transform(s => s?.trim() || undefined).describe("Filter by role type name (e.g., 'Customer', 'Supplier')"),
+  roleType: z.string().max(MAX_ROLE_TYPE_LENGTH).optional().transform(s => s?.trim() || undefined).describe("Filter by role type name (e.g., 'Customer', 'Supplier')"),
   limit: z.number().int().min(1).max(500).optional().default(50).describe("Maximum results to return (max 500)"),
   offset: z.number().int().min(0).optional().default(0).describe("Number of results to skip (min 0)"),
 });
@@ -222,9 +242,9 @@ Use this to find customers, suppliers, or any party by name, type, or role.`,
 // ─── Tool: add_party_role ─────────────────────────────────────────
 
 const addPartyRoleSchema = z.object({
-  idempotencyKey: z.string().min(1).max(500).optional().describe("Idempotency key to prevent duplicate role assignment. Format: role-{partyId}-{roleType}-{date}"),
+  idempotencyKey: z.string().min(1).max(MAX_IDEMPOTENCY_KEY_LENGTH).optional().describe("Idempotency key to prevent duplicate role assignment. Format: role-{partyId}-{roleType}-{date}"),
   partyId: z.string().min(1).max(200).regex(UUID_REGEX, "Must be a valid UUID").describe("The UUID of the party to assign the role to"),
-  roleType: z.string().transform(s => s.trim()).pipe(z.string().min(1).max(100)).describe("Role type name (e.g., 'Customer', 'Supplier', 'Employee')"),
+  roleType: z.string().transform(s => s.trim()).pipe(z.string().min(1).max(MAX_ROLE_TYPE_LENGTH)).describe("Role type name (e.g., 'Customer', 'Supplier', 'Employee')"),
   fromDate: z.string().optional()
     .refine(v => v === undefined || !isNaN(new Date(v).getTime()), "Invalid date format")
     .describe("Start date for the role (ISO 8601, default: now)"),
@@ -270,7 +290,7 @@ Example: Make a party a customer
 // ─── Tool: add_contact_mechanism ──────────────────────────────────
 
 const addContactMechanismSchema = z.object({
-  idempotencyKey: z.string().min(1).max(500).optional().describe("Idempotency key to prevent duplicate contact creation. Format: contact-{partyId}-{type}-{date}"),
+  idempotencyKey: z.string().min(1).max(MAX_IDEMPOTENCY_KEY_LENGTH).optional().describe("Idempotency key to prevent duplicate contact creation. Format: contact-{partyId}-{type}-{date}"),
   partyId: z.string().min(1).max(200).regex(UUID_REGEX, "Must be a valid UUID").describe("The UUID of the party to add the contact to"),
   contactMechanismType: z.enum(["POSTAL_ADDRESS", "TELECOM_NUMBER", "EMAIL_ADDRESS"])
     .describe("Type of contact mechanism"),

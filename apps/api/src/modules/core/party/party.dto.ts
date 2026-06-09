@@ -26,6 +26,28 @@ import {
   ValidationArguments,
 } from "class-validator";
 import { Type, Transform } from "class-transformer";
+import {
+  MAX_PARTY_NAME_LENGTH,
+  MAX_PARTY_DESCRIPTION_LENGTH,
+  MAX_PERSON_NAME_LENGTH,
+  MAX_MIDDLE_NAME_LENGTH,
+  MAX_GENDER_LENGTH,
+  MAX_LEGAL_NAME_LENGTH,
+  MAX_TAX_ID_LENGTH,
+  MAX_ROLE_TYPE_LENGTH,
+  MAX_ADDRESS_LINE_LENGTH,
+  MAX_CITY_LENGTH,
+  MAX_STATE_PROVINCE_LENGTH,
+  MAX_POSTAL_CODE_LENGTH,
+  MAX_COUNTRY_CODE_LENGTH,
+  MAX_AREA_CODE_LENGTH,
+  MAX_LINE_NUMBER_LENGTH,
+  MAX_EXTENSION_LENGTH,
+  MAX_PHONE_COUNTRY_CODE_LENGTH,
+  MAX_EMAIL_LENGTH,
+  MAX_SEARCH_LIMIT,
+  MIN_SEARCH_LIMIT,
+} from "@besterp/shared";
 
 // ─── Cross-field validators ──────────────────────────────────────
 
@@ -76,19 +98,19 @@ export class CreatePersonDto {
   @Transform(({ value }: { value: string }) => (typeof value === "string" ? value.trim() : value))
   @IsString()
   @IsNotEmpty()
-  @MaxLength(200)
+  @MaxLength(MAX_PERSON_NAME_LENGTH)
   firstName!: string;
 
   @Transform(({ value }: { value: string }) => (typeof value === "string" ? value.trim() : value))
   @IsString()
   @IsNotEmpty()
-  @MaxLength(200)
+  @MaxLength(MAX_PERSON_NAME_LENGTH)
   lastName!: string;
 
   @IsOptional()
   @Transform(({ value }: { value: string }) => (typeof value === "string" ? value.trim() : value))
   @IsString()
-  @MaxLength(100)
+  @MaxLength(MAX_MIDDLE_NAME_LENGTH)
   middleName?: string;
 
   @IsOptional()
@@ -98,7 +120,7 @@ export class CreatePersonDto {
   @IsOptional()
   @Transform(({ value }: { value: string }) => (typeof value === "string" ? value.trim() : value))
   @IsString()
-  @MaxLength(50)
+  @MaxLength(MAX_GENDER_LENGTH)
   gender?: string;
 }
 
@@ -108,13 +130,13 @@ export class CreateOrganizationDto {
   @Transform(({ value }: { value: string }) => (typeof value === "string" ? value.trim() : value))
   @IsString()
   @IsNotEmpty()
-  @MaxLength(500)
+  @MaxLength(MAX_LEGAL_NAME_LENGTH)
   legalName!: string;
 
   @IsOptional()
   @Transform(({ value }: { value: string }) => (typeof value === "string" ? value.trim() : value))
   @IsString()
-  @MaxLength(50)
+  @MaxLength(MAX_TAX_ID_LENGTH)
   taxId?: string;
 
   @IsOptional()
@@ -131,13 +153,13 @@ export class CreatePartyDto {
   @Transform(({ value }: { value: string }) => (typeof value === "string" ? value.trim() : value))
   @IsString()
   @IsNotEmpty()
-  @MaxLength(500)
+  @MaxLength(MAX_PARTY_NAME_LENGTH)
   name!: string;
 
   @IsOptional()
   @Transform(({ value }: { value: string }) => (typeof value === "string" ? value.trim() : value))
   @IsString()
-  @MaxLength(1000)
+  @MaxLength(MAX_PARTY_DESCRIPTION_LENGTH)
   description?: string;
 
   @ValidateNested()
@@ -163,7 +185,7 @@ export class SearchPartiesDto {
   @Transform(({ value }: { value: string }) => (typeof value === "string" ? value.trim() : value))
   @IsOptional()
   @IsString()
-  @MaxLength(500)
+  @MaxLength(MAX_PARTY_NAME_LENGTH)
   name?: string;
 
   @IsOptional()
@@ -173,14 +195,14 @@ export class SearchPartiesDto {
   @IsOptional()
   @Transform(({ value }: { value: string }) => (typeof value === "string" ? value.trim() : value))
   @IsString()
-  @MaxLength(100)
+  @MaxLength(MAX_ROLE_TYPE_LENGTH)
   roleType?: string;
 
   @IsOptional()
   @Type(() => Number)
   @IsInt()
-  @Min(1)
-  @Max(500)
+  @Min(MIN_SEARCH_LIMIT)
+  @Max(MAX_SEARCH_LIMIT)
   limit?: number;
 
   @IsOptional()
@@ -196,7 +218,7 @@ export class AddPartyRoleDto {
   @Transform(({ value }: { value: string }) => (typeof value === "string" ? value.trim() : value))
   @IsString()
   @IsNotEmpty()
-  @MaxLength(100)
+  @MaxLength(MAX_ROLE_TYPE_LENGTH)
   roleType!: string;
 
   @IsOptional()
@@ -210,38 +232,38 @@ export class PostalAddressDto {
   @Transform(({ value }: { value: string }) => (typeof value === "string" ? value.trim() : value))
   @IsString()
   @IsNotEmpty()
-  @MaxLength(200)
+  @MaxLength(MAX_ADDRESS_LINE_LENGTH)
   addressLine1!: string;
 
   @IsOptional()
   @Transform(({ value }: { value: string }) => (typeof value === "string" ? value.trim() : value))
   @IsString()
-  @MaxLength(200)
+  @MaxLength(MAX_ADDRESS_LINE_LENGTH)
   addressLine2?: string;
 
   @Transform(({ value }: { value: string }) => (typeof value === "string" ? value.trim() : value))
   @IsString()
   @IsNotEmpty()
-  @MaxLength(100)
+  @MaxLength(MAX_CITY_LENGTH)
   city!: string;
 
   @IsOptional()
   @Transform(({ value }: { value: string }) => (typeof value === "string" ? value.trim() : value))
   @IsString()
-  @MaxLength(100)
+  @MaxLength(MAX_STATE_PROVINCE_LENGTH)
   stateProvince?: string;
 
   @IsOptional()
   @Transform(({ value }: { value: string }) => (typeof value === "string" ? value.trim() : value))
   @IsString()
-  @MaxLength(20)
+  @MaxLength(MAX_POSTAL_CODE_LENGTH)
   postalCode?: string;
 
   @Transform(({ value }: { value: string }) => (typeof value === "string" ? value.trim().toUpperCase() : value))
   @IsString()
   @IsNotEmpty()
   @MinLength(2)
-  @MaxLength(3)
+  @MaxLength(MAX_COUNTRY_CODE_LENGTH)
   country!: string;
 }
 
@@ -249,25 +271,25 @@ export class TelecomNumberDto {
   @IsOptional()
   @Transform(({ value }: { value: string }) => (typeof value === "string" ? value.trim() : value))
   @IsString()
-  @MaxLength(5)
+  @MaxLength(MAX_PHONE_COUNTRY_CODE_LENGTH)
   countryCode?: string;
 
   @Transform(({ value }: { value: string }) => (typeof value === "string" ? value.trim() : value))
   @IsString()
   @IsNotEmpty()
-  @MaxLength(10)
+  @MaxLength(MAX_AREA_CODE_LENGTH)
   areaCode!: string;
 
   @Transform(({ value }: { value: string }) => (typeof value === "string" ? value.trim() : value))
   @IsString()
   @IsNotEmpty()
-  @MaxLength(20)
+  @MaxLength(MAX_LINE_NUMBER_LENGTH)
   lineNumber!: string;
 
   @IsOptional()
   @Transform(({ value }: { value: string }) => (typeof value === "string" ? value.trim() : value))
   @IsString()
-  @MaxLength(10)
+  @MaxLength(MAX_EXTENSION_LENGTH)
   extension?: string;
 }
 
@@ -277,7 +299,7 @@ export class EmailAddressDto {
   )
   @IsEmail()
   @IsNotEmpty()
-  @MaxLength(254) // RFC 5321 limit
+  @MaxLength(MAX_EMAIL_LENGTH)
   email!: string;
 }
 

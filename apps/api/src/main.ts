@@ -26,11 +26,6 @@ async function bootstrap() {
     );
     process.exit(1);
   }
-  if (missing.includes("JWT_SECRET")) {
-    console.warn(
-      "⚠️  JWT_SECRET not set — using insecure default. Set JWT_SECRET in production!"
-    );
-  }
   if (!process.env.DATABASE_URL && process.env.NODE_ENV !== "production") {
     console.warn(
       "⚠️  DATABASE_URL not set — database operations will fail. Set DATABASE_URL before running the API."
