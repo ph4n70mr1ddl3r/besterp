@@ -105,7 +105,7 @@ export interface ToolResult<T = unknown> {
  * This is the "registration card" for a tool — everything the framework
  * needs to expose, validate, audit, and execute it.
  */
-export interface ToolDefinition<TInput = unknown, TResult = unknown> {
+export interface ToolDefinition<_TInput = unknown, TResult = unknown> {
   /** Semantically meaningful tool name (e.g., "create_party"). */
   name: string;
 

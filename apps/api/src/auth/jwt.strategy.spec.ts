@@ -11,7 +11,7 @@ import { UnauthorizedException } from "@nestjs/common";
 // Stub PassportStrategy so the constructor doesn't try to register with the
 // global Passport instance. This isolates the `validate()` method for testing.
 vi.mock("@nestjs/passport", () => ({
-  PassportStrategy: (strategy: any) => {
+    PassportStrategy: (_strategy: any) => {
     return class {
       constructor(_opts: unknown) {
         // No-op — bypass real passport registration.

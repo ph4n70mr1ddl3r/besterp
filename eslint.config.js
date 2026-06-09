@@ -5,6 +5,17 @@ export default tseslint.config(
   eslint.configs.recommended,
   ...tseslint.configs.recommended,
   {
+    languageOptions: {
+      parserOptions: {
+        projectService: {
+          allowDefaultProject: [
+            "packages/database/src/__tests__/*.ts",
+            "packages/mcp-tools/src/__tests__/*.ts",
+            "packages/shared/src/__tests__/*.ts",
+          ],
+        },
+      },
+    },
     rules: {
       // Enforce strict TypeScript
       "@typescript-eslint/no-explicit-any": "warn",

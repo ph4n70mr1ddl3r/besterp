@@ -122,10 +122,19 @@ async function bootstrap() {
   // and is equivalent to disabling the same-origin policy for browsers.
   const corsOrigins = process.env.CORS_ORIGINS;
   if (corsOrigins) {
-    app.enableCors({
-      origin: corsOrigins.split(",").map((o) => o.trim()).filter((o) => o.length > 0),
-      credentials: true,
-    });
+    const origins = corsOrigins.split(",").map((o) => o.trim()).filter((o) => o.length > 0);
+    if (origins.length > 0) {
+      app.enableCors({
+        origin: origins,
+        credentials: true,
+      });
+    } else {
+      // CORS_ORIGINS was set to an empty/comma-only value — treat as "no cors"
+      // rather than enabling CORS with an empty allowlist (which would deny all).
+      if (process.env.NODE_ENV !== "production") {
+        app.enableCors({ origin: true, credentials: false });
+      }
+    }
   } else if (process.env.NODE_ENV !== "production") {
     // Dev-only convenience: allow all origins (no credentials) so a local
     // browser UI (e.g., a SPA on a different port) can hit the API.
@@ -158,4 +167,4 @@ async function bootstrap() {
   }
 }
 
-bootstrap();
+void bootstrap();

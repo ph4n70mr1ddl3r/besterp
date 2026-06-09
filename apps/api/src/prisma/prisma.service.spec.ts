@@ -16,6 +16,8 @@ vi.mock("@prisma/client", () => {
   return { PrismaClient: MockPrismaClient };
 });
 
+import { InvalidTypeValueError } from "@besterp/shared";
+
 vi.mock("@besterp/database", () => ({
   createTenantClient: vi.fn().mockImplementation((_prisma: any, tenantId: string) => ({
     party: {},
@@ -24,14 +26,12 @@ vi.mock("@besterp/database", () => ({
   validateTenantIdEnhanced: vi.fn((tenantId: string) => {
     // Mirror the real validation logic for testing
     if (!tenantId || !/^[a-zA-Z0-9_-]+$/.test(tenantId)) {
-      const { InvalidTypeValueError } = require("@besterp/shared");
       throw new InvalidTypeValueError(
         `Invalid tenant ID: "${tenantId}".`,
         { context: { field: "tenantId", received: tenantId } }
       );
     }
     if (tenantId.length > 100) {
-      const { InvalidTypeValueError } = require("@besterp/shared");
       throw new InvalidTypeValueError(
         "Tenant ID is too long (max 100 characters)",
         { context: { field: "tenantId", received: tenantId, maxLength: 100 } }

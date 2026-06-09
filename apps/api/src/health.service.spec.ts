@@ -1,16 +1,17 @@
 // Unit tests for HealthService
 // Tests health status computation, version info, and package.json loading
 
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import { HealthService } from "./health.service.js";
-import type { HealthStatus, VersionInfo } from "./health.service.js";
 
 function createMockPrisma(queryResult: any = [{ result: 1 }]) {
   return {
     appClient: {
       $queryRaw: vi.fn().mockResolvedValue(queryResult),
     },
-    admin: {},
+    admin: {
+      $queryRaw: vi.fn().mockResolvedValue(queryResult),
+    },
     tenantScoped: vi.fn(),
     $connect: vi.fn(),
     $disconnect: vi.fn(),
@@ -43,7 +44,7 @@ describe("HealthService", () => {
 
     it("should return error status when database query fails", async () => {
       const mockPrisma = createMockPrisma();
-      mockPrisma.appClient.$queryRaw.mockRejectedValue(new Error("Connection refused"));
+      mockPrisma.admin.$queryRaw.mockRejectedValue(new Error("Connection refused"));
       const service = new HealthService(mockPrisma);
       const result = await service.getHealth();
 

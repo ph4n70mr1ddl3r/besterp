@@ -162,12 +162,6 @@ describe("RLS Extension", () => {
     it("should handle interactive transactions correctly", async () => {
       const client = createTenantClient(mockPrisma, "tenant-1");
       
-      const tx = {
-        $executeRaw: vi.fn(),
-        party: { findMany: vi.fn().mockResolvedValue([]) },
-        partyRole: { create: vi.fn().mockResolvedValue({ partyRoleId: "123" }) },
-      };
-      
       // The proxy wraps $transaction to inject SET LOCAL before the callback.
       // The callback should NOT need to call $executeRaw itself — the proxy does it.
       const result = await client.$transaction(async (tx) => {

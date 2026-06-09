@@ -2,6 +2,7 @@
   "name": "besterp",
   "version": "0.0.1",
   "private": true,
+  "type": "module",
   "description": "Agent-first ERP built on Silverstone's universal data models",
   "workspaces": [
     "packages/*",

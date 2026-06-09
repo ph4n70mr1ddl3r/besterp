@@ -104,7 +104,7 @@ export class PrismaService
 
     // Clear tenant client cache and unregister from FinalizationRegistry
     // to prevent phantom callbacks after the service is destroyed.
-    for (const [tenantId, token] of this.unregisterTokens) {
+    for (const [, token] of this.unregisterTokens) {
       this.cacheRegistry.unregister(token);
     }
     this.tenantClientCache.clear();
