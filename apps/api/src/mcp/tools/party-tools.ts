@@ -18,6 +18,7 @@ import {
   MAX_PARTY_NAME_LENGTH,
   MAX_PARTY_DESCRIPTION_LENGTH,
   MAX_LEGAL_NAME_LENGTH,
+  MAX_TAX_ID_LENGTH,
   MAX_ROLE_TYPE_LENGTH,
   MAX_GENDER_LENGTH,
   MAX_ADDRESS_LINE_LENGTH,
@@ -77,7 +78,7 @@ const personSchema = z.object({
 
 const organizationSchema = z.object({
   legalName: z.string().transform(s => s.trim()).pipe(z.string().min(1).max(MAX_LEGAL_NAME_LENGTH)).describe("Legal/registered name of the organization"),
-  taxId: z.string().max(50).optional().transform(s => s?.trim()).describe("Tax identification number"),
+  taxId: z.string().max(MAX_TAX_ID_LENGTH).optional().transform(s => s?.trim()).describe("Tax identification number"),
   registrationDate: z.string().max(30).optional()
     .refine(v => v === undefined || !isNaN(new Date(v).getTime()), "Invalid date format")
     .describe("Date of registration (ISO 8601)"),
@@ -93,7 +94,7 @@ const postalAddressSchema = z.object({
 });
 
 const telecomNumberSchema = z.object({
-  countryCode: z.string().max(MAX_PHONE_COUNTRY_CODE_LENGTH).optional().default("+1").transform(s => s?.trim() ?? "+1").describe("Country code (default: +1)"),
+  countryCode: z.string().max(MAX_PHONE_COUNTRY_CODE_LENGTH).optional().default("+1").transform(s => s.trim()).describe("Country code (default: +1)"),
   areaCode: z.string().transform(s => s.trim()).pipe(z.string().min(1).max(MAX_AREA_CODE_LENGTH)).describe("Area code"),
   lineNumber: z.string().transform(s => s.trim()).pipe(z.string().min(1).max(MAX_LINE_NUMBER_LENGTH)).describe("Phone line number"),
   extension: z.string().max(MAX_EXTENSION_LENGTH).optional().transform(s => s?.trim()).describe("Extension"),
@@ -111,7 +112,7 @@ const createPartySchema = z.object({
   ),
   partyType: z.enum(["PERSON", "ORGANIZATION"]).describe("Type of party to create"),
   name: z.string().transform(s => s.trim()).pipe(z.string().min(1).max(MAX_PARTY_NAME_LENGTH)).describe("Display name for the party (1-500 characters)"),
-  description: z.string().max(MAX_PARTY_DESCRIPTION_LENGTH).optional().transform(s => s?.trim()).pipe(z.string().max(MAX_PARTY_DESCRIPTION_LENGTH).optional()).describe("Optional description (max 1000 characters)"),
+  description: z.string().optional().transform(s => s?.trim() || undefined).pipe(z.string().max(MAX_PARTY_DESCRIPTION_LENGTH).optional()).describe("Optional description (max 1000 characters)"),
   person: personSchema.optional().describe("Person details (required when partyType is PERSON)"),
   organization: organizationSchema.optional().describe("Organization details (required when partyType is ORGANIZATION)"),
 }).refine(
@@ -211,7 +212,7 @@ Returns full party details. Use this to inspect a specific party's information.`
 // ─── Tool: search_parties ─────────────────────────────────────────
 
 const searchPartiesSchema = z.object({
-  name: z.string().max(MAX_PARTY_NAME_LENGTH).optional().transform(s => s?.trim() || undefined).pipe(z.string().max(MAX_PARTY_NAME_LENGTH).optional()).describe("Filter by name (case-insensitive partial match)"),
+  name: z.string().optional().transform(s => s?.trim() || undefined).pipe(z.string().max(MAX_PARTY_NAME_LENGTH).optional()).describe("Filter by name (case-insensitive partial match)"),
   partyType: z.enum(["PERSON", "ORGANIZATION"]).optional().describe("Filter by party type"),
   roleType: z.string().max(MAX_ROLE_TYPE_LENGTH).optional().transform(s => s?.trim() || undefined).describe("Filter by role type name (e.g., 'Customer', 'Supplier')"),
   limit: z.number().int().min(1).max(500).optional().default(50).describe("Maximum results to return (max 500)"),

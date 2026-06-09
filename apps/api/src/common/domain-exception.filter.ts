@@ -28,6 +28,8 @@ function domainErrorToStatus(error: DomainError): number {
     case "MISSING_SUBTYPE_DATA":
     case "INVALID_TYPE_VALUE":
       return 422;
+    case "TENANT_CONTEXT_FAILED":
+      return 503;
     default:
       // Unexpected domain error codes — return 500 to flag the issue.
       // This should never happen; if it does, a new DomainError subclass

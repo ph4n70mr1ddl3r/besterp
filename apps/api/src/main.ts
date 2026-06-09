@@ -41,24 +41,20 @@ async function bootstrap() {
   // exit so the process doesn't get stuck — orchestrators that have given up
   // waiting will SIGKILL the pod, which can leave pooled resources in a bad
   // state and pollute logs with OOM-killer noise.
+  const HARD_EXIT_TIMEOUT_MS = 10_000;
   let shuttingDown = false;
 
-  // Handle uncaught exceptions the same way as unhandled rejections.
-  // An uncaught exception leaves the process in an undefined state (any
-  // module may have partially completed work, and further operations are
-  // unsafe). The standard Node.js behavior prints the error and exits; our
-  // handler additionally runs a graceful shutdown so PrismaService,
-  // BullMQ workers, and the tenant client cache tear down cleanly.
-  process.on("uncaughtException", async (error) => {
-    console.error("❌ Uncaught exception:", error instanceof Error ? error.stack : error);
+  async function gracefulShutdown(label: string, detail: unknown): Promise<void> {
+    console.error(`❌ ${label}:`, detail instanceof Error ? detail.stack : detail);
     if (shuttingDown) process.exit(1);
     shuttingDown = true;
-    const HARD_EXIT_TIMEOUT_MS = 10_000;
+
     const hardExitTimer = setTimeout(() => {
       console.error(`❌ Graceful shutdown exceeded ${HARD_EXIT_TIMEOUT_MS}ms — forcing exit.`);
       process.exit(1);
     }, HARD_EXIT_TIMEOUT_MS);
     if (hardExitTimer.unref) hardExitTimer.unref();
+
     try {
       await app.close();
     } catch (closeErr) {
@@ -66,42 +62,14 @@ async function bootstrap() {
     }
     clearTimeout(hardExitTimer);
     process.exit(1);
+  }
+
+  process.on("uncaughtException", (error) => {
+    void gracefulShutdown("Uncaught exception", error);
   });
 
-  process.on("unhandledRejection", async (reason) => {
-    console.error(
-      "❌ Unhandled promise rejection:",
-      reason instanceof Error ? reason.stack : reason
-    );
-    if (shuttingDown) process.exit(1);
-    shuttingDown = true;
-
-    // Race the close() against a hard-exit deadline. If close() hangs (e.g.,
-    // a stuck DB connection drain), we exit anyway so the process doesn't
-    // outlive its usefulness. Without this, a single misbehaving resource
-    // can keep the process alive indefinitely while the orchestrator's
-    // shutdown grace period ticks down.
-    const HARD_EXIT_TIMEOUT_MS = 10_000;
-    const hardExitTimer = setTimeout(() => {
-      console.error(
-        `❌ Graceful shutdown exceeded ${HARD_EXIT_TIMEOUT_MS}ms — forcing exit.`
-      );
-      process.exit(1);
-    }, HARD_EXIT_TIMEOUT_MS);
-    // Don't let the timer itself keep the process alive.
-    if (hardExitTimer.unref) hardExitTimer.unref();
-
-    try {
-      await app.close();
-    } catch (closeErr) {
-      console.error(
-        "❌ Error during graceful shutdown:",
-        closeErr instanceof Error ? closeErr.stack : closeErr
-      );
-    }
-    clearTimeout(hardExitTimer);
-    // Exit with non-zero so orchestrators (Docker, systemd, K8s) restart the pod.
-    process.exit(1);
+  process.on("unhandledRejection", (reason) => {
+    void gracefulShutdown("Unhandled promise rejection", reason);
   });
 
   // Enable graceful shutdown so PrismaService.onModuleDestroy fires
