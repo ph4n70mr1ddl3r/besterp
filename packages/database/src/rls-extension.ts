@@ -1,4 +1,5 @@
 // Prisma Client Extension for automatic Row-Level Security (RLS) tenant scoping.
+/* eslint-disable @typescript-eslint/no-explicit-any */
 //
 // Provides `createTenantClient()` which wraps all model operations in a
 // transaction that calls `set_tenant_context()` before executing each query.
@@ -132,12 +133,14 @@ export function createTenantClient(prisma: PrismaClient, tenantId: string) {
     //   $transaction(fn, options?)
     //   $transaction(options, fn)
     if (typeof args[0] === "function") {
-      fn = args[0];
+      fn = args[0] as (tx: Prisma.TransactionClient) => Promise<unknown>;
       options = typeof args[1] === "object" && args[1] !== null ? args[1] : undefined;
     } else if (typeof args[0] === "object" && args[0] !== null) {
       // options-first syntax: $transaction({ maxWait, timeout }, fn)
       options = args[0];
-      fn = typeof args[1] === "function" ? args[1] : undefined;
+      fn = typeof args[1] === "function"
+        ? (args[1] as (tx: Prisma.TransactionClient) => Promise<unknown>)
+        : undefined;
     }
 
     if (fn) {
