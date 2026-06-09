@@ -206,26 +206,24 @@ export function idempotencyMiddleware(prisma: PrismaClient): ToolMiddleware {
     try {
       toolResult = await next(input, context);
     } catch (error: unknown) {
-      // Mark as failed. Verify tenant ownership first to prevent cross-tenant
-      // updates if an idempotency key is ever reused across tenants.
-      const record = await prisma.idempotencyRecord.findFirst({
-        where: { idempotencyKey, tenantId },
-        select: { idempotencyKey: true },
-      }).catch(() => null);
-      if (record) {
-        await prisma.idempotencyRecord.update({
-          where: { idempotencyKey },
-          data: {
-            status: "failed",
-            error: { message: error instanceof Error ? error.message : String(error), code: getErrorCode(error) },
-          },
-        }).catch((updateErr) => {
-          process.stderr.write(
-            `[Idempotency] Failed to mark record '${idempotencyKey}' as failed: ` +
-            `${updateErr instanceof Error ? updateErr.message : updateErr}\n`
-          );
-        });
-      }
+      // Mark as failed. The idempotencyKey is the primary key, so a PK-only
+      // where clause is sufficient — no tenantId needed for the update query.
+      // TenantId is already stored in the record from creation time; attempting
+      // a separate verification query risks a transient error that would leave
+      // the record stuck as "pending" forever (the .catch(() => null) pattern
+      // hides the DB error and skips the update).
+      await prisma.idempotencyRecord.update({
+        where: { idempotencyKey },
+        data: {
+          status: "failed",
+          error: { message: error instanceof Error ? error.message : String(error), code: getErrorCode(error) },
+        },
+      }).catch((updateErr) => {
+        process.stderr.write(
+          `[Idempotency] Failed to mark record '${idempotencyKey}' as failed: ` +
+          `${updateErr instanceof Error ? updateErr.message : updateErr}\n`
+        );
+      });
 
       throw error; // re-throw for error handler middleware
     }

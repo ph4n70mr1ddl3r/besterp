@@ -75,10 +75,18 @@ async function bootstrap() {
   }
 
   process.on("uncaughtException", (error) => {
-    void gracefulShutdown("Uncaught exception", error);
+    // Synchronous-only handler: Node.js docs warn that async work in
+    // 'uncaughtException' is unsafe because the process state may be
+    // corrupted. Log the error and exit immediately. Do NOT attempt
+    // graceful shutdown (app.close, DB disconnects) here — they are
+    // async and may hang or panic on corrupted state.
+    console.error("❌ Uncaught exception:", error instanceof Error ? error.stack : error);
+    process.exit(1);
   });
 
   process.on("unhandledRejection", (reason) => {
+    // Unlike uncaughtException, the process state is still sound after
+    // an unhandled rejection, so graceful shutdown is safe here.
     void gracefulShutdown("Unhandled promise rejection", reason);
   });
 

@@ -59,6 +59,21 @@ export function capString(value: unknown, maxBytes: number): string {
  */
 export function truncateValue(value: unknown, maxSize: number = MAX_STORED_PAYLOAD_SIZE): unknown {
   if (value === undefined) return undefined;
+
+  // Fast path: primitives and null are always JSON-safe — skip the
+  // stringify+parse roundtrip that class instances, Maps, etc. need.
+  if (value === null || typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    const encoded = textEncoder.encode(String(value));
+    if (encoded.byteLength > maxSize) {
+      return {
+        _truncated: true,
+        _originalSize: encoded.byteLength,
+        _preview: textDecoder.decode(encoded.slice(0, PREVIEW_BYTES)),
+      };
+    }
+    return value;
+  }
+
   try {
     const serialized = JSON.stringify(value);
     const encoded = textEncoder.encode(serialized);
@@ -69,12 +84,9 @@ export function truncateValue(value: unknown, maxSize: number = MAX_STORED_PAYLO
         _preview: textDecoder.decode(encoded.slice(0, PREVIEW_BYTES)),
       };
     }
-    // Always roundtrip through JSON.parse to ensure the value is
-    // strictly JSON-serializable. Class instances, Maps, Sets, BigInts,
-    // and undefined values can survive the size check but would fail
-    // when Prisma tries to store them as JSONB, producing opaque
-    // P2009 / serialization errors. Roundtripping here normalises them
-    // to plain JSON-safe values at the earliest point.
+    // Roundtrip through JSON.parse to normalise non-plain values
+    // (class instances, Maps, Sets, BigInts, etc.) to plain JSON-safe
+    // values before storage as JSONB.
     return JSON.parse(serialized);
   } catch {
     return { _error: "Failed to serialize value" };

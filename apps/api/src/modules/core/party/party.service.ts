@@ -60,9 +60,6 @@ import {
   PartyRoleResult,
   AddContactMechanismInput,
   ContactMechanismResult,
-  PostalAddressInput,
-  TelecomNumberInput,
-  EmailAddressInput,
 } from "./party.types.js";
 
 // Prisma return type for party queries with standard includes
@@ -544,7 +541,6 @@ export class PartyService {
     this.requireMaxLength(trimmedCmType, "Contact mechanism type", MAX_CONTACT_MECHANISM_TYPE_LENGTH, "get_type_table_values");
 
     // Validate subtype data early — avoids wasting a DB round-trip on invalid input.
-    let validContactData: PostalAddressInput | TelecomNumberInput | EmailAddressInput;
     if (trimmedCmType === "POSTAL_ADDRESS") {
       if (!postalAddress) {
         throw new MissingSubtypeDataError(
@@ -561,7 +557,6 @@ export class PartyService {
       if (postalAddress.addressLine2) this.requireMaxLength(postalAddress.addressLine2, "addressLine2", MAX_ADDRESS_LINE_LENGTH, "add_contact_mechanism");
       if (postalAddress.stateProvince) this.requireMaxLength(postalAddress.stateProvince, "stateProvince", MAX_STATE_PROVINCE_LENGTH, "add_contact_mechanism");
       if (postalAddress.postalCode) this.requireMaxLength(postalAddress.postalCode, "postalCode", MAX_POSTAL_CODE_LENGTH, "add_contact_mechanism");
-      validContactData = postalAddress;
     } else if (trimmedCmType === "TELECOM_NUMBER") {
       if (!telecomNumber) {
         throw new MissingSubtypeDataError(
@@ -587,7 +582,6 @@ export class PartyService {
         }
       }
       if (telecomNumber.extension) this.requireMaxLength(telecomNumber.extension, "extension", MAX_EXTENSION_LENGTH, "add_contact_mechanism");
-      validContactData = telecomNumber;
     } else if (trimmedCmType === "EMAIL_ADDRESS") {
       if (!emailAddress) {
         throw new MissingSubtypeDataError(
@@ -604,7 +598,6 @@ export class PartyService {
           { suggestedTools: ["add_contact_mechanism"], context: { contactMechanismType: trimmedCmType, field: "email", invalidValue: emailAddress.email } }
         );
       }
-      validContactData = { ...emailAddress, email: normalizedEmail };
     } else {
       // Unknown type — fail fast before any DB round-trip
       throw new InvalidTypeValueError(
@@ -668,39 +661,43 @@ export class PartyService {
         );
       }
 
+      const postalAddressCreate = trimmedCmType === "POSTAL_ADDRESS" && postalAddress
+        ? {
+            create: {
+              addressLine1: postalAddress.addressLine1.trim(),
+              addressLine2: postalAddress.addressLine2?.trim() || null,
+              city: postalAddress.city.trim(),
+              stateProvince: postalAddress.stateProvince?.trim() || null,
+              postalCode: postalAddress.postalCode?.trim() || null,
+              country: postalAddress.country.trim().toUpperCase(),
+            },
+          }
+        : undefined;
+      const telecomNumberCreate = trimmedCmType === "TELECOM_NUMBER" && telecomNumber
+        ? {
+            create: {
+              countryCode: telecomNumber.countryCode?.trim() || "+1",
+              areaCode: telecomNumber.areaCode.trim(),
+              lineNumber: telecomNumber.lineNumber.trim(),
+              extension: telecomNumber.extension?.trim() || null,
+            },
+          }
+        : undefined;
+      const emailAddressCreate = trimmedCmType === "EMAIL_ADDRESS" && emailAddress
+        ? {
+            create: {
+              email: emailAddress.email,
+            },
+          }
+        : undefined;
+
       return tx.contactMechanism.create({
         data: {
           contactMechanismTypeId: cmType.contactMechanismTypeId,
           tenantId,
-          postalAddress: trimmedCmType === "POSTAL_ADDRESS"
-            ? {
-                create: {
-                  addressLine1: (validContactData as PostalAddressInput).addressLine1.trim(),
-                  addressLine2: (validContactData as PostalAddressInput).addressLine2?.trim() || null,
-                  city: (validContactData as PostalAddressInput).city.trim(),
-                  stateProvince: (validContactData as PostalAddressInput).stateProvince?.trim() || null,
-                  postalCode: (validContactData as PostalAddressInput).postalCode?.trim() || null,
-                  country: (validContactData as PostalAddressInput).country.trim().toUpperCase(),
-                },
-              }
-            : undefined,
-          telecomNumber: trimmedCmType === "TELECOM_NUMBER"
-            ? {
-                create: {
-                  countryCode: (validContactData as TelecomNumberInput).countryCode?.trim() || "+1",
-                  areaCode: (validContactData as TelecomNumberInput).areaCode.trim(),
-                  lineNumber: (validContactData as TelecomNumberInput).lineNumber.trim(),
-                  extension: (validContactData as TelecomNumberInput).extension?.trim() || null,
-                },
-              }
-            : undefined,
-          emailAddress: trimmedCmType === "EMAIL_ADDRESS"
-            ? {
-                create: {
-                  email: (validContactData as EmailAddressInput).email,
-                },
-              }
-            : undefined,
+          postalAddress: postalAddressCreate,
+          telecomNumber: telecomNumberCreate,
+          emailAddress: emailAddressCreate,
           partyContacts: {
             create: { partyId },
           },
@@ -812,13 +809,19 @@ export class PartyService {
   }
 
   /**
-   * Safely parse a date string to a Date object, returning null for invalid dates.
-   * Defense-in-depth: if upstream validation misses an invalid value,
-   * this prevents Invalid Date from reaching Prisma.
+   * Parse a date string to a Date object. Throws if the value is not valid.
+   * Callers MUST validate the format first via requireValidDate() before
+   * calling this — it is a last-line defense, not a soft fallback.
    */
-  private static safeParseDate(value: string): Date | null {
+  private static safeParseDate(value: string): Date {
     const d = new Date(value);
-    return isNaN(d.getTime()) ? null : d;
+    if (isNaN(d.getTime())) {
+      throw new InvalidTypeValueError(
+        `Invalid date value: ${value}`,
+        { suggestedTools: ["create_party"], context: { field: "date", invalidValue: value } }
+      );
+    }
+    return d;
   }
 
   private static toPartyResult(party: PartyWithIncludes): PartyResult {

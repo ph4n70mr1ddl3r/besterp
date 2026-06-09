@@ -61,12 +61,19 @@ export function validatePrismaClientForRls(prisma: PrismaClient): void {
 
 // ─── Data-access methods to wrap with tenant context ──────────────
 
-const DATA_METHODS = new Set([
-  "findMany", "findUnique", "findFirst", "create", "update",
-  "delete", "upsert", "count", "aggregate", "groupBy",
-  "findUniqueOrThrow", "findFirstOrThrow", "updateMany", "deleteMany",
+/** Read-only query methods that RLS-scope via SET LOCAL inside a transaction. */
+const READ_METHODS = new Set([
+  "findMany", "findUnique", "findFirst", "count", "aggregate", "groupBy",
+  "findUniqueOrThrow", "findFirstOrThrow",
+]);
+
+/** Write methods that RLS-scope via SET LOCAL inside a transaction. */
+const WRITE_METHODS = new Set([
+  "create", "update", "delete", "upsert", "updateMany", "deleteMany",
   "createMany", "createManyAndReturn",
 ]);
+
+const DATA_METHODS = new Set([...READ_METHODS, ...WRITE_METHODS]);
 
 /** Operations that should never be called on a tenant-scoped proxy. */
 const BLOCKED_LIFECYCLE = new Set(["$connect", "$disconnect", "$extends"]);
@@ -267,6 +274,23 @@ export function createTenantClient(prisma: PrismaClient, tenantId: string) {
 
           // Return a wrapped function that sets tenant context for standalone queries.
           // Note: Queries inside $transaction use the intercepted $transaction path above.
+          //
+          // PERFORMANCE: Every standalone query is wrapped in its own $transaction
+          // because PostgreSQL's SET LOCAL is scoped to the current transaction.
+          // Without a transaction, SET LOCAL would log a WARNING and have no effect,
+          // leaving the RLS setting unset and causing all queries to fail the
+          // policies' current_setting('app.current_tenant', TRUE) != '' guard.
+          //
+          // For write operations the transaction is required for atomicity anyway.
+          // For read operations the overhead of a lightweight PG transaction (just
+          // BEGIN/COMMIT with no WAL fsync) is ~0.1ms — negligible for the Phase 0b
+          // workload. If this becomes a bottleneck, options to remove the per-query
+          // transaction include:
+          //   1. Switch from SET LOCAL to set_config('app.current_tenant', id, false)
+          //      (session-scoped) and pin connections to tenants at the pool level.
+          //   2. Use Prisma middleware to set the context once per request at the
+          //      NestJS/Express boundary, saving and restoring between requests.
+          //   3. Let the caller manage transactions explicitly for batches of reads.
           const wrapped = async function (this: unknown, ...args: unknown[]) {
             return prisma.$transaction(async (tx) => {
               await tx.$executeRaw`SELECT set_tenant_context(${tenantId})`;
