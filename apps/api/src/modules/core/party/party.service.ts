@@ -193,11 +193,12 @@ export class PartyService {
       firstName: stripHtmlTags(personData.firstName.trim()),
       lastName: stripHtmlTags(personData.lastName.trim()),
       middleName: personData.middleName?.trim() ? stripHtmlTags(personData.middleName.trim()) : undefined,
+      gender: personData.gender ? stripHtmlTags(personData.gender.trim()) : undefined,
     } : undefined;
     const trimmedOrg = orgData ? {
       ...orgData,
       legalName: stripHtmlTags(orgData.legalName.trim()),
-      taxId: orgData.taxId?.trim() || undefined,
+      taxId: orgData.taxId ? stripHtmlTags(orgData.taxId.trim()) : undefined,
     } : undefined;
 
     // Get RLS-scoped client for tenant isolation
@@ -241,8 +242,8 @@ export class PartyService {
             firstName: trimmedPerson.firstName,
             lastName: trimmedPerson.lastName,
             middleName: trimmedPerson.middleName || null,
-            birthDate: trimmedPerson.birthDate ? new Date(trimmedPerson.birthDate) : null,
-            gender: trimmedPerson.gender?.trim() || null,
+            birthDate: trimmedPerson.birthDate ? PartyService.safeParseDate(trimmedPerson.birthDate) : null,
+            gender: trimmedPerson.gender || null,
           },
         };
       }
@@ -252,7 +253,7 @@ export class PartyService {
             legalName: trimmedOrg.legalName,
             taxId: trimmedOrg.taxId || null,
             registrationDate: trimmedOrg.registrationDate
-              ? new Date(trimmedOrg.registrationDate)
+              ? PartyService.safeParseDate(trimmedOrg.registrationDate)
               : null,
           },
         };
@@ -808,6 +809,16 @@ export class PartyService {
         { suggestedTools: ["create_party"], context: { field, invalidValue: value } }
       );
     }
+  }
+
+  /**
+   * Safely parse a date string to a Date object, returning null for invalid dates.
+   * Defense-in-depth: if upstream validation misses an invalid value,
+   * this prevents Invalid Date from reaching Prisma.
+   */
+  private static safeParseDate(value: string): Date | null {
+    const d = new Date(value);
+    return isNaN(d.getTime()) ? null : d;
   }
 
   private static toPartyResult(party: PartyWithIncludes): PartyResult {

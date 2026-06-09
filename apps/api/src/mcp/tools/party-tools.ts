@@ -37,17 +37,21 @@ import type {
   SearchPartiesInput,
   AddPartyRoleInput,
   AddContactMechanismInput,
+  PartyResult,
+  SearchPartiesResult,
+  PartyRoleResult,
+  ContactMechanismResult,
 } from "../../modules/core/party/party.types.js";
 
 // Services are accessed via context.services — this is the contract
 // the MCP module must satisfy when building ToolContext.
 interface PartyServices {
   partyService: {
-    createParty(input: CreatePartyInput): Promise<import("../../modules/core/party/party.types.js").PartyResult>;
-    getParty(tenantId: string, partyId: string): Promise<import("../../modules/core/party/party.types.js").PartyResult>;
-    searchParties(input: SearchPartiesInput): Promise<import("../../modules/core/party/party.types.js").SearchPartiesResult>;
-    addPartyRole(input: AddPartyRoleInput): Promise<import("../../modules/core/party/party.types.js").PartyRoleResult>;
-    addContactMechanism(input: AddContactMechanismInput): Promise<import("../../modules/core/party/party.types.js").ContactMechanismResult>;
+    createParty(input: CreatePartyInput): Promise<PartyResult>;
+    getParty(tenantId: string, partyId: string): Promise<PartyResult>;
+    searchParties(input: SearchPartiesInput): Promise<SearchPartiesResult>;
+    addPartyRole(input: AddPartyRoleInput): Promise<PartyRoleResult>;
+    addContactMechanism(input: AddContactMechanismInput): Promise<ContactMechanismResult>;
   };
 }
 
@@ -106,7 +110,7 @@ const createPartySchema = z.object({
     "Unique key to prevent duplicate creation. Format: party-create-{description}-{date}"
   ),
   partyType: z.enum(["PERSON", "ORGANIZATION"]).describe("Type of party to create"),
-  name: z.string().min(1).max(MAX_PARTY_NAME_LENGTH).transform(s => s.trim()).pipe(z.string().min(1).max(MAX_PARTY_NAME_LENGTH)).describe("Display name for the party (1-500 characters)"),
+  name: z.string().transform(s => s.trim()).pipe(z.string().min(1).max(MAX_PARTY_NAME_LENGTH)).describe("Display name for the party (1-500 characters)"),
   description: z.string().max(MAX_PARTY_DESCRIPTION_LENGTH).optional().transform(s => s?.trim()).pipe(z.string().max(MAX_PARTY_DESCRIPTION_LENGTH).optional()).describe("Optional description (max 1000 characters)"),
   person: personSchema.optional().describe("Person details (required when partyType is PERSON)"),
   organization: organizationSchema.optional().describe("Organization details (required when partyType is ORGANIZATION)"),
