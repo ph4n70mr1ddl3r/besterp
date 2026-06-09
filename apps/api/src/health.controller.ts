@@ -46,7 +46,7 @@ export class HealthController {
   async ready() {
     // Verify database connectivity with a 5-second timeout to prevent
     // the endpoint from hanging when the database is unreachable.
-    // NOTE: The timeout only aborts the HTTP response — the underlying DB
+    // The timeout only aborts the HTTP response — the underlying DB
     // query continues running until it completes or the connection pool
     // is torn down. This is acceptable because:
     // 1. The query is a trivial `SELECT 1` that should resolve in milliseconds.
@@ -83,7 +83,7 @@ export class HealthController {
       );
     } finally {
       // Always clear the timer, regardless of which path we took. Without this,
-      // the timer fires uselessly 5s after a throw. .unref() on line 47 keeps
+      // the timer fires uselessly 5s after a throw. .unref() on line 65 keeps
       // it from holding the process open, but the callback still allocates.
       if (timeoutId) clearTimeout(timeoutId);
     }

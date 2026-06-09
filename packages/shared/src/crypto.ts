@@ -24,7 +24,15 @@ function sortKeysDeep(value: unknown, ancestors?: Set<object>): unknown {
     // deterministic hashing for edge-case numeric inputs.
     if (!Number.isFinite(value)) return null;
   }
-  if (Array.isArray(value)) return value.map((v) => sortKeysDeep(v, ancestors));
+  if (Array.isArray(value)) {
+    if (ancestors.has(value)) {
+      throw new Error("Circular reference detected in hash input");
+    }
+    ancestors.add(value);
+    const result = value.map((v) => sortKeysDeep(v, ancestors));
+    ancestors.delete(value);
+    return result;
+  }
   if (value instanceof Map) {
     // Convert Map to sorted array of [key, value] pairs for deterministic hashing
     const sortedEntries = Array.from(value.entries())

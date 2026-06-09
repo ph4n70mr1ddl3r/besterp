@@ -93,17 +93,23 @@ describe("RLS Extension", () => {
     let mockPrisma: PrismaClient;
 
     beforeEach(() => {
+      const tx = {
+        $executeRaw: vi.fn(),
+        party: { findMany: vi.fn() },
+        partyRole: { create: vi.fn() },
+      };
       mockPrisma = {
         $executeRaw: vi.fn(),
         $connect: vi.fn(),
         $disconnect: vi.fn(),
-        $transaction: vi.fn().mockImplementation((fn) => {
-          const tx = {
-            $executeRaw: vi.fn(),
-            party: { findMany: vi.fn() },
-            partyRole: { create: vi.fn() },
-          };
-          return fn(tx);
+        $transaction: vi.fn().mockImplementation((fn, _opts?) => {
+          // Must return the result of fn(tx) so wrapping callers
+          // (e.g. the proxy's standalone query path) see a real value.
+          // Tests that need specific behavior override with
+          // mockImplementationOnce — the beforeEach default is a
+          // minimal pass-through that returns undefined.
+          if (typeof fn === "function") return fn(tx);
+          return undefined;
         }),
         party: { findMany: vi.fn() },
         partyRole: { create: vi.fn() },
