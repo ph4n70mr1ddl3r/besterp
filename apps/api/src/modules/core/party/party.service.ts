@@ -46,6 +46,7 @@ import {
   MAX_EXTENSION_LENGTH,
   MAX_PHONE_COUNTRY_CODE_LENGTH,
   MAX_EMAIL_LENGTH,
+  MAX_GENDER_LENGTH,
   MAX_SEARCH_LIMIT,
   MIN_SEARCH_LIMIT,
   MIN_SEARCH_OFFSET,
@@ -104,11 +105,8 @@ export class PartyService {
     this.requireMaxLength(trimmedName, "Party name", MAX_PARTY_NAME_LENGTH);
     // Validate description length (MCP tool path has no DTO validation)
     const trimmedDescription = description?.trim() || null;
-    if (trimmedDescription && trimmedDescription.length > MAX_PARTY_DESCRIPTION_LENGTH) {
-      throw new InvalidTypeValueError(
-        `Description is too long (${trimmedDescription.length} characters, max ${MAX_PARTY_DESCRIPTION_LENGTH})`,
-        { suggestedTools: ["create_party"], context: { field: "description", length: trimmedDescription.length, maxLength: MAX_PARTY_DESCRIPTION_LENGTH } }
-      );
+    if (trimmedDescription) {
+      this.requireMaxLength(trimmedDescription, "Description", MAX_PARTY_DESCRIPTION_LENGTH);
     }
 
     // Validate subtype data
@@ -156,6 +154,9 @@ export class PartyService {
         );
       }
       this.requireMaxLength(personData.lastName, "Last name", MAX_PERSON_NAME_LENGTH);
+      if (personData.gender !== undefined && personData.gender !== null) {
+        this.requireMaxLength(personData.gender, "Gender", MAX_GENDER_LENGTH);
+      }
       // Defense-in-depth: validate birthDate shape before passing to Prisma.
       // The REST DTO uses @IsDateString (strict ISO 8601) but the MCP Zod
       // schema only enforces a 30-char max length. A typo like "2024-13-40"
