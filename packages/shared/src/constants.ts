@@ -73,6 +73,9 @@ export const MAX_USER_ID_LENGTH = 200;
 /** Maximum length for agent IDs in JWT tokens. */
 export const MAX_AGENT_ID_LENGTH = 200;
 
+/** Maximum length for conversation/session IDs. */
+export const MAX_CONVERSATION_ID_LENGTH = 200;
+
 /** Maximum length for role strings in JWT tokens. */
 export const MAX_ROLE_LENGTH = 100;
 

@@ -69,7 +69,7 @@ Type tables are the ERP's vocabulary — they define what classifications are av
     handler: async (input: { typeName: string }, _context: ToolContext) => {
 
       // Zod enum validates typeName at the registry level — all cases are exhaustive.
-      const handlers: Record<string, () => Promise<TypeTableRow[]>> = {
+      const handlers: { [K in "PARTY_TYPE" | "ROLE_TYPE" | "CONTACT_MECHANISM_TYPE"]: () => Promise<TypeTableRow[]> } = {
         PARTY_TYPE: async () => (await prisma.partyType.findMany({
           select: { partyTypeId: true, name: true, description: true, aiPromptHint: true },
         })).map((r) => ({ id: r.partyTypeId, name: r.name, description: r.description, aiPromptHint: r.aiPromptHint })),
