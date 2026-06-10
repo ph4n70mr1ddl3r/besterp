@@ -73,12 +73,12 @@ const personSchema = z.object({
   birthDate: z.string().max(30).optional()
     .refine(v => v === undefined || !isNaN(new Date(v).getTime()), "Invalid date format")
     .describe("Date of birth (ISO 8601)"),
-  gender: z.string().optional().transform(s => s?.trim()).pipe(z.string().max(MAX_GENDER_LENGTH).optional()).describe("Gender"),
+  gender: z.string().optional().transform(s => s?.trim() || undefined).pipe(z.string().max(MAX_GENDER_LENGTH).optional()).describe("Gender"),
 });
 
 const organizationSchema = z.object({
   legalName: z.string().transform(s => s.trim()).pipe(z.string().min(1).max(MAX_LEGAL_NAME_LENGTH)).describe("Legal/registered name of the organization"),
-  taxId: z.string().optional().transform(s => s?.trim()).pipe(z.string().max(MAX_TAX_ID_LENGTH).optional()).describe("Tax identification number"),
+  taxId: z.string().optional().transform(s => s?.trim() || undefined).pipe(z.string().max(MAX_TAX_ID_LENGTH).optional()).describe("Tax identification number"),
   registrationDate: z.string().max(30).optional()
     .refine(v => v === undefined || !isNaN(new Date(v).getTime()), "Invalid date format")
     .describe("Date of registration (ISO 8601)"),
@@ -94,7 +94,7 @@ const postalAddressSchema = z.object({
 });
 
 const telecomNumberSchema = z.object({
-  countryCode: z.string().optional().default("+1").transform(s => s.trim()).pipe(z.string().max(MAX_PHONE_COUNTRY_CODE_LENGTH)).describe("Country code (default: +1)"),
+  countryCode: z.string().optional().default("+1").transform(s => (s?.trim() || "+1")).pipe(z.string().max(MAX_PHONE_COUNTRY_CODE_LENGTH)).describe("Country code (default: +1)"),
   areaCode: z.string().transform(s => s.trim()).pipe(z.string().min(1).max(MAX_AREA_CODE_LENGTH)).describe("Area code"),
   lineNumber: z.string().transform(s => s.trim()).pipe(z.string().min(1).max(MAX_LINE_NUMBER_LENGTH)).describe("Phone line number"),
   extension: z.string().optional().transform(s => s?.trim()).pipe(z.string().max(MAX_EXTENSION_LENGTH).optional()).describe("Extension"),
@@ -214,7 +214,7 @@ Returns full party details. Use this to inspect a specific party's information.`
 const searchPartiesSchema = z.object({
   name: z.string().optional().transform(s => s?.trim() || undefined).pipe(z.string().max(MAX_PARTY_NAME_LENGTH).optional()).describe("Filter by name (case-insensitive partial match)"),
   partyType: z.enum(["PERSON", "ORGANIZATION"]).optional().describe("Filter by party type"),
-  roleType: z.string().optional().transform(s => s?.trim()).pipe(z.string().max(MAX_ROLE_TYPE_LENGTH).optional()).describe("Filter by role type name (e.g., 'Customer', 'Supplier')"),
+  roleType: z.string().optional().transform(s => s?.trim() || undefined).pipe(z.string().max(MAX_ROLE_TYPE_LENGTH).optional()).describe("Filter by role type name (e.g., 'Customer', 'Supplier')"),
   limit: z.number().int().min(1).max(500).optional().default(50).describe("Maximum results to return (max 500)"),
   offset: z.number().int().min(0).optional().default(0).describe("Number of results to skip (min 0)"),
 });

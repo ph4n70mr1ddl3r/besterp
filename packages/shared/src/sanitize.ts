@@ -37,6 +37,10 @@ export function stripHtmlTags(input: string): string {
   sanitized = sanitized.replace(/&#(\d+);/g, (_, dec) =>
     String.fromCharCode(parseInt(dec, 10))
   );
+  // Strip null bytes that may have been reintroduced by entity decoding
+  // (e.g. &#x00; → \0). The initial replacement at the top only catches
+  // literal null bytes, not encoded ones revealed by the passes above.
+  sanitized = sanitized.replace(/\0/g, "");
 
   // Decode-then-strip loop: decode HTML entities, then strip any tags that
   // were revealed. Repeats until stable to handle nested/triple encoding
