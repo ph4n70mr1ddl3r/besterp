@@ -337,7 +337,7 @@ export class PartyService {
     if (roleType) {
       const trimmedRoleType = roleType.trim();
       if (trimmedRoleType.length > 0) {
-        where.roles = { some: { roleType: { name: trimmedRoleType } } };
+        where.roles = { some: { roleType: { name: { equals: trimmedRoleType, mode: "insensitive" } } } };
       } else {
         // See `name` filter above for rationale.
         throw new InvalidTypeValueError(
@@ -793,12 +793,26 @@ export class PartyService {
    *  Defense-in-depth — the DTO path validates with @IsDateString and
    *  the Zod path validates with .date() / .iso(), but the service is
    *  the last line of defense and is called from contexts (MCP, future
-   *  internal callers) that may skip the boundary validation. */
+   *  internal callers) that may skip the boundary validation.
+   *
+   *  Also enforces a 30-char max length (matching the Zod schema's
+   *  .max(30) on birthDate/registrationDate) so an oversized
+   *  string that bypasses Zod still gets caught here. */
   private requireValidDate(value: string, field: string): void {
     if (typeof value !== "string" || value.trim().length === 0) {
       throw new InvalidTypeValueError(
         `${field} must be a non-empty ISO 8601 date string.`,
         { suggestedTools: ["create_party"], context: { field, received: value } }
+      );
+    }
+    // Defense-in-depth: cap the raw input length so that an absurdly long
+    // value (e.g., multi-KB string) is rejected before reaching new Date().
+    // The Zod schemas limit birthDate/registrationDate to 30 characters;
+    // mirror that here for any call path that bypasses Zod (e.g., REST).
+    if (value.length > 30) {
+      throw new InvalidTypeValueError(
+        `${field} is too long (${value.length} characters, max 30).`,
+        { suggestedTools: ["create_party"], context: { field, length: value.length, maxLength: 30 } }
       );
     }
     const parsed = new Date(value);
