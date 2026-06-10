@@ -528,6 +528,7 @@ export class PartyService {
     const db = this.prisma.tenantScoped(tenantId);
 
     // ─── Pure input validation (fail fast, before any DB access) ─────
+    let normalizedEmail: string | undefined;
     if (!contactMechanismType || contactMechanismType.trim().length === 0) {
       throw new InvalidTypeValueError(
         "contactMechanismType cannot be empty",
@@ -591,11 +592,11 @@ export class PartyService {
       }
       this.requireNonEmpty(emailAddress.email, "email", "email address");
       this.requireMaxLength(emailAddress.email, "email", MAX_EMAIL_LENGTH, "add_contact_mechanism");
-      const normalizedEmail = emailAddress.email.trim().toLowerCase();
+      normalizedEmail = emailAddress.email.trim().toLowerCase();
       if (!EMAIL_REGEX.test(normalizedEmail)) {
         throw new InvalidTypeValueError(
-          `Invalid email format: ${emailAddress.email}`,
-          { suggestedTools: ["add_contact_mechanism"], context: { contactMechanismType: trimmedCmType, field: "email", invalidValue: emailAddress.email } }
+          `Invalid email format: ${normalizedEmail}`,
+          { suggestedTools: ["add_contact_mechanism"], context: { contactMechanismType: trimmedCmType, field: "email", invalidValue: normalizedEmail } }
         );
       }
     } else {
@@ -683,10 +684,10 @@ export class PartyService {
             },
           }
         : undefined;
-      const emailAddressCreate = trimmedCmType === "EMAIL_ADDRESS" && emailAddress
+      const emailAddressCreate = trimmedCmType === "EMAIL_ADDRESS" && normalizedEmail
         ? {
             create: {
-              email: emailAddress.email,
+              email: normalizedEmail,
             },
           }
         : undefined;

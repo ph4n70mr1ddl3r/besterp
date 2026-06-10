@@ -48,6 +48,8 @@ Each tool listing includes its risk level and confirmation requirements.`,
 
 // ─── Tool: get_type_table_values ──────────────────────────────────
 
+type TypeTableRow = { id: string; name: string; description: string | null; aiPromptHint: string | null };
+
 function createGetTypeTableValues(prisma: PrismaClient): ToolDefinition {
   return {
     name: "get_type_table_values",
@@ -65,7 +67,6 @@ Type tables are the ERP's vocabulary — they define what classifications are av
     tags: ["discovery", "type-table"],
 
     handler: async (input: { typeName: string }, _context: ToolContext) => {
-      type TypeTableRow = { id: string; name: string; description: string | null; aiPromptHint: string | null };
 
       // Zod enum validates typeName at the registry level — all cases are exhaustive.
       const handlers: Record<string, () => Promise<TypeTableRow[]>> = {
