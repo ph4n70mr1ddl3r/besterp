@@ -62,6 +62,9 @@ export const MAX_EMAIL_LENGTH = 254;
 /** Maximum length for gender field. */
 export const MAX_GENDER_LENGTH = 50;
 
+/** Maximum length for ISO 8601 date strings (e.g., "2024-06-15", "2024-06-15T00:00:00.000Z"). */
+export const MAX_DATE_STRING_LENGTH = 30;
+
 // ─── Auth Limits ───────────────────────────────────────────────
 
 /** Maximum length for user IDs in JWT tokens. */

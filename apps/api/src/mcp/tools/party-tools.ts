@@ -22,6 +22,7 @@ import {
   MAX_TAX_ID_LENGTH,
   MAX_ROLE_TYPE_LENGTH,
   MAX_GENDER_LENGTH,
+  MAX_DATE_STRING_LENGTH,
   MAX_ADDRESS_LINE_LENGTH,
   MAX_CITY_LENGTH,
   MAX_STATE_PROVINCE_LENGTH,
@@ -71,7 +72,7 @@ const personSchema = z.object({
   firstName: z.string().transform(s => s.trim()).pipe(z.string().min(1).max(MAX_PERSON_NAME_LENGTH)).describe("First/given name"),
   lastName: z.string().transform(s => s.trim()).pipe(z.string().min(1).max(MAX_PERSON_NAME_LENGTH)).describe("Last/family name"),
   middleName: z.string().optional().transform(s => s?.trim() || undefined).pipe(z.string().max(MAX_MIDDLE_NAME_LENGTH).optional()).describe("Middle name"),
-  birthDate: z.string().max(30).optional()
+  birthDate: z.string().max(MAX_DATE_STRING_LENGTH).optional()
     .refine(v => v === undefined || !isNaN(new Date(v).getTime()), "Invalid date format")
     .describe("Date of birth (ISO 8601)"),
   gender: z.string().optional().transform(s => s?.trim() || undefined).pipe(z.string().max(MAX_GENDER_LENGTH).optional()).describe("Gender"),
@@ -80,7 +81,7 @@ const personSchema = z.object({
 const organizationSchema = z.object({
   legalName: z.string().transform(s => s.trim()).pipe(z.string().min(1).max(MAX_LEGAL_NAME_LENGTH)).describe("Legal/registered name of the organization"),
   taxId: z.string().optional().transform(s => s?.trim() || undefined).pipe(z.string().max(MAX_TAX_ID_LENGTH).optional()).describe("Tax identification number"),
-  registrationDate: z.string().max(30).optional()
+  registrationDate: z.string().max(MAX_DATE_STRING_LENGTH).optional()
     .refine(v => v === undefined || !isNaN(new Date(v).getTime()), "Invalid date format")
     .describe("Date of registration (ISO 8601)"),
 });

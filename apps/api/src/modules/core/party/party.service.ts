@@ -34,6 +34,7 @@ import {
   MAX_PARTY_DESCRIPTION_LENGTH,
   MAX_PERSON_NAME_LENGTH,
   MAX_LEGAL_NAME_LENGTH,
+  MAX_TAX_ID_LENGTH,
   MAX_ROLE_TYPE_LENGTH,
   MAX_CONTACT_MECHANISM_TYPE_LENGTH,
   MAX_ADDRESS_LINE_LENGTH,
@@ -47,6 +48,7 @@ import {
   MAX_PHONE_COUNTRY_CODE_LENGTH,
   MAX_EMAIL_LENGTH,
   MAX_GENDER_LENGTH,
+  MAX_DATE_STRING_LENGTH,
   MAX_SEARCH_LIMIT,
   MIN_SEARCH_LIMIT,
   MIN_SEARCH_OFFSET,
@@ -196,7 +198,13 @@ export class PartyService {
     const trimmedOrg = orgData ? {
       ...orgData,
       legalName: stripHtmlTags(orgData.legalName.trim()),
-      taxId: orgData.taxId ? stripHtmlTags(orgData.taxId.trim()) : undefined,
+      taxId: orgData.taxId
+        ? (() => {
+            const trimmed = orgData.taxId.trim();
+            this.requireMaxLength(trimmed, "Tax ID", MAX_TAX_ID_LENGTH, "create_party");
+            return stripHtmlTags(trimmed);
+          })()
+        : undefined,
     } : undefined;
 
     // Get RLS-scoped client for tenant isolation
@@ -807,12 +815,12 @@ export class PartyService {
     }
     // Defense-in-depth: cap the raw input length so that an absurdly long
     // value (e.g., multi-KB string) is rejected before reaching new Date().
-    // The Zod schemas limit birthDate/registrationDate to 30 characters;
+    // The Zod schemas limit birthDate/registrationDate to MAX_DATE_STRING_LENGTH;
     // mirror that here for any call path that bypasses Zod (e.g., REST).
-    if (value.length > 30) {
+    if (value.length > MAX_DATE_STRING_LENGTH) {
       throw new InvalidTypeValueError(
-        `${field} is too long (${value.length} characters, max 30).`,
-        { suggestedTools: ["create_party"], context: { field, length: value.length, maxLength: 30 } }
+        `${field} is too long (${value.length} characters, max ${MAX_DATE_STRING_LENGTH}).`,
+        { suggestedTools: ["create_party"], context: { field, length: value.length, maxLength: MAX_DATE_STRING_LENGTH } }
       );
     }
     const parsed = new Date(value);
