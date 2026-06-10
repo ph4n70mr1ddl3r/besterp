@@ -271,6 +271,7 @@ export class TelecomNumberDto {
   @IsOptional()
   @Transform(({ value }: { value: string }) => (typeof value === "string" ? value.trim() : value))
   @IsString()
+  @MinLength(1)
   @MaxLength(MAX_PHONE_COUNTRY_CODE_LENGTH)
   countryCode?: string;
 
