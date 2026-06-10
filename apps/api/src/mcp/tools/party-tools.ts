@@ -86,18 +86,18 @@ const organizationSchema = z.object({
 
 const postalAddressSchema = z.object({
   addressLine1: z.string().transform(s => s.trim()).pipe(z.string().min(1).max(MAX_ADDRESS_LINE_LENGTH)).describe("Street address line 1"),
-  addressLine2: z.string().optional().transform(s => s?.trim()).pipe(z.string().max(MAX_ADDRESS_LINE_LENGTH).optional()).describe("Street address line 2"),
+  addressLine2: z.string().optional().transform(s => s?.trim() || undefined).pipe(z.string().max(MAX_ADDRESS_LINE_LENGTH).optional()).describe("Street address line 2"),
   city: z.string().transform(s => s.trim()).pipe(z.string().min(1).max(MAX_CITY_LENGTH)).describe("City"),
-  stateProvince: z.string().optional().transform(s => s?.trim()).pipe(z.string().max(MAX_STATE_PROVINCE_LENGTH).optional()).describe("State or province"),
-  postalCode: z.string().optional().transform(s => s?.trim()).pipe(z.string().max(MAX_POSTAL_CODE_LENGTH).optional()).describe("Postal/ZIP code"),
+  stateProvince: z.string().optional().transform(s => s?.trim() || undefined).pipe(z.string().max(MAX_STATE_PROVINCE_LENGTH).optional()).describe("State or province"),
+  postalCode: z.string().optional().transform(s => s?.trim() || undefined).pipe(z.string().max(MAX_POSTAL_CODE_LENGTH).optional()).describe("Postal/ZIP code"),
   country: z.string().transform(s => s.trim().toUpperCase()).pipe(z.string().min(1).max(MAX_COUNTRY_CODE_LENGTH)).describe("Country code (e.g., US, DE, JP)"),
 });
 
 const telecomNumberSchema = z.object({
-  countryCode: z.string().optional().default("+1").transform(s => (s?.trim() || "+1")).pipe(z.string().max(MAX_PHONE_COUNTRY_CODE_LENGTH)).describe("Country code (default: +1)"),
+  countryCode: z.string().optional().default("+1").transform(s => s?.trim()).pipe(z.string().max(MAX_PHONE_COUNTRY_CODE_LENGTH)).describe("Country code (default: +1)"),
   areaCode: z.string().transform(s => s.trim()).pipe(z.string().min(1).max(MAX_AREA_CODE_LENGTH)).describe("Area code"),
   lineNumber: z.string().transform(s => s.trim()).pipe(z.string().min(1).max(MAX_LINE_NUMBER_LENGTH)).describe("Phone line number"),
-  extension: z.string().optional().transform(s => s?.trim()).pipe(z.string().max(MAX_EXTENSION_LENGTH).optional()).describe("Extension"),
+  extension: z.string().optional().transform(s => s?.trim() || undefined).pipe(z.string().max(MAX_EXTENSION_LENGTH).optional()).describe("Extension"),
 });
 
 const emailAddressSchema = z.object({

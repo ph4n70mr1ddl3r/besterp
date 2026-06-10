@@ -39,7 +39,7 @@ Each tool listing includes its risk level and confirmation requirements.`,
         data: {
           tools,
           totalAvailable: tools.length,
-          note: "Use 'describe_entity_type' for detailed schema info on any entity.",
+          note: "Use 'get_type_table_values' with a typeName to see valid values for type tables.",
         },
       };
     },
