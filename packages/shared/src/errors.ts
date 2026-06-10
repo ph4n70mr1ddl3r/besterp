@@ -49,10 +49,16 @@ export class DomainError extends Error {
 }
 
 /** Thrown when required subtype data is missing (e.g., person details for PERSON party type). */
+interface ErrorOptions {
+  suggestedTools?: string[];
+  context?: Record<string, unknown>;
+  cause?: Error;
+}
+
 export class MissingSubtypeDataError extends DomainError {
   constructor(
     message: string,
-    options?: { suggestedTools?: string[]; context?: Record<string, unknown> }
+    options?: ErrorOptions
   ) {
     super("MISSING_SUBTYPE_DATA", message, options);
     this.name = "MissingSubtypeDataError";
@@ -63,7 +69,7 @@ export class MissingSubtypeDataError extends DomainError {
 export class InvalidTypeValueError extends DomainError {
   constructor(
     message: string,
-    options?: { suggestedTools?: string[]; context?: Record<string, unknown> }
+    options?: ErrorOptions
   ) {
     super("INVALID_TYPE_VALUE", message, options);
     this.name = "InvalidTypeValueError";
@@ -74,7 +80,7 @@ export class InvalidTypeValueError extends DomainError {
 export class DuplicateEntityError extends DomainError {
   constructor(
     message: string,
-    options?: { suggestedTools?: string[]; context?: Record<string, unknown> }
+    options?: ErrorOptions
   ) {
     super("DUPLICATE_ENTITY", message, options);
     this.name = "DuplicateEntityError";
@@ -85,7 +91,7 @@ export class DuplicateEntityError extends DomainError {
 export class EntityNotFoundError extends DomainError {
   constructor(
     message: string,
-    options?: { suggestedTools?: string[]; context?: Record<string, unknown> }
+    options?: ErrorOptions
   ) {
     super("ENTITY_NOT_FOUND", message, options);
     this.name = "EntityNotFoundError";
@@ -96,7 +102,7 @@ export class EntityNotFoundError extends DomainError {
 export class ConcurrencyConflictError extends DomainError {
   constructor(
     message: string,
-    options?: { suggestedTools?: string[]; context?: Record<string, unknown> }
+    options?: ErrorOptions
   ) {
     super("CONCURRENCY_CONFLICT", message, options);
     this.name = "ConcurrencyConflictError";

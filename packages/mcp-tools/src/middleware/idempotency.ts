@@ -234,12 +234,14 @@ export function idempotencyMiddleware(prisma: PrismaClient): ToolMiddleware {
     // store the result in the record and mark it `failed` so retries can re-execute.
     const isSoftFailure = toolResult.success === false;
 
-    // Retry the final update up to 3 times to avoid a stuck "pending" record.
-    // If the update fails, retries see REQUEST_IN_PROGRESS and can never replay
-    // the result until the 24h TTL cleanup. A short retry loop mitigates
-    // transient DB/network errors that would otherwise break the idempotency
-    // contract (caller sees success but retries get stuck).
-    for (let updateAttempt = 0; updateAttempt < 3; updateAttempt++) {
+    // Retry the final update up to IDEMPOTENCY_MAX_RETRIES times to avoid
+    // a stuck "pending" record. If the update fails, retries see
+    // REQUEST_IN_PROGRESS and can never replay the result until the 24h TTL
+    // cleanup. A short retry loop mitigates transient DB/network errors that
+    // would otherwise break the idempotency contract (caller sees success but
+    // retries get stuck).
+    const MAX_UPDATE_RETRIES = IDEMPOTENCY_MAX_RETRIES;
+    for (let updateAttempt = 0; updateAttempt < MAX_UPDATE_RETRIES; updateAttempt++) {
       try {
         await prisma.idempotencyRecord.update({
           where: { idempotencyKey },
@@ -259,7 +261,7 @@ export function idempotencyMiddleware(prisma: PrismaClient): ToolMiddleware {
         });
         break;
       } catch (updateErr) {
-        if (updateAttempt < 2) {
+        if (updateAttempt < MAX_UPDATE_RETRIES - 1) {
           await new Promise<void>((r) => { const t = setTimeout(r, 50 * (updateAttempt + 1)); t.unref?.(); });
           continue;
         }
@@ -267,7 +269,7 @@ export function idempotencyMiddleware(prisma: PrismaClient): ToolMiddleware {
         // The caller still receives the tool result (correct behavior).
         process.stderr.write(
           `[Idempotency] Failed to update record '${idempotencyKey}' after tool execution ` +
-          `(3 attempts): ${updateErr instanceof Error ? updateErr.message : updateErr}\n`
+          `(${MAX_UPDATE_RETRIES} attempts): ${updateErr instanceof Error ? updateErr.message : updateErr}\n`
         );
       }
     }

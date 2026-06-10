@@ -62,8 +62,23 @@ export function truncateValue(value: unknown, maxSize: number = MAX_STORED_PAYLO
 
   // Fast path: primitives and null are always JSON-safe — skip the
   // stringify+parse roundtrip that class instances, Maps, etc. need.
-  if (value === null || typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+  if (value === null || typeof value === "string" || typeof value === "boolean") {
     const encoded = textEncoder.encode(String(value));
+    if (encoded.byteLength > maxSize) {
+      return {
+        _truncated: true,
+        _originalSize: encoded.byteLength,
+        _preview: textDecoder.decode(encoded.slice(0, PREVIEW_BYTES)),
+      };
+    }
+    return value;
+  }
+  if (typeof value === "number") {
+    // Use JSON.stringify for numbers — String(1e21) vs JSON.stringify(1e21)
+    // produce different byte lengths ("1e+21" vs "1000000000000000000000").
+    // The stored value will be serialized via JSON.stringify, so measure that.
+    const serialized = JSON.stringify(value);
+    const encoded = textEncoder.encode(serialized);
     if (encoded.byteLength > maxSize) {
       return {
         _truncated: true,

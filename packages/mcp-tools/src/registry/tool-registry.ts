@@ -129,7 +129,7 @@ export class ToolRegistry {
             success: false,
             error: {
               code: "INVALID_INPUT",
-              message: `Input validation failed: ${parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ")}`,
+              message: `Input validation failed: ${parsed.error.issues.map((i) => `${i.path.map((p) => typeof p === "symbol" ? p.toString() : String(p)).join(".")}: ${i.message}`).join("; ")}`,
               suggestedTools: [name],
               context: { issues: parsed.error.issues },
             },
@@ -168,15 +168,17 @@ export class ToolRegistry {
    */
   private findSimilarNames(name: string): string[] {
     const lowerName = name.toLowerCase();
+    if (lowerName.length < 2) return [];
     return Array.from(this.tools.keys())
       .filter((existing) => {
         const lower = existing.toLowerCase();
         // Check if either contains the other, or shares significant words
         if (lower.includes(lowerName) || lowerName.includes(lower)) return true;
         // Check Levenshtein-like: shared word stems
-        const nameParts = lowerName.split(/[_\s]+/);
-        const existingParts = lower.split(/[_\s]+/);
-        return nameParts.some((p) => existingParts.some((ep) => ep.includes(p) || p.includes(ep)));
+        const nameParts = lowerName.split(/[_\s]+/).filter(Boolean);
+        const existingParts = lower.split(/[_\s]+/).filter(Boolean);
+        return nameParts.length > 0 && existingParts.length > 0 &&
+          nameParts.some((p) => existingParts.some((ep) => ep.includes(p) || p.includes(ep)));
       })
       .slice(0, 5);
   }

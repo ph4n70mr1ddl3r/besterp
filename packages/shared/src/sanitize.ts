@@ -28,20 +28,6 @@ export function stripHtmlTags(input: string): string {
   // Remove null bytes (can confuse parsers and bypass filters)
   let sanitized = input.replace(/\0/g, "");
 
-  // Decode numeric character references FIRST — they can bypass tag stripping
-  // when embedded in attributes or content. Must run before tag removal.
-  // e.g. &#60;script&#62; → <script>
-  sanitized = sanitized.replace(/&#x([0-9a-fA-F]+);/gi, (_, hex) =>
-    String.fromCharCode(parseInt(hex, 16))
-  );
-  sanitized = sanitized.replace(/&#(\d+);/g, (_, dec) =>
-    String.fromCharCode(parseInt(dec, 10))
-  );
-  // Strip null bytes that may have been reintroduced by entity decoding
-  // (e.g. &#x00; → \0). The initial replacement at the top only catches
-  // literal null bytes, not encoded ones revealed by the passes above.
-  sanitized = sanitized.replace(/\0/g, "");
-
   // Decode-then-strip loop: decode HTML entities, then strip any tags that
   // were revealed. Repeats until stable to handle nested/triple encoding
   // (e.g., &amp;amp;lt; → &amp;lt; → &lt; → < → stripped).
@@ -50,6 +36,19 @@ export function stripHtmlTags(input: string): string {
   let iterations = 0;
   do {
     prev = sanitized;
+
+    // Decode numeric character references — these can bypass tag stripping
+    // when embedded in attributes or content. Must run before tag removal.
+    // e.g. &#60;script&#62; → <script>
+    // Runs inside the loop so double-encoded entities (e.g. &amp;#x3c;)
+    // are decoded across iterations: &amp;#x3c; → &#x3c; → <
+    sanitized = sanitized.replace(/&#x([0-9a-fA-F]+);/gi, (_, hex) =>
+      String.fromCharCode(parseInt(hex, 16))
+    );
+    sanitized = sanitized.replace(/&#(\d+);/g, (_, dec) =>
+      String.fromCharCode(parseInt(dec, 10))
+    );
+
     // Decode common HTML entities. Order matters: decode &amp; LAST because
     // &amp;lt; → &lt; → <.
     sanitized = sanitized
@@ -66,6 +65,11 @@ export function stripHtmlTags(input: string): string {
     sanitized = sanitized.replace(/<!--[\s\S]*?-->/g, "");
     // Remove all remaining HTML tags
     sanitized = sanitized.replace(/<[^>]*>/g, "");
+
+    // Strip null bytes that may have been introduced by entity decoding
+    // (e.g. &#x00; → \0).
+    sanitized = sanitized.replace(/\0/g, "");
+
     iterations++;
   } while (sanitized !== prev && iterations < MAX_SANITIZE_ITERATIONS);
 

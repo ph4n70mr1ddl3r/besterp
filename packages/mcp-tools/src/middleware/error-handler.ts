@@ -43,6 +43,9 @@ export const errorHandlerMiddleware: ToolMiddleware = async (input, context, def
         | undefined;
     }
 
+    const entityName = definition.entity ?? "entity";
+    const entityPlural = definition.entity ?? "entities";
+
     // ─── Prisma unique constraint violation ────────────────────────
     if (prismaCode === "P2002") {
       // Prisma includes the conflicting field(s) in `meta.target` (e.g.,
@@ -58,8 +61,8 @@ export const errorHandlerMiddleware: ToolMiddleware = async (input, context, def
         success: false,
         error: {
           code: "DUPLICATE_ENTITY",
-          message: `A duplicate entity already exists.${detail} Use 'search_${definition.entity || "entities"}' to find existing records.`,
-          suggestedTools: [`search_${definition.entity || "entities"}`, definition.name],
+          message: `A duplicate entity already exists.${detail} Use 'search_${entityPlural}' to find existing records.`,
+          suggestedTools: [`search_${entityPlural}`, definition.name],
           context: target ? { conflictingFields: target } : undefined,
         },
       };
@@ -71,8 +74,8 @@ export const errorHandlerMiddleware: ToolMiddleware = async (input, context, def
         success: false,
         error: {
           code: "ENTITY_NOT_FOUND",
-          message: `The referenced entity was not found. Use 'search_${definition.entity || "entities"}' to find valid records.`,
-          suggestedTools: [`search_${definition.entity || "entities"}`, `get_${definition.entity || "entity"}`],
+          message: `The referenced entity was not found. Use 'search_${entityPlural}' to find valid records.`,
+          suggestedTools: [`search_${entityPlural}`, `get_${entityName}`],
         },
       };
     }
@@ -85,7 +88,7 @@ export const errorHandlerMiddleware: ToolMiddleware = async (input, context, def
         error: {
           code: "CONCURRENCY_CONFLICT",
           message: `The '${definition.name}' operation conflicted with a concurrent update. Re-fetch the entity and retry with a new idempotency key.`,
-          suggestedTools: [`get_${definition.entity || "entity"}`, definition.name],
+          suggestedTools: [`get_${entityName}`, definition.name],
         },
       };
     }

@@ -1,4 +1,4 @@
-import * as crypto from "crypto";
+import * as crypto from "node:crypto";
 
 /**
  * Deterministically sort object keys at all nesting levels.
@@ -68,9 +68,9 @@ function sortKeysDeep(value: unknown, ancestors?: Set<object>): unknown {
     if (proto === Object.prototype || proto === null) {
       const sorted: Record<string, unknown> = {};
       for (const key of Object.keys(value as Record<string, unknown>).sort()) {
-        // Skip prototype pollution keys — these could affect the resulting
-        // object's prototype chain if the sorted output is used beyond hashing.
-        if (key === "__proto__" || key === "constructor" || key === "prototype") continue;
+        // Skip __proto__ to prevent prototype pollution if the sorted output
+        // is ever assigned to an object (defense-in-depth for future uses).
+        if (key === "__proto__") continue;
         sorted[key] = sortKeysDeep((value as Record<string, unknown>)[key], ancestors);
       }
       result = sorted;

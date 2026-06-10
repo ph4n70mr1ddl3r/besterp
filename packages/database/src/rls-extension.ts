@@ -26,8 +26,7 @@ import { validateTenantId, InvalidTypeValueError } from "@besterp/shared";
 // ─── Enhanced Validation Functions ────────────────────────────────
 
 /**
- * Enhanced tenant ID validation with additional security checks.
- * Extends the basic validation with more comprehensive security checks.
+ * Enhanced tenant ID validation — wraps validateTenantId with a structured DomainError.
  */
 export function validateTenantIdEnhanced(tenantId: string): void {
   // Base validation enforces /^[a-zA-Z0-9_-]+$/ which rejects
@@ -38,10 +37,11 @@ export function validateTenantIdEnhanced(tenantId: string): void {
     // Re-throw as a structured DomainError so callers only need to
     // catch InvalidTypeValueError instead of plain Error.
     // Sanitize preview to avoid leaking untrusted input in error context.
-    const sanitized = tenantId.replace(/[^a-zA-Z0-9_-]/g, "?");
-    const preview = sanitized.length > 20 ? `${sanitized.slice(0, 20)}...` : sanitized;
+    const safePreview = tenantId.replace(/[^a-zA-Z0-9_-]/g, "?");
+    const preview = safePreview.length > 20 ? `${safePreview.slice(0, 20)}...` : safePreview;
+    const message = e instanceof Error ? e.message : String(e);
     throw new InvalidTypeValueError(
-      (e as Error).message,
+      message,
       { context: { field: "tenantId", received: preview } }
     );
   }

@@ -47,10 +47,7 @@ export function auditLogMiddleware(prisma: PrismaClient): ToolMiddleware {
         tenantId: context.tenantId,
         toolCalled: definition.name,
         toolInput: input as Record<string, unknown>,
-        toolOutput: truncateValue(
-          { error: { message: error instanceof Error ? error.message : String(error), code: getErrorCode(error) } },
-          MAX_AUDIT_OUTPUT_SIZE,
-        ),
+        toolOutput: { error: { message: error instanceof Error ? error.message : String(error), code: getErrorCode(error) } },
       }).catch((logErr) => {
         process.stderr.write(
           `[AuditLog] Failed to write error-path audit log for tool '${definition.name}' ` +
