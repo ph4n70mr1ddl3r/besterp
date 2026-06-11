@@ -100,7 +100,7 @@ const postalAddressSchema = z.object({
 });
 
 const telecomNumberSchema = z.object({
-  countryCode: z.string().optional().default("+1").transform(s => s?.trim()).pipe(z.string().min(1).max(MAX_PHONE_COUNTRY_CODE_LENGTH).regex(COUNTRY_CODE_REGEX, "Must be an E.164 country code (e.g., '+1', '+44')")).describe("Country code (default: +1)"),
+  countryCode: z.string().optional().default("+1").transform(s => s.trim()).pipe(z.string().min(1).max(MAX_PHONE_COUNTRY_CODE_LENGTH).regex(COUNTRY_CODE_REGEX, "Must be an E.164 country code (e.g., '+1', '+44')")).describe("Country code (default: +1)"),
   areaCode: z.string().transform(s => s.trim()).pipe(z.string().min(1).max(MAX_AREA_CODE_LENGTH)).describe("Area code"),
   lineNumber: z.string().transform(s => s.trim()).pipe(z.string().min(1).max(MAX_LINE_NUMBER_LENGTH)).describe("Phone line number"),
   extension: z.string().optional().transform(s => s?.trim() || undefined).pipe(z.string().max(MAX_EXTENSION_LENGTH).optional()).describe("Extension"),

@@ -20,6 +20,7 @@ import {
   Max,
   MaxLength,
   MinLength,
+  Matches,
   ValidatorConstraint,
   ValidatorConstraintInterface,
   Validate,
@@ -47,6 +48,7 @@ import {
   MAX_EMAIL_LENGTH,
   MAX_SEARCH_LIMIT,
   MIN_SEARCH_LIMIT,
+  COUNTRY_CODE_REGEX,
 } from "@besterp/shared";
 
 // ─── Cross-field validators ──────────────────────────────────────
@@ -273,6 +275,7 @@ export class TelecomNumberDto {
   @IsString()
   @MinLength(1)
   @MaxLength(MAX_PHONE_COUNTRY_CODE_LENGTH)
+  @Matches(COUNTRY_CODE_REGEX, { message: "countryCode must be an E.164 country code (e.g., '+1', '+44')" })
   countryCode?: string;
 
   @Transform(({ value }: { value: string }) => (typeof value === "string" ? value.trim() : value))

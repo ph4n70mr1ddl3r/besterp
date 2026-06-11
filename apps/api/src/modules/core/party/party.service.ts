@@ -33,6 +33,7 @@ import {
   MAX_PARTY_NAME_LENGTH,
   MAX_PARTY_DESCRIPTION_LENGTH,
   MAX_PERSON_NAME_LENGTH,
+  MAX_MIDDLE_NAME_LENGTH,
   MAX_LEGAL_NAME_LENGTH,
   MAX_TAX_ID_LENGTH,
   MAX_ROLE_TYPE_LENGTH,
@@ -158,6 +159,9 @@ export class PartyService {
       this.requireMaxLength(personData.lastName, "Last name", MAX_PERSON_NAME_LENGTH);
       if (personData.gender !== undefined && personData.gender !== null) {
         this.requireMaxLength(personData.gender, "Gender", MAX_GENDER_LENGTH);
+      }
+      if (personData.middleName !== undefined && personData.middleName !== null) {
+        this.requireMaxLength(personData.middleName, "Middle name", MAX_MIDDLE_NAME_LENGTH);
       }
       // Defense-in-depth: validate birthDate shape before passing to Prisma.
       // The REST DTO uses @IsDateString (strict ISO 8601) but the MCP Zod
@@ -674,22 +678,22 @@ export class PartyService {
       const postalAddressCreate = trimmedCmType === "POSTAL_ADDRESS" && postalAddress
         ? {
             create: {
-              addressLine1: postalAddress.addressLine1.trim(),
-              addressLine2: postalAddress.addressLine2?.trim() || null,
-              city: postalAddress.city.trim(),
-              stateProvince: postalAddress.stateProvince?.trim() || null,
-              postalCode: postalAddress.postalCode?.trim() || null,
-              country: postalAddress.country.trim().toUpperCase(),
+              addressLine1: stripHtmlTags(postalAddress.addressLine1.trim()),
+              addressLine2: postalAddress.addressLine2?.trim() ? stripHtmlTags(postalAddress.addressLine2.trim()) : null,
+              city: stripHtmlTags(postalAddress.city.trim()),
+              stateProvince: postalAddress.stateProvince?.trim() ? stripHtmlTags(postalAddress.stateProvince.trim()) : null,
+              postalCode: postalAddress.postalCode?.trim() ? stripHtmlTags(postalAddress.postalCode.trim()) : null,
+              country: stripHtmlTags(postalAddress.country.trim().toUpperCase()),
             },
           }
         : undefined;
       const telecomNumberCreate = trimmedCmType === "TELECOM_NUMBER" && telecomNumber
         ? {
             create: {
-              countryCode: telecomNumber.countryCode?.trim() || "+1",
-              areaCode: telecomNumber.areaCode.trim(),
-              lineNumber: telecomNumber.lineNumber.trim(),
-              extension: telecomNumber.extension?.trim() || null,
+              countryCode: telecomNumber.countryCode?.trim() ? stripHtmlTags(telecomNumber.countryCode.trim()) : "+1",
+              areaCode: stripHtmlTags(telecomNumber.areaCode.trim()),
+              lineNumber: stripHtmlTags(telecomNumber.lineNumber.trim()),
+              extension: telecomNumber.extension?.trim() ? stripHtmlTags(telecomNumber.extension.trim()) : null,
             },
           }
         : undefined;
