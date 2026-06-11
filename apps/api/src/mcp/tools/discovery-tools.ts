@@ -6,6 +6,7 @@
 
 import { z } from "zod";
 import { PrismaClient } from "@prisma/client";
+import { InvalidTypeValueError } from "@besterp/shared";
 import {
   ToolRegistry,
   ToolDefinition,
@@ -84,7 +85,10 @@ Type tables are the ERP's vocabulary — they define what classifications are av
       const handler = handlers[input.typeName];
       // Safety net — Zod enum should make this unreachable
       if (!handler) {
-        throw new Error(`Unhandled type table: ${input.typeName}`);
+        throw new InvalidTypeValueError(
+          `Unhandled type table: ${input.typeName}`,
+          { context: { typeName: input.typeName } }
+        );
       }
       const values = await handler();
 

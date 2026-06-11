@@ -14,6 +14,7 @@ import {
 import {
   UUID_REGEX,
   COUNTRY_CODE_REGEX,
+  InvalidTypeValueError,
   MAX_PERSON_NAME_LENGTH,
   MAX_MIDDLE_NAME_LENGTH,
   MAX_PARTY_NAME_LENGTH,
@@ -61,7 +62,10 @@ interface PartyServices {
 function getPartyService(ctx: ToolContext) {
   const svc = (ctx.services as Record<string, unknown> | undefined)?.partyService;
   if (!svc || typeof svc !== "object") {
-    throw new Error("PartyService not available in ToolContext.services");
+    throw new InvalidTypeValueError(
+      "PartyService not available in ToolContext.services",
+      { context: { field: "partyService" } }
+    );
   }
   return svc as PartyServices["partyService"];
 }

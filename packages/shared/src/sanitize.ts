@@ -42,22 +42,22 @@ export function stripHtmlTags(input: string): string {
     // e.g. &#60;script&#62; → <script>
     // Runs inside the loop so double-encoded entities (e.g. &amp;#x3c;)
     // are decoded across iterations: &amp;#x3c; → &#x3c; → <
-    sanitized = sanitized.replace(/&#x([0-9a-fA-F]+);/gi, (_, hex) =>
-      String.fromCharCode(parseInt(hex, 16))
+    sanitized = sanitized.replace(/&#x([0-9a-fA-F]+);/g, (_, hex) =>
+      decodeCodePoint(Number.parseInt(hex, 16))
     );
     sanitized = sanitized.replace(/&#(\d+);/g, (_, dec) =>
-      String.fromCharCode(parseInt(dec, 10))
+      decodeCodePoint(Number.parseInt(dec, 10))
     );
 
     // Decode common HTML entities. Order matters: decode &amp; LAST because
-    // &amp;lt; → &lt; → <.
+    // &amp;lt; → &lt; → <. Decode &apos; BEFORE &amp; so &amp;apos; decodes
+    // across iterations: &amp;apos; → &apos; → '.
     sanitized = sanitized
       .replace(/&lt;/gi, "<")
       .replace(/&gt;/gi, ">")
+      .replace(/&apos;/gi, "'")
       .replace(/&amp;/gi, "&")
-      .replace(/&quot;/gi, '"')
-      .replace(/&#x27;/gi, "'")
-      .replace(/&#39;/gi, "'");
+      .replace(/&quot;/gi, '"');
     // Strip script/style content including the tags themselves
     sanitized = sanitized.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, "");
     sanitized = sanitized.replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, "");
@@ -74,4 +74,22 @@ export function stripHtmlTags(input: string): string {
   } while (sanitized !== prev && iterations < MAX_SANITIZE_ITERATIONS);
 
   return sanitized;
+}
+
+/**
+ * Safely decode a Unicode code point.
+ *
+ * `String.fromCodePoint()` throws RangeError for lone surrogates
+ * (U+D800–U+DFFF), negative values, or values > 0x10FFFF. This wrapper
+ * catches those and returns the Unicode replacement character so the
+ * sanitizer loop continues without crashing.
+ */
+function decodeCodePoint(codePoint: number): string {
+  try {
+    return String.fromCodePoint(codePoint);
+  } catch {
+    // Lone surrogate, negative, or out-of-range code point — replace with
+    // U+FFFD (replacement character) to avoid crashing the sanitizer loop.
+    return "\uFFFD";
+  }
 }
