@@ -218,9 +218,9 @@ Returns full party details. Use this to inspect a specific party's information.`
 // ─── Tool: search_parties ─────────────────────────────────────────
 
 const searchPartiesSchema = z.object({
-  name: z.string().optional().transform(s => s?.trim() || undefined).pipe(z.string().max(MAX_PARTY_NAME_LENGTH).optional()).describe("Filter by name (case-insensitive partial match)"),
+  name: z.string().optional().transform(s => s?.trim()).pipe(z.string().max(MAX_PARTY_NAME_LENGTH).optional()).refine(v => v === undefined || v.length > 0, "name filter cannot be whitespace-only").describe("Filter by name (case-insensitive partial match)"),
   partyType: z.enum(["PERSON", "ORGANIZATION"]).optional().describe("Filter by party type"),
-  roleType: z.string().optional().transform(s => s?.trim() || undefined).pipe(z.string().max(MAX_ROLE_TYPE_LENGTH).optional()).describe("Filter by role type name (e.g., 'Customer', 'Supplier')"),
+  roleType: z.string().optional().transform(s => s?.trim()).pipe(z.string().max(MAX_ROLE_TYPE_LENGTH).optional()).refine(v => v === undefined || v.length > 0, "roleType filter cannot be whitespace-only").describe("Filter by role type name (e.g., 'Customer', 'Supplier')"),
   limit: z.number().int().min(1).max(500).optional().default(50).describe("Maximum results to return (max 500)"),
   offset: z.number().int().min(0).optional().default(0).describe("Number of results to skip (min 0)"),
 });
@@ -256,7 +256,8 @@ const addPartyRoleSchema = z.object({
   idempotencyKey: z.string().min(1).max(MAX_IDEMPOTENCY_KEY_LENGTH).optional().describe("Idempotency key to prevent duplicate role assignment. Format: role-{partyId}-{roleType}-{date}"),
   partyId: z.string().min(1).max(200).regex(UUID_REGEX, "Must be a valid UUID").describe("The UUID of the party to assign the role to"),
   roleType: z.string().transform(s => s.trim()).pipe(z.string().min(1).max(MAX_ROLE_TYPE_LENGTH)).describe("Role type name (e.g., 'Customer', 'Supplier', 'Employee')"),
-  fromDate: z.string().optional()
+  fromDate: z.string().optional().transform(s => s?.trim() || undefined)
+    .pipe(z.string().max(MAX_DATE_STRING_LENGTH).optional())
     .refine(v => v === undefined || !isNaN(new Date(v).getTime()), "Invalid date format")
     .describe("Start date for the role (ISO 8601, default: now)"),
 });
