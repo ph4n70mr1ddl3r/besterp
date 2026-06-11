@@ -76,7 +76,8 @@ const personSchema = z.object({
   firstName: z.string().transform(s => s.trim()).pipe(z.string().min(1).max(MAX_PERSON_NAME_LENGTH)).describe("First/given name"),
   lastName: z.string().transform(s => s.trim()).pipe(z.string().min(1).max(MAX_PERSON_NAME_LENGTH)).describe("Last/family name"),
   middleName: z.string().optional().transform(s => s?.trim() || undefined).pipe(z.string().max(MAX_MIDDLE_NAME_LENGTH).optional()).describe("Middle name"),
-  birthDate: z.string().max(MAX_DATE_STRING_LENGTH).optional()
+  birthDate: z.string().optional().transform(s => s?.trim() || undefined)
+    .pipe(z.string().max(MAX_DATE_STRING_LENGTH).optional())
     .refine(v => v === undefined || !isNaN(new Date(v).getTime()), "Invalid date format")
     .describe("Date of birth (ISO 8601)"),
   gender: z.string().optional().transform(s => s?.trim() || undefined).pipe(z.string().max(MAX_GENDER_LENGTH).optional()).describe("Gender"),
@@ -85,7 +86,8 @@ const personSchema = z.object({
 const organizationSchema = z.object({
   legalName: z.string().transform(s => s.trim()).pipe(z.string().min(1).max(MAX_LEGAL_NAME_LENGTH)).describe("Legal/registered name of the organization"),
   taxId: z.string().optional().transform(s => s?.trim() || undefined).pipe(z.string().max(MAX_TAX_ID_LENGTH).optional()).describe("Tax identification number"),
-  registrationDate: z.string().max(MAX_DATE_STRING_LENGTH).optional()
+  registrationDate: z.string().optional().transform(s => s?.trim() || undefined)
+    .pipe(z.string().max(MAX_DATE_STRING_LENGTH).optional())
     .refine(v => v === undefined || !isNaN(new Date(v).getTime()), "Invalid date format")
     .describe("Date of registration (ISO 8601)"),
 });
@@ -196,7 +198,7 @@ Example: Create a supplier organization
 
 const getParty: ToolDefinition = {
   name: "get_party",
-  description: `Get a party by ID, including subtype data (person/organization), roles, and contacts.
+  description: `Get a party by ID, including subtype data (person/organization) and roles.
 
 Returns full party details. Use this to inspect a specific party's information.`,
 
@@ -211,7 +213,14 @@ Returns full party details. Use this to inspect a specific party's information.`
   handler: async (input: { partyId: string }, context: ToolContext) => {
     const svc = getPartyService(context);
     const party = await svc.getParty(context.tenantId, input.partyId);
-    return { success: true, data: party };
+    return {
+      success: true,
+      data: party,
+      nextActions: [
+        "Use 'add_party_role' to assign a role to this party.",
+        "Use 'add_contact_mechanism' to add address, phone, or email.",
+      ],
+    };
   },
 };
 
@@ -246,7 +255,17 @@ Use this to find customers, suppliers, or any party by name, type, or role.`,
       tenantId: context.tenantId,
       ...input,
     });
-    return { success: true, data: result };
+    const morePages = result.hasMore
+      ? ` Use offset ${result.offset + result.limit} to see more results.`
+      : "";
+    return {
+      success: true,
+      data: result,
+      nextActions: [
+        `Found ${result.total} party(s).${morePages}`,
+        "Use 'get_party' with a specific party ID to see full details.",
+      ],
+    };
   },
 };
 
