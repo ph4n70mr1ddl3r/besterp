@@ -106,7 +106,7 @@ async function logAction(prisma: PrismaClient, entry: AuditLogEntry): Promise<vo
       tenantId: entry.tenantId,
       toolCalled: entry.toolCalled,
       toolInput: toolInput as unknown as Prisma.InputJsonValue,
-      toolOutput: (truncateValue(entry.toolOutput, MAX_AUDIT_OUTPUT_SIZE) ?? undefined) as Prisma.InputJsonValue | undefined,
+      toolOutput: truncateValue(entry.toolOutput, MAX_AUDIT_OUTPUT_SIZE) as Prisma.InputJsonValue | undefined,
       reasoning: null,
     },
   });

@@ -48,13 +48,13 @@ export class DomainError extends Error {
   }
 }
 
-/** Thrown when required subtype data is missing (e.g., person details for PERSON party type). */
 interface ErrorOptions {
   suggestedTools?: string[];
   context?: Record<string, unknown>;
   cause?: Error;
 }
 
+/** Thrown when required subtype data is missing (e.g., person details for PERSON party type). */
 export class MissingSubtypeDataError extends DomainError {
   constructor(
     message: string,
