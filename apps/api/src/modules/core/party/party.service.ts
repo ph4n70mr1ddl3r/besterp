@@ -414,7 +414,7 @@ export class PartyService {
     const trimmedRoleType = roleType.trim();
 
     // Validate and parse fromDate BEFORE any DB access (pure computation)
-    const roleFromDate = fromDate && fromDate.trim().length > 0 ? new Date(fromDate) : new Date();
+    const roleFromDate = fromDate != null && fromDate.trim().length > 0 ? new Date(fromDate) : new Date();
     if (isNaN(roleFromDate.getTime())) {
       throw new InvalidTypeValueError(
         `Invalid fromDate format: ${fromDate}. Use ISO 8601 format (YYYY-MM-DDTHH:mm:ss.sssZ)`,

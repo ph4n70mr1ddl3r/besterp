@@ -247,7 +247,7 @@ export function idempotencyMiddleware(prisma: PrismaClient): ToolMiddleware {
           where: { idempotencyKey },
           data: {
             status: isSoftFailure ? "failed" : "completed",
-            result: toolResult.data !== undefined
+            result: toolResult.data !== undefined && toolResult.data !== null
               ? (truncateValue(toolResult.data, MAX_STORED_PAYLOAD_SIZE) as unknown as Prisma.InputJsonValue)
               : Prisma.DbNull,
             error: isSoftFailure

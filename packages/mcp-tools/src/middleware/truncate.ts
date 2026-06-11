@@ -60,9 +60,10 @@ export function capString(value: unknown, maxBytes: number): string {
 export function truncateValue(value: unknown, maxSize: number = MAX_STORED_PAYLOAD_SIZE): unknown {
   if (value === undefined) return undefined;
 
-  // Fast path: primitives and null are always JSON-safe — skip the
+  // Fast path: null, primitives are always JSON-safe — skip the
   // stringify+parse roundtrip that class instances, Maps, etc. need.
-  if (value === null || typeof value === "string" || typeof value === "boolean") {
+  if (value === null) return null;
+  if (typeof value === "string" || typeof value === "boolean") {
     const encoded = textEncoder.encode(String(value));
     if (encoded.byteLength > maxSize) {
       return {
