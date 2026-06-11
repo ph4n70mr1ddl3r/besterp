@@ -48,6 +48,7 @@ import {
   MAX_EMAIL_LENGTH,
   MAX_SEARCH_LIMIT,
   MIN_SEARCH_LIMIT,
+  MAX_DATE_STRING_LENGTH,
   COUNTRY_CODE_REGEX,
 } from "@besterp/shared";
 
@@ -117,6 +118,7 @@ export class CreatePersonDto {
 
   @IsOptional()
   @IsDateString()
+  @MaxLength(MAX_DATE_STRING_LENGTH)
   birthDate?: string;
 
   @IsOptional()
@@ -143,6 +145,7 @@ export class CreateOrganizationDto {
 
   @IsOptional()
   @IsDateString()
+  @MaxLength(MAX_DATE_STRING_LENGTH)
   registrationDate?: string;
 }
 
@@ -225,6 +228,7 @@ export class AddPartyRoleDto {
 
   @IsOptional()
   @IsDateString()
+  @MaxLength(MAX_DATE_STRING_LENGTH)
   fromDate?: string;
 }
 
