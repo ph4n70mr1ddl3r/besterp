@@ -327,7 +327,7 @@ export class PartyService {
       // to avoid sequential scans on large tables:
       //   CREATE EXTENSION IF NOT EXISTS pg_trgm;
       //   CREATE INDEX CONCURRENTLY party_name_trgm_idx ON party USING gin (name gin_trgm_ops);
-      const trimmedName = stripHtmlTags(name.trim());
+      const trimmedName = name.trim();
       if (trimmedName.length > 0) {
         where.name = { contains: trimmedName, mode: "insensitive" };
       } else {

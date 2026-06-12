@@ -90,6 +90,7 @@ interface AuditLogEntry {
   toolCalled: string;
   toolInput: unknown;
   toolOutput: unknown;
+  reasoning?: string | null;
 }
 
 async function logAction(prisma: PrismaClient, entry: AuditLogEntry): Promise<void> {

@@ -750,9 +750,6 @@ describe("PartyService", () => {
       };
 
       const mockDb = {
-        party: {
-          findFirst: vi.fn().mockResolvedValue({ partyId: "12345678-1234-1234-1234-123456789abc" }),
-        },
         roleType: {
           findUnique: vi.fn().mockResolvedValue(null),
         },
