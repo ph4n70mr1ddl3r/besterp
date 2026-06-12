@@ -105,11 +105,11 @@ export class PartyService {
         }
       );
     }
-    this.requireMaxLength(trimmedName, "Party name", MAX_PARTY_NAME_LENGTH);
+    this.requireMaxLength(name, "Party name", MAX_PARTY_NAME_LENGTH);
     // Validate description length (MCP tool path has no DTO validation)
     const trimmedDescription = description?.trim() || null;
     if (trimmedDescription) {
-      this.requireMaxLength(trimmedDescription, "Description", MAX_PARTY_DESCRIPTION_LENGTH);
+      this.requireMaxLength(description!, "Description", MAX_PARTY_DESCRIPTION_LENGTH);
     }
 
     // Validate subtype data
@@ -205,7 +205,7 @@ export class PartyService {
       taxId: orgData.taxId
         ? (() => {
             const trimmed = orgData.taxId.trim();
-            this.requireMaxLength(trimmed, "Tax ID", MAX_TAX_ID_LENGTH, "create_party");
+            this.requireMaxLength(orgData.taxId, "Tax ID", MAX_TAX_ID_LENGTH, "create_party");
             return stripHtmlTags(trimmed);
           })()
         : undefined,
@@ -551,8 +551,8 @@ export class PartyService {
         }
       );
     }
+    this.requireMaxLength(contactMechanismType, "Contact mechanism type", MAX_CONTACT_MECHANISM_TYPE_LENGTH, "get_type_table_values");
     const trimmedCmType = contactMechanismType.trim();
-    this.requireMaxLength(trimmedCmType, "Contact mechanism type", MAX_CONTACT_MECHANISM_TYPE_LENGTH, "get_type_table_values");
 
     // Validate subtype data early — avoids wasting a DB round-trip on invalid input.
     if (trimmedCmType === "POSTAL_ADDRESS") {
