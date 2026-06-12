@@ -48,7 +48,16 @@ export function capString(value: unknown, maxBytes: number): string {
   if (maxBytes <= markerBytes) {
     return marker.slice(0, maxBytes);
   }
-  const truncated = textDecoder.decode(encoded.slice(0, maxBytes - markerBytes));
+  // When slicing at a byte boundary, walk backwards to avoid splitting
+  // a multi-byte UTF-8 character (e.g. CJK, emoji, accented chars).
+  // Continuation bytes follow the 10xxxxxx pattern (0x80–0xBF).
+  let sliceEnd = Math.max(0, maxBytes - markerBytes);
+  while (sliceEnd > 0) {
+    const byte = encoded[sliceEnd];
+    if (byte === undefined || (byte & 0xC0) !== 0x80) break;
+    sliceEnd--;
+  }
+  const truncated = textDecoder.decode(encoded.slice(0, sliceEnd));
   return `${truncated}${marker}`;
 }
 

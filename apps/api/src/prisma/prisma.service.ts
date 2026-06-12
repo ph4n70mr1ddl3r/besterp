@@ -88,10 +88,10 @@ export class PrismaService
       await this.$connect();
       await this._appClient.$connect();
       this.logger.log("Database connections established (admin + app)");
-    } catch (error) {
+    } catch (error: unknown) {
       this.logger.error(
-        `Failed to connect to database: ${(error as Error).message}`,
-        (error as Error).stack
+        `Failed to connect to database: ${error instanceof Error ? error.message : String(error)}`,
+        error instanceof Error ? error.stack : undefined
       );
       throw error;
     }

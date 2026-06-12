@@ -109,7 +109,7 @@ export class PartyService {
     // Validate description length (MCP tool path has no DTO validation)
     const trimmedDescription = description?.trim() || null;
     if (trimmedDescription) {
-      this.requireMaxLength(description!, "Description", MAX_PARTY_DESCRIPTION_LENGTH);
+      this.requireMaxLength(trimmedDescription, "Description", MAX_PARTY_DESCRIPTION_LENGTH);
     }
 
     // Validate subtype data

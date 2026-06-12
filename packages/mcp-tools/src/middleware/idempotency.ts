@@ -66,11 +66,10 @@ export function idempotencyMiddleware(prisma: PrismaClient): ToolMiddleware {
     // Retry on serialization failure (P2034) — transient under concurrency.
     // If ALL retries are exhausted, we must NOT proceed without a pending
     // record (the final update would fail). Instead, return a retryable error.
-    const MAX_RETRIES = IDEMPOTENCY_MAX_RETRIES;
     let existingRecord: IdempotencyRecord | null = null;
     let recordCreated = false;
 
-    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    for (let attempt = 0; attempt < IDEMPOTENCY_MAX_RETRIES; attempt++) {
       try {
         const { existing, created } = await prisma.$transaction(async (tx) => {
           // Use findFirst with tenantId for defense-in-depth tenant isolation.
@@ -124,7 +123,7 @@ export function idempotencyMiddleware(prisma: PrismaClient): ToolMiddleware {
         break;
       } catch (e) {
         const code = getErrorCode(e);
-        if (code === "P2034" && attempt < MAX_RETRIES - 1) {
+        if (code === "P2034" && attempt < IDEMPOTENCY_MAX_RETRIES - 1) {
           // Serialization failure — back off and retry
           await new Promise<void>((r) => { const t = setTimeout(r, 50 * (attempt + 1)); t.unref(); });
           continue;
@@ -147,7 +146,7 @@ export function idempotencyMiddleware(prisma: PrismaClient): ToolMiddleware {
         success: false,
         error: {
           code: "IDEMPOTENCY_CONTENTION",
-          message: `Could not acquire idempotency record for '${idempotencyKey}' after ${MAX_RETRIES} attempts. Please retry with a new idempotency key.`,
+          message: `Could not acquire idempotency record for '${idempotencyKey}' after ${IDEMPOTENCY_MAX_RETRIES} attempts. Please retry with a new idempotency key.`,
           suggestedTools: [definition.name],
         },
       };
@@ -240,14 +239,13 @@ export function idempotencyMiddleware(prisma: PrismaClient): ToolMiddleware {
     // cleanup. A short retry loop mitigates transient DB/network errors that
     // would otherwise break the idempotency contract (caller sees success but
     // retries get stuck).
-    const MAX_UPDATE_RETRIES = IDEMPOTENCY_MAX_RETRIES;
-    for (let updateAttempt = 0; updateAttempt < MAX_UPDATE_RETRIES; updateAttempt++) {
+    for (let updateAttempt = 0; updateAttempt < IDEMPOTENCY_MAX_RETRIES; updateAttempt++) {
       try {
         await prisma.idempotencyRecord.update({
           where: { idempotencyKey },
           data: {
             status: isSoftFailure ? "failed" : "completed",
-            result: toolResult.data !== undefined && toolResult.data !== null
+            result: toolResult.data != null
               ? (truncateValue(toolResult.data, MAX_STORED_PAYLOAD_SIZE) as unknown as Prisma.InputJsonValue)
               : Prisma.DbNull,
             error: isSoftFailure
@@ -261,7 +259,7 @@ export function idempotencyMiddleware(prisma: PrismaClient): ToolMiddleware {
         });
         break;
       } catch (updateErr) {
-        if (updateAttempt < MAX_UPDATE_RETRIES - 1) {
+        if (updateAttempt < IDEMPOTENCY_MAX_RETRIES - 1) {
           await new Promise<void>((r) => { const t = setTimeout(r, 50 * (updateAttempt + 1)); t.unref(); });
           continue;
         }
@@ -269,7 +267,7 @@ export function idempotencyMiddleware(prisma: PrismaClient): ToolMiddleware {
         // The caller still receives the tool result (correct behavior).
         process.stderr.write(
           `[Idempotency] Failed to update record '${idempotencyKey}' after tool execution ` +
-          `(${MAX_UPDATE_RETRIES} attempts): ${updateErr instanceof Error ? updateErr.message : updateErr}\n`
+          `(${IDEMPOTENCY_MAX_RETRIES} attempts): ${updateErr instanceof Error ? updateErr.message : updateErr}\n`
         );
       }
     }

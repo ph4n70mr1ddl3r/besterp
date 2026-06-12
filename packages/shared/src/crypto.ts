@@ -34,32 +34,42 @@ function sortKeysDeep(value: unknown, ancestors?: Set<object>): unknown {
     return result;
   }
   if (value instanceof Map) {
-    // Convert Map to sorted array of [key, value] pairs for deterministic hashing
+    if (ancestors.has(value)) {
+      throw new Error("Circular reference detected in hash input");
+    }
+    ancestors.add(value);
     const sortedEntries = Array.from(value.entries())
       .sort(([a], [b]) => {
         const aStr = typeof a === "object" && a !== null ? JSON.stringify(sortKeysDeep(a, ancestors)) : String(a);
         const bStr = typeof b === "object" && b !== null ? JSON.stringify(sortKeysDeep(b, ancestors)) : String(b);
         return aStr < bStr ? -1 : aStr > bStr ? 1 : 0;
       });
-    return sortedEntries.map(([k, v]) => [sortKeysDeep(k, ancestors), sortKeysDeep(v, ancestors)]);
+    const result = sortedEntries.map(([k, v]) => [sortKeysDeep(k, ancestors), sortKeysDeep(v, ancestors)]);
+    ancestors.delete(value);
+    return result;
   }
   if (value instanceof Set) {
-    // Convert Set to sorted array for deterministic hashing
-    return Array.from(value).map((v) => sortKeysDeep(v, ancestors)).sort((a, b) => {
+    if (ancestors.has(value)) {
+      throw new Error("Circular reference detected in hash input");
+    }
+    ancestors.add(value);
+    const result = Array.from(value).map((v) => sortKeysDeep(v, ancestors)).sort((a, b) => {
       const aStr = JSON.stringify(a);
       const bStr = JSON.stringify(b);
       return aStr < bStr ? -1 : aStr > bStr ? 1 : 0;
     });
+    ancestors.delete(value);
+    return result;
   }
   if (typeof value === "object") {
     // Detect circular references — prevent infinite recursion / stack overflow.
     // Track only ancestors (objects currently on the recursion stack), not all
     // visited objects. This correctly detects true cycles (A→B→A) while allowing
     // DAGs (A→C, B→C) where the same object appears in multiple branches.
-    if (ancestors.has(value as object)) {
+    if (ancestors.has(value)) {
       throw new Error("Circular reference detected in hash input");
     }
-    ancestors.add(value as object);
+    ancestors.add(value);
 
     const proto = Object.getPrototypeOf(value);
     // Handle plain objects: {}, Object.create(null), etc.
@@ -67,7 +77,8 @@ function sortKeysDeep(value: unknown, ancestors?: Set<object>): unknown {
     let result: unknown;
     if (proto === Object.prototype || proto === null) {
       const sorted: Record<string, unknown> = {};
-      for (const key of Object.keys(value as Record<string, unknown>).sort()) {
+      const keys = Object.keys(value).sort();
+      for (const key of keys) {
         // Skip __proto__ to prevent prototype pollution if the sorted output
         // is ever assigned to an object (defense-in-depth for future uses).
         if (key === "__proto__") continue;
@@ -81,7 +92,7 @@ function sortKeysDeep(value: unknown, ancestors?: Set<object>): unknown {
 
     // Remove from ancestor set after processing so the same object can
     // appear in different branches of the tree (DAG, not cycle).
-    ancestors.delete(value as object);
+    ancestors.delete(value);
     return result;
   }
   if (typeof value === "bigint") return `BigInt:${value.toString()}`;

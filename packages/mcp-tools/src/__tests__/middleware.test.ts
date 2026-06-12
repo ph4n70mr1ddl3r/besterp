@@ -675,7 +675,7 @@ describe("Error Handler Middleware", () => {
 
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe("DUPLICATE_ENTITY");
-      expect(result.error?.suggestedTools).toEqual(["search_test", "test_tool"]);
+      expect(result.error?.suggestedTools).toEqual(["search_tests", "test_tool"]);
     });
 
     it("should surface Prisma P2002 meta.target in the error message and context", async () => {
@@ -731,7 +731,7 @@ describe("Error Handler Middleware", () => {
 
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe("ENTITY_NOT_FOUND");
-    expect(result.error?.suggestedTools).toEqual(["search_test", "get_test"]);
+    expect(result.error?.suggestedTools).toEqual(["search_tests", "get_test"]);
   });
 
   it("should handle Prisma optimistic concurrency / deadlock (P2034)", async () => {

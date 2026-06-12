@@ -43,10 +43,10 @@ export function stripHtmlTags(input: string): string {
     // Runs inside the loop so double-encoded entities (e.g. &amp;#x3c;)
     // are decoded across iterations: &amp;#x3c; → &#x3c; → <
     sanitized = sanitized.replace(/&#x([0-9a-fA-F]+);/g, (_, hex) =>
-      decodeCodePoint(Number.parseInt(hex, 16))
+      decodeCodePoint(parseInt(hex, 16))
     );
     sanitized = sanitized.replace(/&#(\d+);/g, (_, dec) =>
-      decodeCodePoint(Number.parseInt(dec, 10))
+      decodeCodePoint(parseInt(dec, 10))
     );
 
     // Decode common HTML entities. Order matters: decode &amp; LAST because
@@ -61,6 +61,9 @@ export function stripHtmlTags(input: string): string {
     // Strip script/style content including the tags themselves
     sanitized = sanitized.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, "");
     sanitized = sanitized.replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, "");
+    // Handle orphaned <script>/<style> opening tags without proper closing tags
+    sanitized = sanitized.replace(/<script\b[^>]*\/?>/gi, "");
+    sanitized = sanitized.replace(/<style\b[^>]*\/?>/gi, "");
     // Remove HTML comments
     sanitized = sanitized.replace(/<!--[\s\S]*?-->/g, "");
     // Remove all remaining HTML tags

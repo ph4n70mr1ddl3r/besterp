@@ -8,7 +8,7 @@
 
 import "reflect-metadata";
 import { NestFactory } from "@nestjs/core";
-import { ValidationPipe } from "@nestjs/common";
+import { Logger, ValidationPipe } from "@nestjs/common";
 import { AppModule } from "./app.module.js";
 
 async function bootstrap() {
@@ -139,7 +139,8 @@ async function bootstrap() {
   }
   try {
     await app.listen(port);
-    console.log(`🚀 BestERP API running on http://localhost:${port}`);
+    const logger = new Logger("Bootstrap");
+    logger.log(`BestERP API running on http://localhost:${port}`);
   } catch (err) {
     console.error(
       `❌ FATAL: Failed to listen on port ${port}: ${err instanceof Error ? err.message : err}`

@@ -41,7 +41,6 @@ export class HealthService {
   private readonly logger = new Logger(HealthService.name);
 
   private packageInfo: { version: string; name: string } = { version: "0.0.0", name: "unknown" };
-  private initialized = false;
 
   constructor(private readonly prisma: PrismaService) {
     // Kick off async initialization — package.json is read once and cached.
@@ -69,7 +68,7 @@ export class HealthService {
         raw = await fs.readFile(p, "utf-8");
         break;
       } catch {
-        // try next
+        this.logger.debug(`package.json not found at: ${p}`);
       }
     }
     if (!raw) {
@@ -82,7 +81,6 @@ export class HealthService {
         version: pkg.version || "0.0.0",
         name: pkg.name || "unknown",
       };
-      this.initialized = true;
     } catch (parseErr) {
       this.logger.warn(
         `package.json found but could not be parsed: ${parseErr instanceof Error ? parseErr.message : parseErr}`
@@ -143,11 +141,6 @@ export class HealthService {
    * (e.g., if called before async init completes).
    */
   getVersion(): VersionInfo {
-    if (!this.initialized) {
-      this.logger.debug(
-        "getVersion() called before package.json was loaded — returning defaults."
-      );
-    }
     return {
       version: this.packageInfo.version,
       name: this.packageInfo.name,

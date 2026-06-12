@@ -44,7 +44,14 @@ export const errorHandlerMiddleware: ToolMiddleware = async (input, context, def
     }
 
     const entityName = definition.entity ?? "entity";
-    const entityPlural = definition.entity ?? "entities";
+    const singular = definition.entity;
+    const entityPlural = singular
+      ? singular.endsWith("y")
+        ? singular.slice(0, -1) + "ies"
+        : singular.endsWith("s") || singular.endsWith("x") || singular.endsWith("z")
+          ? singular + "es"
+          : singular + "s"
+      : "entities";
 
     // ─── Prisma unique constraint violation ────────────────────────
     if (prismaCode === "P2002") {
