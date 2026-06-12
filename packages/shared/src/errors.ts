@@ -50,7 +50,7 @@ export class DomainError extends Error {
 
 // NOTE: not named ErrorOptions to avoid shadowing the global ErrorOptions
 // interface from lib.es2022.error.d.ts (which has { cause?: unknown }).
-interface DomainErrorOptions {
+export interface DomainErrorOptions {
   suggestedTools?: string[];
   context?: Record<string, unknown>;
   cause?: Error;

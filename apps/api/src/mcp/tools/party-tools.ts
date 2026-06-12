@@ -188,7 +188,7 @@ Example: Create a supplier organization
       data: party,
       nextActions: [
         "Use 'add_party_role' to assign a role (Customer, Supplier, Employee, etc.)",
-        "Use 'add_contact_mechanism' to add address, phone, or email",
+        "Use 'add_contact_mechanism' to add address, phone, or email.",
       ],
     };
   },

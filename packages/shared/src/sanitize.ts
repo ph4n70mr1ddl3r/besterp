@@ -43,10 +43,10 @@ export function stripHtmlTags(input: string): string {
     // Runs inside the loop so double-encoded entities (e.g. &amp;#x3c;)
     // are decoded across iterations: &amp;#x3c; → &#x3c; → <
     sanitized = sanitized.replace(/&#x([0-9a-fA-F]+);/g, (_, hex) =>
-      decodeCodePoint(parseInt(hex, 16))
+      safeFromCodePoint(parseInt(hex, 16))
     );
     sanitized = sanitized.replace(/&#(\d+);/g, (_, dec) =>
-      decodeCodePoint(parseInt(dec, 10))
+      safeFromCodePoint(parseInt(dec, 10))
     );
 
     // Decode common HTML entities. Order matters: decode &amp; LAST because
@@ -87,7 +87,7 @@ export function stripHtmlTags(input: string): string {
  * catches those and returns the Unicode replacement character so the
  * sanitizer loop continues without crashing.
  */
-function decodeCodePoint(codePoint: number): string {
+function safeFromCodePoint(codePoint: number): string {
   try {
     return String.fromCodePoint(codePoint);
   } catch {

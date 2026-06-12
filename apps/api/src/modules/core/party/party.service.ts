@@ -205,7 +205,7 @@ export class PartyService {
       taxId: orgData.taxId
         ? (() => {
             const trimmed = orgData.taxId.trim();
-            this.requireMaxLength(orgData.taxId, "Tax ID", MAX_TAX_ID_LENGTH, "create_party");
+            this.requireMaxLength(trimmed, "Tax ID", MAX_TAX_ID_LENGTH, "create_party");
             return stripHtmlTags(trimmed);
           })()
         : undefined,

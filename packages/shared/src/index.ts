@@ -2,6 +2,7 @@
 
 export { withTenant, validateTenantId } from "./tenant.js";
 
+export type { DomainErrorOptions } from "./errors.js";
 export {
   DomainError,
   MissingSubtypeDataError,
