@@ -44,13 +44,12 @@ export const errorHandlerMiddleware: ToolMiddleware = async (input, context, def
     }
 
     const entityName = definition.entity ?? "entity";
-    const singular = definition.entity;
-    const entityPlural = singular
-      ? singular.endsWith("y")
-        ? singular.slice(0, -1) + "ies"
-        : singular.endsWith("s") || singular.endsWith("x") || singular.endsWith("z")
-          ? singular + "es"
-          : singular + "s"
+    const entityPlural = entityName
+      ? entityName.endsWith("y")
+        ? entityName.slice(0, -1) + "ies"
+        : entityName.endsWith("s") || entityName.endsWith("x") || entityName.endsWith("z")
+          ? entityName + "es"
+          : entityName + "s"
       : "entities";
 
     // ─── Prisma unique constraint violation ────────────────────────

@@ -262,7 +262,7 @@ Use this to find customers, suppliers, or any party by name, type, or role.`,
       success: true,
       data: result,
       nextActions: [
-        `Found ${result.total} party(s).${morePages}`,
+        `Found ${result.total} ${result.total === 1 ? "party" : "parties"}.${morePages}`,
         "Use 'get_party' with a specific party ID to see full details.",
       ],
     };

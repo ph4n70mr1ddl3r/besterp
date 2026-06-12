@@ -48,7 +48,9 @@ export class DomainError extends Error {
   }
 }
 
-interface ErrorOptions {
+// NOTE: not named ErrorOptions to avoid shadowing the global ErrorOptions
+// interface from lib.es2022.error.d.ts (which has { cause?: unknown }).
+interface DomainErrorOptions {
   suggestedTools?: string[];
   context?: Record<string, unknown>;
   cause?: Error;
@@ -58,7 +60,7 @@ interface ErrorOptions {
 export class MissingSubtypeDataError extends DomainError {
   constructor(
     message: string,
-    options?: ErrorOptions
+    options?: DomainErrorOptions
   ) {
     super("MISSING_SUBTYPE_DATA", message, options);
     this.name = "MissingSubtypeDataError";
@@ -69,7 +71,7 @@ export class MissingSubtypeDataError extends DomainError {
 export class InvalidTypeValueError extends DomainError {
   constructor(
     message: string,
-    options?: ErrorOptions
+    options?: DomainErrorOptions
   ) {
     super("INVALID_TYPE_VALUE", message, options);
     this.name = "InvalidTypeValueError";
@@ -80,7 +82,7 @@ export class InvalidTypeValueError extends DomainError {
 export class DuplicateEntityError extends DomainError {
   constructor(
     message: string,
-    options?: ErrorOptions
+    options?: DomainErrorOptions
   ) {
     super("DUPLICATE_ENTITY", message, options);
     this.name = "DuplicateEntityError";
@@ -91,7 +93,7 @@ export class DuplicateEntityError extends DomainError {
 export class EntityNotFoundError extends DomainError {
   constructor(
     message: string,
-    options?: ErrorOptions
+    options?: DomainErrorOptions
   ) {
     super("ENTITY_NOT_FOUND", message, options);
     this.name = "EntityNotFoundError";
@@ -102,7 +104,7 @@ export class EntityNotFoundError extends DomainError {
 export class ConcurrencyConflictError extends DomainError {
   constructor(
     message: string,
-    options?: ErrorOptions
+    options?: DomainErrorOptions
   ) {
     super("CONCURRENCY_CONFLICT", message, options);
     this.name = "ConcurrencyConflictError";
