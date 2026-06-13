@@ -105,10 +105,16 @@ export class PartyService {
         }
       );
     }
-    this.requireMaxLength(name, "Party name", MAX_PARTY_NAME_LENGTH);
+    this.requireMaxLength(trimmedName, "Party name", MAX_PARTY_NAME_LENGTH);
     // Validate description length (MCP tool path has no DTO validation)
-    const trimmedDescription = description?.trim() || null;
-    if (trimmedDescription) {
+    const trimmedDescription = description?.trim() ?? null;
+    if (trimmedDescription !== null && trimmedDescription.length === 0) {
+      throw new InvalidTypeValueError(
+        "Description cannot be whitespace-only.",
+        { suggestedTools: ["create_party"], context: { field: "description" } }
+      );
+    }
+    if (trimmedDescription !== null) {
       this.requireMaxLength(trimmedDescription, "Description", MAX_PARTY_DESCRIPTION_LENGTH);
     }
 
@@ -211,6 +217,12 @@ export class PartyService {
         : undefined,
     } : undefined;
 
+    // Sanitize text fields — strip HTML tags to prevent stored XSS.
+    // Defense-in-depth: the API layer should also escape on render, but
+    // sanitizing at storage time prevents malicious content from persisting.
+    const sanitizedName = stripHtmlTags(trimmedName);
+    const sanitizedDescription = trimmedDescription ? stripHtmlTags(trimmedDescription) : null;
+
     // Get RLS-scoped client for tenant isolation
     const db = this.prisma.tenantScoped(tenantId);
 
@@ -231,12 +243,6 @@ export class PartyService {
         }
       );
     }
-
-    // Sanitize text fields — strip HTML tags to prevent stored XSS.
-    // Defense-in-depth: the API layer should also escape on render, but
-    // sanitizing at storage time prevents malicious content from persisting.
-    const sanitizedName = stripHtmlTags(trimmedName);
-    const sanitizedDescription = trimmedDescription ? stripHtmlTags(trimmedDescription) : null;
 
     // Create party with supertype/subtype in a transaction
     const party = await db.$transaction(async (tx: Prisma.TransactionClient) => {
@@ -401,7 +407,8 @@ export class PartyService {
     // are system-managed immutable data (see createParty for rationale).
 
     // ─── Pure input validation (fail fast, before any DB access) ─────
-    if (!roleType || roleType.trim().length === 0) {
+    const trimmedRoleType = roleType?.trim() ?? "";
+    if (!trimmedRoleType) {
       throw new InvalidTypeValueError(
         "roleType cannot be empty",
         {
@@ -410,8 +417,7 @@ export class PartyService {
         }
       );
     }
-    this.requireMaxLength(roleType, "Role type", MAX_ROLE_TYPE_LENGTH, "get_type_table_values");
-    const trimmedRoleType = roleType.trim();
+    this.requireMaxLength(trimmedRoleType, "Role type", MAX_ROLE_TYPE_LENGTH, "get_type_table_values");
 
     // Validate and parse fromDate BEFORE any DB access (pure computation)
     const roleFromDate = fromDate != null && fromDate.trim().length > 0 ? new Date(fromDate) : new Date();

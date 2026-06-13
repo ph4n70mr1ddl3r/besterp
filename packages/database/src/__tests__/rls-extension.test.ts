@@ -66,7 +66,7 @@ describe("RLS Extension", () => {
   describe("validatePrismaClientForRls", () => {
     it("should accept valid Prisma clients", () => {
       const mockPrisma = {
-        $executeRaw: vi.fn(),
+        $queryRaw: vi.fn(),
         $connect: vi.fn(),
         $disconnect: vi.fn(),
       };
@@ -79,7 +79,7 @@ describe("RLS Extension", () => {
       expect(() => validatePrismaClientForRls(undefined as any)).toThrow(InvalidTypeValueError);
     });
 
-    it("should reject Prisma clients without $executeRaw method", () => {
+    it("should reject Prisma clients without $queryRaw method", () => {
       const mockPrisma = {
         $connect: vi.fn(),
         $disconnect: vi.fn(),
@@ -94,12 +94,12 @@ describe("RLS Extension", () => {
 
     beforeEach(() => {
       const tx = {
-        $executeRaw: vi.fn(),
+        $queryRaw: vi.fn(),
         party: { findMany: vi.fn() },
         partyRole: { create: vi.fn() },
       };
       mockPrisma = {
-        $executeRaw: vi.fn(),
+        $queryRaw: vi.fn(),
         $connect: vi.fn(),
         $disconnect: vi.fn(),
         $transaction: vi.fn().mockImplementation((fn, _opts?) => {
@@ -134,7 +134,7 @@ describe("RLS Extension", () => {
       // the flow: set tenant context, then delegate to the model.
       mockPrisma.$transaction.mockImplementationOnce(async (fn) => {
         const tx = {
-          $executeRaw: vi.fn().mockResolvedValue(undefined),
+          $queryRaw: vi.fn().mockResolvedValue(undefined),
           party: { findMany: vi.fn().mockResolvedValue([{ partyId: "p1" }]) },
         };
         return fn(tx);
@@ -150,7 +150,7 @@ describe("RLS Extension", () => {
       
       mockPrisma.$transaction.mockImplementationOnce(async (fn) => {
         const tx = {
-          $executeRaw: vi.fn().mockResolvedValue(undefined),
+          $queryRaw: vi.fn().mockResolvedValue(undefined),
           partyRole: { create: vi.fn().mockResolvedValue({ partyRoleId: "123", partyId: "party-123", roleTypeId: "role-123", fromDate: new Date(), thruDate: null }) },
         };
         return fn(tx);
@@ -169,7 +169,16 @@ describe("RLS Extension", () => {
       const client = createTenantClient(mockPrisma, "tenant-1");
       
       // The proxy wraps $transaction to inject SET LOCAL before the callback.
-      // The callback should NOT need to call $executeRaw itself — the proxy does it.
+      // The callback should NOT need to call $queryRaw itself — the proxy does it.
+      mockPrisma.$transaction.mockImplementationOnce(async (fn) => {
+        const tx = {
+          $queryRaw: vi.fn().mockResolvedValue(undefined),
+          party: { findMany: vi.fn().mockResolvedValue([]) },
+          partyRole: { create: vi.fn().mockResolvedValue({}) },
+        };
+        return fn(tx);
+      });
+      
       const result = await client.$transaction(async (tx) => {
         await tx.party.findMany();
         await tx.partyRole.create({ data: {} });
@@ -248,7 +257,7 @@ describe("RLS Extension", () => {
 
     beforeEach(() => {
       mockPrisma = {
-        $executeRaw: vi.fn(),
+        $queryRaw: vi.fn(),
         $connect: vi.fn(),
         $disconnect: vi.fn(),
         $transaction: vi.fn(),

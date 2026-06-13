@@ -29,7 +29,11 @@ export function idempotencyMiddleware(prisma: PrismaClient): ToolMiddleware {
   return async (input, context, definition, next) => {
     // Guard against misconfigured middleware (e.g., null prisma).
     if (!prisma?.idempotencyRecord) {
-      process.stderr.write("[Idempotency] Prisma client not available — skipping idempotency check.\n");
+      const warnMeta = {
+        timestamp: new Date().toISOString(),
+        message: "Prisma client not available — skipping idempotency check",
+      };
+      process.stderr.write(`[Idempotency] ${JSON.stringify(warnMeta)}\n`);
       return next(input, context);
     }
 
@@ -211,18 +215,21 @@ export function idempotencyMiddleware(prisma: PrismaClient): ToolMiddleware {
       // a separate verification query risks a transient error that would leave
       // the record stuck as "pending" forever (the .catch(() => null) pattern
       // hides the DB error and skips the update).
-      await prisma.idempotencyRecord.update({
-        where: { idempotencyKey },
-        data: {
-          status: "failed",
-          error: { message: error instanceof Error ? error.message : String(error), code: getErrorCode(error) },
-        },
-      }).catch((updateErr) => {
-        process.stderr.write(
-          `[Idempotency] Failed to mark record '${idempotencyKey}' as failed: ` +
-          `${updateErr instanceof Error ? updateErr.message : updateErr}\n`
-        );
-      });
+       await prisma.idempotencyRecord.update({
+         where: { idempotencyKey },
+         data: {
+           status: "failed",
+           error: { message: error instanceof Error ? error.message : String(error), code: getErrorCode(error) },
+         },
+       }).catch((updateErr) => {
+         const errorMeta = {
+           timestamp: new Date().toISOString(),
+           idempotencyKey,
+           operation: "mark_failed",
+           error: updateErr instanceof Error ? updateErr.message : String(updateErr),
+         };
+         process.stderr.write(`[Idempotency] ${JSON.stringify(errorMeta)}\n`);
+       });
 
       throw error; // re-throw for error handler middleware
     }
@@ -263,12 +270,16 @@ export function idempotencyMiddleware(prisma: PrismaClient): ToolMiddleware {
           await new Promise<void>((r) => setTimeout(r, 50 * (updateAttempt + 1)).unref());
           continue;
         }
-        // All retries exhausted — log and accept stuck record.
-        // The caller still receives the tool result (correct behavior).
-        process.stderr.write(
-          `[Idempotency] Failed to update record '${idempotencyKey}' after tool execution ` +
-          `(${IDEMPOTENCY_MAX_RETRIES} attempts): ${updateErr instanceof Error ? updateErr.message : updateErr}\n`
-        );
+         // All retries exhausted — log and accept stuck record.
+         // The caller still receives the tool result (correct behavior).
+         const errorMeta = {
+           timestamp: new Date().toISOString(),
+           idempotencyKey,
+           operation: "final_update",
+           attempts: IDEMPOTENCY_MAX_RETRIES,
+           error: updateErr instanceof Error ? updateErr.message : String(updateErr),
+         };
+         process.stderr.write(`[Idempotency] ${JSON.stringify(errorMeta)}\n`);
       }
     }
 

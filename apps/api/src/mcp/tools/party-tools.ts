@@ -131,7 +131,7 @@ const createPartySchema = z.object({
   },
   {
     message: "'person' is required when partyType is PERSON, 'organization' is required when partyType is ORGANIZATION",
-    path: ["partyType"],
+    path: ["person"],
   }
 ).refine(
   (data) => {
@@ -142,7 +142,7 @@ const createPartySchema = z.object({
   },
   {
     message: "Only the subtype matching partyType should be provided (e.g., don't send 'organization' when partyType is PERSON)",
-    path: ["partyType"],
+    path: ["organization"],
   }
 );
 
@@ -340,7 +340,7 @@ const addContactMechanismSchema = z.object({
   },
   {
     message: "The matching subtype data must be provided for the chosen contactMechanismType",
-    path: ["contactMechanismType"],
+    path: ["postalAddress"],
   }
 ).refine(
   (data) => {

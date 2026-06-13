@@ -51,7 +51,7 @@ export function validateTenantIdEnhanced(tenantId: string): void {
  * Validate that a Prisma client has the required methods for RLS.
  */
 export function validatePrismaClientForRls(prisma: PrismaClient): void {
-  if (!prisma || typeof prisma.$executeRaw !== "function") {
+  if (!prisma || typeof prisma.$queryRaw !== "function") {
     throw new InvalidTypeValueError(
       "Prisma client does not support RLS operations. Make sure it's connected with the correct role.",
       { context: { provided: typeof prisma } }
@@ -122,6 +122,10 @@ export function createTenantClient(prisma: PrismaClient, tenantId: string) {
   // Validate that the Prisma client supports RLS operations
   validatePrismaClientForRls(prisma);
 
+  // Cache size limits to prevent unbounded memory growth.
+  const MAX_METHOD_CACHE_SIZE = 1000;
+  const MAX_DELEGATE_CACHE_SIZE = 50;
+
   // Cache for wrapped methods to avoid creating new closures on every access.
   // This reduces GC pressure in high-throughput scenarios where the same methods
   // (e.g., party.findMany, $transaction) are called repeatedly.
@@ -152,11 +156,9 @@ export function createTenantClient(prisma: PrismaClient, tenantId: string) {
 
     if (fn) {
       const wrappedFn = async (tx: Prisma.TransactionClient) => {
-        // $executeRaw returns affected row count (number). set_tenant_context() returns
-        // void, so Prisma coerces it to 0. This works in practice but is fragile —
-        // if Prisma strictens type checking for $executeRaw results in the future,
-        // this may need to switch to $queryRaw or a cast (SELECT set_tenant_context(...)::bigint).
-        await tx.$executeRaw`SELECT set_tenant_context(${tenantId})`;
+          // Use $queryRaw with a cast to avoid Prisma type issues with void-returning functions.
+          // SELECT set_tenant_context(...)::bigint returns a single row with a single column.
+          await tx.$queryRaw`SELECT set_tenant_context(${tenantId})::bigint`;
         return fn(tx);
       };
       return options
@@ -245,6 +247,12 @@ export function createTenantClient(prisma: PrismaClient, tenantId: string) {
       const delegate = (target as any)[prop];
       if (!delegate || typeof delegate !== "object") return delegate;
 
+      // Evict oldest delegate if cache exceeds max size (simple FIFO eviction)
+      if (delegateCache.size >= MAX_DELEGATE_CACHE_SIZE) {
+        const firstKey = delegateCache.keys().next().value;
+        if (firstKey) delegateCache.delete(firstKey);
+      }
+
       const proxy = new Proxy(delegate, {
         // Block property writes on the model delegate. Without these traps,
         // `scoped.party.someField = "x"` would silently mutate the underlying
@@ -293,7 +301,7 @@ export function createTenantClient(prisma: PrismaClient, tenantId: string) {
           //   3. Let the caller manage transactions explicitly for batches of reads.
           const wrapped = async function (this: unknown, ...args: unknown[]) {
             return prisma.$transaction(async (tx) => {
-              await tx.$executeRaw`SELECT set_tenant_context(${tenantId})`;
+              await tx.$queryRaw`SELECT set_tenant_context(${tenantId})::bigint`;
               const txDelegate = (tx as any)[prop];
               if (!txDelegate) {
                 throw new Error(`Model "${String(prop)}" not found on transaction client`);
@@ -305,6 +313,11 @@ export function createTenantClient(prisma: PrismaClient, tenantId: string) {
               return txMethod.apply(txDelegate, args);
             });
           };
+          // Evict oldest entry if cache exceeds max size (simple FIFO eviction)
+          if (methodCache.size >= MAX_METHOD_CACHE_SIZE) {
+            const firstKey = methodCache.keys().next().value;
+            if (firstKey) methodCache.delete(firstKey);
+          }
           methodCache.set(cacheKey, wrapped);
           return wrapped;
         },

@@ -1,12 +1,12 @@
 // Audit Log Middleware — Logs all AI agent actions for traceability.
 //
-// Implements Principle 8 from AGENTIC_AI_DESIGN.md: Every action is auditable
-// for AI traceability. Captures who (human), what (agent), why (reasoning),
-// and how (tools called).
-//
-// This is a "fire-and-forget" middleware — it logs asynchronously and never
-// blocks tool execution. Log failures are silently ignored (audit should
-// never break the tool).
+ // Implements Principle 8 from AGENTIC_AI_DESIGN.md: Every action is auditable
+ // for AI traceability. Captures who (human), what (agent), why (reasoning),
+ // and how (tools called).
+ //
+ // This is a "fire-and-forget" middleware — it logs asynchronously and never
+ // blocks tool execution. Log failures are silently ignored (audit should
+ // never break the tool).
 
 import { PrismaClient, Prisma } from "@prisma/client";
 import { getErrorCode } from "@besterp/shared";
@@ -17,16 +17,69 @@ import { truncateValue, MAX_STORED_PAYLOAD_SIZE } from "./truncate.js";
 const MAX_AUDIT_INPUT_SIZE = MAX_STORED_PAYLOAD_SIZE;
 const MAX_AUDIT_OUTPUT_SIZE = MAX_STORED_PAYLOAD_SIZE;
 
+/** Maximum concurrent audit log writes to prevent memory pressure under DB slowdown. */
+const MAX_CONCURRENT_AUDIT_WRITES = 100;
+
 /**
  * Create an audit log middleware backed by PostgreSQL.
  *
  * @param prisma - Admin PrismaClient (superuser, for cross-tenant audit writes)
  */
 export function auditLogMiddleware(prisma: PrismaClient): ToolMiddleware {
+  // Semaphore to limit concurrent audit log writes and prevent unbounded
+  // promise accumulation if the database is slow or unavailable.
+  let activeWrites = 0;
+  const writeQueue: Array<() => void> = [];
+
+  function acquireWriteSlot(): Promise<void> {
+    if (activeWrites < MAX_CONCURRENT_AUDIT_WRITES) {
+      activeWrites++;
+      return Promise.resolve();
+    }
+    return new Promise<void>((resolve) => {
+      writeQueue.push(resolve);
+    });
+  }
+
+  function releaseWriteSlot(): void {
+    activeWrites--;
+    if (writeQueue.length > 0) {
+      const next = writeQueue.shift();
+      if (next) {
+        activeWrites++;
+        next();
+      }
+    }
+  }
+
+  function logWithBackpressure(entry: AuditLogEntry): void {
+    void acquireWriteSlot().then(() => {
+      logAction(prisma, entry)
+        .catch((logErr) => {
+          // Structured error logging with context
+          const errorMeta = {
+            timestamp: new Date().toISOString(),
+            tool: entry.toolCalled,
+            tenant: entry.tenantId,
+            user: entry.userId,
+            error: logErr instanceof Error ? logErr.message : String(logErr),
+          };
+          process.stderr.write(`[AuditLog] ${JSON.stringify(errorMeta)}\n`);
+        })
+        .finally(() => {
+          releaseWriteSlot();
+        });
+    });
+  }
+
   return async (input, context, definition, next) => {
     // Guard against misconfigured middleware (e.g., null prisma).
     if (!prisma?.aiActionLog) {
-      process.stderr.write("[AuditLog] Prisma client not available — skipping audit log.\n");
+      const warnMeta = {
+        timestamp: new Date().toISOString(),
+        message: "Prisma client not available — skipping audit log",
+      };
+      process.stderr.write(`[AuditLog] ${JSON.stringify(warnMeta)}\n`);
       return next(input, context);
     }
 
@@ -34,13 +87,7 @@ export function auditLogMiddleware(prisma: PrismaClient): ToolMiddleware {
     try {
       result = await next(input, context);
     } catch (error: unknown) {
-      // Fire-and-forget on the error path too — consistent with the success path.
-      // Awaiting would delay the error re-throw and add latency for the caller.
-      //
-      // Note: We don't repeat the `if (!prisma?.aiActionLog)` guard here —
-      // the success-path early return already short-circuits when prisma is
-      // null, so reaching this catch block implies prisma is non-null.
-      logAction(prisma, {
+      logWithBackpressure({
         agentId: context.agentId,
         conversationId: context.conversationId,
         userId: context.userId,
@@ -48,21 +95,12 @@ export function auditLogMiddleware(prisma: PrismaClient): ToolMiddleware {
         toolCalled: definition.name,
         toolInput: input as Record<string, unknown>,
         toolOutput: { error: { message: error instanceof Error ? error.message : String(error), code: getErrorCode(error) } },
-      }).catch((logErr) => {
-        process.stderr.write(
-          `[AuditLog] Failed to write error-path audit log for tool '${definition.name}' ` +
-          `(tenant=${context.tenantId}, user=${context.userId}): ` +
-          `${logErr instanceof Error ? logErr.message : logErr}\n`
-        );
       });
 
       throw error;
     }
 
-    // Fire-and-forget: do NOT await the audit write on the success path.
-    // Awaiting adds latency to every successful tool call for no benefit.
-    // The .catch() prevents unhandled rejections if the write fails.
-    logAction(prisma, {
+    logWithBackpressure({
       agentId: context.agentId,
       conversationId: context.conversationId,
       userId: context.userId,
@@ -70,12 +108,6 @@ export function auditLogMiddleware(prisma: PrismaClient): ToolMiddleware {
       toolCalled: definition.name,
       toolInput: input as Record<string, unknown>,
       toolOutput: result.data ?? null,
-    }).catch((logErr) => {
-      process.stderr.write(
-        `[AuditLog] Failed to write audit log for tool '${definition.name}' ` +
-        `(tenant=${context.tenantId}, user=${context.userId}): ` +
-        `${logErr instanceof Error ? logErr.message : logErr}\n`
-      );
     });
 
     return result;
