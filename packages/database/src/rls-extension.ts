@@ -132,14 +132,51 @@ export function createTenantClient(prisma: PrismaClient, tenantId: string, optio
   const MAX_METHOD_CACHE_SIZE = options.maxMethodCacheSize ?? 1000;
   const MAX_DELEGATE_CACHE_SIZE = options.maxDelegateCacheSize ?? 50;
 
+  /** Simple LRU cache implementation using Map (preserves insertion order). */
+  class LruCache<K, V> {
+    private readonly map = new Map<K, V>();
+    constructor(private readonly maxSize: number) {}
+
+    get(key: K): V | undefined {
+      const value = this.map.get(key);
+      if (value !== undefined) {
+        // Move to end (most recently used)
+        this.map.delete(key);
+        this.map.set(key, value);
+      }
+      return value;
+    }
+
+    set(key: K, value: V): void {
+      if (this.map.has(key)) {
+        this.map.delete(key);
+      } else if (this.map.size >= this.maxSize) {
+        // Evict least recently used (first entry)
+        const firstKey = this.map.keys().next().value;
+        if (firstKey !== undefined) {
+          this.map.delete(firstKey);
+        }
+      }
+      this.map.set(key, value);
+    }
+
+    has(key: K): boolean {
+      return this.map.has(key);
+    }
+
+    get size(): number {
+      return this.map.size;
+    }
+  }
+
   // Cache for wrapped methods to avoid creating new closures on every access.
   // This reduces GC pressure in high-throughput scenarios where the same methods
   // (e.g., party.findMany, $transaction) are called repeatedly.
-  const methodCache = new Map<string, (...args: unknown[]) => Promise<unknown>>();
+  const methodCache = new LruCache<string, (...args: unknown[]) => Promise<unknown>>(MAX_METHOD_CACHE_SIZE);
 
   // Cache for model delegate proxies to avoid creating a new Proxy on every property access.
   // Without this, each access to `scoped.party` creates a new Proxy wrapping the delegate.
-  const delegateCache = new Map<string, object>();
+  const delegateCache = new LruCache<string, object>(MAX_DELEGATE_CACHE_SIZE);
 
   // Pre-build the $transaction wrapper so it's allocated once, not per-access.
   const transactionWrapper = (...args: unknown[]) => {
@@ -253,12 +290,6 @@ export function createTenantClient(prisma: PrismaClient, tenantId: string, optio
       const delegate = (target as any)[prop];
       if (!delegate || typeof delegate !== "object") return delegate;
 
-      // Evict oldest delegate if cache exceeds max size (simple FIFO eviction)
-      if (delegateCache.size >= MAX_DELEGATE_CACHE_SIZE) {
-        const firstKey = delegateCache.keys().next().value;
-        if (firstKey) delegateCache.delete(firstKey);
-      }
-
       const proxy = new Proxy(delegate, {
         // Block property writes on the model delegate. Without these traps,
         // `scoped.party.someField = "x"` would silently mutate the underlying
@@ -319,11 +350,6 @@ export function createTenantClient(prisma: PrismaClient, tenantId: string, optio
               return txMethod.apply(txDelegate, args);
             });
           };
-          // Evict oldest entry if cache exceeds max size (simple FIFO eviction)
-          if (methodCache.size >= MAX_METHOD_CACHE_SIZE) {
-            const firstKey = methodCache.keys().next().value;
-            if (firstKey) methodCache.delete(firstKey);
-          }
           methodCache.set(cacheKey, wrapped);
           return wrapped;
         },

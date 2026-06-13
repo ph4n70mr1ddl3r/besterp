@@ -81,20 +81,22 @@ function validateAndTrimOptional(
   return trimmed;
 }
 
+/** Internal cache for the resolved JWT secret — initialized once per process. */
+const _jwtSecretCache = { value: undefined as string | undefined };
+
 /**
  * Resolve the JWT secret from the environment. In production, JWT_SECRET is
- * required. In development, a random secret is generated at startup so there
- * is no hardcoded value that could leak via stack traces or source control.
+ * required. In development, a random secret is generated so there is no
+ * hardcoded value that could leak via stack traces or source control.
  *
  * The result is cached so both AuthModule (signing) and JwtStrategy
  * (verification) share the same secret.
  */
-let _cachedSecret: string | undefined;
 export function resolveJwtSecret(): string {
-  if (_cachedSecret !== undefined) return _cachedSecret;
+  if (_jwtSecretCache.value !== undefined) return _jwtSecretCache.value;
   const secret = process.env.JWT_SECRET;
   if (secret) {
-    _cachedSecret = secret;
+    _jwtSecretCache.value = secret;
     return secret;
   }
   if (process.env.NODE_ENV === "production") {
@@ -103,8 +105,8 @@ export function resolveJwtSecret(): string {
   console.warn(
     "⚠️  JWT_SECRET not set — generating ephemeral secret for this session. Set JWT_SECRET in production!"
   );
-  _cachedSecret = randomBytes(32).toString("hex");
-  return _cachedSecret;
+  _jwtSecretCache.value = randomBytes(32).toString("hex");
+  return _jwtSecretCache.value;
 }
 
 /**
@@ -112,7 +114,7 @@ export function resolveJwtSecret(): string {
  * to prevent cross-contamination from module-level state.
  */
 export function resetJwtSecretCache(): void {
-  _cachedSecret = undefined;
+  _jwtSecretCache.value = undefined;
 }
 
 // Length caps for user/agent/role identifiers in the JWT. Imported from

@@ -173,9 +173,6 @@
       );
     }
 
-    // Validate tenant ID format early — before Map cache lookup and before
-    // createTenantClient. Gives a clearer error from the service layer and
-    // prevents invalid strings from polluting the cache as Map keys.
     validateTenantIdEnhanced(tenantId);
 
     const cached = this.tenantClientCache.get(tenantId)?.deref();
@@ -184,49 +181,8 @@
       return cached;
     }
 
-    // Only run eviction when the cache is full.
     if (this.tenantClientCache.size >= MAX_TENANT_CACHE_SIZE) {
-      // LRU eviction: evict the stale entries first, then the least recently
-      // used live entry (lowest lastAccessed timestamp).
-      const staleKeys: string[] = [];
-      let lruKey: string | null = null;
-      let lruTime = Infinity;
-      for (const [key, ref] of this.tenantClientCache) {
-        if (!ref.deref()) {
-          staleKeys.push(key);
-        } else {
-          const ts = this.lastAccessed.get(key) ?? 0;
-          if (ts < lruTime) {
-            lruTime = ts;
-            lruKey = key;
-          }
-        }
-      }
-
-      // Delete stale entries (safe — keys collected before mutation).
-      for (const key of staleKeys) {
-        const staleToken = this.unregisterTokens.get(key);
-        if (staleToken) {
-          this.cacheRegistry.unregister(staleToken);
-          this.unregisterTokens.delete(key);
-        }
-        this.tenantClientCache.delete(key);
-        this.lastAccessed.delete(key);
-      }
-
-      // No stale entries found — evict the least recently used live entry.
-      if (staleKeys.length === 0 && lruKey) {
-        this.logger.warn(
-          `Tenant client cache full (${MAX_TENANT_CACHE_SIZE}). Evicting LRU entry: '${lruKey}'.`
-        );
-        const token = this.unregisterTokens.get(lruKey);
-        if (token) {
-          this.cacheRegistry.unregister(token);
-        }
-        this.tenantClientCache.delete(lruKey);
-        this.unregisterTokens.delete(lruKey);
-        this.lastAccessed.delete(lruKey);
-      }
+      this.evictTenantClient();
     }
 
     const options: CreateTenantClientOptions = {
@@ -234,12 +190,57 @@
       maxDelegateCacheSize: this.maxDelegateCacheSize,
     };
     const client = createTenantClient(this._appClient, tenantId, options);
-    // Use a dedicated object as the unregister token so we can always
-    // call unregister without needing to deref the WeakRef.
     const token = {};
     this.tenantClientCache.set(tenantId, new WeakRef(client));
     this.unregisterTokens.set(tenantId, token);
     this.cacheRegistry.register(client, tenantId, token);
     return client;
+  }
+
+  /**
+   * Evict a tenant client from the cache when at capacity.
+   * Priority: 1) Stale entries (GC'd), 2) Least recently used live entry.
+   */
+  private evictTenantClient(): void {
+    // First pass: collect stale entries and find LRU among live entries
+    const staleKeys: string[] = [];
+    let lruKey: string | null = null;
+    let lruTime = Infinity;
+
+    for (const [key, ref] of this.tenantClientCache) {
+      if (!ref.deref()) {
+        staleKeys.push(key);
+      } else {
+        const ts = this.lastAccessed.get(key) ?? 0;
+        if (ts < lruTime) {
+          lruTime = ts;
+          lruKey = key;
+        }
+      }
+    }
+
+    // Evict all stale entries first
+    for (const key of staleKeys) {
+      this.removeTenantClient(key);
+    }
+
+    // If no stale entries, evict LRU live entry
+    if (staleKeys.length === 0 && lruKey) {
+      this.logger.warn(
+        `Tenant client cache full (${MAX_TENANT_CACHE_SIZE}). Evicting LRU entry: '${lruKey}'.`
+      );
+      this.removeTenantClient(lruKey);
+    }
+  }
+
+  /** Remove a tenant client and its associated tracking data. */
+  private removeTenantClient(tenantId: string): void {
+    const token = this.unregisterTokens.get(tenantId);
+    if (token) {
+      this.cacheRegistry.unregister(token);
+      this.unregisterTokens.delete(tenantId);
+    }
+    this.tenantClientCache.delete(tenantId);
+    this.lastAccessed.delete(tenantId);
   }
 }

@@ -38,6 +38,12 @@ export default tseslint.config(
       "no-throw-literal": "error",
       "prefer-const": "error",
       "no-var": "error",
+
+      // Complexity limits
+      "max-lines-per-function": ["warn", { max: 80, skipBlankLines: true, skipComments: true }],
+      "max-nested-callbacks": ["warn", { max: 4 }],
+      "max-depth": ["warn", { max: 4 }],
+      complexity: ["warn", { max: 15 }],
     },
   },
   {

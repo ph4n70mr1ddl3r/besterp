@@ -193,6 +193,9 @@ export class PartyService {
       if (orgData.registrationDate !== undefined && orgData.registrationDate !== null) {
         this.requireValidDate(orgData.registrationDate, "registrationDate");
       }
+      if (orgData.taxId !== undefined && orgData.taxId !== null) {
+        this.requireMaxLength(orgData.taxId, "Tax ID", MAX_TAX_ID_LENGTH);
+      }
     }
 
     // Trim and sanitize all name fields before storage to prevent whitespace-padded
@@ -209,11 +212,7 @@ export class PartyService {
       ...orgData,
       legalName: stripHtmlTags(orgData.legalName.trim()),
       taxId: orgData.taxId
-        ? (() => {
-            const trimmed = orgData.taxId.trim();
-            this.requireMaxLength(trimmed, "Tax ID", MAX_TAX_ID_LENGTH, "create_party");
-            return stripHtmlTags(trimmed);
-          })()
+        ? stripHtmlTags(orgData.taxId.trim())
         : undefined,
     } : undefined;
 
