@@ -7,3 +7,4 @@ export {
   validateTenantIdEnhanced, 
   validatePrismaClientForRls 
 } from "./rls-extension.js";
+export type { CreateTenantClientOptions } from "./rls-extension.js";

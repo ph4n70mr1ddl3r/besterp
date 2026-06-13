@@ -1,65 +1,77 @@
 // Prisma Service — NestJS-compatible PrismaClient wrapper with RLS support.
 //
-// Provides:
-// - The base admin PrismaClient (for migrations, cross-tenant operations)
-// - `createTenantClient(tenantId)` — returns an RLS-scoped client for a tenant
-//
-// IMPORTANT: The base client connects as the admin role (DATABASE_ADMIN_URL)
-// for write operations that bypass RLS. The tenant-scoped client connects
-// as the app role (DATABASE_URL) where RLS is enforced.
+ // Provides:
+ // - The base admin PrismaClient (for migrations, cross-tenant operations)
+ // - `createTenantClient(tenantId)` — returns an RLS-scoped client for a tenant
+ //
+ // IMPORTANT: The base client connects as the admin role (DATABASE_ADMIN_URL)
+ // for write operations that bypass RLS. The tenant-scoped client connects
+ // as the app role (DATABASE_URL) where RLS is enforced.
 
-import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from "@nestjs/common";
-import { PrismaClient } from "@prisma/client";
-import { createTenantClient, validateTenantIdEnhanced } from "@besterp/database";
-import { MAX_TENANT_CACHE_SIZE } from "@besterp/shared";
+ import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from "@nestjs/common";
+ import { PrismaClient } from "@prisma/client";
+ import { createTenantClient, validateTenantIdEnhanced, CreateTenantClientOptions } from "@besterp/database";
+ import { MAX_TENANT_CACHE_SIZE } from "@besterp/shared";
 
-@Injectable()
-export class PrismaService
-  extends PrismaClient
-  implements OnModuleInit, OnModuleDestroy
-{
-  private readonly logger = new Logger(PrismaService.name);
-  private readonly _appClient: PrismaClient;
-  private _destroyed = false;
-  /** Cache of tenant-scoped Proxy clients to avoid GC pressure from repeated creation. */
-  private readonly tenantClientCache = new Map<string, WeakRef<PrismaClient>>();
-  // FinalizationRegistry evicts cache entries when GC collects the Proxy.
-  // Note: we do NOT try to $disconnect the tenant client because the Proxy
-  // blocks $disconnect (tenant clients share the underlying _appClient connection).
-  // Unregister tokens are stored separately so we can always unregister without
-  // needing to deref the WeakRef (which may already be GC'd).
-  private readonly cacheRegistry = new FinalizationRegistry<string>((tenantId: string) => {
-    // Guard: the registry callback can fire after onModuleDestroy clears the maps.
-    // The Map.delete() on a non-existent key is a no-op, so this is safe, but
-    // we skip the token cleanup if the service is already destroyed.
-    if (this._destroyed) return;
-    this.tenantClientCache.delete(tenantId);
-    this.unregisterTokens.delete(tenantId);
-    this.lastAccessed.delete(tenantId);
-  });
-  private readonly unregisterTokens = new Map<string, object>();
-  /** Access timestamps for LRU eviction — updated on each cache hit. */
-  private readonly lastAccessed = new Map<string, number>();
+ // Cache configuration constants — exported for testing and override via env
+ export const DEFAULT_MAX_METHOD_CACHE_SIZE = 1000;
+ export const DEFAULT_MAX_DELEGATE_CACHE_SIZE = 50;
 
-  constructor() {
-    // Base client uses admin URL for migrations, seed, cross-tenant ops
-    super({
-      datasourceUrl: process.env.DATABASE_ADMIN_URL || process.env.DATABASE_URL,
-      log: [
-        { emit: "stdout", level: "warn" },
-        { emit: "stdout", level: "error" },
-      ],
-    });
+ @Injectable()
+ export class PrismaService
+   extends PrismaClient
+   implements OnModuleInit, OnModuleDestroy
+ {
+   private readonly logger = new Logger(PrismaService.name);
+   private readonly _appClient: PrismaClient;
+   private _destroyed = false;
+   /** Cache of tenant-scoped Proxy clients to avoid GC pressure from repeated creation. */
+   private readonly tenantClientCache = new Map<string, WeakRef<PrismaClient>>();
+   // FinalizationRegistry evicts cache entries when GC collects the Proxy.
+   // Note: we do NOT try to $disconnect the tenant client because the Proxy
+   // blocks $disconnect (tenant clients share the underlying _appClient connection).
+   // Unregister tokens are stored separately so we can always unregister without
+   // needing to deref the WeakRef (which may already be GC'd).
+   private readonly cacheRegistry = new FinalizationRegistry<string>((tenantId: string) => {
+     // Guard: the registry callback can fire after onModuleDestroy clears the maps.
+     // The Map.delete() on a non-existent key is a no-op, so this is safe, but
+     // we skip the token cleanup if the service is already destroyed.
+     if (this._destroyed) return;
+     this.tenantClientCache.delete(tenantId);
+     this.unregisterTokens.delete(tenantId);
+     this.lastAccessed.delete(tenantId);
+   });
+   private readonly unregisterTokens = new Map<string, object>();
+   /** Access timestamps for LRU eviction — updated on each cache hit. */
+   private readonly lastAccessed = new Map<string, number>();
 
-    // App client uses the non-superuser URL for RLS-enforced operations
-    this._appClient = new PrismaClient({
-      datasourceUrl: process.env.DATABASE_URL, // must be the besterp_app role
-      log: [
-        { emit: "stdout", level: "warn" },
-        { emit: "stdout", level: "error" },
-      ],
-    });
-  }
+   // Cache sizes — configurable via env vars for tuning in production
+   private readonly maxMethodCacheSize: number;
+   private readonly maxDelegateCacheSize: number;
+
+   constructor() {
+     // Base client uses admin URL for migrations, seed, cross-tenant ops
+     super({
+       datasourceUrl: process.env.DATABASE_ADMIN_URL || process.env.DATABASE_URL,
+       log: [
+         { emit: "stdout", level: "warn" },
+         { emit: "stdout", level: "error" },
+       ],
+     });
+
+     // App client uses the non-superuser URL for RLS-enforced operations
+     this._appClient = new PrismaClient({
+       datasourceUrl: process.env.DATABASE_URL, // must be the besterp_app role
+       log: [
+         { emit: "stdout", level: "warn" },
+         { emit: "stdout", level: "error" },
+       ],
+     });
+
+     // Read cache sizes from env with defaults
+     this.maxMethodCacheSize = Number(process.env.PRISMA_MAX_METHOD_CACHE_SIZE) || DEFAULT_MAX_METHOD_CACHE_SIZE;
+     this.maxDelegateCacheSize = Number(process.env.PRISMA_MAX_DELEGATE_CACHE_SIZE) || DEFAULT_MAX_DELEGATE_CACHE_SIZE;
+   }
 
   async onModuleInit() {
     if (!process.env.DATABASE_URL) {
@@ -217,7 +229,11 @@ export class PrismaService
       }
     }
 
-    const client = createTenantClient(this._appClient, tenantId);
+    const options: CreateTenantClientOptions = {
+      maxMethodCacheSize: this.maxMethodCacheSize,
+      maxDelegateCacheSize: this.maxDelegateCacheSize,
+    };
+    const client = createTenantClient(this._appClient, tenantId, options);
     // Use a dedicated object as the unregister token so we can always
     // call unregister without needing to deref the WeakRef.
     const token = {};

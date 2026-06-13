@@ -113,9 +113,15 @@ const BLOCKED_RAW_SQL = new Set([
  *
  * @param prisma   - Base PrismaClient (must connect as non-superuser for RLS)
  * @param tenantId - The tenant ID to scope all queries to
+ * @param options  - Optional configuration for cache sizes
  * @returns A Proxy-wrapped PrismaClient with automatic RLS scoping
  */
-export function createTenantClient(prisma: PrismaClient, tenantId: string) {
+export interface CreateTenantClientOptions {
+  maxMethodCacheSize?: number;
+  maxDelegateCacheSize?: number;
+}
+
+export function createTenantClient(prisma: PrismaClient, tenantId: string, options: CreateTenantClientOptions = {}) {
   // Use enhanced validation with security checks
   validateTenantIdEnhanced(tenantId);
   
@@ -123,8 +129,8 @@ export function createTenantClient(prisma: PrismaClient, tenantId: string) {
   validatePrismaClientForRls(prisma);
 
   // Cache size limits to prevent unbounded memory growth.
-  const MAX_METHOD_CACHE_SIZE = 1000;
-  const MAX_DELEGATE_CACHE_SIZE = 50;
+  const MAX_METHOD_CACHE_SIZE = options.maxMethodCacheSize ?? 1000;
+  const MAX_DELEGATE_CACHE_SIZE = options.maxDelegateCacheSize ?? 50;
 
   // Cache for wrapped methods to avoid creating new closures on every access.
   // This reduces GC pressure in high-throughput scenarios where the same methods

@@ -13,6 +13,4 @@ export interface TenantContext {
   userId: string;
   /** Optional AI agent ID (for MCP tool calls). */
   agentId?: string;
-  /** Optional conversation/session ID. */
-  conversationId?: string;
 }

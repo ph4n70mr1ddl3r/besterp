@@ -349,7 +349,7 @@ export class PartyService {
     }
     
     if (partyType) {
-      where.partyType = { name: partyType };
+      where.partyType = { name: { equals: partyType, mode: "insensitive" } };
     }
     
     if (roleType) {
@@ -798,11 +798,12 @@ export class PartyService {
     maxLength: number,
     tool = "create_party",
   ): void {
+    const originalLength = value.length;
     const trimmed = value.trim();
     if (trimmed.length > maxLength) {
       throw new InvalidTypeValueError(
         `${field} is too long (${trimmed.length} characters, max ${maxLength})`,
-        { suggestedTools: [tool], context: { field, length: trimmed.length, maxLength } }
+        { suggestedTools: [tool], context: { field, length: trimmed.length, originalLength, maxLength } }
       );
     }
   }
