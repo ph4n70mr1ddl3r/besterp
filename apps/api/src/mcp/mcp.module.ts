@@ -46,13 +46,15 @@ export class McpModule implements OnModuleInit {
 
   onModuleInit() {
     // ─── Register global middlewares (outermost first) ──────────
-    // Order matters: error handler wraps everything, then idempotency, then audit
+    // Order matters: error handler wraps everything, then audit, then idempotency.
+    // Audit MUST run before idempotency so that idempotent replays and
+    // REQUEST_IN_PROGRESS responses are still recorded in the audit log.
     // NOTE: Middleware uses the admin client (this.prisma) intentionally:
     //   - Audit logs must be writable cross-tenant (bypass RLS)
     //   - Idempotency records need cross-tenant visibility
     this.registry.addGlobalMiddleware(errorHandlerMiddleware);
-    this.registry.addGlobalMiddleware(idempotencyMiddleware(this.prisma.admin));
     this.registry.addGlobalMiddleware(auditLogMiddleware(this.prisma.admin));
+    this.registry.addGlobalMiddleware(idempotencyMiddleware(this.prisma.admin));
 
     // ─── Register tools ────────────────────────────────────────
     registerPartyTools(this.registry);

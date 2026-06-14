@@ -69,27 +69,26 @@ Type tables are the ERP's vocabulary — they define what classifications are av
 
     handler: async (input: { typeName: "PARTY_TYPE" | "ROLE_TYPE" | "CONTACT_MECHANISM_TYPE" }, _context: ToolContext) => {
 
-      const handlers: Record<typeof input.typeName, () => Promise<TypeTableRow[]>> = {
-        PARTY_TYPE: async () => (await prisma.partyType.findMany({
+      const queries: Record<typeof input.typeName, () => Promise<TypeTableRow[]>> = {
+        PARTY_TYPE: () => prisma.partyType.findMany({
           select: { partyTypeId: true, name: true, description: true, aiPromptHint: true },
-        })).map((r) => ({ id: r.partyTypeId, name: r.name, description: r.description, aiPromptHint: r.aiPromptHint })),
-        ROLE_TYPE: async () => (await prisma.roleType.findMany({
+        }).then((rows) => rows.map((r) => ({ id: r.partyTypeId, name: r.name, description: r.description, aiPromptHint: r.aiPromptHint }))),
+        ROLE_TYPE: () => prisma.roleType.findMany({
           select: { roleTypeId: true, name: true, description: true, aiPromptHint: true },
-        })).map((r) => ({ id: r.roleTypeId, name: r.name, description: r.description, aiPromptHint: r.aiPromptHint })),
-        CONTACT_MECHANISM_TYPE: async () => (await prisma.contactMechanismType.findMany({
+        }).then((rows) => rows.map((r) => ({ id: r.roleTypeId, name: r.name, description: r.description, aiPromptHint: r.aiPromptHint }))),
+        CONTACT_MECHANISM_TYPE: () => prisma.contactMechanismType.findMany({
           select: { contactMechanismTypeId: true, name: true, description: true, aiPromptHint: true },
-        })).map((r) => ({ id: r.contactMechanismTypeId, name: r.name, description: r.description, aiPromptHint: r.aiPromptHint })),
+        }).then((rows) => rows.map((r) => ({ id: r.contactMechanismTypeId, name: r.name, description: r.description, aiPromptHint: r.aiPromptHint }))),
       };
 
-      const handler = handlers[input.typeName];
-      // Safety net — Zod enum should make this unreachable
-      if (!handler) {
+      const query = queries[input.typeName];
+      if (!query) {
         throw new InvalidTypeValueError(
           `Unhandled type table: ${input.typeName}`,
           { context: { typeName: input.typeName } }
         );
       }
-      const values = await handler();
+      const values = await query();
 
       return {
         success: true,
