@@ -17,6 +17,9 @@ import { truncateValue, MAX_STORED_PAYLOAD_SIZE } from "./truncate.js";
 const MAX_AUDIT_INPUT_SIZE = MAX_STORED_PAYLOAD_SIZE;
 const MAX_AUDIT_OUTPUT_SIZE = MAX_STORED_PAYLOAD_SIZE;
 
+/** Maximum length for AI agent reasoning text stored in audit logs. */
+const MAX_AUDIT_REASONING_LENGTH = 2000;
+
 /** Maximum concurrent audit log writes to prevent memory pressure under DB slowdown. */
 const MAX_CONCURRENT_AUDIT_WRITES = 100;
 
@@ -142,7 +145,11 @@ async function logAction(prisma: PrismaClient, entry: AuditLogEntry): Promise<vo
       toolCalled: entry.toolCalled,
       toolInput: toolInput as unknown as Prisma.InputJsonValue,
       toolOutput: truncateValue(entry.toolOutput, MAX_AUDIT_OUTPUT_SIZE) as Prisma.InputJsonValue | undefined,
-      reasoning: entry.reasoning ?? null,
+      reasoning: entry.reasoning
+        ? entry.reasoning.length > MAX_AUDIT_REASONING_LENGTH
+          ? entry.reasoning.slice(0, MAX_AUDIT_REASONING_LENGTH)
+          : entry.reasoning
+        : null,
     },
   });
 }

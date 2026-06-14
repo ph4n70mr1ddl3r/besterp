@@ -20,7 +20,7 @@ import {
   OnModuleInit,
 } from "@nestjs/common";
 import { validateTenantIdEnhanced } from "@besterp/database";
-import { InvalidTypeValueError, MAX_USER_ID_LENGTH, MAX_IDEMPOTENCY_KEY_LENGTH, MAX_AGENT_ID_LENGTH, MAX_CONVERSATION_ID_LENGTH } from "@besterp/shared";
+import { InvalidTypeValueError, MAX_USER_ID_LENGTH, MAX_IDEMPOTENCY_KEY_LENGTH, MAX_AGENT_ID_LENGTH, MAX_CONVERSATION_ID_LENGTH, MAX_REASONING_LENGTH } from "@besterp/shared";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { PrismaModule } from "../prisma/prisma.module.js";
 import { PartyService } from "../modules/core/party/party.service.js";
@@ -103,7 +103,7 @@ export class McpModule implements OnModuleInit {
     const idempotencyKey = validateOptionalField("idempotencyKey", overrides.idempotencyKey, MAX_IDEMPOTENCY_KEY_LENGTH);
     const agentId = validateOptionalField("agentId", overrides.agentId, MAX_AGENT_ID_LENGTH);
     const conversationId = validateOptionalField("conversationId", overrides.conversationId, MAX_CONVERSATION_ID_LENGTH);
-    const reasoning = overrides.reasoning?.trim() || undefined;
+    const reasoning = validateReasoningField(overrides.reasoning);
 
     return {
       tenantId: overrides.tenantId.trim(),
@@ -143,6 +143,25 @@ export class McpModule implements OnModuleInit {
       exports: ["TOOL_REGISTRY", McpModule],
     };
   }
+}
+
+/**
+ * Validate the optional reasoning field — silently normalises whitespace-only
+ * or empty values to undefined, but enforces max length to prevent oversized
+ * audit log payloads.
+ */
+function validateReasoningField(value: string | undefined | null): string | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  if (trimmed.length === 0) return undefined;
+  if (trimmed.length > MAX_REASONING_LENGTH) {
+    throw new InvalidTypeValueError(
+      `McpModule.buildContext: reasoning is too long (${trimmed.length} chars, max ${MAX_REASONING_LENGTH}).`,
+      { context: { field: "reasoning", length: trimmed.length, maxLength: MAX_REASONING_LENGTH } }
+    );
+  }
+  return trimmed;
 }
 
 /**

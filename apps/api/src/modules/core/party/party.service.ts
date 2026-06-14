@@ -404,7 +404,7 @@ export class PartyService {
     db: ReturnType<PrismaService["tenantScoped"]>,
     tenantId: string, partyId: string, roleTypeId: string,
     trimmedRoleType: string, roleFromDate: Date,
-  ): Promise<{ partyRoleId: string; partyId: string; roleType: { name: string }; fromDate: Date; thruDate: Date | null }> {
+  ): Promise<Prisma.PartyRoleGetPayload<{ include: { roleType: true } }>> {
     return db.$transaction(async (tx) => {
       const party = await tx.party.findFirst({ where: { partyId, tenantId } });
       if (!party) {
@@ -532,7 +532,11 @@ export class PartyService {
     postalAddress: AddContactMechanismInput["postalAddress"],
     telecomNumber: AddContactMechanismInput["telecomNumber"],
     normalizedEmail: string | undefined,
-  ) {
+  ): Promise<Prisma.ContactMechanismGetPayload<{
+    include: {
+      postalAddress: true; telecomNumber: true; emailAddress: true; contactMechanismType: true;
+    };
+  }>> {
     return db.$transaction(async (tx: Prisma.TransactionClient) => {
       const existingParty = await tx.party.findFirst({ where: { partyId, tenantId } });
       if (!existingParty) {
@@ -573,38 +577,30 @@ export class PartyService {
     };
   }
 
-  private static formatContactResult(cm: unknown, partyId: string): ContactMechanismResult {
-    const r = cm as {
-      contactMechanismId: string;
-      contactMechanismType: { name: string };
-      postalAddress: {
-        addressLine1: string; addressLine2: string | null; city: string;
-        stateProvince: string | null; postalCode: string | null; country: string;
-      } | null;
-      telecomNumber: {
-        countryCode: string | null; areaCode: string; lineNumber: string; extension: string | null;
-      } | null;
-      emailAddress: { email: string } | null;
+  private static formatContactResult(cm: Prisma.ContactMechanismGetPayload<{
+    include: {
+      postalAddress: true; telecomNumber: true; emailAddress: true; contactMechanismType: true;
     };
+  }>, partyId: string): ContactMechanismResult {
     return {
-      contactMechanismId: r.contactMechanismId,
-      contactMechanismType: r.contactMechanismType.name,
+      contactMechanismId: cm.contactMechanismId,
+      contactMechanismType: cm.contactMechanismType.name,
       partyId,
-      postalAddress: r.postalAddress ? {
-        addressLine1: r.postalAddress.addressLine1,
-        addressLine2: r.postalAddress.addressLine2 ?? undefined,
-        city: r.postalAddress.city,
-        stateProvince: r.postalAddress.stateProvince ?? undefined,
-        postalCode: r.postalAddress.postalCode ?? undefined,
-        country: r.postalAddress.country,
+      postalAddress: cm.postalAddress ? {
+        addressLine1: cm.postalAddress.addressLine1,
+        addressLine2: cm.postalAddress.addressLine2 ?? undefined,
+        city: cm.postalAddress.city,
+        stateProvince: cm.postalAddress.stateProvince ?? undefined,
+        postalCode: cm.postalAddress.postalCode ?? undefined,
+        country: cm.postalAddress.country,
       } : null,
-      telecomNumber: r.telecomNumber ? {
-        countryCode: r.telecomNumber.countryCode ?? undefined,
-        areaCode: r.telecomNumber.areaCode,
-        lineNumber: r.telecomNumber.lineNumber,
-        extension: r.telecomNumber.extension ?? undefined,
+      telecomNumber: cm.telecomNumber ? {
+        countryCode: cm.telecomNumber.countryCode ?? undefined,
+        areaCode: cm.telecomNumber.areaCode,
+        lineNumber: cm.telecomNumber.lineNumber,
+        extension: cm.telecomNumber.extension ?? undefined,
       } : null,
-      emailAddress: r.emailAddress ? { email: r.emailAddress.email } : null,
+      emailAddress: cm.emailAddress ? { email: cm.emailAddress.email } : null,
     };
   }
 

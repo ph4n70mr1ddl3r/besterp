@@ -133,18 +133,22 @@ const createPartySchema = z.object({
     message: "'person' is required when partyType is PERSON, 'organization' is required when partyType is ORGANIZATION",
     path: ["person"],
   }
-).refine(
-  (data) => {
-    // Enforce exclusivity: only the matching subtype should be provided.
-    if (data.partyType === "PERSON" && data.organization !== undefined) return false;
-    if (data.partyType === "ORGANIZATION" && data.person !== undefined) return false;
-    return true;
-  },
-  (data) => ({
-    message: "Only the subtype matching partyType should be provided (e.g., don't send 'organization' when partyType is PERSON)",
-    path: data.partyType === "PERSON" ? ["organization"] : ["person"],
-  })
-);
+).superRefine((data, ctx) => {
+  if (data.partyType === "PERSON" && data.organization !== undefined) {
+    ctx.addIssue({
+      code: "custom",
+      message: "Only the subtype matching partyType should be provided (e.g., don't send 'organization' when partyType is PERSON)",
+      path: ["organization"],
+    });
+  }
+  if (data.partyType === "ORGANIZATION" && data.person !== undefined) {
+    ctx.addIssue({
+      code: "custom",
+      message: "Only the subtype matching partyType should be provided (e.g., don't send 'person' when partyType is ORGANIZATION)",
+      path: ["person"],
+    });
+  }
+});
 
 type CreatePartyInput_z = z.infer<typeof createPartySchema>;
 
@@ -342,20 +346,29 @@ const addContactMechanismSchema = z.object({
     message: "The matching subtype data must be provided for the chosen contactMechanismType",
     path: ["postalAddress"],
   }
-).refine(
-  (data) => {
-    // Enforce exclusivity: only the matching subtype should be provided.
-    // Mirrors ContactSubtypeExclusiveConstraint in the REST DTO.
-    if (data.contactMechanismType === "POSTAL_ADDRESS" && (data.telecomNumber || data.emailAddress)) return false;
-    if (data.contactMechanismType === "TELECOM_NUMBER" && (data.postalAddress || data.emailAddress)) return false;
-    if (data.contactMechanismType === "EMAIL_ADDRESS" && (data.postalAddress || data.telecomNumber)) return false;
-    return true;
-  },
-  (data) => ({
-    message: "Only the subtype matching contactMechanismType should be provided",
-    path: data.contactMechanismType === "POSTAL_ADDRESS" ? ["postalAddress"] : data.contactMechanismType === "TELECOM_NUMBER" ? ["telecomNumber"] : ["emailAddress"],
-  })
-);
+).superRefine((data, ctx) => {
+  if (data.contactMechanismType === "POSTAL_ADDRESS" && (data.telecomNumber || data.emailAddress)) {
+    ctx.addIssue({
+      code: "custom",
+      message: "Only the subtype matching contactMechanismType should be provided",
+      path: ["telecomNumber"],
+    });
+  }
+  if (data.contactMechanismType === "TELECOM_NUMBER" && (data.postalAddress || data.emailAddress)) {
+    ctx.addIssue({
+      code: "custom",
+      message: "Only the subtype matching contactMechanismType should be provided",
+      path: ["postalAddress"],
+    });
+  }
+  if (data.contactMechanismType === "EMAIL_ADDRESS" && (data.postalAddress || data.telecomNumber)) {
+    ctx.addIssue({
+      code: "custom",
+      message: "Only the subtype matching contactMechanismType should be provided",
+      path: ["postalAddress"],
+    });
+  }
+});
 
 type AddContactMechanismInput_z = z.infer<typeof addContactMechanismSchema>;
 
