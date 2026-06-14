@@ -140,10 +140,10 @@ const createPartySchema = z.object({
     if (data.partyType === "ORGANIZATION" && data.person !== undefined) return false;
     return true;
   },
-  {
+  (data) => ({
     message: "Only the subtype matching partyType should be provided (e.g., don't send 'organization' when partyType is PERSON)",
-    path: ["organization"],
-  }
+    path: data.partyType === "PERSON" ? ["organization"] : ["person"],
+  })
 );
 
 type CreatePartyInput_z = z.infer<typeof createPartySchema>;
@@ -278,7 +278,7 @@ const addPartyRoleSchema = z.object({
   fromDate: z.string().optional().transform(s => s?.trim() || undefined)
     .pipe(z.string().max(MAX_DATE_STRING_LENGTH).optional())
     .refine(v => v === undefined || !isNaN(new Date(v).getTime()), "Invalid date format")
-    .describe("Start date for the role (ISO 8601, default: now)"),
+    .describe(`Start date for the role (ISO 8601, max ${MAX_DATE_STRING_LENGTH} chars, default: now)`),
 });
 
 type AddPartyRoleInput_z = z.infer<typeof addPartyRoleSchema>;
@@ -351,10 +351,10 @@ const addContactMechanismSchema = z.object({
     if (data.contactMechanismType === "EMAIL_ADDRESS" && (data.postalAddress || data.telecomNumber)) return false;
     return true;
   },
-  {
+  (data) => ({
     message: "Only the subtype matching contactMechanismType should be provided",
-    path: ["contactMechanismType"],
-  }
+    path: data.contactMechanismType === "POSTAL_ADDRESS" ? ["postalAddress"] : data.contactMechanismType === "TELECOM_NUMBER" ? ["telecomNumber"] : ["emailAddress"],
+  })
 );
 
 type AddContactMechanismInput_z = z.infer<typeof addContactMechanismSchema>;

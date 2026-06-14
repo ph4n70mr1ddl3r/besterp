@@ -90,6 +90,7 @@ export function auditLogMiddleware(prisma: PrismaClient): ToolMiddleware {
       logWithBackpressure({
         agentId: context.agentId,
         conversationId: context.conversationId,
+        reasoning: context.reasoning,
         userId: context.userId,
         tenantId: context.tenantId,
         toolCalled: definition.name,
@@ -103,6 +104,7 @@ export function auditLogMiddleware(prisma: PrismaClient): ToolMiddleware {
     logWithBackpressure({
       agentId: context.agentId,
       conversationId: context.conversationId,
+      reasoning: context.reasoning,
       userId: context.userId,
       tenantId: context.tenantId,
       toolCalled: definition.name,
@@ -140,7 +142,7 @@ async function logAction(prisma: PrismaClient, entry: AuditLogEntry): Promise<vo
       toolCalled: entry.toolCalled,
       toolInput: toolInput as unknown as Prisma.InputJsonValue,
       toolOutput: truncateValue(entry.toolOutput, MAX_AUDIT_OUTPUT_SIZE) as Prisma.InputJsonValue | undefined,
-      reasoning: null,
+      reasoning: entry.reasoning ?? null,
     },
   });
 }

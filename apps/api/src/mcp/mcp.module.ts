@@ -74,6 +74,7 @@ export class McpModule implements OnModuleInit {
     agentId?: string;
     conversationId?: string;
     idempotencyKey?: string;
+    reasoning?: string;
   }) {
     // Validate tenant ID format before building context. This catches invalid
     // tenant IDs from forged JWT tokens before any database operations.
@@ -102,6 +103,7 @@ export class McpModule implements OnModuleInit {
     const idempotencyKey = validateOptionalField("idempotencyKey", overrides.idempotencyKey, MAX_IDEMPOTENCY_KEY_LENGTH);
     const agentId = validateOptionalField("agentId", overrides.agentId, MAX_AGENT_ID_LENGTH);
     const conversationId = validateOptionalField("conversationId", overrides.conversationId, MAX_CONVERSATION_ID_LENGTH);
+    const reasoning = overrides.reasoning?.trim() || undefined;
 
     return {
       tenantId: overrides.tenantId.trim(),
@@ -109,6 +111,7 @@ export class McpModule implements OnModuleInit {
       agentId,
       conversationId,
       idempotencyKey,
+      reasoning,
       services: {
         partyService: this.partyService,
       },

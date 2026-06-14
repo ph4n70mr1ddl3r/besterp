@@ -65,6 +65,8 @@ export interface ToolContext {
   conversationId?: string;
   /** Idempotency key (if provided by the caller). */
   idempotencyKey?: string;
+  /** Reasoning provided by the AI agent for why this tool was called. */
+  reasoning?: string;
   /**
    * Service locator — allows tools to access domain services
    * without importing NestJS directly. Populated by the MCP module.
