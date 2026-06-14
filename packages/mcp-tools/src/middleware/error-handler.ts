@@ -8,121 +8,116 @@
 
 import {
   isDomainError,
+  DomainError,
 } from "@besterp/shared";
-import { ToolMiddleware } from "../schema/tool-definition.js";
+import { ToolMiddleware, ToolResult } from "../schema/tool-definition.js";
 
 /**
  * Error handler middleware — catches all exceptions and returns rich errors.
  */
+function pluralize(entity: string): string {
+  if (entity.endsWith("y")) return entity.slice(0, -1) + "ies";
+  if (entity.endsWith("s") || entity.endsWith("x") || entity.endsWith("z")) return entity + "es";
+  return entity + "s";
+}
+
+function extractPrismaError(error: unknown): { code: string | undefined; meta: { target?: string | string[] } | undefined } {
+  if (error != null && typeof error === "object") {
+    return {
+      code: (error as Record<string, unknown>).code as string | undefined,
+      meta: (error as Record<string, unknown>).meta as { target?: string | string[] } | undefined,
+    };
+  }
+  return { code: undefined, meta: undefined };
+}
+
+function handleDomainError(error: DomainError, definition: { name: string }): ToolResult {
+  return {
+    success: false,
+    error: {
+      code: error.code,
+      message: error.message,
+      suggestedTools: error.suggestedTools.length > 0 ? error.suggestedTools : [definition.name, "list_available_tools"],
+      context: error.context,
+    },
+  };
+}
+
+function handlePrismaError(prismaCode: string, prismaMeta: { target?: string | string[] } | undefined, entityName: string, entityPlural: string, definition: { name: string }) {
+  if (prismaCode === "P2002") {
+    const target = Array.isArray(prismaMeta?.target) ? prismaMeta.target.join(", ") : prismaMeta?.target;
+    return {
+      success: false,
+      error: {
+        code: "DUPLICATE_ENTITY",
+        message: `A duplicate entity already exists.${target ? ` Conflicting field(s): ${target}.` : ""} Use 'search_${entityPlural}' to find existing records.`,
+        suggestedTools: [`search_${entityPlural}`, definition.name],
+        context: target ? { conflictingFields: target } : undefined,
+      },
+    };
+  }
+
+  if (prismaCode === "P2025") {
+    return {
+      success: false,
+      error: {
+        code: "ENTITY_NOT_FOUND",
+        message: `The referenced entity was not found. Use 'search_${entityPlural}' to find valid records.`,
+        suggestedTools: [`search_${entityPlural}`, `get_${entityName}`],
+      },
+    };
+  }
+
+  if (prismaCode === "P2034") {
+    return {
+      success: false,
+      error: {
+        code: "CONCURRENCY_CONFLICT",
+        message: `The '${definition.name}' operation conflicted with a concurrent update. Re-fetch the entity and retry with a new idempotency key.`,
+        suggestedTools: [`get_${entityName}`, definition.name],
+      },
+    };
+  }
+
+  return null;
+}
+
+function handleGenericError(error: unknown, definition: { name: string }, tenantId: string, userId: string): ToolResult {
+  const message = error instanceof Error ? error.message : "Unknown error";
+  process.stderr.write(
+    `[MCP] [${new Date().toISOString()}] Unexpected error in '${definition.name}' (tenant=${tenantId}, user=${userId}): ${message}\n` +
+    (error instanceof Error ? `${error.stack}\n` : "")
+  );
+  const isDev = process.env.NODE_ENV === "development";
+  return {
+    success: false,
+    error: {
+      code: "INTERNAL_ERROR",
+      message: isDev
+        ? `Unexpected error in '${definition.name}': ${message}. Try again with a new idempotency key if applicable.`
+        : `Unexpected error in '${definition.name}'. Try again with a new idempotency key if applicable.`,
+      suggestedTools: [definition.name, "list_available_tools"],
+    },
+  };
+}
+
 export const errorHandlerMiddleware: ToolMiddleware = async (input, context, definition, next) => {
   try {
     return await next(input, context);
   } catch (error: unknown) {
-    // ─── Domain errors (our structured error classes) ──────────────
     if (isDomainError(error)) {
-      return {
-        success: false,
-        error: {
-          code: error.code,
-          message: error.message,
-          suggestedTools: error.suggestedTools.length > 0
-            ? error.suggestedTools
-            : [definition.name, "list_available_tools"],
-          context: error.context,
-        },
-      };
+      return handleDomainError(error, definition);
     }
 
-    const message = error instanceof Error ? error.message : "Unknown error";
-    let prismaCode: string | undefined;
-    let prismaMeta: { target?: string | string[] } | undefined;
-    if (error != null && typeof error === "object") {
-      prismaCode = (error as Record<string, unknown>).code as string | undefined;
-      prismaMeta = (error as Record<string, unknown>).meta as
-        | { target?: string | string[] }
-        | undefined;
-    }
-
+    const { code: prismaCode, meta: prismaMeta } = extractPrismaError(error);
     const entityName = definition.entity ?? "entity";
-    const entityPlural = entityName
-      ? entityName.endsWith("y")
-        ? entityName.slice(0, -1) + "ies"
-        : entityName.endsWith("s") || entityName.endsWith("x") || entityName.endsWith("z")
-          ? entityName + "es"
-          : entityName + "s"
-      : "entities";
+    const entityPlural = pluralize(entityName);
 
-    // ─── Prisma unique constraint violation ────────────────────────
-    if (prismaCode === "P2002") {
-      // Prisma includes the conflicting field(s) in `meta.target` (e.g.,
-      // "email" or ["party_id", "role_type_id"]). Surface them so the AI
-      // can correct the input rather than re-trying the same operation
-      // blindly. Falls back to the generic message when meta is missing
-      // (e.g., non-Prisma throwables that just happen to carry P2002).
-      const target = Array.isArray(prismaMeta?.target)
-        ? prismaMeta?.target.join(", ")
-        : prismaMeta?.target;
-      const detail = target ? ` Conflicting field(s): ${target}.` : "";
-      return {
-        success: false,
-        error: {
-          code: "DUPLICATE_ENTITY",
-          message: `A duplicate entity already exists.${detail} Use 'search_${entityPlural}' to find existing records.`,
-          suggestedTools: [`search_${entityPlural}`, definition.name],
-          context: target ? { conflictingFields: target } : undefined,
-        },
-      };
+    if (prismaCode) {
+      const result = handlePrismaError(prismaCode, prismaMeta, entityName, entityPlural, definition);
+      if (result) return result;
     }
 
-    // ─── Prisma not found ─────────────────────────────────────────
-    if (prismaCode === "P2025") {
-      return {
-        success: false,
-        error: {
-          code: "ENTITY_NOT_FOUND",
-          message: `The referenced entity was not found. Use 'search_${entityPlural}' to find valid records.`,
-          suggestedTools: [`search_${entityPlural}`, `get_${entityName}`],
-        },
-      };
-    }
-
-    // ─── Prisma optimistic concurrency / version mismatch ─────────
-    // P2034: Transaction failed due to a write conflict or a deadlock
-    if (prismaCode === "P2034") {
-      return {
-        success: false,
-        error: {
-          code: "CONCURRENCY_CONFLICT",
-          message: `The '${definition.name}' operation conflicted with a concurrent update. Re-fetch the entity and retry with a new idempotency key.`,
-          suggestedTools: [`get_${entityName}`, definition.name],
-        },
-      };
-    }
-
-    // ─── Generic fallback ─────────────────────────────────────────
-    // Log unexpected errors server-side — they may indicate a bug.
-    // Domain errors and known Prisma errors are expected, so they aren't logged.
-    // Use stderr for server-side logging (avoid polluting MCP stdio transport).
-    process.stderr.write(
-      `[MCP] [${new Date().toISOString()}] Unexpected error in '${definition.name}' (tenant=${context.tenantId}, user=${context.userId}): ${message}\n` +
-      (error instanceof Error ? `${error.stack}\n` : '')
-    );
-    // In production and staging, do NOT echo the raw error message to the
-    // agent — it may contain DB internals, stack frames, or SQL. Send a
-    // generic message and keep the detailed message on the server side
-    // (logged above).
-    // Only expose raw messages in explicit development mode to avoid leaking
-    // internals in staging, test, or environments with unset NODE_ENV.
-    const isDev = process.env.NODE_ENV === "development";
-    return {
-      success: false,
-      error: {
-        code: "INTERNAL_ERROR",
-        message: isDev
-          ? `Unexpected error in '${definition.name}': ${message}. Try again with a new idempotency key if applicable.`
-          : `Unexpected error in '${definition.name}'. Try again with a new idempotency key if applicable.`,
-        suggestedTools: [definition.name, "list_available_tools"],
-      },
-    };
+    return handleGenericError(error, definition, context.tenantId, context.userId);
   }
 };

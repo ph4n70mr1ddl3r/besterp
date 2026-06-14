@@ -23,31 +23,38 @@ export interface QueueModuleOptions {
 export class QueueModule {
   private static readonly logger = new Logger(QueueModule.name);
 
-  static forRoot(options?: Partial<QueueModuleOptions>): DynamicModule {
-    const redisHost = options?.redis?.host || process.env.REDIS_HOST || "localhost";
-    // The default port (6379) intentionally differs from .env.example (6380)
-    // because the example targets a non-default Docker-mapped port. Operators
-    // who set REDIS_HOST without REDIS_PORT will silently hit the standard
-    // Redis port; log a warning when we fall back to the hard-coded default
-    // so they notice.
-    let redisPort: number;
+  private static resolveRedisOptions(options?: Partial<QueueModuleOptions>): { host: string; port: number; password: string | undefined } {
+    const host = options?.redis?.host || process.env.REDIS_HOST || "localhost";
+    let port: number;
     if (options?.redis?.port) {
-      redisPort = options.redis.port;
+      port = options.redis.port;
     } else if (process.env.REDIS_PORT) {
-      redisPort = Number.parseInt(process.env.REDIS_PORT, 10);
+      port = Number.parseInt(process.env.REDIS_PORT, 10);
     } else {
-      redisPort = 6379;
+      port = 6379;
       this.logger.warn(
         "REDIS_PORT is not set — defaulting to 6379. Note: .env.example uses 6380. " +
         "Set REDIS_PORT explicitly to avoid connecting to the wrong Redis instance."
       );
     }
-    if (!Number.isFinite(redisPort) || redisPort < 1 || redisPort > 65535) {
-      throw new Error(
-        `Invalid Redis port: ${redisPort}. Must be a number between 1 and 65535.`
-      );
+    if (!Number.isFinite(port) || port < 1 || port > 65535) {
+      throw new Error(`Invalid Redis port: ${port}. Must be a number between 1 and 65535.`);
     }
-    const redisPassword = options?.redis?.password || process.env.REDIS_PASSWORD;
+    const password = options?.redis?.password || process.env.REDIS_PASSWORD;
+    return { host, port, password };
+  }
+
+  private static redisRetryStrategy(times: number): number | undefined {
+    const MAX_RETRIES = 10;
+    if (times > MAX_RETRIES) {
+      this.logger.error(`Redis connection failed after ${MAX_RETRIES} retries — aborting.`);
+      return undefined;
+    }
+    return Math.min(times * 200, 5000);
+  }
+
+  static forRoot(options?: Partial<QueueModuleOptions>): DynamicModule {
+    const { host, port, password } = this.resolveRedisOptions(options);
 
     const connection: {
       host: string;
@@ -57,24 +64,12 @@ export class QueueModule {
       connectTimeout: number;
       password?: string;
     } = {
-      host: redisHost,
-      port: redisPort,
-      maxRetriesPerRequest: null, // required by BullMQ for sticky connections
-      retryStrategy: (times: number) => {
-        // Cap retries to prevent infinite reconnect loops when Redis is
-        // unreachable. After MAX_RETRIES, return undefined to signal the
-        // client to stop retrying.
-        const MAX_RETRIES = 10;
-        if (times > MAX_RETRIES) {
-          QueueModule.logger.error(
-            `Redis connection failed after ${MAX_RETRIES} retries — aborting.`
-          );
-          return undefined; // Returning undefined signals the client to stop retrying
-        }
-        return Math.min(times * 200, 5000);
-      },
+      host,
+      port,
+      maxRetriesPerRequest: null,
+      retryStrategy: (times: number) => QueueModule.redisRetryStrategy(times),
       connectTimeout: 10000,
-      ...(redisPassword ? { password: redisPassword } : {}),
+      ...(password ? { password } : {}),
     };
 
     return {

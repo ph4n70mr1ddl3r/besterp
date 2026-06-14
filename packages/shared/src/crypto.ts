@@ -15,86 +15,80 @@ import * as crypto from "node:crypto";
  * - undefined/NaN/Infinity: normalized to null
  * - Date/Error/RegExp: passed through for JSON.stringify
  */
-function sortKeysDeep(value: unknown, ancestors?: Set<object>): unknown {
-  ancestors = ancestors ?? new Set<object>();
-  if (value === null || value === undefined) return null; // Normalize undefined to null
-  if (typeof value === 'number') {
-    // Normalize NaN and Infinity to null — JSON.stringify converts them to null,
-    // so without this normalization NaN and null would collide. This ensures
-    // deterministic hashing for edge-case numeric inputs.
-    if (!Number.isFinite(value)) return null;
+function checkCircular(value: object, ancestors: Set<object>): void {
+  if (ancestors.has(value)) {
+    throw new Error("Circular reference detected in hash input");
   }
-  if (Array.isArray(value)) {
-    if (ancestors.has(value)) {
-      throw new Error("Circular reference detected in hash input");
-    }
-    ancestors.add(value);
-    const result = value.map((v) => sortKeysDeep(v, ancestors));
-    ancestors.delete(value);
-    return result;
-  }
-  if (value instanceof Map) {
-    if (ancestors.has(value)) {
-      throw new Error("Circular reference detected in hash input");
-    }
-    ancestors.add(value);
-    const sortedEntries = Array.from(value.entries())
-      .sort(([a], [b]) => {
-        const aStr = typeof a === "object" && a !== null ? JSON.stringify(sortKeysDeep(a, ancestors)) : String(a);
-        const bStr = typeof b === "object" && b !== null ? JSON.stringify(sortKeysDeep(b, ancestors)) : String(b);
-        return aStr < bStr ? -1 : aStr > bStr ? 1 : 0;
-      });
-    const result = sortedEntries.map(([k, v]) => [sortKeysDeep(k, ancestors), sortKeysDeep(v, ancestors)]);
-    ancestors.delete(value);
-    return result;
-  }
-  if (value instanceof Set) {
-    if (ancestors.has(value)) {
-      throw new Error("Circular reference detected in hash input");
-    }
-    ancestors.add(value);
-    const result = Array.from(value).map((v) => sortKeysDeep(v, ancestors)).sort((a, b) => {
-      const aStr = JSON.stringify(a);
-      const bStr = JSON.stringify(b);
+}
+
+function sortArray(value: unknown[], ancestors: Set<object>): unknown[] {
+  checkCircular(value, ancestors);
+  ancestors.add(value);
+  const result = value.map((v) => sortKeysDeep(v, ancestors));
+  ancestors.delete(value);
+  return result;
+}
+
+function sortMap(value: Map<unknown, unknown>, ancestors: Set<object>): unknown[] {
+  checkCircular(value, ancestors);
+  ancestors.add(value);
+  const sortedEntries = Array.from(value.entries())
+    .sort(([a], [b]) => {
+      const aStr = typeof a === "object" && a !== null ? JSON.stringify(sortKeysDeep(a, ancestors)) : String(a);
+      const bStr = typeof b === "object" && b !== null ? JSON.stringify(sortKeysDeep(b, ancestors)) : String(b);
       return aStr < bStr ? -1 : aStr > bStr ? 1 : 0;
     });
-    ancestors.delete(value);
-    return result;
-  }
-  if (typeof value === "object") {
-    // Detect circular references — prevent infinite recursion / stack overflow.
-    // Track only ancestors (objects currently on the recursion stack), not all
-    // visited objects. This correctly detects true cycles (A→B→A) while allowing
-    // DAGs (A→C, B→C) where the same object appears in multiple branches.
-    if (ancestors.has(value)) {
-      throw new Error("Circular reference detected in hash input");
-    }
-    ancestors.add(value);
+  const result = sortedEntries.map(([k, v]) => [sortKeysDeep(k, ancestors), sortKeysDeep(v, ancestors)]);
+  ancestors.delete(value);
+  return result;
+}
 
-    const proto = Object.getPrototypeOf(value);
-    // Handle plain objects: {}, Object.create(null), etc.
-    // Skip custom class instances (Date, etc.) that have their own serialization.
-    let result: unknown;
-    if (proto === Object.prototype || proto === null) {
-      const sorted: Record<string, unknown> = {};
-      const keys = Object.keys(value).sort();
-      for (const key of keys) {
-        // Skip __proto__ to prevent prototype pollution if the sorted output
-        // is ever assigned to an object (defense-in-depth for future uses).
-        if (key === "__proto__") continue;
-        sorted[key] = sortKeysDeep((value as Record<string, unknown>)[key], ancestors);
-      }
-      result = sorted;
-    } else {
-      // Non-plain objects (Date, class instances, etc.) pass through for JSON.stringify to handle
-      result = value;
-    }
+function sortSet(value: Set<unknown>, ancestors: Set<object>): unknown[] {
+  checkCircular(value, ancestors);
+  ancestors.add(value);
+  const result = Array.from(value).map((v) => sortKeysDeep(v, ancestors)).sort((a, b) => {
+    const aStr = JSON.stringify(a);
+    const bStr = JSON.stringify(b);
+    return aStr < bStr ? -1 : aStr > bStr ? 1 : 0;
+  });
+  ancestors.delete(value);
+  return result;
+}
 
-    // Remove from ancestor set after processing so the same object can
-    // appear in different branches of the tree (DAG, not cycle).
-    ancestors.delete(value);
-    return result;
+function sortPlainObject(value: object, ancestors: Set<object>): Record<string, unknown> {
+  const sorted: Record<string, unknown> = {};
+  const keys = Object.keys(value).sort();
+  for (const key of keys) {
+    if (key === "__proto__") continue;
+    sorted[key] = sortKeysDeep((value as Record<string, unknown>)[key], ancestors);
   }
+  return sorted;
+}
+
+function sortObject(value: object, ancestors: Set<object>): unknown {
+  checkCircular(value, ancestors);
+  ancestors.add(value);
+
+  const proto = Object.getPrototypeOf(value);
+  const result = (proto === Object.prototype || proto === null)
+    ? sortPlainObject(value, ancestors)
+    : value;
+
+  ancestors.delete(value);
+  return result;
+}
+
+function sortKeysDeep(value: unknown, ancestors?: Set<object>): unknown {
+  ancestors = ancestors ?? new Set<object>();
+  if (value === null || value === undefined) return null;
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) return null;
+    return value;
+  }
+  if (Array.isArray(value)) return sortArray(value, ancestors);
+  if (value instanceof Map) return sortMap(value, ancestors);
+  if (value instanceof Set) return sortSet(value, ancestors);
+  if (typeof value === "object") return sortObject(value, ancestors);
   if (typeof value === "bigint") return `BigInt:${value.toString()}`;
   if (typeof value === "symbol") return `Symbol:${value.toString()}`;
   return value;

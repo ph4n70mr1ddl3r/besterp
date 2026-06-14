@@ -94,193 +94,150 @@ export class PartyService {
   async createParty(input: CreatePartyInput): Promise<PartyResult> {
     const { tenantId, partyType, name, description, person: personData, organization: orgData } = input;
 
-    // Input validation with better error messages
-    const trimmedName = name.trim();
-    if (!trimmedName) {
+    const { trimmedName, trimmedDescription } = this.validateCreatePartyFields(name, description);
+    this.validateCreatePartySubtype(partyType, personData, orgData);
+    this.validatePersonData(personData);
+    this.validateOrganizationData(orgData);
+
+    const { sanitizedPerson, sanitizedOrg, sanitizedName, sanitizedDescription } =
+      this.sanitizeCreatePartyInput(trimmedName, trimmedDescription, personData, orgData);
+
+    const db = this.prisma.tenantScoped(tenantId);
+
+    const partyTypeRecord = await db.partyType.findUnique({ where: { name: partyType } });
+    if (!partyTypeRecord) {
       throw new InvalidTypeValueError(
-        "Party name cannot be empty",
-        { 
-          suggestedTools: ["create_party"],
-          context: { field: "name", received: name }
-        }
+        `PARTY_TYPE '${partyType}' is not valid. Valid types: ['PERSON', 'ORGANIZATION'].`,
+        { suggestedTools: ["get_type_table_values"], context: { field: "partyType", invalidValue: partyType, validValues: ["PERSON", "ORGANIZATION"] } }
       );
     }
+
+    const party = await this.createPartyTransaction(db, tenantId, partyTypeRecord.partyTypeId, sanitizedName, sanitizedDescription, sanitizedPerson, sanitizedOrg);
+
+    this.logger.log(`Created ${partyType} party: ${trimmedName} (${party.partyId})`);
+    return PartyService.toPartyResult(party);
+  }
+
+  private validateCreatePartyFields(name: string, description: string | undefined | null): { trimmedName: string; trimmedDescription: string | null } {
+    const trimmedName = name.trim();
+    if (!trimmedName) {
+      throw new InvalidTypeValueError("Party name cannot be empty", { suggestedTools: ["create_party"], context: { field: "name", received: name } });
+    }
     this.requireMaxLength(trimmedName, "Party name", MAX_PARTY_NAME_LENGTH);
-    // Validate description length (MCP tool path has no DTO validation)
+
     const trimmedDescription = description?.trim() ?? null;
     if (trimmedDescription !== null && trimmedDescription.length === 0) {
-      throw new InvalidTypeValueError(
-        "Description cannot be whitespace-only.",
-        { suggestedTools: ["create_party"], context: { field: "description" } }
-      );
+      throw new InvalidTypeValueError("Description cannot be whitespace-only.", { suggestedTools: ["create_party"], context: { field: "description" } });
     }
     if (trimmedDescription !== null) {
       this.requireMaxLength(trimmedDescription, "Description", MAX_PARTY_DESCRIPTION_LENGTH);
     }
+    return { trimmedName, trimmedDescription };
+  }
 
-    // Validate subtype data
+  private validateCreatePartySubtype(partyType: string, personData: unknown, orgData: unknown): void {
     if (partyType === "PERSON" && !personData) {
-      throw new MissingSubtypeDataError(
-        "When partyType is PERSON, the 'person' object with firstName and lastName is required.",
-        { suggestedTools: ["create_party"], context: { partyType, missingField: "person" } }
-      );
+      throw new MissingSubtypeDataError("When partyType is PERSON, the 'person' object with firstName and lastName is required.", { suggestedTools: ["create_party"], context: { partyType, missingField: "person" } });
     }
     if (partyType === "ORGANIZATION" && !orgData) {
-      throw new MissingSubtypeDataError(
-        "When partyType is ORGANIZATION, the 'organization' object with legalName is required.",
-        { suggestedTools: ["create_party"], context: { partyType, missingField: "organization" } }
-      );
+      throw new MissingSubtypeDataError("When partyType is ORGANIZATION, the 'organization' object with legalName is required.", { suggestedTools: ["create_party"], context: { partyType, missingField: "organization" } });
     }
-    // Enforce subtype exclusivity — only the matching subtype data should be provided.
-    // The REST path enforces this via PartySubtypeExclusiveConstraint in the DTO,
-    // but MCP tools call the service directly without DTO validation.
     if (partyType === "PERSON" && orgData) {
-      throw new InvalidTypeValueError(
-        "When partyType is PERSON, 'organization' data must not be provided. Only 'person' data is expected.",
-        { suggestedTools: ["create_party"], context: { partyType, unexpectedField: "organization" } }
-      );
+      throw new InvalidTypeValueError("When partyType is PERSON, 'organization' data must not be provided. Only 'person' data is expected.", { suggestedTools: ["create_party"], context: { partyType, unexpectedField: "organization" } });
     }
     if (partyType === "ORGANIZATION" && personData) {
-      throw new InvalidTypeValueError(
-        "When partyType is ORGANIZATION, 'person' data must not be provided. Only 'organization' data is expected.",
-        { suggestedTools: ["create_party"], context: { partyType, unexpectedField: "person" } }
-      );
+      throw new InvalidTypeValueError("When partyType is ORGANIZATION, 'person' data must not be provided. Only 'organization' data is expected.", { suggestedTools: ["create_party"], context: { partyType, unexpectedField: "person" } });
     }
-    
-    // Validate person data if provided
-    if (personData) {
-      if (!personData.firstName || personData.firstName.trim().length === 0) {
-        throw new MissingSubtypeDataError(
-          "firstName is required for person data",
-          { suggestedTools: ["create_party"], context: { field: "firstName" } }
-        );
-      }
-      this.requireMaxLength(personData.firstName, "First name", MAX_PERSON_NAME_LENGTH);
-      if (!personData.lastName || personData.lastName.trim().length === 0) {
-        throw new MissingSubtypeDataError(
-          "lastName is required for person data",
-          { suggestedTools: ["create_party"], context: { field: "lastName" } }
-        );
-      }
-      this.requireMaxLength(personData.lastName, "Last name", MAX_PERSON_NAME_LENGTH);
-      if (personData.gender !== undefined && personData.gender !== null) {
-        this.requireMaxLength(personData.gender, "Gender", MAX_GENDER_LENGTH);
-      }
-      if (personData.middleName !== undefined && personData.middleName !== null) {
-        this.requireMaxLength(personData.middleName, "Middle name", MAX_MIDDLE_NAME_LENGTH);
-      }
-      // Defense-in-depth: validate birthDate shape before passing to Prisma.
-      // The REST DTO uses @IsDateString (strict ISO 8601) but the MCP Zod
-      // schema only enforces a 30-char max length. A typo like "2024-13-40"
-      // would otherwise reach `new Date(...)` and produce Invalid Date,
-      // which Prisma rejects with an opaque P2009 / serialization error
-      // that the MCP layer can't translate into a structured response.
-      if (personData.birthDate !== undefined && personData.birthDate !== null) {
-        this.requireValidDate(personData.birthDate, "birthDate");
-      }
-    }
+  }
 
-    // Validate organization data if provided
-    if (orgData) {
-      if (!orgData.legalName || orgData.legalName.trim().length === 0) {
-        throw new MissingSubtypeDataError(
-          "legalName is required for organization data",
-          { suggestedTools: ["create_party"], context: { field: "legalName" } }
-        );
-      }
-      this.requireMaxLength(orgData.legalName, "Legal name", MAX_LEGAL_NAME_LENGTH);
-      // See personData.birthDate comment — same defense-in-depth rationale.
-      if (orgData.registrationDate !== undefined && orgData.registrationDate !== null) {
-        this.requireValidDate(orgData.registrationDate, "registrationDate");
-      }
-      if (orgData.taxId !== undefined && orgData.taxId !== null) {
-        this.requireMaxLength(orgData.taxId, "Tax ID", MAX_TAX_ID_LENGTH);
-      }
+  private validatePersonData(personData: CreatePartyInput["person"]): void {
+    if (!personData) return;
+    if (!personData.firstName || personData.firstName.trim().length === 0) {
+      throw new MissingSubtypeDataError("firstName is required for person data", { suggestedTools: ["create_party"], context: { field: "firstName" } });
     }
+    this.requireMaxLength(personData.firstName, "First name", MAX_PERSON_NAME_LENGTH);
+    if (!personData.lastName || personData.lastName.trim().length === 0) {
+      throw new MissingSubtypeDataError("lastName is required for person data", { suggestedTools: ["create_party"], context: { field: "lastName" } });
+    }
+    this.requireMaxLength(personData.lastName, "Last name", MAX_PERSON_NAME_LENGTH);
+    if (personData.gender != null) this.requireMaxLength(personData.gender, "Gender", MAX_GENDER_LENGTH);
+    if (personData.middleName != null) this.requireMaxLength(personData.middleName, "Middle name", MAX_MIDDLE_NAME_LENGTH);
+    if (personData.birthDate != null) this.requireValidDate(personData.birthDate, "birthDate");
+  }
 
-    // Trim and sanitize all name fields before storage to prevent whitespace-padded
-    // and HTML-injected names. DTOs handle this for the REST path via @Transform,
-    // but the MCP tool path calls the service directly without DTO normalization.
-    const trimmedPerson = personData ? {
+  private validateOrganizationData(orgData: CreatePartyInput["organization"]): void {
+    if (!orgData) return;
+    if (!orgData.legalName || orgData.legalName.trim().length === 0) {
+      throw new MissingSubtypeDataError("legalName is required for organization data", { suggestedTools: ["create_party"], context: { field: "legalName" } });
+    }
+    this.requireMaxLength(orgData.legalName, "Legal name", MAX_LEGAL_NAME_LENGTH);
+    if (orgData.registrationDate != null) this.requireValidDate(orgData.registrationDate, "registrationDate");
+    if (orgData.taxId != null) this.requireMaxLength(orgData.taxId, "Tax ID", MAX_TAX_ID_LENGTH);
+  }
+
+  private sanitizeCreatePartyInput(
+    trimmedName: string, trimmedDescription: string | null,
+    personData: CreatePartyInput["person"], orgData: CreatePartyInput["organization"],
+  ): { sanitizedPerson: typeof personData; sanitizedOrg: typeof orgData; sanitizedName: string; sanitizedDescription: string | null } {
+    const sanitizedPerson = personData ? {
       ...personData,
       firstName: stripHtmlTags(personData.firstName.trim()),
       lastName: stripHtmlTags(personData.lastName.trim()),
       middleName: personData.middleName?.trim() ? stripHtmlTags(personData.middleName.trim()) : undefined,
       gender: personData.gender ? stripHtmlTags(personData.gender.trim()) : undefined,
     } : undefined;
-    const trimmedOrg = orgData ? {
+    const sanitizedOrg = orgData ? {
       ...orgData,
       legalName: stripHtmlTags(orgData.legalName.trim()),
-      taxId: orgData.taxId
-        ? stripHtmlTags(orgData.taxId.trim())
-        : undefined,
+      taxId: orgData.taxId ? stripHtmlTags(orgData.taxId.trim()) : undefined,
     } : undefined;
 
-    // Sanitize text fields — strip HTML tags to prevent stored XSS.
-    // Defense-in-depth: the API layer should also escape on render, but
-    // sanitizing at storage time prevents malicious content from persisting.
-    const sanitizedName = stripHtmlTags(trimmedName);
-    const sanitizedDescription = trimmedDescription ? stripHtmlTags(trimmedDescription) : null;
+    return {
+      sanitizedPerson,
+      sanitizedOrg,
+      sanitizedName: stripHtmlTags(trimmedName),
+      sanitizedDescription: trimmedDescription ? stripHtmlTags(trimmedDescription) : null,
+    };
+  }
 
-    // Get RLS-scoped client for tenant isolation
-    const db = this.prisma.tenantScoped(tenantId);
-
-    // NOTE: Type table lookups are done OUTSIDE the main transaction.
-    // This is safe because type tables (PARTY_TYPE, ROLE_TYPE, etc.) are
-    // system-managed, seeded at deploy time, and never deleted by app code.
-    // Moving them inside would add transaction overhead with no benefit.
-    // Look up party type ID from the type table
-    const partyTypeRecord = await db.partyType.findUnique({
-      where: { name: partyType },
-    });
-    if (!partyTypeRecord) {
-      throw new InvalidTypeValueError(
-        `PARTY_TYPE '${partyType}' is not valid. Valid types: ['PERSON', 'ORGANIZATION'].`,
-        {
-          suggestedTools: ["get_type_table_values"],
-          context: { field: "partyType", invalidValue: partyType, validValues: ["PERSON", "ORGANIZATION"] },
-        }
-      );
-    }
-
-    // Create party with supertype/subtype in a transaction
-    const party = await db.$transaction(async (tx: Prisma.TransactionClient) => {
+  private async createPartyTransaction(
+    db: ReturnType<PrismaService["tenantScoped"]>,
+    tenantId: string, partyTypeId: string,
+    name: string, description: string | null,
+    sanitizedPerson: CreatePartyInput["person"] | undefined,
+    sanitizedOrg: CreatePartyInput["organization"] | undefined,
+  ) {
+    return db.$transaction(async (tx: Prisma.TransactionClient) => {
       const data: Prisma.PartyCreateInput = {
-        partyType: { connect: { partyTypeId: partyTypeRecord.partyTypeId } },
+        partyType: { connect: { partyTypeId } },
         tenantId,
-        name: sanitizedName,
-        description: sanitizedDescription,
+        name,
+        description,
       };
-      if (trimmedPerson) {
+      if (sanitizedPerson) {
         data.person = {
           create: {
-            firstName: trimmedPerson.firstName,
-            lastName: trimmedPerson.lastName,
-            middleName: trimmedPerson.middleName || null,
-            birthDate: trimmedPerson.birthDate ? PartyService.safeParseDate(trimmedPerson.birthDate) : null,
-            gender: trimmedPerson.gender || null,
+            firstName: sanitizedPerson.firstName,
+            lastName: sanitizedPerson.lastName,
+            middleName: sanitizedPerson.middleName || null,
+            birthDate: sanitizedPerson.birthDate ? PartyService.safeParseDate(sanitizedPerson.birthDate) : null,
+            gender: sanitizedPerson.gender || null,
           },
         };
       }
-      if (trimmedOrg) {
+      if (sanitizedOrg) {
         data.organization = {
           create: {
-            legalName: trimmedOrg.legalName,
-            taxId: trimmedOrg.taxId || null,
-            registrationDate: trimmedOrg.registrationDate
-              ? PartyService.safeParseDate(trimmedOrg.registrationDate)
+            legalName: sanitizedOrg.legalName,
+            taxId: sanitizedOrg.taxId || null,
+            registrationDate: sanitizedOrg.registrationDate
+              ? PartyService.safeParseDate(sanitizedOrg.registrationDate)
               : null,
           },
         };
       }
-      return tx.party.create({
-        data,
-        include: PartyService.PARTY_INCLUDE,
-      });
+      return tx.party.create({ data, include: PartyService.PARTY_INCLUDE });
     });
-
-    this.logger.log(`Created ${partyType} party: ${trimmedName} (${party.partyId})`);
-    return PartyService.toPartyResult(party);
   }
 
   // ─── Get Party ────────────────────────────────────────────────
@@ -396,126 +353,22 @@ export class PartyService {
   async addPartyRole(input: AddPartyRoleInput): Promise<PartyRoleResult> {
     const { tenantId, partyId, roleType, fromDate } = input;
 
-    // Validate partyId format — MCP tools don't go through the REST controller's
-    // requireUuid(), so we need defense-in-depth at the service layer.
     this.requireUuid(partyId, "partyId");
 
     const db = this.prisma.tenantScoped(tenantId);
 
-    // NOTE: Type table lookup outside transaction — safe because role types
-    // are system-managed immutable data (see createParty for rationale).
+    const trimmedRoleType = this.validateAddPartyRoleInput(roleType);
+    const roleFromDate = this.parseFromDate(fromDate);
 
-    // ─── Pure input validation (fail fast, before any DB access) ─────
-    const trimmedRoleType = roleType?.trim() ?? "";
-    if (!trimmedRoleType) {
-      throw new InvalidTypeValueError(
-        "roleType cannot be empty",
-        {
-          suggestedTools: ["get_type_table_values"],
-          context: { field: "roleType", received: roleType },
-        }
-      );
-    }
-    this.requireMaxLength(trimmedRoleType, "Role type", MAX_ROLE_TYPE_LENGTH, "get_type_table_values");
-
-    // Validate and parse fromDate BEFORE any DB access (pure computation)
-    const roleFromDate = fromDate != null && fromDate.trim().length > 0 ? new Date(fromDate) : new Date();
-    if (isNaN(roleFromDate.getTime())) {
-      throw new InvalidTypeValueError(
-        `Invalid fromDate format: ${fromDate}. Use ISO 8601 format (YYYY-MM-DDTHH:mm:ss.sssZ)`,
-        {
-          suggestedTools: ["add_party_role"],
-          context: { field: "fromDate", invalidValue: fromDate },
-        }
-      );
-    }
-
-    // ─── Database lookups (after pure validation passes) ─────────────
-    // Look up role type (static shared data, safe outside transaction)
-    const roleTypeRecord = await db.roleType.findUnique({
-      where: { name: trimmedRoleType },
-    });
+    const roleTypeRecord = await db.roleType.findUnique({ where: { name: trimmedRoleType } });
     if (!roleTypeRecord) {
       throw new InvalidTypeValueError(
         `ROLE_TYPE '${trimmedRoleType}' is not valid. Use 'get_type_table_values' to see valid role types.`,
-        {
-          suggestedTools: ["get_type_table_values"],
-          context: { field: "roleType", invalidValue: trimmedRoleType, lookupField: "name" },
-        }
+        { suggestedTools: ["get_type_table_values"], context: { field: "roleType", invalidValue: trimmedRoleType, lookupField: "name" } }
       );
     }
 
-    // Atomic check + create in a single transaction to prevent TOCTOU race.
-    // Two concurrent requests with the same partyId/roleType must not both
-    // pass the duplicate check and both insert.
-    const role = await db.$transaction(async (tx) => {
-      // Verify party exists (inside tx for atomicity)
-      const party = await tx.party.findFirst({
-        where: { partyId, tenantId },
-      });
-      if (!party) {
-        throw new EntityNotFoundError(
-          `Party '${partyId}' not found.`,
-          {
-            suggestedTools: ["search_parties", "get_party"],
-            context: { partyId },
-          }
-        );
-      }
-
-      // Check for existing active role (inside tx to prevent TOCTOU race).
-      // Explicit tenantId filter is defense-in-depth alongside RLS.
-      const existingRole = await tx.partyRole.findFirst({
-        where: {
-          partyId,
-          roleTypeId: roleTypeRecord.roleTypeId,
-          thruDate: null,
-          party: { tenantId },
-        },
-      });
-      if (existingRole) {
-        throw new DuplicateEntityError(
-          `Party '${partyId}' already has active role '${trimmedRoleType}'. ` +
-          `Existing role started on ${existingRole.fromDate.toISOString()}. ` +
-          `To change a party's role, first end the current role by setting a thruDate, ` +
-          `then re-call add_party_role.`,
-          {
-            suggestedTools: ["get_party"],
-            context: {
-              partyId,
-              roleType: trimmedRoleType,
-              existingRoleId: existingRole.partyRoleId,
-              existingRoleDate: existingRole.fromDate.toISOString(),
-            },
-          }
-        );
-      }
-
-      return tx.partyRole.create({
-        data: {
-          partyId,
-          roleTypeId: roleTypeRecord.roleTypeId,
-          fromDate: roleFromDate,
-        },
-        include: { roleType: true },
-      });
-    }).catch((err) => {
-      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
-        throw new DuplicateEntityError(
-          `Party '${partyId}' already has active role '${trimmedRoleType}' (unique constraint violation). ` +
-          `To change a party's role, first end the current role by setting a thruDate, ` +
-          `then re-call add_party_role.`,
-          {
-            suggestedTools: ["get_party"],
-            context: {
-              partyId,
-              roleType: trimmedRoleType,
-            },
-          }
-        );
-      }
-      throw err;
-    });
+    const role = await this.addPartyRoleTransaction(db, tenantId, partyId, roleTypeRecord.roleTypeId, trimmedRoleType, roleFromDate);
 
     this.logger.log(`Added role '${trimmedRoleType}' to party ${partyId} (ID: ${role.partyRoleId})`);
     return {
@@ -527,45 +380,107 @@ export class PartyService {
     };
   }
 
+  private validateAddPartyRoleInput(roleType: string): string {
+    const trimmed = roleType?.trim() ?? "";
+    if (!trimmed) {
+      throw new InvalidTypeValueError("roleType cannot be empty", { suggestedTools: ["get_type_table_values"], context: { field: "roleType", received: roleType } });
+    }
+    this.requireMaxLength(trimmed, "Role type", MAX_ROLE_TYPE_LENGTH, "get_type_table_values");
+    return trimmed;
+  }
+
+  private parseFromDate(fromDate: string | undefined | null): Date {
+    const d = fromDate != null && fromDate.trim().length > 0 ? new Date(fromDate) : new Date();
+    if (isNaN(d.getTime())) {
+      throw new InvalidTypeValueError(
+        `Invalid fromDate format: ${fromDate}. Use ISO 8601 format (YYYY-MM-DDTHH:mm:ss.sssZ)`,
+        { suggestedTools: ["add_party_role"], context: { field: "fromDate", invalidValue: fromDate } }
+      );
+    }
+    return d;
+  }
+
+  private async addPartyRoleTransaction(
+    db: ReturnType<PrismaService["tenantScoped"]>,
+    tenantId: string, partyId: string, roleTypeId: string,
+    trimmedRoleType: string, roleFromDate: Date,
+  ): Promise<{ partyRoleId: string; partyId: string; roleType: { name: string }; fromDate: Date; thruDate: Date | null }> {
+    return db.$transaction(async (tx) => {
+      const party = await tx.party.findFirst({ where: { partyId, tenantId } });
+      if (!party) {
+        throw new EntityNotFoundError(`Party '${partyId}' not found.`, { suggestedTools: ["search_parties", "get_party"], context: { partyId } });
+      }
+
+      const existingRole = await tx.partyRole.findFirst({
+        where: { partyId, roleTypeId, thruDate: null, party: { tenantId } },
+      });
+      if (existingRole) {
+        throw new DuplicateEntityError(
+          `Party '${partyId}' already has active role '${trimmedRoleType}'. Existing role started on ${existingRole.fromDate.toISOString()}. ` +
+          `To change a party's role, first end the current role by setting a thruDate, then re-call add_party_role.`,
+          { suggestedTools: ["get_party"], context: { partyId, roleType: trimmedRoleType, existingRoleId: existingRole.partyRoleId, existingRoleDate: existingRole.fromDate.toISOString() } }
+        );
+      }
+
+      return tx.partyRole.create({
+        data: { partyId, roleTypeId, fromDate: roleFromDate },
+        include: { roleType: true },
+      });
+    }).catch((err) => {
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
+        throw new DuplicateEntityError(
+          `Party '${partyId}' already has active role '${trimmedRoleType}' (unique constraint violation). ` +
+          `To change a party's role, first end the current role by setting a thruDate, then re-call add_party_role.`,
+          { suggestedTools: ["get_party"], context: { partyId, roleType: trimmedRoleType } }
+        );
+      }
+      throw err;
+    });
+  }
+
   // ─── Add Contact Mechanism ────────────────────────────────────
 
   async addContactMechanism(input: AddContactMechanismInput): Promise<ContactMechanismResult> {
-    const {
-      tenantId,
-      partyId,
-      contactMechanismType,
-      postalAddress,
-      telecomNumber,
-      emailAddress,
-    } = input;
+    const { tenantId, partyId, contactMechanismType, postalAddress, telecomNumber, emailAddress } = input;
 
-    // Validate partyId format — MCP tools don't go through the REST controller's
-    // requireUuid(), so we need defense-in-depth at the service layer.
     this.requireUuid(partyId, "partyId");
 
     const db = this.prisma.tenantScoped(tenantId);
 
-    // ─── Pure input validation (fail fast, before any DB access) ─────
-    let normalizedEmail: string | undefined;
-    if (!contactMechanismType || contactMechanismType.trim().length === 0) {
+    const trimmedCmType = this.validateContactMechanismType(contactMechanismType);
+    const normalizedEmail = this.validateContactMechanismSubtype(trimmedCmType, postalAddress, telecomNumber, emailAddress);
+
+    const cmType = await db.contactMechanismType.findUnique({ where: { name: trimmedCmType } });
+    if (!cmType) {
       throw new InvalidTypeValueError(
-        "contactMechanismType cannot be empty",
-        {
-          suggestedTools: ["get_type_table_values"],
-          context: { field: "contactMechanismType", received: contactMechanismType },
-        }
+        `CONTACT_MECHANISM_TYPE '${trimmedCmType}' exists as a known type but was not found in the database. ` +
+        `This may indicate the database has not been seeded. Run 'npm run db:seed'.`,
+        { suggestedTools: ["get_type_table_values"], context: { field: "contactMechanismType", invalidValue: trimmedCmType, validValues: ["POSTAL_ADDRESS", "TELECOM_NUMBER", "EMAIL_ADDRESS"], hint: "Database may need seeding" } }
       );
     }
-    this.requireMaxLength(contactMechanismType, "Contact mechanism type", MAX_CONTACT_MECHANISM_TYPE_LENGTH, "get_type_table_values");
-    const trimmedCmType = contactMechanismType.trim();
 
-    // Validate subtype data early — avoids wasting a DB round-trip on invalid input.
-    if (trimmedCmType === "POSTAL_ADDRESS") {
+    const contactMechanism = await this.createContactMechanismTransaction(db, tenantId, partyId, trimmedCmType, cmType.contactMechanismTypeId, postalAddress, telecomNumber, normalizedEmail);
+
+    this.logger.log(`Added ${trimmedCmType} to party ${partyId} (ID: ${contactMechanism.contactMechanismId})`);
+    return PartyService.formatContactResult(contactMechanism, partyId);
+  }
+
+  private validateContactMechanismType(type: string): string {
+    if (!type || type.trim().length === 0) {
+      throw new InvalidTypeValueError("contactMechanismType cannot be empty", { suggestedTools: ["get_type_table_values"], context: { field: "contactMechanismType", received: type } });
+    }
+    this.requireMaxLength(type, "Contact mechanism type", MAX_CONTACT_MECHANISM_TYPE_LENGTH, "get_type_table_values");
+    return type.trim();
+  }
+
+  private validateContactMechanismSubtype(
+    type: string, postalAddress: AddContactMechanismInput["postalAddress"],
+    telecomNumber: AddContactMechanismInput["telecomNumber"],
+    emailAddress: AddContactMechanismInput["emailAddress"],
+  ): string | undefined {
+    if (type === "POSTAL_ADDRESS") {
       if (!postalAddress) {
-        throw new MissingSubtypeDataError(
-          "postalAddress is required when contactMechanismType is POSTAL_ADDRESS.",
-          { suggestedTools: ["add_contact_mechanism"], context: { contactMechanismType: trimmedCmType, missingField: "postalAddress" } }
-        );
+        throw new MissingSubtypeDataError("postalAddress is required when contactMechanismType is POSTAL_ADDRESS.", { suggestedTools: ["add_contact_mechanism"], context: { contactMechanismType: type, missingField: "postalAddress" } });
       }
       this.requireNonEmpty(postalAddress.addressLine1, "addressLine1", "postal address");
       this.requireMaxLength(postalAddress.addressLine1, "addressLine1", MAX_ADDRESS_LINE_LENGTH, "add_contact_mechanism");
@@ -576,12 +491,9 @@ export class PartyService {
       if (postalAddress.addressLine2) this.requireMaxLength(postalAddress.addressLine2, "addressLine2", MAX_ADDRESS_LINE_LENGTH, "add_contact_mechanism");
       if (postalAddress.stateProvince) this.requireMaxLength(postalAddress.stateProvince, "stateProvince", MAX_STATE_PROVINCE_LENGTH, "add_contact_mechanism");
       if (postalAddress.postalCode) this.requireMaxLength(postalAddress.postalCode, "postalCode", MAX_POSTAL_CODE_LENGTH, "add_contact_mechanism");
-    } else if (trimmedCmType === "TELECOM_NUMBER") {
+    } else if (type === "TELECOM_NUMBER") {
       if (!telecomNumber) {
-        throw new MissingSubtypeDataError(
-          "telecomNumber is required when contactMechanismType is TELECOM_NUMBER.",
-          { suggestedTools: ["add_contact_mechanism"], context: { contactMechanismType: trimmedCmType, missingField: "telecomNumber" } }
-        );
+        throw new MissingSubtypeDataError("telecomNumber is required when contactMechanismType is TELECOM_NUMBER.", { suggestedTools: ["add_contact_mechanism"], context: { contactMechanismType: type, missingField: "telecomNumber" } });
       }
       this.requireNonEmpty(telecomNumber.areaCode, "areaCode", "telecom number");
       this.requireMaxLength(telecomNumber.areaCode, "areaCode", MAX_AREA_CODE_LENGTH, "add_contact_mechanism");
@@ -589,175 +501,110 @@ export class PartyService {
       this.requireMaxLength(telecomNumber.lineNumber, "lineNumber", MAX_LINE_NUMBER_LENGTH, "add_contact_mechanism");
       if (telecomNumber.countryCode) {
         this.requireMaxLength(telecomNumber.countryCode, "countryCode", MAX_PHONE_COUNTRY_CODE_LENGTH, "add_contact_mechanism");
-        // Length check alone accepts arbitrary strings (e.g. "abc" or
-        // "++++") up to 5 chars. Validate the E.164 shape explicitly so
-        // a malformed value produces a clear error rather than being
-        // stored verbatim and breaking downstream phone-number parsing.
         if (!COUNTRY_CODE_REGEX.test(telecomNumber.countryCode)) {
-          throw new InvalidTypeValueError(
-            `countryCode must be an E.164 country code (e.g., '+1', '+44'). Received: ${telecomNumber.countryCode}.`,
-            { suggestedTools: ["add_contact_mechanism"], context: { field: "countryCode", invalidValue: telecomNumber.countryCode } }
-          );
+          throw new InvalidTypeValueError(`countryCode must be an E.164 country code (e.g., '+1', '+44'). Received: ${telecomNumber.countryCode}.`, { suggestedTools: ["add_contact_mechanism"], context: { field: "countryCode", invalidValue: telecomNumber.countryCode } });
         }
       }
       if (telecomNumber.extension) this.requireMaxLength(telecomNumber.extension, "extension", MAX_EXTENSION_LENGTH, "add_contact_mechanism");
-    } else if (trimmedCmType === "EMAIL_ADDRESS") {
+    } else if (type === "EMAIL_ADDRESS") {
       if (!emailAddress) {
-        throw new MissingSubtypeDataError(
-          "emailAddress is required when contactMechanismType is EMAIL_ADDRESS.",
-          { suggestedTools: ["add_contact_mechanism"], context: { contactMechanismType: trimmedCmType, missingField: "emailAddress" } }
-        );
+        throw new MissingSubtypeDataError("emailAddress is required when contactMechanismType is EMAIL_ADDRESS.", { suggestedTools: ["add_contact_mechanism"], context: { contactMechanismType: type, missingField: "emailAddress" } });
       }
       this.requireNonEmpty(emailAddress.email, "email", "email address");
       this.requireMaxLength(emailAddress.email, "email", MAX_EMAIL_LENGTH, "add_contact_mechanism");
-      normalizedEmail = emailAddress.email.trim().toLowerCase();
-      if (!EMAIL_REGEX.test(normalizedEmail)) {
-        throw new InvalidTypeValueError(
-          `Invalid email format: ${normalizedEmail}`,
-          { suggestedTools: ["add_contact_mechanism"], context: { contactMechanismType: trimmedCmType, field: "email", invalidValue: normalizedEmail } }
-        );
+      const normalized = emailAddress.email.trim().toLowerCase();
+      if (!EMAIL_REGEX.test(normalized)) {
+        throw new InvalidTypeValueError(`Invalid email format: ${normalized}`, { suggestedTools: ["add_contact_mechanism"], context: { contactMechanismType: type, field: "email", invalidValue: normalized } });
       }
+      return normalized;
     } else {
-      // Unknown type — fail fast before any DB round-trip
       throw new InvalidTypeValueError(
-        `CONTACT_MECHANISM_TYPE '${trimmedCmType}' is not valid. ` +
-        `Valid types: ['POSTAL_ADDRESS', 'TELECOM_NUMBER', 'EMAIL_ADDRESS'].`,
-        {
-          suggestedTools: ["get_type_table_values"],
-          context: {
-            field: "contactMechanismType",
-            invalidValue: trimmedCmType,
-            validValues: ["POSTAL_ADDRESS", "TELECOM_NUMBER", "EMAIL_ADDRESS"]
-          },
-        }
+        `CONTACT_MECHANISM_TYPE '${type}' is not valid. Valid types: ['POSTAL_ADDRESS', 'TELECOM_NUMBER', 'EMAIL_ADDRESS'].`,
+        { suggestedTools: ["get_type_table_values"], context: { field: "contactMechanismType", invalidValue: type, validValues: ["POSTAL_ADDRESS", "TELECOM_NUMBER", "EMAIL_ADDRESS"] } }
       );
     }
+  }
 
-    // ─── Database lookups (after pure validation passes) ─────────────
-    // NOTE: Type table lookup outside transaction — safe because contact
-    // mechanism types are system-managed immutable data (see createParty).
-    // For known types (POSTAL_ADDRESS, TELECOM_NUMBER, EMAIL_ADDRESS), the
-    // early validation above already confirmed the type is valid. The DB
-    // lookup here is defense-in-depth to catch stale seed data.
-
-    // Look up contact mechanism type
-    const cmType = await db.contactMechanismType.findUnique({
-      where: { name: trimmedCmType },
-    });
-    if (!cmType) {
-      throw new InvalidTypeValueError(
-        `CONTACT_MECHANISM_TYPE '${trimmedCmType}' exists as a known type but was not found in the database. ` +
-        `This may indicate the database has not been seeded. Run 'npm run db:seed'.`,
-        {
-          suggestedTools: ["get_type_table_values"],
-          context: { 
-            field: "contactMechanismType", 
-            invalidValue: trimmedCmType,
-            validValues: ["POSTAL_ADDRESS", "TELECOM_NUMBER", "EMAIL_ADDRESS"],
-            hint: "Database may need seeding"
-          },
-        }
-      );
-    }
-
-    // ─── Transaction: party existence check + contact creation ────────
-
-    // Create contact mechanism with subtype in a transaction.
-    // Party existence check is INSIDE the transaction to prevent the TOCTOU
-    // race where the party could be deleted between the check and the create.
-    const contactMechanism = await db.$transaction(async (tx: Prisma.TransactionClient) => {
-      // Verify party exists in tenant (inside tx for atomicity)
-      const existingParty = await tx.party.findFirst({
-        where: { partyId, tenantId },
-      });
+  private async createContactMechanismTransaction(
+    db: ReturnType<PrismaService["tenantScoped"]>,
+    tenantId: string, partyId: string, type: string,
+    contactMechanismTypeId: string,
+    postalAddress: AddContactMechanismInput["postalAddress"],
+    telecomNumber: AddContactMechanismInput["telecomNumber"],
+    normalizedEmail: string | undefined,
+  ) {
+    return db.$transaction(async (tx: Prisma.TransactionClient) => {
+      const existingParty = await tx.party.findFirst({ where: { partyId, tenantId } });
       if (!existingParty) {
-        throw new EntityNotFoundError(
-          `Party '${partyId}' not found.`,
-          {
-            suggestedTools: ["search_parties", "get_party"],
-            context: { partyId },
-          }
-        );
+        throw new EntityNotFoundError(`Party '${partyId}' not found.`, { suggestedTools: ["search_parties", "get_party"], context: { partyId } });
       }
-
-      const postalAddressCreate = trimmedCmType === "POSTAL_ADDRESS" && postalAddress
-        ? {
-            create: {
-              addressLine1: stripHtmlTags(postalAddress.addressLine1.trim()),
-              addressLine2: postalAddress.addressLine2?.trim() ? stripHtmlTags(postalAddress.addressLine2.trim()) : null,
-              city: stripHtmlTags(postalAddress.city.trim()),
-              stateProvince: postalAddress.stateProvince?.trim() ? stripHtmlTags(postalAddress.stateProvince.trim()) : null,
-              postalCode: postalAddress.postalCode?.trim() ? stripHtmlTags(postalAddress.postalCode.trim()) : null,
-              country: stripHtmlTags(postalAddress.country.trim().toUpperCase()),
-            },
-          }
-        : undefined;
-      const telecomNumberCreate = trimmedCmType === "TELECOM_NUMBER" && telecomNumber
-        ? {
-            create: {
-              countryCode: telecomNumber.countryCode?.trim() ? stripHtmlTags(telecomNumber.countryCode.trim()) : "+1",
-              areaCode: stripHtmlTags(telecomNumber.areaCode.trim()),
-              lineNumber: stripHtmlTags(telecomNumber.lineNumber.trim()),
-              extension: telecomNumber.extension?.trim() ? stripHtmlTags(telecomNumber.extension.trim()) : null,
-            },
-          }
-        : undefined;
-      const emailAddressCreate = trimmedCmType === "EMAIL_ADDRESS" && normalizedEmail
-        ? {
-            create: {
-              email: normalizedEmail,
-            },
-          }
-        : undefined;
 
       return tx.contactMechanism.create({
         data: {
-          contactMechanismTypeId: cmType.contactMechanismTypeId,
+          contactMechanismTypeId,
           tenantId,
-          postalAddress: postalAddressCreate,
-          telecomNumber: telecomNumberCreate,
-          emailAddress: emailAddressCreate,
-          partyContacts: {
-            create: { partyId },
-          },
+          postalAddress: type === "POSTAL_ADDRESS" && postalAddress ? { create: PartyService.sanitizePostalAddress(postalAddress) } : undefined,
+          telecomNumber: type === "TELECOM_NUMBER" && telecomNumber ? { create: PartyService.sanitizeTelecomNumber(telecomNumber) } : undefined,
+          emailAddress: type === "EMAIL_ADDRESS" && normalizedEmail ? { create: { email: normalizedEmail } } : undefined,
+          partyContacts: { create: { partyId } },
         },
-        include: {
-          postalAddress: true,
-          telecomNumber: true,
-          emailAddress: true,
-          contactMechanismType: true,
-        },
+        include: { postalAddress: true, telecomNumber: true, emailAddress: true, contactMechanismType: true },
       });
     });
+  }
 
-    this.logger.log(`Added ${trimmedCmType} to party ${partyId} (ID: ${contactMechanism.contactMechanismId})`);
-
-    // Format return data consistently
+  private static sanitizePostalAddress(addr: NonNullable<AddContactMechanismInput["postalAddress"]>) {
     return {
-      contactMechanismId: contactMechanism.contactMechanismId,
-      contactMechanismType: contactMechanism.contactMechanismType.name,
+      addressLine1: stripHtmlTags(addr.addressLine1.trim()),
+      addressLine2: addr.addressLine2?.trim() ? stripHtmlTags(addr.addressLine2.trim()) : null,
+      city: stripHtmlTags(addr.city.trim()),
+      stateProvince: addr.stateProvince?.trim() ? stripHtmlTags(addr.stateProvince.trim()) : null,
+      postalCode: addr.postalCode?.trim() ? stripHtmlTags(addr.postalCode.trim()) : null,
+      country: stripHtmlTags(addr.country.trim().toUpperCase()),
+    };
+  }
+
+  private static sanitizeTelecomNumber(tel: NonNullable<AddContactMechanismInput["telecomNumber"]>) {
+    return {
+      countryCode: tel.countryCode?.trim() ? stripHtmlTags(tel.countryCode.trim()) : "+1",
+      areaCode: stripHtmlTags(tel.areaCode.trim()),
+      lineNumber: stripHtmlTags(tel.lineNumber.trim()),
+      extension: tel.extension?.trim() ? stripHtmlTags(tel.extension.trim()) : null,
+    };
+  }
+
+  private static formatContactResult(cm: unknown, partyId: string): ContactMechanismResult {
+    const r = cm as {
+      contactMechanismId: string;
+      contactMechanismType: { name: string };
+      postalAddress: {
+        addressLine1: string; addressLine2: string | null; city: string;
+        stateProvince: string | null; postalCode: string | null; country: string;
+      } | null;
+      telecomNumber: {
+        countryCode: string | null; areaCode: string; lineNumber: string; extension: string | null;
+      } | null;
+      emailAddress: { email: string } | null;
+    };
+    return {
+      contactMechanismId: r.contactMechanismId,
+      contactMechanismType: r.contactMechanismType.name,
       partyId,
-      postalAddress: contactMechanism.postalAddress
-        ? {
-            addressLine1: contactMechanism.postalAddress.addressLine1,
-            addressLine2: contactMechanism.postalAddress.addressLine2 ?? undefined,
-            city: contactMechanism.postalAddress.city,
-            stateProvince: contactMechanism.postalAddress.stateProvince ?? undefined,
-            postalCode: contactMechanism.postalAddress.postalCode ?? undefined,
-            country: contactMechanism.postalAddress.country,
-          }
-        : null,
-      telecomNumber: contactMechanism.telecomNumber
-        ? {
-            countryCode: contactMechanism.telecomNumber.countryCode ?? undefined,
-            areaCode: contactMechanism.telecomNumber.areaCode,
-            lineNumber: contactMechanism.telecomNumber.lineNumber,
-            extension: contactMechanism.telecomNumber.extension ?? undefined,
-          }
-        : null,
-      emailAddress: contactMechanism.emailAddress
-        ? { email: contactMechanism.emailAddress.email }
-        : null,
+      postalAddress: r.postalAddress ? {
+        addressLine1: r.postalAddress.addressLine1,
+        addressLine2: r.postalAddress.addressLine2 ?? undefined,
+        city: r.postalAddress.city,
+        stateProvince: r.postalAddress.stateProvince ?? undefined,
+        postalCode: r.postalAddress.postalCode ?? undefined,
+        country: r.postalAddress.country,
+      } : null,
+      telecomNumber: r.telecomNumber ? {
+        countryCode: r.telecomNumber.countryCode ?? undefined,
+        areaCode: r.telecomNumber.areaCode,
+        lineNumber: r.telecomNumber.lineNumber,
+        extension: r.telecomNumber.extension ?? undefined,
+      } : null,
+      emailAddress: r.emailAddress ? { email: r.emailAddress.email } : null,
     };
   }
 

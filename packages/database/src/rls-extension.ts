@@ -21,7 +21,35 @@
 import { PrismaClient, Prisma } from "@prisma/client";
 import { validateTenantId, InvalidTypeValueError } from "@besterp/shared";
 
-// ─── Validation ───────────────────────────────────────────────────
+// ─── LRU Cache ────────────────────────────────────────────────────
+
+/** Simple LRU cache implementation using Map (preserves insertion order). */
+class LruCache<K, V> {
+  private readonly map = new Map<K, V>();
+  constructor(private readonly maxSize: number) {}
+
+  get(key: K): V | undefined {
+    const value = this.map.get(key);
+    if (value !== undefined) {
+      this.map.delete(key);
+      this.map.set(key, value);
+    }
+    return value;
+  }
+
+  set(key: K, value: V): void {
+    if (this.map.has(key)) {
+      this.map.delete(key);
+    } else if (this.map.size >= this.maxSize) {
+      const firstKey = this.map.keys().next().value;
+      if (firstKey !== undefined) this.map.delete(firstKey);
+    }
+    this.map.set(key, value);
+  }
+
+  has(key: K): boolean { return this.map.has(key); }
+  get size(): number { return this.map.size; }
+}
 
 // ─── Enhanced Validation Functions ────────────────────────────────
 
@@ -121,99 +149,27 @@ export interface CreateTenantClientOptions {
   maxDelegateCacheSize?: number;
 }
 
-export function createTenantClient(prisma: PrismaClient, tenantId: string, options: CreateTenantClientOptions = {}) {
-  // Use enhanced validation with security checks
-  validateTenantIdEnhanced(tenantId);
-  
-  // Validate that the Prisma client supports RLS operations
-  validatePrismaClientForRls(prisma);
-
-  // Cache size limits to prevent unbounded memory growth.
-  const MAX_METHOD_CACHE_SIZE = options.maxMethodCacheSize ?? 1000;
-  const MAX_DELEGATE_CACHE_SIZE = options.maxDelegateCacheSize ?? 50;
-
-  /** Simple LRU cache implementation using Map (preserves insertion order). */
-  class LruCache<K, V> {
-    private readonly map = new Map<K, V>();
-    constructor(private readonly maxSize: number) {}
-
-    get(key: K): V | undefined {
-      const value = this.map.get(key);
-      if (value !== undefined) {
-        // Move to end (most recently used)
-        this.map.delete(key);
-        this.map.set(key, value);
-      }
-      return value;
-    }
-
-    set(key: K, value: V): void {
-      if (this.map.has(key)) {
-        this.map.delete(key);
-      } else if (this.map.size >= this.maxSize) {
-        // Evict least recently used (first entry)
-        const firstKey = this.map.keys().next().value;
-        if (firstKey !== undefined) {
-          this.map.delete(firstKey);
-        }
-      }
-      this.map.set(key, value);
-    }
-
-    has(key: K): boolean {
-      return this.map.has(key);
-    }
-
-    get size(): number {
-      return this.map.size;
-    }
-  }
-
-  // Cache for wrapped methods to avoid creating new closures on every access.
-  // This reduces GC pressure in high-throughput scenarios where the same methods
-  // (e.g., party.findMany, $transaction) are called repeatedly.
-  const methodCache = new LruCache<string, (...args: unknown[]) => Promise<unknown>>(MAX_METHOD_CACHE_SIZE);
-
-  // Cache for model delegate proxies to avoid creating a new Proxy on every property access.
-  // Without this, each access to `scoped.party` creates a new Proxy wrapping the delegate.
-  const delegateCache = new LruCache<string, object>(MAX_DELEGATE_CACHE_SIZE);
-
-  // Pre-build the $transaction wrapper so it's allocated once, not per-access.
-  const transactionWrapper = (...args: unknown[]) => {
+function createTransactionWrapper(prisma: PrismaClient, tenantId: string) {
+  return (...args: unknown[]) => {
     let fn: ((tx: Prisma.TransactionClient) => Promise<unknown>) | undefined;
     let options: unknown;
 
-    // Prisma 5+ supports two overloads:
-    //   $transaction(fn, options?)
-    //   $transaction(options, fn)
     if (typeof args[0] === "function") {
       fn = args[0] as (tx: Prisma.TransactionClient) => Promise<unknown>;
       options = typeof args[1] === "object" && args[1] !== null ? args[1] : undefined;
     } else if (typeof args[0] === "object" && args[0] !== null) {
-      // options-first syntax: $transaction({ maxWait, timeout }, fn)
       options = args[0];
-      fn = typeof args[1] === "function"
-        ? (args[1] as (tx: Prisma.TransactionClient) => Promise<unknown>)
-        : undefined;
+      fn = typeof args[1] === "function" ? (args[1] as (tx: Prisma.TransactionClient) => Promise<unknown>) : undefined;
     }
 
     if (fn) {
       const wrappedFn = async (tx: Prisma.TransactionClient) => {
-          // Use $queryRaw with a cast to avoid Prisma type issues with void-returning functions.
-          // SELECT set_tenant_context(...)::bigint returns a single row with a single column.
-          await tx.$queryRaw`SELECT set_tenant_context(${tenantId})::bigint`;
+        await tx.$queryRaw`SELECT set_tenant_context(${tenantId})::bigint`;
         return fn(tx);
       };
-      return options
-        ? (prisma as any).$transaction(wrappedFn, options)
-        : (prisma as any).$transaction(wrappedFn);
+      return options ? (prisma as any).$transaction(wrappedFn, options) : (prisma as any).$transaction(wrappedFn);
     }
 
-    // Batch transaction: $transaction([...promises])
-    // These pass through without tenant context, which is a silent RLS bypass.
-    // Throw instead of silently passing through to prevent accidental
-    // cross-tenant data leaks. Callers must use interactive transactions
-    // ($transaction(fn)) for tenant-scoped batch operations.
     if (Array.isArray(args[0])) {
       throw new Error(
         "Batch $transaction([...promises]) is not supported on a tenant-scoped client. " +
@@ -221,142 +177,102 @@ export function createTenantClient(prisma: PrismaClient, tenantId: string, optio
       );
     }
 
-    // Unknown overload — throw instead of silently passing through,
-    // which would bypass RLS scoping.
-    throw new Error(
-      "Unsupported $transaction arguments. Use $transaction(async (tx) => { ... })"
-    );
+    throw new Error("Unsupported $transaction arguments. Use $transaction(async (tx) => { ... })");
   };
+}
 
+function createModelDelegateProxy(
+  target: PrismaClient, delegate: object, modelName: string,
+  methodCache: LruCache<string, (...args: unknown[]) => Promise<unknown>>,
+  prisma: PrismaClient, tenantId: string,
+) {
+  return new Proxy(delegate, {
+    set(_modelTarget, modelProp) {
+      throw new Error(`Cannot set '${String(modelProp)}' on model '${modelName}' of a tenant-scoped client.`);
+    },
+    deleteProperty(_modelTarget, modelProp) {
+      throw new Error(`Cannot delete '${String(modelProp)}' on model '${modelName}' of a tenant-scoped client.`);
+    },
+    get(modelTarget, method: string | symbol) {
+      if (typeof method !== "string") return (modelTarget as any)[method];
+
+      const originalFn = (modelTarget as any)[method];
+      if (typeof originalFn !== "function") return originalFn;
+      if (!DATA_METHODS.has(method)) return originalFn;
+
+      const cacheKey = `${modelName}.${method}`;
+      const cached = methodCache.get(cacheKey);
+      if (cached) return cached;
+
+      const wrapped = async function (this: unknown, ...args: unknown[]) {
+        return prisma.$transaction(async (tx) => {
+          await tx.$queryRaw`SELECT set_tenant_context(${tenantId})::bigint`;
+          const txDelegate = (tx as any)[modelName];
+          if (!txDelegate) throw new Error(`Model "${modelName}" not found on transaction client`);
+          const txMethod = txDelegate[method];
+          if (!txMethod || typeof txMethod !== "function") throw new Error(`Method "${method}" not found on model "${modelName}"`);
+          return txMethod.apply(txDelegate, args);
+        });
+      };
+      methodCache.set(cacheKey, wrapped);
+      return wrapped;
+    },
+  });
+}
+
+function createClientProxy(
+  prisma: PrismaClient, tenantId: string,
+  methodCache: LruCache<string, (...args: unknown[]) => Promise<unknown>>,
+  delegateCache: LruCache<string, object>,
+  transactionWrapper: (...args: unknown[]) => unknown,
+) {
   return new Proxy(prisma, {
-    // Prevent accidental mutation of the tenant-scoped proxy.
-    // All writes should go through the base PrismaClient, not the
-    // tenant-scoped wrapper.
     set(_target, prop) {
-      throw new Error(
-        `Cannot set '${String(prop)}' on a tenant-scoped client. Use the base PrismaClient directly.`
-      );
+      throw new Error(`Cannot set '${String(prop)}' on a tenant-scoped client. Use the base PrismaClient directly.`);
     },
     deleteProperty(_target, prop) {
-      throw new Error(
-        `Cannot delete '${String(prop)}' on a tenant-scoped client. Use the base PrismaClient directly.`
-      );
+      throw new Error(`Cannot delete '${String(prop)}' on a tenant-scoped client. Use the base PrismaClient directly.`);
     },
     get(target, prop: string | symbol) {
       if (typeof prop !== "string") return (target as any)[prop];
-
-      // ─── Intercept $transaction to inject SET LOCAL ────────────
-      // Returns the pre-built wrapper (single allocation).
-      if (prop === "$transaction") {
-        return transactionWrapper;
-      }
-
-      // Block operations that should never be called on a tenant-scoped proxy.
-      // $connect/$disconnect affect the underlying client's connection pool;
-      // $extends would bypass the Proxy's RLS wrapping.
+      if (prop === "$transaction") return transactionWrapper;
       if (BLOCKED_LIFECYCLE.has(prop)) {
-        throw new Error(
-          `Cannot call '${prop}' on a tenant-scoped client. Use the base PrismaClient directly.`
-        );
+        throw new Error(`Cannot call '${prop}' on a tenant-scoped client. Use the base PrismaClient directly.`);
       }
-
-      // Block operations that bypass RLS scoping.
-      // $queryRawTyped/$queryRaw would execute without SET LOCAL.
-      // $executeRaw/$executeRawTyped could mutate outside tenant context.
       if (BLOCKED_RAW_SQL.has(prop)) {
-        throw new Error(
-          `Cannot call '${prop}' on a tenant-scoped client. Raw SQL (including unsafe variants) bypasses RLS. Use the base PrismaClient.`
-        );
+        throw new Error(`Cannot call '${prop}' on a tenant-scoped client. Raw SQL (including unsafe variants) bypasses RLS. Use the base PrismaClient.`);
       }
-
-      // Whitelist known safe $ properties instead of allowing all unknown ones.
-      // This prevents future Prisma methods (e.g., $metrics, $queryRawSafe)
-      // from silently bypassing RLS scoping.
       if (prop.startsWith("$")) {
-        throw new Error(
-          `Cannot call '${prop}' on a tenant-scoped client. Only $transaction is allowed. Use the base PrismaClient for other operations.`
-        );
+        throw new Error(`Cannot call '${prop}' on a tenant-scoped client. Only $transaction is allowed. Use the base PrismaClient for other operations.`);
       }
       if (prop.startsWith("_")) {
-        throw new Error(
-          `Cannot access '${prop}' on a tenant-scoped client. Internal properties are not exposed.`
-        );
+        throw new Error(`Cannot access '${prop}' on a tenant-scoped client. Internal properties are not exposed.`);
       }
 
-      // Model delegate (party, person, organization, etc.)
       const cachedDelegate = delegateCache.get(prop);
       if (cachedDelegate) return cachedDelegate;
 
       const delegate = (target as any)[prop];
       if (!delegate || typeof delegate !== "object") return delegate;
 
-      const proxy = new Proxy(delegate, {
-        // Block property writes on the model delegate. Without these traps,
-        // `scoped.party.someField = "x"` would silently mutate the underlying
-        // shared model delegate and pollute it across all tenants.
-        set(_modelTarget, modelProp) {
-          throw new Error(
-            `Cannot set '${String(modelProp)}' on model '${String(prop)}' of a tenant-scoped client.`
-          );
-        },
-        deleteProperty(_modelTarget, modelProp) {
-          throw new Error(
-            `Cannot delete '${String(modelProp)}' on model '${String(prop)}' of a tenant-scoped client.`
-          );
-        },
-        get(modelTarget, method: string | symbol) {
-          if (typeof method !== "string") return (modelTarget as any)[method];
-
-          const originalFn = (modelTarget as any)[method];
-          if (typeof originalFn !== "function") return originalFn;
-
-          if (!DATA_METHODS.has(method)) return originalFn;
-
-          // Cache the wrapped function to avoid re-creating it on every call.
-          const cacheKey = `${String(prop)}.${method}`;
-          const cached = methodCache.get(cacheKey);
-          if (cached) return cached;
-
-          // Return a wrapped function that sets tenant context for standalone queries.
-          // Note: Queries inside $transaction use the intercepted $transaction path above.
-          //
-          // PERFORMANCE: Every standalone query is wrapped in its own $transaction
-          // because PostgreSQL's SET LOCAL is scoped to the current transaction.
-          // Without a transaction, SET LOCAL would log a WARNING and have no effect,
-          // leaving the RLS setting unset and causing all queries to fail the
-          // policies' current_setting('app.current_tenant', TRUE) != '' guard.
-          //
-          // For write operations the transaction is required for atomicity anyway.
-          // For read operations the overhead of a lightweight PG transaction (just
-          // BEGIN/COMMIT with no WAL fsync) is ~0.1ms — negligible for the Phase 0b
-          // workload. If this becomes a bottleneck, options to remove the per-query
-          // transaction include:
-          //   1. Switch from SET LOCAL to set_config('app.current_tenant', id, false)
-          //      (session-scoped) and pin connections to tenants at the pool level.
-          //   2. Use Prisma middleware to set the context once per request at the
-          //      NestJS/Express boundary, saving and restoring between requests.
-          //   3. Let the caller manage transactions explicitly for batches of reads.
-          const wrapped = async function (this: unknown, ...args: unknown[]) {
-            return prisma.$transaction(async (tx) => {
-              await tx.$queryRaw`SELECT set_tenant_context(${tenantId})::bigint`;
-              const txDelegate = (tx as any)[prop];
-              if (!txDelegate) {
-                throw new Error(`Model "${String(prop)}" not found on transaction client`);
-              }
-              const txMethod = txDelegate[method];
-              if (!txMethod || typeof txMethod !== "function") {
-                throw new Error(`Method "${method}" not found on model "${String(prop)}"`);
-              }
-              return txMethod.apply(txDelegate, args);
-            });
-          };
-          methodCache.set(cacheKey, wrapped);
-          return wrapped;
-        },
-      });
-
+      const proxy = createModelDelegateProxy(target, delegate, prop, methodCache, prisma, tenantId);
       delegateCache.set(prop, proxy);
       return proxy;
     },
   }) as unknown as PrismaClient;
+}
+
+export function createTenantClient(prisma: PrismaClient, tenantId: string, options: CreateTenantClientOptions = {}) {
+  validateTenantIdEnhanced(tenantId);
+  validatePrismaClientForRls(prisma);
+
+  const maxMethodCacheSize = options.maxMethodCacheSize ?? 1000;
+  const maxDelegateCacheSize = options.maxDelegateCacheSize ?? 50;
+
+  const methodCache = new LruCache<string, (...args: unknown[]) => Promise<unknown>>(maxMethodCacheSize);
+  const delegateCache = new LruCache<string, object>(maxDelegateCacheSize);
+
+  const transactionWrapper = createTransactionWrapper(prisma, tenantId);
+
+  return createClientProxy(prisma, tenantId, methodCache, delegateCache, transactionWrapper);
 }
