@@ -51,6 +51,25 @@ Each tool listing includes its risk level and confirmation requirements.`,
 
 type TypeTableRow = { id: string; name: string; description: string | null; aiPromptHint: string | null };
 
+function queryTypeTable(
+  prisma: PrismaClient,
+  delegateName: string,
+  idField: string,
+): Promise<TypeTableRow[]> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return (prisma as any)[delegateName].findMany({
+    select: { [idField]: true, name: true, description: true, aiPromptHint: true },
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  }).then((rows: any[]) =>
+    rows.map((r) => ({
+      id: r[idField] as string,
+      name: r.name as string,
+      description: r.description as string | null,
+      aiPromptHint: r.aiPromptHint as string | null,
+    }))
+  );
+}
+
 function createGetTypeTableValues(prisma: PrismaClient): ToolDefinition {
   return {
     name: "get_type_table_values",
@@ -70,15 +89,9 @@ Type tables are the ERP's vocabulary — they define what classifications are av
     handler: async (input: { typeName: "PARTY_TYPE" | "ROLE_TYPE" | "CONTACT_MECHANISM_TYPE" }, _context: ToolContext) => {
 
       const queries: Record<typeof input.typeName, () => Promise<TypeTableRow[]>> = {
-        PARTY_TYPE: () => prisma.partyType.findMany({
-          select: { partyTypeId: true, name: true, description: true, aiPromptHint: true },
-        }).then((rows) => rows.map((r) => ({ id: r.partyTypeId, name: r.name, description: r.description, aiPromptHint: r.aiPromptHint }))),
-        ROLE_TYPE: () => prisma.roleType.findMany({
-          select: { roleTypeId: true, name: true, description: true, aiPromptHint: true },
-        }).then((rows) => rows.map((r) => ({ id: r.roleTypeId, name: r.name, description: r.description, aiPromptHint: r.aiPromptHint }))),
-        CONTACT_MECHANISM_TYPE: () => prisma.contactMechanismType.findMany({
-          select: { contactMechanismTypeId: true, name: true, description: true, aiPromptHint: true },
-        }).then((rows) => rows.map((r) => ({ id: r.contactMechanismTypeId, name: r.name, description: r.description, aiPromptHint: r.aiPromptHint }))),
+        PARTY_TYPE: () => queryTypeTable(prisma, "partyType", "partyTypeId"),
+        ROLE_TYPE: () => queryTypeTable(prisma, "roleType", "roleTypeId"),
+        CONTACT_MECHANISM_TYPE: () => queryTypeTable(prisma, "contactMechanismType", "contactMechanismTypeId"),
       };
 
       const query = queries[input.typeName];

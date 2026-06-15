@@ -134,7 +134,7 @@ describe("RLS Extension", () => {
       // the flow: set tenant context, then delegate to the model.
       mockPrisma.$transaction.mockImplementationOnce(async (fn) => {
         const tx = {
-          $queryRaw: vi.fn().mockResolvedValue(undefined),
+          $executeRaw: vi.fn().mockResolvedValue(undefined),
           party: { findMany: vi.fn().mockResolvedValue([{ partyId: "p1" }]) },
         };
         return fn(tx);
@@ -150,7 +150,7 @@ describe("RLS Extension", () => {
       
       mockPrisma.$transaction.mockImplementationOnce(async (fn) => {
         const tx = {
-          $queryRaw: vi.fn().mockResolvedValue(undefined),
+          $executeRaw: vi.fn().mockResolvedValue(undefined),
           partyRole: { create: vi.fn().mockResolvedValue({ partyRoleId: "123", partyId: "party-123", roleTypeId: "role-123", fromDate: new Date(), thruDate: null }) },
         };
         return fn(tx);
@@ -172,7 +172,7 @@ describe("RLS Extension", () => {
       // The callback should NOT need to call $queryRaw itself — the proxy does it.
       mockPrisma.$transaction.mockImplementationOnce(async (fn) => {
         const tx = {
-          $queryRaw: vi.fn().mockResolvedValue(undefined),
+          $executeRaw: vi.fn().mockResolvedValue(undefined),
           party: { findMany: vi.fn().mockResolvedValue([]) },
           partyRole: { create: vi.fn().mockResolvedValue({}) },
         };

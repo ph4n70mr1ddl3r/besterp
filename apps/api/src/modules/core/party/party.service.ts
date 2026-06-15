@@ -390,6 +390,12 @@ export class PartyService {
   }
 
   private parseFromDate(fromDate: string | undefined | null): Date {
+    if (fromDate != null && fromDate.length > MAX_DATE_STRING_LENGTH) {
+      throw new InvalidTypeValueError(
+        `fromDate is too long (${fromDate.length} characters, max ${MAX_DATE_STRING_LENGTH}).`,
+        { suggestedTools: ["add_party_role"], context: { field: "fromDate", length: fromDate.length, maxLength: MAX_DATE_STRING_LENGTH } }
+      );
+    }
     const d = fromDate != null && fromDate.trim().length > 0 ? new Date(fromDate) : new Date();
     if (isNaN(d.getTime())) {
       throw new InvalidTypeValueError(

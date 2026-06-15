@@ -164,7 +164,7 @@ function createTransactionWrapper(prisma: PrismaClient, tenantId: string) {
 
     if (fn) {
       const wrappedFn = async (tx: Prisma.TransactionClient) => {
-        await tx.$queryRaw`SELECT set_tenant_context(${tenantId})::bigint`;
+        await tx.$executeRaw`SELECT set_tenant_context(${tenantId})`;
         return fn(tx);
       };
       return options ? (prisma as any).$transaction(wrappedFn, options) : (prisma as any).$transaction(wrappedFn);
@@ -206,7 +206,7 @@ function createModelDelegateProxy(
 
       const wrapped = async function (this: unknown, ...args: unknown[]) {
         return prisma.$transaction(async (tx) => {
-          await tx.$queryRaw`SELECT set_tenant_context(${tenantId})::bigint`;
+          await tx.$executeRaw`SELECT set_tenant_context(${tenantId})`;
           const txDelegate = (tx as any)[modelName];
           if (!txDelegate) throw new Error(`Model "${modelName}" not found on transaction client`);
           const txMethod = txDelegate[method];
