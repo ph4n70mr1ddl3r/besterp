@@ -179,13 +179,18 @@ export class PartyService {
     trimmedName: string, trimmedDescription: string | null,
     personData: CreatePartyInput["person"], orgData: CreatePartyInput["organization"],
   ): { sanitizedPerson: typeof personData; sanitizedOrg: typeof orgData; sanitizedName: string; sanitizedDescription: string | null } {
-    const sanitizedPerson = personData ? {
-      ...personData,
-      firstName: stripHtmlTags(personData.firstName.trim()),
-      lastName: stripHtmlTags(personData.lastName.trim()),
-      middleName: personData.middleName?.trim() ? stripHtmlTags(personData.middleName.trim()) : undefined,
-      gender: personData.gender ? stripHtmlTags(personData.gender.trim()) : undefined,
-    } : undefined;
+    const sanitizedPerson = personData
+      ? {
+          ...personData,
+          firstName: stripHtmlTags(personData.firstName.trim()),
+          lastName: stripHtmlTags(personData.lastName.trim()),
+          middleName: (() => {
+            const trimmed = personData.middleName?.trim();
+            return trimmed ? stripHtmlTags(trimmed) : undefined;
+          })(),
+          gender: personData.gender ? stripHtmlTags(personData.gender.trim()) : undefined,
+        }
+      : undefined;
     const sanitizedOrg = orgData ? {
       ...orgData,
       legalName: stripHtmlTags(orgData.legalName.trim()),
@@ -497,6 +502,7 @@ export class PartyService {
       if (postalAddress.addressLine2) this.requireMaxLength(postalAddress.addressLine2, "addressLine2", MAX_ADDRESS_LINE_LENGTH, "add_contact_mechanism");
       if (postalAddress.stateProvince) this.requireMaxLength(postalAddress.stateProvince, "stateProvince", MAX_STATE_PROVINCE_LENGTH, "add_contact_mechanism");
       if (postalAddress.postalCode) this.requireMaxLength(postalAddress.postalCode, "postalCode", MAX_POSTAL_CODE_LENGTH, "add_contact_mechanism");
+      return undefined;
     } else if (type === "TELECOM_NUMBER") {
       if (!telecomNumber) {
         throw new MissingSubtypeDataError("telecomNumber is required when contactMechanismType is TELECOM_NUMBER.", { suggestedTools: ["add_contact_mechanism"], context: { contactMechanismType: type, missingField: "telecomNumber" } });
@@ -512,6 +518,7 @@ export class PartyService {
         }
       }
       if (telecomNumber.extension) this.requireMaxLength(telecomNumber.extension, "extension", MAX_EXTENSION_LENGTH, "add_contact_mechanism");
+      return undefined;
     } else if (type === "EMAIL_ADDRESS") {
       if (!emailAddress) {
         throw new MissingSubtypeDataError("emailAddress is required when contactMechanismType is EMAIL_ADDRESS.", { suggestedTools: ["add_contact_mechanism"], context: { contactMechanismType: type, missingField: "emailAddress" } });

@@ -1,14 +1,14 @@
 // Prisma Service — NestJS-compatible PrismaClient wrapper with RLS support.
 //
- // Provides:
- // - The base admin PrismaClient (for migrations, cross-tenant operations)
- // - `createTenantClient(tenantId)` — returns an RLS-scoped client for a tenant
- //
- // IMPORTANT: The base client connects as the admin role (DATABASE_ADMIN_URL)
- // for write operations that bypass RLS. The tenant-scoped client connects
- // as the app role (DATABASE_URL) where RLS is enforced.
+// Provides:
+// - The base admin PrismaClient (for migrations, cross-tenant operations)
+// - `createTenantClient(tenantId)` — returns an RLS-scoped client for a tenant
+//
+// IMPORTANT: The base client connects as the admin role (DATABASE_ADMIN_URL)
+// for write operations that bypass RLS. The tenant-scoped client connects
+// as the app role (DATABASE_URL) where RLS is enforced.
 
- import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from "@nestjs/common";
+import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from "@nestjs/common";
  import { PrismaClient } from "@prisma/client";
  import { createTenantClient, validateTenantIdEnhanced, CreateTenantClientOptions } from "@besterp/database";
  import { MAX_TENANT_CACHE_SIZE } from "@besterp/shared";
