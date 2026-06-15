@@ -78,7 +78,10 @@ const personSchema = z.object({
   middleName: z.string().optional().transform(s => s?.trim() || undefined).pipe(z.string().max(MAX_MIDDLE_NAME_LENGTH).optional()).describe("Middle name"),
   birthDate: z.string().optional().transform(s => s?.trim() || undefined)
     .pipe(z.string().max(MAX_DATE_STRING_LENGTH).optional())
-    .refine(v => v === undefined || !isNaN(new Date(v).getTime()), "Invalid date format")
+    .refine(
+      v => v === undefined || (/^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})?)?$/.test(v) && !isNaN(new Date(v).getTime())),
+      "Invalid date format - must be ISO 8601"
+    )
     .describe("Date of birth (ISO 8601)"),
   gender: z.string().optional().transform(s => s?.trim() || undefined).pipe(z.string().max(MAX_GENDER_LENGTH).optional()).describe("Gender"),
 });
@@ -88,7 +91,10 @@ const organizationSchema = z.object({
   taxId: z.string().optional().transform(s => s?.trim() || undefined).pipe(z.string().max(MAX_TAX_ID_LENGTH).optional()).describe("Tax identification number"),
   registrationDate: z.string().optional().transform(s => s?.trim() || undefined)
     .pipe(z.string().max(MAX_DATE_STRING_LENGTH).optional())
-    .refine(v => v === undefined || !isNaN(new Date(v).getTime()), "Invalid date format")
+    .refine(
+      v => v === undefined || (/^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})?)?$/.test(v) && !isNaN(new Date(v).getTime())),
+      "Invalid date format - must be ISO 8601"
+    )
     .describe("Date of registration (ISO 8601)"),
 });
 
@@ -123,30 +129,38 @@ const createPartySchema = z.object({
   description: z.string().optional().transform(s => s?.trim() || undefined).pipe(z.string().max(MAX_PARTY_DESCRIPTION_LENGTH).optional()).describe("Optional description (max 1000 characters)"),
   person: personSchema.optional().describe("Person details (required when partyType is PERSON)"),
   organization: organizationSchema.optional().describe("Organization details (required when partyType is ORGANIZATION)"),
-}).refine(
-  (data) => {
-    if (data.partyType === "PERSON") return data.person !== undefined;
-    if (data.partyType === "ORGANIZATION") return data.organization !== undefined;
-    return true;
-  },
-  {
-    message: "'person' is required when partyType is PERSON, 'organization' is required when partyType is ORGANIZATION",
-    path: ["person"],
+}).superRefine((data, ctx) => {
+  if (data.partyType === "PERSON") {
+    if (data.person === undefined) {
+      ctx.addIssue({
+        code: "custom",
+        message: "'person' is required when partyType is PERSON",
+        path: ["person"],
+      });
+    }
+    if (data.organization !== undefined) {
+      ctx.addIssue({
+        code: "custom",
+        message: "'organization' should not be provided when partyType is PERSON",
+        path: ["organization"],
+      });
+    }
   }
-).superRefine((data, ctx) => {
-  if (data.partyType === "PERSON" && data.organization !== undefined) {
-    ctx.addIssue({
-      code: "custom",
-      message: "Only the subtype matching partyType should be provided (e.g., don't send 'organization' when partyType is PERSON)",
-      path: ["organization"],
-    });
-  }
-  if (data.partyType === "ORGANIZATION" && data.person !== undefined) {
-    ctx.addIssue({
-      code: "custom",
-      message: "Only the subtype matching partyType should be provided (e.g., don't send 'person' when partyType is ORGANIZATION)",
-      path: ["person"],
-    });
+  if (data.partyType === "ORGANIZATION") {
+    if (data.organization === undefined) {
+      ctx.addIssue({
+        code: "custom",
+        message: "'organization' is required when partyType is ORGANIZATION",
+        path: ["organization"],
+      });
+    }
+    if (data.person !== undefined) {
+      ctx.addIssue({
+        code: "custom",
+        message: "'person' should not be provided when partyType is ORGANIZATION",
+        path: ["person"],
+      });
+    }
   }
 });
 
@@ -281,7 +295,10 @@ const addPartyRoleSchema = z.object({
   roleType: z.string().transform(s => s.trim()).pipe(z.string().min(1).max(MAX_ROLE_TYPE_LENGTH)).describe("Role type name (e.g., 'Customer', 'Supplier', 'Employee')"),
   fromDate: z.string().optional().transform(s => s?.trim() || undefined)
     .pipe(z.string().max(MAX_DATE_STRING_LENGTH).optional())
-    .refine(v => v === undefined || !isNaN(new Date(v).getTime()), "Invalid date format")
+    .refine(
+      v => v === undefined || (/^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})?)?$/.test(v) && !isNaN(new Date(v).getTime())),
+      "Invalid date format - must be ISO 8601"
+    )
     .describe(`Start date for the role (ISO 8601, max ${MAX_DATE_STRING_LENGTH} chars, default: now)`),
 });
 
@@ -335,38 +352,75 @@ const addContactMechanismSchema = z.object({
     .describe("Phone number details (required when contactMechanismType is TELECOM_NUMBER)"),
   emailAddress: emailAddressSchema.optional()
     .describe("Email details (required when contactMechanismType is EMAIL_ADDRESS)"),
-}).refine(
-  (data) => {
-    if (data.contactMechanismType === "POSTAL_ADDRESS") return data.postalAddress !== undefined;
-    if (data.contactMechanismType === "TELECOM_NUMBER") return data.telecomNumber !== undefined;
-    if (data.contactMechanismType === "EMAIL_ADDRESS") return data.emailAddress !== undefined;
-    return true;
-  },
-  {
-    message: "The matching subtype data must be provided for the chosen contactMechanismType",
-    path: ["postalAddress"],
+}).superRefine((data, ctx) => {
+  if (data.contactMechanismType === "POSTAL_ADDRESS") {
+    if (data.postalAddress === undefined) {
+      ctx.addIssue({
+        code: "custom",
+        message: "postalAddress is required when contactMechanismType is POSTAL_ADDRESS",
+        path: ["postalAddress"],
+      });
+    }
+    if (data.telecomNumber) {
+      ctx.addIssue({
+        code: "custom",
+        message: "telecomNumber should not be provided when contactMechanismType is POSTAL_ADDRESS",
+        path: ["telecomNumber"],
+      });
+    }
+    if (data.emailAddress) {
+      ctx.addIssue({
+        code: "custom",
+        message: "emailAddress should not be provided when contactMechanismType is POSTAL_ADDRESS",
+        path: ["emailAddress"],
+      });
+    }
   }
-).superRefine((data, ctx) => {
-  if (data.contactMechanismType === "POSTAL_ADDRESS" && (data.telecomNumber || data.emailAddress)) {
-    ctx.addIssue({
-      code: "custom",
-      message: "Only the subtype matching contactMechanismType should be provided",
-      path: ["telecomNumber"],
-    });
+  if (data.contactMechanismType === "TELECOM_NUMBER") {
+    if (data.telecomNumber === undefined) {
+      ctx.addIssue({
+        code: "custom",
+        message: "telecomNumber is required when contactMechanismType is TELECOM_NUMBER",
+        path: ["telecomNumber"],
+      });
+    }
+    if (data.postalAddress) {
+      ctx.addIssue({
+        code: "custom",
+        message: "postalAddress should not be provided when contactMechanismType is TELECOM_NUMBER",
+        path: ["postalAddress"],
+      });
+    }
+    if (data.emailAddress) {
+      ctx.addIssue({
+        code: "custom",
+        message: "emailAddress should not be provided when contactMechanismType is TELECOM_NUMBER",
+        path: ["emailAddress"],
+      });
+    }
   }
-  if (data.contactMechanismType === "TELECOM_NUMBER" && (data.postalAddress || data.emailAddress)) {
-    ctx.addIssue({
-      code: "custom",
-      message: "Only the subtype matching contactMechanismType should be provided",
-      path: ["postalAddress"],
-    });
-  }
-  if (data.contactMechanismType === "EMAIL_ADDRESS" && (data.postalAddress || data.telecomNumber)) {
-    ctx.addIssue({
-      code: "custom",
-      message: "Only the subtype matching contactMechanismType should be provided",
-      path: ["postalAddress"],
-    });
+  if (data.contactMechanismType === "EMAIL_ADDRESS") {
+    if (data.emailAddress === undefined) {
+      ctx.addIssue({
+        code: "custom",
+        message: "emailAddress is required when contactMechanismType is EMAIL_ADDRESS",
+        path: ["emailAddress"],
+      });
+    }
+    if (data.postalAddress) {
+      ctx.addIssue({
+        code: "custom",
+        message: "postalAddress should not be provided when contactMechanismType is EMAIL_ADDRESS",
+        path: ["postalAddress"],
+      });
+    }
+    if (data.telecomNumber) {
+      ctx.addIssue({
+        code: "custom",
+        message: "telecomNumber should not be provided when contactMechanismType is EMAIL_ADDRESS",
+        path: ["telecomNumber"],
+      });
+    }
   }
 });
 

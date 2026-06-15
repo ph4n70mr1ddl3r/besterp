@@ -194,6 +194,7 @@
     this.tenantClientCache.set(tenantId, new WeakRef(client));
     this.unregisterTokens.set(tenantId, token);
     this.cacheRegistry.register(client, tenantId, token);
+    this.lastAccessed.set(tenantId, Date.now());
     return client;
   }
 
