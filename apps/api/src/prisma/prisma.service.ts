@@ -9,13 +9,13 @@
 // as the app role (DATABASE_URL) where RLS is enforced.
 
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from "@nestjs/common";
- import { PrismaClient } from "@prisma/client";
- import { createTenantClient, validateTenantIdEnhanced, CreateTenantClientOptions } from "@besterp/database";
- import { MAX_TENANT_CACHE_SIZE } from "@besterp/shared";
+import { PrismaClient } from "@prisma/client";
+import { createTenantClient, validateTenantIdEnhanced, CreateTenantClientOptions } from "@besterp/database";
+import { MAX_TENANT_CACHE_SIZE } from "@besterp/shared";
 
- // Cache configuration constants — exported for testing and override via env
- export const DEFAULT_MAX_METHOD_CACHE_SIZE = 1000;
- export const DEFAULT_MAX_DELEGATE_CACHE_SIZE = 50;
+// Cache configuration constants — exported for testing and override via env
+export const DEFAULT_MAX_METHOD_CACHE_SIZE = 1000;
+export const DEFAULT_MAX_DELEGATE_CACHE_SIZE = 50;
 
  @Injectable()
  export class PrismaService

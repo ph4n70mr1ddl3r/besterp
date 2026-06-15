@@ -26,15 +26,18 @@ import { validateTenantId, InvalidTypeValueError } from "@besterp/shared";
 /** Simple LRU cache implementation using Map (preserves insertion order). */
 class LruCache<K, V> {
   private readonly map = new Map<K, V>();
-  constructor(private readonly maxSize: number) {}
+  constructor(private readonly maxSize: number) {
+    if (maxSize < 1) throw new RangeError(`LruCache maxSize must be >= 1, got ${maxSize}`);
+  }
 
   get(key: K): V | undefined {
-    const value = this.map.get(key);
-    if (value !== undefined) {
+    if (this.map.has(key)) {
+      const value = this.map.get(key)!;
       this.map.delete(key);
       this.map.set(key, value);
+      return value;
     }
-    return value;
+    return undefined;
   }
 
   set(key: K, value: V): void {
@@ -79,7 +82,7 @@ export function validateTenantIdEnhanced(tenantId: string): void {
  * Validate that a Prisma client has the required methods for RLS.
  */
 export function validatePrismaClientForRls(prisma: PrismaClient): void {
-  if (!prisma || typeof prisma.$queryRaw !== "function") {
+  if (!prisma || typeof prisma.$executeRaw !== "function") {
     throw new InvalidTypeValueError(
       "Prisma client does not support RLS operations. Make sure it's connected with the correct role.",
       { context: { provided: typeof prisma } }

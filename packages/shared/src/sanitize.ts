@@ -87,7 +87,7 @@ export function stripHtmlTags(input: string): string {
  * catches those and returns the Unicode replacement character so the
  * sanitizer loop continues without crashing.
  */
-function safeFromCodePoint(codePoint: number): string {
+export function safeFromCodePoint(codePoint: number): string {
   try {
     return String.fromCodePoint(codePoint);
   } catch {

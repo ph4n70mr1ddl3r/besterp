@@ -83,18 +83,24 @@ export function auditLogMiddleware(prisma: PrismaClient): ToolMiddleware {
       return next(input, context);
     }
 
-    let result: ToolResult;
-    try {
-      result = await next(input, context);
-    } catch (error: unknown) {
-      logWithBackpressure({
+    function baseEntry(): AuditLogEntry {
+      return {
         agentId: context.agentId,
         conversationId: context.conversationId,
         reasoning: context.reasoning,
         userId: context.userId,
         tenantId: context.tenantId,
         toolCalled: definition.name,
-        toolInput: input as Record<string, unknown>,
+        toolInput: input,
+      };
+    }
+
+    let result: ToolResult;
+    try {
+      result = await next(input, context);
+    } catch (error: unknown) {
+      logWithBackpressure({
+        ...baseEntry(),
         toolOutput: { error: { message: error instanceof Error ? error.message : String(error), code: getErrorCode(error) } },
       });
 
@@ -102,13 +108,7 @@ export function auditLogMiddleware(prisma: PrismaClient): ToolMiddleware {
     }
 
     logWithBackpressure({
-      agentId: context.agentId,
-      conversationId: context.conversationId,
-      reasoning: context.reasoning,
-      userId: context.userId,
-      tenantId: context.tenantId,
-      toolCalled: definition.name,
-      toolInput: input as Record<string, unknown>,
+      ...baseEntry(),
       toolOutput: result.data ?? null,
     });
 

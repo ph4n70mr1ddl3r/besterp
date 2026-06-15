@@ -36,6 +36,7 @@ const textDecoder = new TextDecoder();
  * for diagnostics while bounding the row size.
  */
 export function capString(value: unknown, maxBytes: number): string {
+  maxBytes = Math.max(1, maxBytes);
   if (typeof value !== "string") {
     return "Tool returned a soft failure";
   }
@@ -67,6 +68,7 @@ export function capString(value: unknown, maxBytes: number): string {
  * serialisation failure.
  */
 export function truncateValue(value: unknown, maxSize: number = MAX_STORED_PAYLOAD_SIZE): unknown {
+  maxSize = Math.max(1, maxSize);
   if (value === undefined) return undefined;
 
   // Fast path: null, primitives are always JSON-safe — skip the

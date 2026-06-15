@@ -6,7 +6,6 @@
 
 import { z } from "zod";
 import { PrismaClient } from "@prisma/client";
-import { InvalidTypeValueError } from "@besterp/shared";
 import {
   ToolRegistry,
   ToolDefinition,
@@ -94,14 +93,7 @@ Type tables are the ERP's vocabulary — they define what classifications are av
         CONTACT_MECHANISM_TYPE: () => queryTypeTable(prisma, "contactMechanismType", "contactMechanismTypeId"),
       };
 
-      const query = queries[input.typeName];
-      if (!query) {
-        throw new InvalidTypeValueError(
-          `Unhandled type table: ${input.typeName}`,
-          { context: { typeName: input.typeName } }
-        );
-      }
-      const values = await query();
+      const values = await queries[input.typeName]();
 
       return {
         success: true,

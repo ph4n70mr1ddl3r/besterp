@@ -39,3 +39,27 @@ export const EMAIL_REGEX: Readonly<RegExp> = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
  * Used by PartyService.addContactMechanism (telecom type).
  */
 export const COUNTRY_CODE_REGEX: Readonly<RegExp> = /^\+[1-9]\d{0,2}$/;
+
+/**
+ * ISO 8601 date validation regex.
+ *
+ * Accepts:
+ * - `2024-06-15` (date-only)
+ * - `2024-06-15T00:00:00` (local time)
+ * - `2024-06-15T00:00:00.000Z` (UTC with milliseconds)
+ * - `2024-06-15T00:00:00+01:00` (with timezone offset)
+ *
+ * Used by:
+ * - Zod schemas in party-tools.ts (birthDate, registrationDate, fromDate)
+ * - PartyService.requireValidDate()
+ */
+export const ISO_DATE_REGEX: Readonly<RegExp> =
+  /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})?)?$/;
+
+/**
+ * Validate that a string is a parseable ISO 8601 date.
+ * Combines regex validation with Date.parse() for defense-in-depth.
+ */
+export function isValidISODate(value: string): boolean {
+  return ISO_DATE_REGEX.test(value) && !isNaN(new Date(value).getTime());
+}

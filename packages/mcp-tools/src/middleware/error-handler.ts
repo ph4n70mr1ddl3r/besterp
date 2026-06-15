@@ -16,8 +16,9 @@ import { ToolMiddleware, ToolResult } from "../schema/tool-definition.js";
  * Error handler middleware — catches all exceptions and returns rich errors.
  */
 function pluralize(entity: string): string {
-  if (entity.endsWith("y")) return entity.slice(0, -1) + "ies";
-  if (entity.endsWith("s") || entity.endsWith("x") || entity.endsWith("z")) return entity + "es";
+  const lower = entity.toLowerCase();
+  if (lower.endsWith("y")) return entity.slice(0, -1) + "ies";
+  if (lower.endsWith("s") || lower.endsWith("x") || lower.endsWith("z")) return entity + "es";
   return entity + "s";
 }
 

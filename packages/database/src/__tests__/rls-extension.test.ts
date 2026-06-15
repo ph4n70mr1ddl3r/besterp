@@ -66,7 +66,7 @@ describe("RLS Extension", () => {
   describe("validatePrismaClientForRls", () => {
     it("should accept valid Prisma clients", () => {
       const mockPrisma = {
-        $queryRaw: vi.fn(),
+        $executeRaw: vi.fn(),
         $connect: vi.fn(),
         $disconnect: vi.fn(),
       };
@@ -79,7 +79,7 @@ describe("RLS Extension", () => {
       expect(() => validatePrismaClientForRls(undefined as any)).toThrow(InvalidTypeValueError);
     });
 
-    it("should reject Prisma clients without $queryRaw method", () => {
+    it("should reject Prisma clients without $executeRaw method", () => {
       const mockPrisma = {
         $connect: vi.fn(),
         $disconnect: vi.fn(),
@@ -99,7 +99,7 @@ describe("RLS Extension", () => {
         partyRole: { create: vi.fn() },
       };
       mockPrisma = {
-        $queryRaw: vi.fn(),
+        $executeRaw: vi.fn(),
         $connect: vi.fn(),
         $disconnect: vi.fn(),
         $transaction: vi.fn().mockImplementation((fn, _opts?) => {
@@ -257,7 +257,7 @@ describe("RLS Extension", () => {
 
     beforeEach(() => {
       mockPrisma = {
-        $queryRaw: vi.fn(),
+        $executeRaw: vi.fn(),
         $connect: vi.fn(),
         $disconnect: vi.fn(),
         $transaction: vi.fn(),

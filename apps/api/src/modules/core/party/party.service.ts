@@ -224,9 +224,9 @@ export class PartyService {
           create: {
             firstName: sanitizedPerson.firstName,
             lastName: sanitizedPerson.lastName,
-            middleName: sanitizedPerson.middleName || null,
+            middleName: sanitizedPerson.middleName ?? null,
             birthDate: sanitizedPerson.birthDate ? PartyService.safeParseDate(sanitizedPerson.birthDate) : null,
-            gender: sanitizedPerson.gender || null,
+            gender: sanitizedPerson.gender ?? null,
           },
         };
       }
@@ -234,7 +234,7 @@ export class PartyService {
         data.organization = {
           create: {
             legalName: sanitizedOrg.legalName,
-            taxId: sanitizedOrg.taxId || null,
+            taxId: sanitizedOrg.taxId ?? null,
             registrationDate: sanitizedOrg.registrationDate
               ? PartyService.safeParseDate(sanitizedOrg.registrationDate)
               : null,

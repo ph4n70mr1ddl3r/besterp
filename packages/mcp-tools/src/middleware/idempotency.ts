@@ -40,8 +40,7 @@ export function idempotencyMiddleware(prisma: PrismaClient): ToolMiddleware {
       return next(input, context);
     }
 
-    const toolInput = input as Record<string, unknown>;
-    const inputHash = hashInput(toolInput);
+    const inputHash = hashInput(input);
 
     const { existingRecord, recordCreated } = await acquireIdempotencyRecord(prisma, idempotencyKey, tenantId, userId, agentId, conversationId, definition.name, inputHash);
 
@@ -62,6 +61,10 @@ export function idempotencyMiddleware(prisma: PrismaClient): ToolMiddleware {
 
     return executeAndUpdate(prisma, idempotencyKey, input, context, definition, next);
   };
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms).unref());
 }
 
 function logIdempotencyWarn(message: string): void {
@@ -105,7 +108,7 @@ async function acquireIdempotencyRecord(
     } catch (e) {
       const code = getErrorCode(e);
       if (code === "P2034" && attempt < IDEMPOTENCY_MAX_RETRIES - 1) {
-        await new Promise<void>((r) => setTimeout(r, 50 * (attempt + 1)).unref());
+        await delay(50 * (attempt + 1));
         continue;
       }
       if (code !== "P2034") throw e;
@@ -213,7 +216,7 @@ async function updateIdempotencyRecordWithRetry(
       return;
     } catch (updateErr) {
       if (attempt < IDEMPOTENCY_MAX_RETRIES - 1) {
-        await new Promise<void>((r) => setTimeout(r, 50 * (attempt + 1)).unref());
+        await delay(50 * (attempt + 1));
         continue;
       }
       logIdempotencyWarn(`Failed to update idempotency record '${idempotencyKey}' after ${IDEMPOTENCY_MAX_RETRIES} attempts: ${updateErr instanceof Error ? updateErr.message : String(updateErr)}`);
