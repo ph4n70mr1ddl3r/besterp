@@ -934,7 +934,7 @@ describe("PartyService", () => {
         },
       } as any;
 
-      await expect(partyService.addContactMechanism(input)).rejects.toThrow(MissingSubtypeDataError);
+      await expect(partyService.addContactMechanism(input)).rejects.toThrow(InvalidTypeValueError);
     });
 
     it("should validate email format", async () => {
@@ -989,7 +989,7 @@ describe("PartyService", () => {
       await expect(partyService.addContactMechanism(input)).rejects.toThrow(EntityNotFoundError);
     });
 
-    it("should throw MissingSubtypeDataError when city is missing for postal address", async () => {
+    it("should throw InvalidTypeValueError when city is missing for postal address", async () => {
       const input = {
         tenantId: "tenant-1",
         partyId: "12345678-1234-1234-1234-123456789abc",
@@ -1008,10 +1008,10 @@ describe("PartyService", () => {
 
       mockPrismaService.tenantScoped.mockReturnValue(mockDb);
 
-      await expect(partyService.addContactMechanism(input)).rejects.toThrow(MissingSubtypeDataError);
+      await expect(partyService.addContactMechanism(input)).rejects.toThrow(InvalidTypeValueError);
     });
 
-    it("should throw MissingSubtypeDataError when country is missing for postal address", async () => {
+    it("should throw InvalidTypeValueError when country is missing for postal address", async () => {
       const input = {
         tenantId: "tenant-1",
         partyId: "12345678-1234-1234-1234-123456789abc",
@@ -1030,7 +1030,7 @@ describe("PartyService", () => {
 
       mockPrismaService.tenantScoped.mockReturnValue(mockDb);
 
-      await expect(partyService.addContactMechanism(input)).rejects.toThrow(MissingSubtypeDataError);
+      await expect(partyService.addContactMechanism(input)).rejects.toThrow(InvalidTypeValueError);
     });
 
     it("should add telecom number successfully", async () => {
@@ -1128,7 +1128,7 @@ describe("PartyService", () => {
       expect(result.emailAddress?.email).toBe("test@example.com");
     });
 
-    it("should throw MissingSubtypeDataError when areaCode is missing for telecom", async () => {
+    it("should throw InvalidTypeValueError when areaCode is missing for telecom", async () => {
       const input = {
         tenantId: "tenant-1",
         partyId: "12345678-1234-1234-1234-123456789abc",
@@ -1146,7 +1146,7 @@ describe("PartyService", () => {
 
       mockPrismaService.tenantScoped.mockReturnValue(mockDb);
 
-      await expect(partyService.addContactMechanism(input)).rejects.toThrow(MissingSubtypeDataError);
+      await expect(partyService.addContactMechanism(input)).rejects.toThrow(InvalidTypeValueError);
     });
 
     it("should throw InvalidTypeValueError for invalid partyId format", async () => {

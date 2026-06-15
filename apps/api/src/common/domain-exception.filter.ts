@@ -24,7 +24,7 @@ function domainErrorToStatus(error: DomainError): number {
     case "DUPLICATE_ENTITY":
       return 409;
     case "CONCURRENCY_CONFLICT":
-      return 412;
+      return 409;
     case "INVALID_TENANT_ID":
     case "MISSING_SUBTYPE_DATA":
     case "INVALID_TYPE_VALUE":

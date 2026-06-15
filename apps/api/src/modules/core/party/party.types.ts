@@ -39,9 +39,9 @@ export interface PartyResult {
   person: {
     firstName: string;
     lastName: string;
-    middleName?: string | null;
-    birthDate?: string | null;
-    gender?: string | null;
+    middleName: string | null;
+    birthDate: string | null;
+    gender: string | null;
   } | null;
   organization: {
     legalName: string;
@@ -91,7 +91,7 @@ export interface PartyRoleResult {
   partyId: string;
   roleTypeName: string;
   fromDate: string;
-  thruDate?: string | null;
+  thruDate: string | null;
 }
 
 // ─── Add Contact Mechanism ────────────────────────────────────────

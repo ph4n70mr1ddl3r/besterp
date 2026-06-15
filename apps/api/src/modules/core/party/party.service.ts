@@ -619,7 +619,7 @@ export class PartyService {
 
   // ─── Private Helpers ──────────────────────────────────────────
 
-  /** Validate a non-empty required string field, throwing MissingSubtypeDataError. */
+  /** Validate a non-empty required string field, throwing InvalidTypeValueError. */
   private requireNonEmpty(
     value: string | undefined | null,
     field: string,
@@ -627,7 +627,7 @@ export class PartyService {
     tool = "add_contact_mechanism",
   ): void {
     if (!value || value.trim().length === 0) {
-      throw new MissingSubtypeDataError(
+      throw new InvalidTypeValueError(
         `${field} is required for ${parentType}`,
         { suggestedTools: [tool], context: { parentType, field } }
       );
