@@ -12,6 +12,21 @@ import {
   ToolContext,
 } from "@besterp/mcp-tools";
 
+// Minimal type for a Prisma model delegate with findMany — avoids `any`
+// while supporting any model name accessed via string key.
+interface ModelDelegate {
+  findMany(args?: { select?: Record<string, boolean> }): Promise<Record<string, unknown>[]>;
+}
+
+// Mapping from type table names to Prisma model delegate keys and ID fields.
+const TYPE_TABLE_MAP = {
+  PARTY_TYPE: { delegateKey: "partyType", idField: "partyTypeId" },
+  ROLE_TYPE: { delegateKey: "roleType", idField: "roleTypeId" },
+  CONTACT_MECHANISM_TYPE: { delegateKey: "contactMechanismType", idField: "contactMechanismTypeId" },
+} as const;
+
+type TypeName = keyof typeof TYPE_TABLE_MAP;
+
 // ─── Tool: list_available_tools ───────────────────────────────────
 
 function createListAvailableTools(registry: ToolRegistry): ToolDefinition {
@@ -52,23 +67,21 @@ type TypeTableRow = { id: string; name: string; description: string | null; aiPr
 
 async function queryTypeTable(
   prisma: PrismaClient,
-  delegateName: string,
+  delegateKey: string,
   idField: string,
 ): Promise<TypeTableRow[]> {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const delegate = (prisma as any)[delegateName];
-  if (!delegate || typeof delegate.findMany !== "function") {
-    throw new Error(`Prisma delegate '${delegateName}' not found. Ensure the model exists in the schema.`);
+  const delegate = (prisma as unknown as Record<string, unknown>)[delegateKey];
+  if (!delegate || typeof delegate !== "object" || typeof (delegate as ModelDelegate).findMany !== "function") {
+    throw new Error(`Prisma delegate '${delegateKey}' not found. Ensure the model exists in the schema.`);
   }
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const rows: any[] = await delegate.findMany({
+  const rows = await (delegate as ModelDelegate).findMany({
     select: { [idField]: true, name: true, description: true, aiPromptHint: true },
   });
   return rows.map((r) => ({
-    id: r[idField] as string,
-    name: r.name as string,
-    description: r.description as string | null,
-    aiPromptHint: r.aiPromptHint as string | null,
+    id: String(r[idField] ?? ""),
+    name: String(r.name ?? ""),
+    description: (r.description as string | null) ?? null,
+    aiPromptHint: (r.aiPromptHint as string | null) ?? null,
   }));
 }
 
@@ -88,15 +101,9 @@ Type tables are the ERP's vocabulary — they define what classifications are av
     riskLevel: "none",
     tags: ["discovery", "type-table"],
 
-    handler: async (input: { typeName: "PARTY_TYPE" | "ROLE_TYPE" | "CONTACT_MECHANISM_TYPE" }, _context: ToolContext) => {
-
-      const queries: Record<typeof input.typeName, () => Promise<TypeTableRow[]>> = {
-        PARTY_TYPE: () => queryTypeTable(prisma, "partyType", "partyTypeId"),
-        ROLE_TYPE: () => queryTypeTable(prisma, "roleType", "roleTypeId"),
-        CONTACT_MECHANISM_TYPE: () => queryTypeTable(prisma, "contactMechanismType", "contactMechanismTypeId"),
-      };
-
-      const values = await queries[input.typeName]();
+    handler: async (input: { typeName: TypeName }, _context: ToolContext) => {
+      const config = TYPE_TABLE_MAP[input.typeName];
+      const values = await queryTypeTable(prisma, config.delegateKey, config.idField);
 
       return {
         success: true,

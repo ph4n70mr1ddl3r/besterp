@@ -28,23 +28,26 @@ export class QueueModule {
     if (!host || host.trim().length === 0) {
       throw new Error("Redis host is required. Set REDIS_HOST or provide options.redis.host.");
     }
-    let port: number;
-    if (options?.redis?.port) {
-      port = options.redis.port;
-    } else if (process.env.REDIS_PORT) {
-      port = Number.parseInt(process.env.REDIS_PORT, 10);
-    } else {
-      port = 6379;
-      this.logger.warn(
-        "REDIS_PORT is not set — defaulting to 6379. Note: .env.example uses 6380. " +
-        "Set REDIS_PORT explicitly to avoid connecting to the wrong Redis instance."
-      );
-    }
+    const port = this.resolvePort(options?.redis?.port);
+    const password = options?.redis?.password || process.env.REDIS_PASSWORD;
+    return { host, port, password };
+  }
+
+  private static resolvePort(explicitPort?: number): number {
+    if (explicitPort !== undefined) return this.validatePort(explicitPort);
+    if (process.env.REDIS_PORT) return this.validatePort(Number.parseInt(process.env.REDIS_PORT, 10));
+    this.logger.warn(
+      "REDIS_PORT is not set — defaulting to 6379. Note: .env.example uses 6380. " +
+      "Set REDIS_PORT explicitly to avoid connecting to the wrong Redis instance."
+    );
+    return 6379;
+  }
+
+  private static validatePort(port: number): number {
     if (!Number.isFinite(port) || port < 1 || port > 65535) {
       throw new Error(`Invalid Redis port: ${port}. Must be a number between 1 and 65535.`);
     }
-    const password = options?.redis?.password || process.env.REDIS_PASSWORD;
-    return { host, port, password };
+    return port;
   }
 
   private static redisRetryStrategy(times: number): number | undefined {

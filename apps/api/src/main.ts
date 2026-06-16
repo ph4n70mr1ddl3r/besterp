@@ -54,8 +54,7 @@ function setupGracefulShutdown(app: INestApplication): void {
   }
 
   process.on("uncaughtException", (error) => {
-    console.error("❌ Uncaught exception:", error instanceof Error ? error.stack : error);
-    process.exit(1);
+    void gracefulShutdown("Uncaught exception", error);
   });
 
   process.on("unhandledRejection", (reason) => {
