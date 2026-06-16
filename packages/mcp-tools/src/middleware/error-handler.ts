@@ -17,8 +17,12 @@ import { ToolMiddleware, ToolResult } from "../schema/tool-definition.js";
  */
 function pluralize(entity: string): string {
   const lower = entity.toLowerCase();
-  if (lower.endsWith("y")) return entity.slice(0, -1) + "ies";
-  if (lower.endsWith("s") || lower.endsWith("x") || lower.endsWith("z")) return entity + "es";
+  if (lower.endsWith("y") && !lower.endsWith("ay") && !lower.endsWith("ey") && !lower.endsWith("oy") && !lower.endsWith("uy")) {
+    return entity.slice(0, -1) + "ies";
+  }
+  if (lower.endsWith("s") || lower.endsWith("x") || lower.endsWith("z") || lower.endsWith("ch") || lower.endsWith("sh")) {
+    return entity + "es";
+  }
   return entity + "s";
 }
 
