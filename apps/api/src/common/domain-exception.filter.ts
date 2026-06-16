@@ -32,9 +32,6 @@ function domainErrorToStatus(error: DomainError): number {
     case "TENANT_CONTEXT_FAILED":
       return 503;
     default:
-      // Unexpected domain error codes — return 500 to flag the issue.
-      // This should never happen; if it does, a new DomainError subclass
-      // was added without updating this mapping.
       return 500;
   }
 }

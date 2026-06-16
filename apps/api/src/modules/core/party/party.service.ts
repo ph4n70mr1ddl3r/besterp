@@ -88,7 +88,7 @@ export class PartyService {
     organization: true,
     partyType: true,
     roles: { include: { roleType: true } },
-  } as const;
+  } satisfies Prisma.PartyInclude;
 
   // ─── Create Party ─────────────────────────────────────────────
 
@@ -651,20 +651,18 @@ export class PartyService {
     }
   }
 
-  /** Validate that a string does not exceed maxLength after trimming.
-   *  Trimming is done internally so callers don't need to pre-trim. */
+  /** Validate that a string does not exceed maxLength.
+   *  Callers are expected to pass already-trimmed values. */
   private requireMaxLength(
     value: string,
     field: string,
     maxLength: number,
     tool = "create_party",
   ): void {
-    const originalLength = value.length;
-    const trimmed = value.trim();
-    if (trimmed.length > maxLength) {
+    if (value.length > maxLength) {
       throw new InvalidTypeValueError(
-        `${field} is too long (${trimmed.length} characters, max ${maxLength})`,
-        { suggestedTools: [tool], context: { field, length: trimmed.length, originalLength, maxLength } }
+        `${field} is too long (${value.length} characters, max ${maxLength})`,
+        { suggestedTools: [tool], context: { field, length: value.length, maxLength } }
       );
     }
   }

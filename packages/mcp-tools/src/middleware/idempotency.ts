@@ -34,9 +34,7 @@ export function idempotencyMiddleware(prisma: PrismaClient): ToolMiddleware {
 
     const { idempotencyKey, tenantId, userId, agentId, conversationId } = context;
 
-    if (!idempotencyKey) return next(input, context);
-
-    if (typeof idempotencyKey !== "string" || idempotencyKey.length > MAX_IDEMPOTENCY_KEY_LENGTH) {
+    if (!idempotencyKey || typeof idempotencyKey !== "string" || idempotencyKey.length > MAX_IDEMPOTENCY_KEY_LENGTH) {
       return next(input, context);
     }
 

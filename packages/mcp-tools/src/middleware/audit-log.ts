@@ -53,23 +53,21 @@ export function auditLogMiddleware(prisma: PrismaClient): ToolMiddleware {
   }
 
   function logWithBackpressure(entry: AuditLogEntry): void {
-    void acquireWriteSlot().then(() => {
-      logAction(prisma, entry)
-        .catch((logErr) => {
-          // Structured error logging with context
-          const errorMeta = {
-            timestamp: new Date().toISOString(),
-            tool: entry.toolCalled,
-            tenant: entry.tenantId,
-            user: entry.userId,
-            error: logErr instanceof Error ? logErr.message : String(logErr),
-          };
-          process.stderr.write(`[AuditLog] ${JSON.stringify(errorMeta)}\n`);
-        })
-        .finally(() => {
-          releaseWriteSlot();
-        });
-    });
+    void acquireWriteSlot()
+      .then(() => logAction(prisma, entry))
+      .catch((logErr) => {
+        const errorMeta = {
+          timestamp: new Date().toISOString(),
+          tool: entry.toolCalled,
+          tenant: entry.tenantId,
+          user: entry.userId,
+          error: logErr instanceof Error ? logErr.message : String(logErr),
+        };
+        process.stderr.write(`[AuditLog] ${JSON.stringify(errorMeta)}\n`);
+      })
+      .finally(() => {
+        releaseWriteSlot();
+      });
   }
 
   return async (input, context, definition, next) => {

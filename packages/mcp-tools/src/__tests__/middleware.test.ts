@@ -298,7 +298,7 @@ describe("Idempotency Middleware", () => {
     // response. The 'failed' status forces re-execution on the next call.
     expect(mockPrisma.idempotencyRecord.update).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { idempotencyKey },
+        where: { idempotencyKey, tenantId: mockContext.tenantId },
         data: expect.objectContaining({
           status: "failed",
           error: expect.objectContaining({

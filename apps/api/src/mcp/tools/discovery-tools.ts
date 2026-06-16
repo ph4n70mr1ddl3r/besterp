@@ -50,7 +50,7 @@ Each tool listing includes its risk level and confirmation requirements.`,
 
 type TypeTableRow = { id: string; name: string; description: string | null; aiPromptHint: string | null };
 
-function queryTypeTable(
+async function queryTypeTable(
   prisma: PrismaClient,
   delegateName: string,
   idField: string,
@@ -60,17 +60,16 @@ function queryTypeTable(
   if (!delegate || typeof delegate.findMany !== "function") {
     throw new Error(`Prisma delegate '${delegateName}' not found. Ensure the model exists in the schema.`);
   }
-  return delegate.findMany({
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const rows: any[] = await delegate.findMany({
     select: { [idField]: true, name: true, description: true, aiPromptHint: true },
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  }).then((rows: any[]) =>
-    rows.map((r) => ({
-      id: r[idField] as string,
-      name: r.name as string,
-      description: r.description as string | null,
-      aiPromptHint: r.aiPromptHint as string | null,
-    }))
-  );
+  });
+  return rows.map((r) => ({
+    id: r[idField] as string,
+    name: r.name as string,
+    description: r.description as string | null,
+    aiPromptHint: r.aiPromptHint as string | null,
+  }));
 }
 
 function createGetTypeTableValues(prisma: PrismaClient): ToolDefinition {
