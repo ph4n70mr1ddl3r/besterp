@@ -59,7 +59,7 @@ export function idempotencyMiddleware(prisma: PrismaClient): ToolMiddleware {
       return handleExistingRecord(existingRecord, inputHash, idempotencyKey, definition.name);
     }
 
-    return executeAndUpdate(prisma, idempotencyKey, input, context, definition, next);
+    return executeAndUpdate(prisma, idempotencyKey, tenantId, input, context, definition, next);
   };
 }
 
@@ -95,7 +95,7 @@ async function acquireIdempotencyRecord(
 
         if (record.status === "failed") {
           await tx.idempotencyRecord.update({
-            where: { idempotencyKey },
+            where: { idempotencyKey, tenantId },
             data: { status: "pending", inputHash, expiresAt: new Date(Date.now() + IDEMPOTENCY_TTL_MS), error: Prisma.DbNull },
           });
           return { existing: null, created: true };
@@ -167,7 +167,7 @@ function handleExistingRecord(
 }
 
 async function executeAndUpdate(
-  prisma: PrismaClient, idempotencyKey: string,
+  prisma: PrismaClient, idempotencyKey: string, tenantId: string,
   input: unknown, context: ToolContext,
   definition: { name: string },
   next: (input: unknown, context: ToolContext) => Promise<ToolResult>,
@@ -177,7 +177,7 @@ async function executeAndUpdate(
     toolResult = await next(input, context);
   } catch (error: unknown) {
     await prisma.idempotencyRecord.update({
-      where: { idempotencyKey },
+      where: { idempotencyKey, tenantId },
       data: {
         status: "failed",
         error: { message: error instanceof Error ? error.message : String(error), code: getErrorCode(error) },
@@ -189,19 +189,19 @@ async function executeAndUpdate(
   }
 
   const isSoftFailure = toolResult.success === false;
-  await updateIdempotencyRecordWithRetry(prisma, idempotencyKey, toolResult, isSoftFailure);
+  await updateIdempotencyRecordWithRetry(prisma, idempotencyKey, tenantId, toolResult, isSoftFailure);
 
   return toolResult;
 }
 
 async function updateIdempotencyRecordWithRetry(
-  prisma: PrismaClient, idempotencyKey: string,
+  prisma: PrismaClient, idempotencyKey: string, tenantId: string,
   toolResult: ToolResult, isSoftFailure: boolean,
 ): Promise<void> {
   for (let attempt = 0; attempt < IDEMPOTENCY_MAX_RETRIES; attempt++) {
     try {
       await prisma.idempotencyRecord.update({
-        where: { idempotencyKey },
+        where: { idempotencyKey, tenantId },
         data: {
           status: isSoftFailure ? "failed" : "completed",
           result: toolResult.data != null

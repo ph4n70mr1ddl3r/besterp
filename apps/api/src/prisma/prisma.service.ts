@@ -17,11 +17,11 @@ import { MAX_TENANT_CACHE_SIZE } from "@besterp/shared";
 export const DEFAULT_MAX_METHOD_CACHE_SIZE = 1000;
 export const DEFAULT_MAX_DELEGATE_CACHE_SIZE = 50;
 
- @Injectable()
- export class PrismaService
-   extends PrismaClient
-   implements OnModuleInit, OnModuleDestroy
- {
+@Injectable()
+export class PrismaService
+  extends PrismaClient
+  implements OnModuleInit, OnModuleDestroy
+{
    private readonly logger = new Logger(PrismaService.name);
    private readonly _appClient: PrismaClient;
    private _destroyed = false;

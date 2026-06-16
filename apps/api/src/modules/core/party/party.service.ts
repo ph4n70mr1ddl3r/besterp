@@ -29,6 +29,7 @@ import {
   UUID_REGEX,
   EMAIL_REGEX,
   COUNTRY_CODE_REGEX,
+  isValidISODate,
   stripHtmlTags,
   MAX_PARTY_NAME_LENGTH,
   MAX_PARTY_DESCRIPTION_LENGTH,
@@ -571,22 +572,27 @@ export class PartyService {
   }
 
   private static sanitizePostalAddress(addr: NonNullable<AddContactMechanismInput["postalAddress"]>) {
+    const addressLine2 = addr.addressLine2?.trim();
+    const stateProvince = addr.stateProvince?.trim();
+    const postalCode = addr.postalCode?.trim();
     return {
       addressLine1: stripHtmlTags(addr.addressLine1.trim()),
-      addressLine2: addr.addressLine2?.trim() ? stripHtmlTags(addr.addressLine2.trim()) : null,
+      addressLine2: addressLine2 ? stripHtmlTags(addressLine2) : null,
       city: stripHtmlTags(addr.city.trim()),
-      stateProvince: addr.stateProvince?.trim() ? stripHtmlTags(addr.stateProvince.trim()) : null,
-      postalCode: addr.postalCode?.trim() ? stripHtmlTags(addr.postalCode.trim()) : null,
+      stateProvince: stateProvince ? stripHtmlTags(stateProvince) : null,
+      postalCode: postalCode ? stripHtmlTags(postalCode) : null,
       country: stripHtmlTags(addr.country.trim().toUpperCase()),
     };
   }
 
   private static sanitizeTelecomNumber(tel: NonNullable<AddContactMechanismInput["telecomNumber"]>) {
+    const countryCode = tel.countryCode?.trim();
+    const extension = tel.extension?.trim();
     return {
-      countryCode: tel.countryCode?.trim() ? stripHtmlTags(tel.countryCode.trim()) : "+1",
+      countryCode: countryCode ? stripHtmlTags(countryCode) : "+1",
       areaCode: stripHtmlTags(tel.areaCode.trim()),
       lineNumber: stripHtmlTags(tel.lineNumber.trim()),
-      extension: tel.extension?.trim() ? stripHtmlTags(tel.extension.trim()) : null,
+      extension: extension ? stripHtmlTags(extension) : null,
     };
   }
 
@@ -689,8 +695,7 @@ export class PartyService {
         { suggestedTools: ["create_party"], context: { field, length: value.length, maxLength: MAX_DATE_STRING_LENGTH } }
       );
     }
-    const parsed = new Date(value);
-    if (isNaN(parsed.getTime())) {
+    if (!isValidISODate(value)) {
       throw new InvalidTypeValueError(
         `${field} is not a valid ISO 8601 date. Received: ${value}.`,
         { suggestedTools: ["create_party"], context: { field, invalidValue: value } }

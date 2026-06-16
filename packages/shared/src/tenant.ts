@@ -40,7 +40,7 @@ export function validateTenantId(tenantId: string): void {
     throw new DomainError(
       "INVALID_TENANT_ID",
       `Invalid tenant ID: "${preview}". ` +
-        `Tenant IDs must match ${TENANT_ID_PATTERN.source}.`
+        "Tenant IDs may only contain alphanumeric characters, hyphens, and underscores."
     );
   }
 }

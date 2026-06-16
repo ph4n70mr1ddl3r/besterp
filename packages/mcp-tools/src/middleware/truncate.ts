@@ -36,23 +36,23 @@ const textDecoder = new TextDecoder();
  * for diagnostics while bounding the row size.
  */
 export function capString(value: unknown, maxBytes: number): string {
-  maxBytes = Math.max(1, maxBytes);
+  const effectiveMax = Math.max(1, maxBytes);
   if (typeof value !== "string") {
     return "Tool returned a soft failure";
   }
   const encoded = textEncoder.encode(value);
-  if (encoded.byteLength <= maxBytes) {
+  if (encoded.byteLength <= effectiveMax) {
     return value;
   }
   const marker = `... [truncated, original was ${encoded.byteLength} bytes]`;
   const markerBytes = textEncoder.encode(marker).byteLength;
-  if (maxBytes <= markerBytes) {
-    return marker.slice(0, maxBytes);
+  if (effectiveMax <= markerBytes) {
+    return marker.slice(0, effectiveMax);
   }
   // When slicing at a byte boundary, walk backwards to avoid splitting
   // a multi-byte UTF-8 character (e.g. CJK, emoji, accented chars).
   // Continuation bytes follow the 10xxxxxx pattern (0x80–0xBF).
-  let sliceEnd = Math.max(0, maxBytes - markerBytes);
+  let sliceEnd = Math.max(0, effectiveMax - markerBytes);
   while (sliceEnd > 0) {
     const byte = encoded[sliceEnd];
     if (byte === undefined || (byte & 0xC0) !== 0x80) break;
@@ -68,7 +68,7 @@ export function capString(value: unknown, maxBytes: number): string {
  * serialisation failure.
  */
 export function truncateValue(value: unknown, maxSize: number = MAX_STORED_PAYLOAD_SIZE): unknown {
-  maxSize = Math.max(1, maxSize);
+  const effectiveMax = Math.max(1, maxSize);
   if (value === undefined) return undefined;
 
   // Fast path: null, primitives are always JSON-safe — skip the
@@ -76,7 +76,7 @@ export function truncateValue(value: unknown, maxSize: number = MAX_STORED_PAYLO
   if (value === null) return null;
   if (typeof value === "string" || typeof value === "boolean") {
     const encoded = textEncoder.encode(String(value));
-    if (encoded.byteLength > maxSize) {
+    if (encoded.byteLength > effectiveMax) {
       return {
         _truncated: true,
         _originalSize: encoded.byteLength,
@@ -91,7 +91,7 @@ export function truncateValue(value: unknown, maxSize: number = MAX_STORED_PAYLO
     // The stored value will be serialized via JSON.stringify, so measure that.
     const serialized = JSON.stringify(value);
     const encoded = textEncoder.encode(serialized);
-    if (encoded.byteLength > maxSize) {
+    if (encoded.byteLength > effectiveMax) {
       return {
         _truncated: true,
         _originalSize: encoded.byteLength,
@@ -104,7 +104,7 @@ export function truncateValue(value: unknown, maxSize: number = MAX_STORED_PAYLO
   try {
     const serialized = JSON.stringify(value);
     const encoded = textEncoder.encode(serialized);
-    if (encoded.byteLength > maxSize) {
+    if (encoded.byteLength > effectiveMax) {
       return {
         _truncated: true,
         _originalSize: encoded.byteLength,

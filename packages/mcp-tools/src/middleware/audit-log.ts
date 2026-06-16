@@ -1,12 +1,12 @@
 // Audit Log Middleware — Logs all AI agent actions for traceability.
 //
- // Implements Principle 8 from AGENTIC_AI_DESIGN.md: Every action is auditable
- // for AI traceability. Captures who (human), what (agent), why (reasoning),
- // and how (tools called).
- //
- // This is a "fire-and-forget" middleware — it logs asynchronously and never
- // blocks tool execution. Log failures are silently ignored (audit should
- // never break the tool).
+// Implements Principle 8 from AGENTIC_AI_DESIGN.md: Every action is auditable
+// for AI traceability. Captures who (human), what (agent), why (reasoning),
+// and how (tools called).
+//
+// This is a "fire-and-forget" middleware — it logs asynchronously and never
+// blocks tool execution. Log failures are silently ignored (audit should
+// never break the tool).
 
 import { PrismaClient, Prisma } from "@prisma/client";
 import { getErrorCode, MAX_REASONING_LENGTH } from "@besterp/shared";
@@ -83,7 +83,7 @@ export function auditLogMiddleware(prisma: PrismaClient): ToolMiddleware {
       return next(input, context);
     }
 
-    function baseEntry(): AuditLogEntry {
+    function baseEntry(): Omit<AuditLogEntry, "toolOutput"> {
       return {
         agentId: context.agentId,
         conversationId: context.conversationId,
@@ -142,11 +142,7 @@ async function logAction(prisma: PrismaClient, entry: AuditLogEntry): Promise<vo
       toolCalled: entry.toolCalled,
       toolInput: toolInput as unknown as Prisma.InputJsonValue,
       toolOutput: truncateValue(entry.toolOutput, MAX_AUDIT_OUTPUT_SIZE) as Prisma.InputJsonValue | undefined,
-      reasoning: entry.reasoning
-        ? entry.reasoning.length > MAX_REASONING_LENGTH
-          ? entry.reasoning.slice(0, MAX_REASONING_LENGTH)
-          : entry.reasoning
-        : null,
+      reasoning: entry.reasoning?.slice(0, MAX_REASONING_LENGTH) ?? null,
     },
   });
 }

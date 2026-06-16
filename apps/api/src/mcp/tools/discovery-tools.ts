@@ -56,7 +56,11 @@ function queryTypeTable(
   idField: string,
 ): Promise<TypeTableRow[]> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return (prisma as any)[delegateName].findMany({
+  const delegate = (prisma as any)[delegateName];
+  if (!delegate || typeof delegate.findMany !== "function") {
+    throw new Error(`Prisma delegate '${delegateName}' not found. Ensure the model exists in the schema.`);
+  }
+  return delegate.findMany({
     select: { [idField]: true, name: true, description: true, aiPromptHint: true },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
   }).then((rows: any[]) =>

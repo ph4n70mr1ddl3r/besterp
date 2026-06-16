@@ -71,10 +71,10 @@ function configureCors(app: INestApplication): void {
     const origins = corsOrigins.split(",").map((o) => o.trim()).filter((o) => o.length > 0);
     if (origins.length > 0) {
       app.enableCors({ origin: origins, credentials: true });
-    } else if (process.env.NODE_ENV !== "production") {
+    } else if (process.env.NODE_ENV === "development") {
       app.enableCors({ origin: true, credentials: false });
     }
-  } else if (process.env.NODE_ENV !== "production") {
+  } else if (process.env.NODE_ENV === "development") {
     app.enableCors({ origin: true, credentials: false });
   }
 }

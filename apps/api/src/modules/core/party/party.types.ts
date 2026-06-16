@@ -45,8 +45,8 @@ export interface PartyResult {
   } | null;
   organization: {
     legalName: string;
-    taxId?: string | null;
-    registrationDate?: string | null;
+    taxId: string | null;
+    registrationDate: string | null;
   } | null;
   roles: Array<{
     partyRoleId: string;

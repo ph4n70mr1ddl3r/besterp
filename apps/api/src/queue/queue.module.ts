@@ -25,6 +25,9 @@ export class QueueModule {
 
   private static resolveRedisOptions(options?: Partial<QueueModuleOptions>): { host: string; port: number; password: string | undefined } {
     const host = options?.redis?.host || process.env.REDIS_HOST || "localhost";
+    if (!host || host.trim().length === 0) {
+      throw new Error("Redis host is required. Set REDIS_HOST or provide options.redis.host.");
+    }
     let port: number;
     if (options?.redis?.port) {
       port = options.redis.port;
