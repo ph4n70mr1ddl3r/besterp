@@ -36,7 +36,6 @@ import {
   MAX_EXTENSION_LENGTH,
   MAX_PHONE_COUNTRY_CODE_LENGTH,
   MAX_EMAIL_LENGTH,
-  MAX_IDEMPOTENCY_KEY_LENGTH,
 } from "@besterp/shared";
 import type {
   CreatePartyInput,
@@ -71,6 +70,74 @@ function getPartyService(ctx: ToolContext) {
   }
   return svc as PartyServices["partyService"];
 }
+
+// ─── SuperRefine Helpers ─────────────────────────────────────────
+
+interface SubtypeFieldConfig {
+  requiredField: string;
+  requiredMessage: string;
+  disallowedFields: { field: string; message: string }[];
+}
+
+function validateSubtypeFields<T extends Record<string, unknown>>(
+  data: T,
+  ctx: z.RefinementCtx,
+  subtypeKey: keyof T,
+  subtypeValue: string,
+  configs: Record<string, SubtypeFieldConfig>,
+): void {
+  const config = configs[subtypeValue];
+  if (!config) return;
+
+  if (data[config.requiredField] === undefined) {
+    ctx.addIssue({ code: "custom", message: config.requiredMessage, path: [config.requiredField] });
+  }
+  for (const { field, message } of config.disallowedFields) {
+    if (data[field] !== undefined) {
+      ctx.addIssue({ code: "custom", message, path: [field] });
+    }
+  }
+}
+
+const PARTY_SUBTYPE_CONFIGS: Record<string, SubtypeFieldConfig> = {
+  PERSON: {
+    requiredField: "person",
+    requiredMessage: "'person' is required when partyType is PERSON",
+    disallowedFields: [{ field: "organization", message: "'organization' should not be provided when partyType is PERSON" }],
+  },
+  ORGANIZATION: {
+    requiredField: "organization",
+    requiredMessage: "'organization' is required when partyType is ORGANIZATION",
+    disallowedFields: [{ field: "person", message: "'person' should not be provided when partyType is ORGANIZATION" }],
+  },
+};
+
+const CONTACT_SUBTYPE_CONFIGS: Record<string, SubtypeFieldConfig> = {
+  POSTAL_ADDRESS: {
+    requiredField: "postalAddress",
+    requiredMessage: "postalAddress is required when contactMechanismType is POSTAL_ADDRESS",
+    disallowedFields: [
+      { field: "telecomNumber", message: "telecomNumber should not be provided when contactMechanismType is POSTAL_ADDRESS" },
+      { field: "emailAddress", message: "emailAddress should not be provided when contactMechanismType is POSTAL_ADDRESS" },
+    ],
+  },
+  TELECOM_NUMBER: {
+    requiredField: "telecomNumber",
+    requiredMessage: "telecomNumber is required when contactMechanismType is TELECOM_NUMBER",
+    disallowedFields: [
+      { field: "postalAddress", message: "postalAddress should not be provided when contactMechanismType is TELECOM_NUMBER" },
+      { field: "emailAddress", message: "emailAddress should not be provided when contactMechanismType is TELECOM_NUMBER" },
+    ],
+  },
+  EMAIL_ADDRESS: {
+    requiredField: "emailAddress",
+    requiredMessage: "emailAddress is required when contactMechanismType is EMAIL_ADDRESS",
+    disallowedFields: [
+      { field: "postalAddress", message: "postalAddress should not be provided when contactMechanismType is EMAIL_ADDRESS" },
+      { field: "telecomNumber", message: "telecomNumber should not be provided when contactMechanismType is EMAIL_ADDRESS" },
+    ],
+  },
+};
 
 // ─── Schemas ──────────────────────────────────────────────────────
 
@@ -123,47 +190,13 @@ const emailAddressSchema = z.object({
 // ─── Tool: create_party ───────────────────────────────────────────
 
 const createPartySchema = z.object({
-  idempotencyKey: z.string().min(1).max(MAX_IDEMPOTENCY_KEY_LENGTH).optional().describe(
-    "Unique key to prevent duplicate creation. Format: party-create-{description}-{date}"
-  ),
   partyType: z.enum(["PERSON", "ORGANIZATION"]).describe("Type of party to create"),
   name: z.string().transform(s => stripHtmlTags(s.trim())).pipe(z.string().min(1).max(MAX_PARTY_NAME_LENGTH)).describe("Display name for the party (1-500 characters)"),
   description: z.string().optional().transform(s => s?.trim() ? stripHtmlTags(s.trim()) : undefined).pipe(z.string().max(MAX_PARTY_DESCRIPTION_LENGTH).optional()).describe("Optional description (max 1000 characters)"),
   person: personSchema.optional().describe("Person details (required when partyType is PERSON)"),
   organization: organizationSchema.optional().describe("Organization details (required when partyType is ORGANIZATION)"),
 }).superRefine((data, ctx) => {
-  if (data.partyType === "PERSON") {
-    if (data.person === undefined) {
-      ctx.addIssue({
-        code: "custom",
-        message: "'person' is required when partyType is PERSON",
-        path: ["person"],
-      });
-    }
-    if (data.organization !== undefined) {
-      ctx.addIssue({
-        code: "custom",
-        message: "'organization' should not be provided when partyType is PERSON",
-        path: ["organization"],
-      });
-    }
-  }
-  if (data.partyType === "ORGANIZATION") {
-    if (data.organization === undefined) {
-      ctx.addIssue({
-        code: "custom",
-        message: "'organization' is required when partyType is ORGANIZATION",
-        path: ["organization"],
-      });
-    }
-    if (data.person !== undefined) {
-      ctx.addIssue({
-        code: "custom",
-        message: "'person' should not be provided when partyType is ORGANIZATION",
-        path: ["person"],
-      });
-    }
-  }
+  validateSubtypeFields(data, ctx, "partyType", data.partyType, PARTY_SUBTYPE_CONFIGS);
 });
 
 type CreatePartyInput_z = z.infer<typeof createPartySchema>;
@@ -292,7 +325,6 @@ Use this to find customers, suppliers, or any party by name, type, or role.`,
 // ─── Tool: add_party_role ─────────────────────────────────────────
 
 const addPartyRoleSchema = z.object({
-  idempotencyKey: z.string().min(1).max(MAX_IDEMPOTENCY_KEY_LENGTH).optional().describe("Idempotency key to prevent duplicate role assignment. Format: role-{partyId}-{roleType}-{date}"),
   partyId: z.string().min(1).max(200).regex(UUID_REGEX, "Must be a valid UUID").describe("The UUID of the party to assign the role to"),
   roleType: z.string().transform(s => s.trim()).pipe(z.string().min(1).max(MAX_ROLE_TYPE_LENGTH)).describe("Role type name (e.g., 'Customer', 'Supplier', 'Employee')"),
   fromDate: z.string().optional().transform(s => s?.trim() || undefined)
@@ -344,7 +376,6 @@ Example: Make a party a customer
 // ─── Tool: add_contact_mechanism ──────────────────────────────────
 
 const addContactMechanismSchema = z.object({
-  idempotencyKey: z.string().min(1).max(MAX_IDEMPOTENCY_KEY_LENGTH).optional().describe("Idempotency key to prevent duplicate contact creation. Format: contact-{partyId}-{type}-{date}"),
   partyId: z.string().min(1).max(200).regex(UUID_REGEX, "Must be a valid UUID").describe("The UUID of the party to add the contact to"),
   contactMechanismType: z.enum(["POSTAL_ADDRESS", "TELECOM_NUMBER", "EMAIL_ADDRESS"])
     .describe("Type of contact mechanism"),
@@ -355,75 +386,7 @@ const addContactMechanismSchema = z.object({
   emailAddress: emailAddressSchema.optional()
     .describe("Email details (required when contactMechanismType is EMAIL_ADDRESS)"),
 }).superRefine((data, ctx) => {
-  if (data.contactMechanismType === "POSTAL_ADDRESS") {
-    if (data.postalAddress === undefined) {
-      ctx.addIssue({
-        code: "custom",
-        message: "postalAddress is required when contactMechanismType is POSTAL_ADDRESS",
-        path: ["postalAddress"],
-      });
-    }
-    if (data.telecomNumber) {
-      ctx.addIssue({
-        code: "custom",
-        message: "telecomNumber should not be provided when contactMechanismType is POSTAL_ADDRESS",
-        path: ["telecomNumber"],
-      });
-    }
-    if (data.emailAddress) {
-      ctx.addIssue({
-        code: "custom",
-        message: "emailAddress should not be provided when contactMechanismType is POSTAL_ADDRESS",
-        path: ["emailAddress"],
-      });
-    }
-  }
-  if (data.contactMechanismType === "TELECOM_NUMBER") {
-    if (data.telecomNumber === undefined) {
-      ctx.addIssue({
-        code: "custom",
-        message: "telecomNumber is required when contactMechanismType is TELECOM_NUMBER",
-        path: ["telecomNumber"],
-      });
-    }
-    if (data.postalAddress) {
-      ctx.addIssue({
-        code: "custom",
-        message: "postalAddress should not be provided when contactMechanismType is TELECOM_NUMBER",
-        path: ["postalAddress"],
-      });
-    }
-    if (data.emailAddress) {
-      ctx.addIssue({
-        code: "custom",
-        message: "emailAddress should not be provided when contactMechanismType is TELECOM_NUMBER",
-        path: ["emailAddress"],
-      });
-    }
-  }
-  if (data.contactMechanismType === "EMAIL_ADDRESS") {
-    if (data.emailAddress === undefined) {
-      ctx.addIssue({
-        code: "custom",
-        message: "emailAddress is required when contactMechanismType is EMAIL_ADDRESS",
-        path: ["emailAddress"],
-      });
-    }
-    if (data.postalAddress) {
-      ctx.addIssue({
-        code: "custom",
-        message: "postalAddress should not be provided when contactMechanismType is EMAIL_ADDRESS",
-        path: ["postalAddress"],
-      });
-    }
-    if (data.telecomNumber) {
-      ctx.addIssue({
-        code: "custom",
-        message: "telecomNumber should not be provided when contactMechanismType is EMAIL_ADDRESS",
-        path: ["telecomNumber"],
-      });
-    }
-  }
+  validateSubtypeFields(data, ctx, "contactMechanismType", data.contactMechanismType, CONTACT_SUBTYPE_CONFIGS);
 });
 
 type AddContactMechanismInput_z = z.infer<typeof addContactMechanismSchema>;

@@ -12,12 +12,6 @@ import {
   ToolContext,
 } from "@besterp/mcp-tools";
 
-// Minimal type for a Prisma model delegate with findMany — avoids `any`
-// while supporting any model name accessed via string key.
-interface ModelDelegate {
-  findMany(args?: { select?: Record<string, boolean> }): Promise<Record<string, unknown>[]>;
-}
-
 // Mapping from type table names to Prisma model delegate keys and ID fields.
 const TYPE_TABLE_MAP = {
   PARTY_TYPE: { delegateKey: "partyType", idField: "partyTypeId" },
@@ -71,17 +65,17 @@ async function queryTypeTable(
   idField: string,
 ): Promise<TypeTableRow[]> {
   const delegate = (prisma as unknown as Record<string, unknown>)[delegateKey];
-  if (!delegate || typeof delegate !== "object" || typeof (delegate as ModelDelegate).findMany !== "function") {
+  if (!delegate || typeof delegate !== "object" || typeof (delegate as { findMany?: unknown }).findMany !== "function") {
     throw new Error(`Prisma delegate '${delegateKey}' not found. Ensure the model exists in the schema.`);
   }
-  const rows = await (delegate as ModelDelegate).findMany({
+  const rows = await (delegate as { findMany(args: { select: Record<string, boolean> }): Promise<Record<string, unknown>[]> }).findMany({
     select: { [idField]: true, name: true, description: true, aiPromptHint: true },
   });
   return rows.map((r) => ({
     id: String(r[idField] ?? ""),
     name: String(r.name ?? ""),
-    description: (r.description as string | null) ?? null,
-    aiPromptHint: (r.aiPromptHint as string | null) ?? null,
+    description: typeof r.description === "string" ? r.description : null,
+    aiPromptHint: typeof r.aiPromptHint === "string" ? r.aiPromptHint : null,
   }));
 }
 

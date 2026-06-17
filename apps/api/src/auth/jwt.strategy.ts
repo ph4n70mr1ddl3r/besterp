@@ -7,7 +7,7 @@
 // The `validate()` method returns the value that gets attached to
 // `req.user`, which the TenantGuard then uses to build TenantContext.
 
-import { Injectable, UnauthorizedException } from "@nestjs/common";
+import { Injectable, Logger, UnauthorizedException } from "@nestjs/common";
 import { PassportStrategy } from "@nestjs/passport";
 import { ExtractJwt, Strategy } from "passport-jwt";
 import { randomBytes } from "node:crypto";
@@ -83,6 +83,7 @@ function validateAndTrimOptional(
 
 /** Internal cache for the resolved JWT secret — initialized once per process. */
 const _jwtSecretCache = { value: undefined as string | undefined };
+const _logger = new Logger("JwtSecret");
 
 /**
  * Resolve the JWT secret from the environment. In production, JWT_SECRET is
@@ -102,7 +103,7 @@ export function resolveJwtSecret(): string {
   if (process.env.NODE_ENV === "production") {
     throw new Error("JWT_SECRET must be set in production. Refusing to start with insecure default.");
   }
-  console.warn(
+  _logger.warn(
     "⚠️  JWT_SECRET not set — generating ephemeral secret for this session. Set JWT_SECRET in production!"
   );
   _jwtSecretCache.value = randomBytes(32).toString("hex");

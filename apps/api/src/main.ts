@@ -46,11 +46,13 @@ function setupGracefulShutdown(app: INestApplication): void {
 
     try {
       await app.close();
+      clearTimeout(hardExitTimer);
+      process.exit(0);
     } catch (closeErr) {
       console.error("❌ Error during graceful shutdown:", closeErr instanceof Error ? closeErr.stack : closeErr);
+      clearTimeout(hardExitTimer);
+      process.exit(1);
     }
-    clearTimeout(hardExitTimer);
-    process.exit(1);
   }
 
   process.on("uncaughtException", (error) => {
