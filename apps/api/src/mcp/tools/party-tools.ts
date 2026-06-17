@@ -174,7 +174,7 @@ const postalAddressSchema = z.object({
   city: z.string().transform(s => stripHtmlTags(s.trim())).pipe(z.string().min(1).max(MAX_CITY_LENGTH)).describe("City"),
   stateProvince: z.string().optional().transform(s => s?.trim() ? stripHtmlTags(s.trim()) : undefined).pipe(z.string().max(MAX_STATE_PROVINCE_LENGTH).optional()).describe("State or province"),
   postalCode: z.string().optional().transform(s => s?.trim() || undefined).pipe(z.string().max(MAX_POSTAL_CODE_LENGTH).optional()).describe("Postal/ZIP code"),
-  country: z.string().transform(s => stripHtmlTags(s.trim().toUpperCase())).pipe(z.string().min(1).max(MAX_COUNTRY_CODE_LENGTH)).describe("Country code (e.g., US, DE, JP)"),
+  country: z.string().transform(s => stripHtmlTags(s.trim().toUpperCase())).pipe(z.string().min(2).max(MAX_COUNTRY_CODE_LENGTH)).describe("Country code (e.g., US, DE, JP)"),
 });
 
 const telecomNumberSchema = z.object({

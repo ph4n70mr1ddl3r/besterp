@@ -22,32 +22,32 @@ export class PrismaService
   extends PrismaClient
   implements OnModuleInit, OnModuleDestroy
 {
-   private readonly logger = new Logger(PrismaService.name);
-   private readonly _appClient: PrismaClient;
-   private _destroyed = false;
-   /** Cache of tenant-scoped Proxy clients to avoid GC pressure from repeated creation. */
-   private readonly tenantClientCache = new Map<string, WeakRef<PrismaClient>>();
-   // FinalizationRegistry evicts cache entries when GC collects the Proxy.
-   // Note: we do NOT try to $disconnect the tenant client because the Proxy
-   // blocks $disconnect (tenant clients share the underlying _appClient connection).
-   // Unregister tokens are stored separately so we can always unregister without
-   // needing to deref the WeakRef (which may already be GC'd).
-   private readonly cacheRegistry = new FinalizationRegistry<string>((tenantId: string) => {
-     // Guard: the registry callback can fire after onModuleDestroy clears the maps.
-     // The Map.delete() on a non-existent key is a no-op, so this is safe, but
-     // we skip the token cleanup if the service is already destroyed.
-     if (this._destroyed) return;
-     this.tenantClientCache.delete(tenantId);
-     this.unregisterTokens.delete(tenantId);
-     this.lastAccessed.delete(tenantId);
-   });
-   private readonly unregisterTokens = new Map<string, object>();
-   /** Access timestamps for LRU eviction — updated on each cache hit. */
-   private readonly lastAccessed = new Map<string, number>();
+  private readonly logger = new Logger(PrismaService.name);
+  private readonly _appClient: PrismaClient;
+  private _destroyed = false;
+  /** Cache of tenant-scoped Proxy clients to avoid GC pressure from repeated creation. */
+  private readonly tenantClientCache = new Map<string, WeakRef<PrismaClient>>();
+  // FinalizationRegistry evicts cache entries when GC collects the Proxy.
+  // Note: we do NOT try to $disconnect the tenant client because the Proxy
+  // blocks $disconnect (tenant clients share the underlying _appClient connection).
+  // Unregister tokens are stored separately so we can always unregister without
+  // needing to deref the WeakRef (which may already be GC'd).
+  private readonly cacheRegistry = new FinalizationRegistry<string>((tenantId: string) => {
+    // Guard: the registry callback can fire after onModuleDestroy clears the maps.
+    // The Map.delete() on a non-existent key is a no-op, so this is safe, but
+    // we skip the token cleanup if the service is already destroyed.
+    if (this._destroyed) return;
+    this.tenantClientCache.delete(tenantId);
+    this.unregisterTokens.delete(tenantId);
+    this.lastAccessed.delete(tenantId);
+  });
+  private readonly unregisterTokens = new Map<string, object>();
+  /** Access timestamps for LRU eviction — updated on each cache hit. */
+  private readonly lastAccessed = new Map<string, number>();
 
-   // Cache sizes — configurable via env vars for tuning in production
-   private readonly maxMethodCacheSize: number;
-   private readonly maxDelegateCacheSize: number;
+  // Cache sizes — configurable via env vars for tuning in production
+  private readonly maxMethodCacheSize: number;
+  private readonly maxDelegateCacheSize: number;
 
    constructor() {
      // Base client uses admin URL for migrations, seed, cross-tenant ops

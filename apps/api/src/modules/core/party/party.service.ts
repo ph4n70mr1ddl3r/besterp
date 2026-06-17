@@ -156,13 +156,13 @@ export class PartyService {
     if (!personData.firstName || personData.firstName.trim().length === 0) {
       throw new MissingSubtypeDataError("firstName is required for person data", { suggestedTools: ["create_party"], context: { field: "firstName" } });
     }
-    this.requireMaxLength(personData.firstName, "First name", MAX_PERSON_NAME_LENGTH);
+    this.requireMaxLength(personData.firstName.trim(), "First name", MAX_PERSON_NAME_LENGTH);
     if (!personData.lastName || personData.lastName.trim().length === 0) {
       throw new MissingSubtypeDataError("lastName is required for person data", { suggestedTools: ["create_party"], context: { field: "lastName" } });
     }
-    this.requireMaxLength(personData.lastName, "Last name", MAX_PERSON_NAME_LENGTH);
-    if (personData.gender != null) this.requireMaxLength(personData.gender, "Gender", MAX_GENDER_LENGTH);
-    if (personData.middleName != null) this.requireMaxLength(personData.middleName, "Middle name", MAX_MIDDLE_NAME_LENGTH);
+    this.requireMaxLength(personData.lastName.trim(), "Last name", MAX_PERSON_NAME_LENGTH);
+    if (personData.gender != null) this.requireMaxLength(personData.gender.trim(), "Gender", MAX_GENDER_LENGTH);
+    if (personData.middleName != null) this.requireMaxLength(personData.middleName.trim(), "Middle name", MAX_MIDDLE_NAME_LENGTH);
     if (personData.birthDate != null) this.requireValidDate(personData.birthDate, "birthDate");
   }
 
@@ -171,9 +171,9 @@ export class PartyService {
     if (!orgData.legalName || orgData.legalName.trim().length === 0) {
       throw new MissingSubtypeDataError("legalName is required for organization data", { suggestedTools: ["create_party"], context: { field: "legalName" } });
     }
-    this.requireMaxLength(orgData.legalName, "Legal name", MAX_LEGAL_NAME_LENGTH);
+    this.requireMaxLength(orgData.legalName.trim(), "Legal name", MAX_LEGAL_NAME_LENGTH);
     if (orgData.registrationDate != null) this.requireValidDate(orgData.registrationDate, "registrationDate");
-    if (orgData.taxId != null) this.requireMaxLength(orgData.taxId, "Tax ID", MAX_TAX_ID_LENGTH);
+    if (orgData.taxId != null) this.requireMaxLength(orgData.taxId.trim(), "Tax ID", MAX_TAX_ID_LENGTH);
   }
 
   private sanitizeCreatePartyInput(
