@@ -21,6 +21,11 @@ const TYPE_TABLE_MAP = {
 
 type TypeName = keyof typeof TYPE_TABLE_MAP;
 
+/** Minimal interface for a Prisma model delegate with findMany. */
+interface PrismaModelDelegate {
+  findMany(args: { select: Record<string, boolean> }): Promise<Record<string, unknown>[]>;
+}
+
 // ─── Tool: list_available_tools ───────────────────────────────────
 
 function createListAvailableTools(registry: ToolRegistry): ToolDefinition {
@@ -64,11 +69,12 @@ async function queryTypeTable(
   delegateKey: string,
   idField: string,
 ): Promise<TypeTableRow[]> {
-  const delegate = (prisma as unknown as Record<string, unknown>)[delegateKey];
-  if (!delegate || typeof delegate !== "object" || typeof (delegate as { findMany?: unknown }).findMany !== "function") {
+  const raw = (prisma as unknown as Record<string, unknown>)[delegateKey];
+  if (!raw || typeof raw !== "object" || typeof (raw as Record<string, unknown>).findMany !== "function") {
     throw new Error(`Prisma delegate '${delegateKey}' not found. Ensure the model exists in the schema.`);
   }
-  const rows = await (delegate as { findMany(args: { select: Record<string, boolean> }): Promise<Record<string, unknown>[]> }).findMany({
+  const delegate = raw as PrismaModelDelegate;
+  const rows = await delegate.findMany({
     select: { [idField]: true, name: true, description: true, aiPromptHint: true },
   });
   return rows.map((r) => ({

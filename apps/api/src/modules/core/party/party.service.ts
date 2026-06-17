@@ -478,10 +478,7 @@ export class PartyService {
   }
 
   private validateContactMechanismType(type: string): string {
-    if (!type || type.trim().length === 0) {
-      throw new InvalidTypeValueError("contactMechanismType cannot be empty", { suggestedTools: ["get_type_table_values"], context: { field: "contactMechanismType", received: type } });
-    }
-    this.requireMaxLength(type, "Contact mechanism type", MAX_CONTACT_MECHANISM_TYPE_LENGTH, "get_type_table_values");
+    this.requireStringField(type, "contactMechanismType", MAX_CONTACT_MECHANISM_TYPE_LENGTH, "contact mechanism type", "get_type_table_values");
     return type.trim();
   }
 
@@ -494,12 +491,9 @@ export class PartyService {
       if (!postalAddress) {
         throw new MissingSubtypeDataError("postalAddress is required when contactMechanismType is POSTAL_ADDRESS.", { suggestedTools: ["add_contact_mechanism"], context: { contactMechanismType: type, missingField: "postalAddress" } });
       }
-      this.requireNonEmpty(postalAddress.addressLine1, "addressLine1", "postal address");
-      this.requireMaxLength(postalAddress.addressLine1, "addressLine1", MAX_ADDRESS_LINE_LENGTH, "add_contact_mechanism");
-      this.requireNonEmpty(postalAddress.city, "city", "postal address");
-      this.requireMaxLength(postalAddress.city, "city", MAX_CITY_LENGTH, "add_contact_mechanism");
-      this.requireNonEmpty(postalAddress.country, "country", "postal address");
-      this.requireMaxLength(postalAddress.country, "country", MAX_COUNTRY_CODE_LENGTH, "add_contact_mechanism");
+      this.requireStringField(postalAddress.addressLine1, "addressLine1", MAX_ADDRESS_LINE_LENGTH, "postal address");
+      this.requireStringField(postalAddress.city, "city", MAX_CITY_LENGTH, "postal address");
+      this.requireStringField(postalAddress.country, "country", MAX_COUNTRY_CODE_LENGTH, "postal address");
       if (postalAddress.addressLine2) this.requireMaxLength(postalAddress.addressLine2, "addressLine2", MAX_ADDRESS_LINE_LENGTH, "add_contact_mechanism");
       if (postalAddress.stateProvince) this.requireMaxLength(postalAddress.stateProvince, "stateProvince", MAX_STATE_PROVINCE_LENGTH, "add_contact_mechanism");
       if (postalAddress.postalCode) this.requireMaxLength(postalAddress.postalCode, "postalCode", MAX_POSTAL_CODE_LENGTH, "add_contact_mechanism");
@@ -508,10 +502,8 @@ export class PartyService {
       if (!telecomNumber) {
         throw new MissingSubtypeDataError("telecomNumber is required when contactMechanismType is TELECOM_NUMBER.", { suggestedTools: ["add_contact_mechanism"], context: { contactMechanismType: type, missingField: "telecomNumber" } });
       }
-      this.requireNonEmpty(telecomNumber.areaCode, "areaCode", "telecom number");
-      this.requireMaxLength(telecomNumber.areaCode, "areaCode", MAX_AREA_CODE_LENGTH, "add_contact_mechanism");
-      this.requireNonEmpty(telecomNumber.lineNumber, "lineNumber", "telecom number");
-      this.requireMaxLength(telecomNumber.lineNumber, "lineNumber", MAX_LINE_NUMBER_LENGTH, "add_contact_mechanism");
+      this.requireStringField(telecomNumber.areaCode, "areaCode", MAX_AREA_CODE_LENGTH, "telecom number");
+      this.requireStringField(telecomNumber.lineNumber, "lineNumber", MAX_LINE_NUMBER_LENGTH, "telecom number");
       if (telecomNumber.countryCode) {
         this.requireMaxLength(telecomNumber.countryCode, "countryCode", MAX_PHONE_COUNTRY_CODE_LENGTH, "add_contact_mechanism");
         if (!COUNTRY_CODE_REGEX.test(telecomNumber.countryCode)) {
@@ -524,8 +516,7 @@ export class PartyService {
       if (!emailAddress) {
         throw new MissingSubtypeDataError("emailAddress is required when contactMechanismType is EMAIL_ADDRESS.", { suggestedTools: ["add_contact_mechanism"], context: { contactMechanismType: type, missingField: "emailAddress" } });
       }
-      this.requireNonEmpty(emailAddress.email, "email", "email address");
-      this.requireMaxLength(emailAddress.email, "email", MAX_EMAIL_LENGTH, "add_contact_mechanism");
+      this.requireStringField(emailAddress.email, "email", MAX_EMAIL_LENGTH, "email address");
       const normalized = emailAddress.email.trim().toLowerCase();
       if (!EMAIL_REGEX.test(normalized)) {
         throw new InvalidTypeValueError(`Invalid email format: ${normalized}`, { suggestedTools: ["add_contact_mechanism"], context: { contactMechanismType: type, field: "email", invalidValue: normalized } });
@@ -625,10 +616,13 @@ export class PartyService {
 
   // ─── Private Helpers ──────────────────────────────────────────
 
-  /** Validate a non-empty required string field, throwing InvalidTypeValueError. */
-  private requireNonEmpty(
+  /** Validate a required string field: must be non-empty and within maxLength.
+   *  Combines the empty check and length check into a single call site.
+   *  Callers are expected to pass already-trimmed values. */
+  private requireStringField(
     value: string | undefined | null,
     field: string,
+    maxLength: number,
     parentType: string,
     tool = "add_contact_mechanism",
   ): void {
@@ -638,20 +632,16 @@ export class PartyService {
         { suggestedTools: [tool], context: { parentType, field } }
       );
     }
-  }
-
-  /** Validate that a value looks like a UUID. Gives a clear error instead of
-   *  an opaque Prisma P2023 error for malformed IDs from MCP tool callers. */
-  private requireUuid(value: string, field: string): void {
-    if (!UUID_REGEX.test(value)) {
+    if (value.length > maxLength) {
       throw new InvalidTypeValueError(
-        `Invalid '${field}': must be a valid UUID.`,
-        { suggestedTools: ["search_parties", "get_party"], context: { field, received: value } }
+        `${field} is too long (${value.length} characters, max ${maxLength})`,
+        { suggestedTools: [tool], context: { field, length: value.length, maxLength } }
       );
     }
   }
 
   /** Validate that a string does not exceed maxLength.
+   *  Used for optional fields where the emptiness check is not needed.
    *  Callers are expected to pass already-trimmed values. */
   private requireMaxLength(
     value: string,
@@ -663,6 +653,17 @@ export class PartyService {
       throw new InvalidTypeValueError(
         `${field} is too long (${value.length} characters, max ${maxLength})`,
         { suggestedTools: [tool], context: { field, length: value.length, maxLength } }
+      );
+    }
+  }
+
+  /** Validate that a value looks like a UUID. Gives a clear error instead of
+   *  an opaque Prisma P2023 error for malformed IDs from MCP tool callers. */
+  private requireUuid(value: string, field: string): void {
+    if (!UUID_REGEX.test(value)) {
+      throw new InvalidTypeValueError(
+        `Invalid '${field}': must be a valid UUID.`,
+        { suggestedTools: ["search_parties", "get_party"], context: { field, received: value } }
       );
     }
   }
