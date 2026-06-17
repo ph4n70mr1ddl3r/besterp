@@ -797,6 +797,21 @@ describe("PartyService", () => {
       await expect(partyService.addPartyRole(input)).rejects.toThrow("Invalid fromDate format");
     });
 
+    it("should reject fromDate that Date accepts but is not ISO 8601", async () => {
+      // new Date("Jan 1 2024") parses successfully, but it is not ISO 8601.
+      // parseFromDate must enforce ISO (matching requireValidDate for
+      // birthDate/registrationDate) instead of trusting new Date().
+      const input = {
+        tenantId: "tenant-1",
+        partyId: "12345678-1234-1234-1234-123456789abc",
+        roleType: "Customer",
+        fromDate: "Jan 1 2024",
+      };
+
+      await expect(partyService.addPartyRole(input)).rejects.toThrow(InvalidTypeValueError);
+      await expect(partyService.addPartyRole(input)).rejects.toThrow("Invalid fromDate format");
+    });
+
     it("should throw InvalidTypeValueError for invalid partyId format", async () => {
       const input = {
         tenantId: "tenant-1",

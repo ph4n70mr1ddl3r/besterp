@@ -402,14 +402,25 @@ export class PartyService {
         { suggestedTools: ["add_party_role"], context: { field: "fromDate", length: fromDate.length, maxLength: MAX_DATE_STRING_LENGTH } }
       );
     }
-    const d = fromDate != null && fromDate.trim().length > 0 ? new Date(fromDate) : new Date();
-    if (isNaN(d.getTime())) {
+    // When fromDate is absent or whitespace-only, default to "now". Any
+    // provided value MUST be valid ISO 8601 — mirroring requireValidDate()
+    // (used for birthDate/registrationDate) so both date entry points enforce
+    // the same format. Relying on new Date() alone is too permissive: it
+    // accepts many non-ISO strings (e.g. "Jan 1 2024", "2024/01/01") that
+    // would slip past the error message below, which promises ISO 8601.
+    // isValidISODate() already combines the ISO regex with a Date parse
+    // check, so a passing value is guaranteed to construct a valid Date.
+    const trimmed = fromDate != null ? fromDate.trim() : "";
+    if (trimmed.length === 0) {
+      return new Date();
+    }
+    if (!isValidISODate(trimmed)) {
       throw new InvalidTypeValueError(
         `Invalid fromDate format: ${fromDate}. Use ISO 8601 format (YYYY-MM-DDTHH:mm:ss.sssZ)`,
         { suggestedTools: ["add_party_role"], context: { field: "fromDate", invalidValue: fromDate } }
       );
     }
-    return d;
+    return new Date(trimmed);
   }
 
   private async addPartyRoleTransaction(
