@@ -82,18 +82,19 @@ interface SubtypeFieldConfig {
 function validateSubtypeFields<T extends Record<string, unknown>>(
   data: T,
   ctx: z.RefinementCtx,
-  subtypeKey: keyof T,
+  subtypeKey: keyof T & string,
   subtypeValue: string,
   configs: Record<string, SubtypeFieldConfig>,
 ): void {
   const config = configs[subtypeValue];
   if (!config) return;
 
-  if (data[config.requiredField] === undefined) {
-    ctx.addIssue({ code: "custom", message: config.requiredMessage, path: [config.requiredField] });
+  const requiredField = config.requiredField as keyof T & string;
+  if (data[requiredField] === undefined) {
+    ctx.addIssue({ code: "custom", message: config.requiredMessage, path: [requiredField] });
   }
   for (const { field, message } of config.disallowedFields) {
-    if (data[field] !== undefined) {
+    if (data[field as keyof T] !== undefined) {
       ctx.addIssue({ code: "custom", message, path: [field] });
     }
   }

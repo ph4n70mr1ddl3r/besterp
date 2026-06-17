@@ -49,11 +49,6 @@ function validateAndTrimRequired(
   if (trimmed.length === 0) {
     throw new UnauthorizedException(`Invalid token: ${fieldName} is whitespace-only.`);
   }
-  if (trimmed.length > maxLength) {
-    throw new UnauthorizedException(
-      `Invalid token: ${fieldName} is too long after trim (${trimmed.length} chars, max ${maxLength}).`
-    );
-  }
   return trimmed;
 }
 
