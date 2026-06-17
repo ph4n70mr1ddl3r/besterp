@@ -83,7 +83,6 @@ interface SubtypeFieldConfig {
 function validateSubtypeFields<T extends Record<string, unknown>>(
   data: T,
   ctx: z.RefinementCtx,
-  subtypeKey: keyof T & string,
   subtypeValue: string,
   configs: Record<string, SubtypeFieldConfig>,
 ): void {
@@ -198,7 +197,7 @@ const createPartySchema = z.object({
   person: personSchema.optional().describe("Person details (required when partyType is PERSON)"),
   organization: organizationSchema.optional().describe("Organization details (required when partyType is ORGANIZATION)"),
 }).superRefine((data, ctx) => {
-  validateSubtypeFields(data, ctx, "partyType", data.partyType, PARTY_SUBTYPE_CONFIGS);
+  validateSubtypeFields(data, ctx, data.partyType, PARTY_SUBTYPE_CONFIGS);
 });
 
 type CreatePartyInput_z = z.infer<typeof createPartySchema>;
@@ -388,7 +387,7 @@ const addContactMechanismSchema = z.object({
   emailAddress: emailAddressSchema.optional()
     .describe("Email details (required when contactMechanismType is EMAIL_ADDRESS)"),
 }).superRefine((data, ctx) => {
-  validateSubtypeFields(data, ctx, "contactMechanismType", data.contactMechanismType, CONTACT_SUBTYPE_CONFIGS);
+  validateSubtypeFields(data, ctx, data.contactMechanismType, CONTACT_SUBTYPE_CONFIGS);
 });
 
 type AddContactMechanismInput_z = z.infer<typeof addContactMechanismSchema>;

@@ -410,6 +410,47 @@ describe("PartyService", () => {
       const result = await partyService.createParty(input);
       expect(result.person?.birthDate).toBe("1990-06-15T00:00:00.000Z");
     });
+
+    it("should accept a whitespace-padded ISO birthDate (consistent with fromDate)", async () => {
+      // Regression guard: requireValidDate must validate the TRIMMED value
+      // so a padded date like " 1990-06-15 " is accepted — matching
+      // parseFromDate() (add_party_role) and the MCP Zod schemas, which
+      // trim before format checks. Previously the service rejected padded
+      // birthDate with a confusing "not a valid ISO 8601" error.
+      const input: CreatePartyInput = {
+        tenantId: "tenant-1",
+        partyType: "PERSON",
+        name: "John Doe",
+        person: {
+          firstName: "John",
+          lastName: "Doe",
+          birthDate: "  1990-06-15  ",
+        },
+      };
+
+      const mockDb = {
+        partyType: {
+          findUnique: vi.fn().mockResolvedValue({ partyTypeId: "pt-person" }),
+        },
+        $transaction: vi.fn().mockImplementation(async (fn) => {
+          const tx = {
+            party: {
+              create: vi.fn().mockResolvedValue(
+                mockParty({
+                  name: "John Doe",
+                  person: { firstName: "John", lastName: "Doe", birthDate: new Date("1990-06-15") },
+                })
+              ),
+            },
+          };
+          return fn(tx);
+        }),
+      };
+      mockPrismaService.tenantScoped.mockReturnValue(mockDb);
+
+      const result = await partyService.createParty(input);
+      expect(result.person?.birthDate).toBe("1990-06-15T00:00:00.000Z");
+    });
   });
 
   describe("getParty", () => {

@@ -191,12 +191,19 @@ export class PartyService {
             return trimmed ? stripHtmlTags(trimmed) : undefined;
           })(),
           gender: personData.gender ? stripHtmlTags(personData.gender.trim()) : undefined,
+          // Trim dates so the stored value is canonical. Validation
+          // (requireValidDate) accepts whitespace-padded ISO dates to stay
+          // consistent with parseFromDate/MCP; trimming here avoids relying
+          // on new Date()'s whitespace tolerance when parsing below.
+          birthDate: personData.birthDate?.trim() || undefined,
         }
       : undefined;
     const sanitizedOrg = orgData ? {
       ...orgData,
       legalName: stripHtmlTags(orgData.legalName.trim()),
       taxId: orgData.taxId ? stripHtmlTags(orgData.taxId.trim()) : undefined,
+      // See birthDate above — store the trimmed (canonical) date string.
+      registrationDate: orgData.registrationDate?.trim() || undefined,
     } : undefined;
 
     return {
@@ -717,7 +724,13 @@ export class PartyService {
         { suggestedTools: ["create_party"], context: { field, length: value.length, maxLength: MAX_DATE_STRING_LENGTH } }
       );
     }
-    if (!isValidISODate(value)) {
+    // Validate the TRIMMED value so a date with surrounding whitespace
+    // (e.g. " 2024-01-01 ") is accepted — consistent with parseFromDate()
+    // and the MCP Zod schemas, which trim via .transform() before any
+    // format check. The raw `value` is reported in the error below so the
+    // caller sees exactly what they sent.
+    const trimmed = value.trim();
+    if (!isValidISODate(trimmed)) {
       throw new InvalidTypeValueError(
         `${field} is not a valid ISO 8601 date. Received: ${value}.`,
         { suggestedTools: ["create_party"], context: { field, invalidValue: value } }
