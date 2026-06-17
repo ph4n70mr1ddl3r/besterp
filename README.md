@@ -61,27 +61,27 @@ besterp/
 ### Running Tests
 
 ```bash
-# Run all tests
+# Run all tests across all workspaces
 npm test
 
-# Run tests with coverage
-npm run test:coverage
-
-# Run specific test file
-npm test -- party.service.spec.ts
+# Run tests in a specific workspace
+npm test --workspace=@besterp/api
+npm test --workspace=@besterp/shared
+npm test --workspace=@besterp/mcp-tools
+npm test --workspace=@besterp/database
 ```
 
 ### Code Quality
 
 ```bash
-# Run linting
+# Run linting across all workspaces
 npm run lint
 
-# Run type checking
-npm run type-check
+# Run type checking across all workspaces
+npm run typecheck
 
-# Format code
-npm run format
+# Build all workspaces
+npm run build
 ```
 
 ### Database

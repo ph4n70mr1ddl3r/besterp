@@ -5,8 +5,8 @@
 // - Domain event publishing infrastructure
 // - Job scheduling and processing base classes
 //
-// Phase 0b: Infrastructure only — queues will be used for domain events
-// when cross-module coordination is needed (Phase 1+).
+// Infrastructure: queues are registered but not yet used for domain events.
+// Will be consumed by feature modules when cross-module coordination is needed.
 
 import { DynamicModule, Logger, Module } from "@nestjs/common";
 import { BullModule } from "@nestjs/bullmq";
