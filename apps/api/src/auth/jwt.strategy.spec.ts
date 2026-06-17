@@ -142,6 +142,18 @@ describe("JwtStrategy.validate", () => {
     expect(user.userId).toBe("x".repeat(200));
   });
 
+  it("accepts sub at the length cap with surrounding whitespace (trim-before-length)", async () => {
+    // The length cap must be measured against the TRIMMED value, mirroring
+    // validateAndTrimOptional and McpModule.buildContext. A claim at the
+    // cap with padding should pass after trim, not be rejected as "too long"
+    // based on the raw byte count.
+    const user = await strategy.validate({
+      sub: "  " + "x".repeat(200) + "  ",
+      tenantId: "tenant-1",
+    });
+    expect(user.userId).toBe("x".repeat(200));
+  });
+
   it("rejects non-string agentId", async () => {
     await expect(
       strategy.validate({

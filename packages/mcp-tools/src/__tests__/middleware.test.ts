@@ -508,6 +508,35 @@ describe("Idempotency Middleware", () => {
     // Truncation marker should be present so operators can tell.
     expect(stored).toMatch(/truncated/);
   });
+
+  it("should cap oversized thrown-error (hard-failure) message at 4 KB", async () => {
+    // The throw path in executeAndUpdate must apply the same capString
+    // bound as the soft-failure path. Without it, a verbose thrown error
+    // (Prisma dump, network stack trace) would be stored verbatim and
+    // bloat idempotency_record.error.message.
+    const input = { test: "value" };
+    const idempotencyKey = "test-hard-msg-cap";
+    const contextWithKey = { ...mockContext, idempotencyKey };
+    const hugeMessage = "x".repeat(8000);
+
+    mockFindInTransaction(null);
+    mockPrisma.idempotencyRecord.create.mockResolvedValue({
+      idempotencyKey,
+      status: "pending",
+    });
+    mockPrisma.idempotencyRecord.update.mockResolvedValue({});
+
+    const middleware = idempotencyMiddleware(mockPrisma as any);
+    await expect(
+      middleware(input, contextWithKey, mockDefinition, throwingNext(new Error(hugeMessage)))
+    ).rejects.toThrow();
+
+    const updateCall = mockPrisma.idempotencyRecord.update.mock.calls[0];
+    const stored = updateCall[0].data.error.message;
+    expect(stored.length).toBeLessThan(4500);
+    expect(stored.length).toBeGreaterThan(0);
+    expect(stored).toMatch(/truncated/);
+  });
 });
 
 describe("Audit Log Middleware", () => {

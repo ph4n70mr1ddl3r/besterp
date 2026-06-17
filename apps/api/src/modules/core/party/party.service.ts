@@ -44,6 +44,7 @@ import {
   MAX_STATE_PROVINCE_LENGTH,
   MAX_POSTAL_CODE_LENGTH,
   MAX_COUNTRY_CODE_LENGTH,
+  MIN_COUNTRY_CODE_LENGTH,
   MAX_AREA_CODE_LENGTH,
   MAX_LINE_NUMBER_LENGTH,
   MAX_EXTENSION_LENGTH,
@@ -505,6 +506,17 @@ export class PartyService {
       this.requireStringField(postalAddress.addressLine1, "addressLine1", MAX_ADDRESS_LINE_LENGTH, "postal address");
       this.requireStringField(postalAddress.city, "city", MAX_CITY_LENGTH, "postal address");
       this.requireStringField(postalAddress.country, "country", MAX_COUNTRY_CODE_LENGTH, "postal address");
+      // Enforce the same minimum as the Zod schema / DTO (ISO 3166-1
+      // alpha-2). requireStringField only guards against empty/oversize,
+      // so a 1-char value like "U" would otherwise slip past the service
+      // layer — the last line of defense for MCP callers that bypass Zod.
+      const trimmedCountry = postalAddress.country.trim();
+      if (trimmedCountry.length < MIN_COUNTRY_CODE_LENGTH) {
+        throw new InvalidTypeValueError(
+          `country must be at least ${MIN_COUNTRY_CODE_LENGTH} characters (ISO 3166-1 alpha-2/3). Received: '${trimmedCountry}'.`,
+          { suggestedTools: ["add_contact_mechanism"], context: { field: "country", received: trimmedCountry, minLength: MIN_COUNTRY_CODE_LENGTH } }
+        );
+      }
       if (postalAddress.addressLine2) this.requireMaxLength(postalAddress.addressLine2, "addressLine2", MAX_ADDRESS_LINE_LENGTH, "add_contact_mechanism");
       if (postalAddress.stateProvince) this.requireMaxLength(postalAddress.stateProvince, "stateProvince", MAX_STATE_PROVINCE_LENGTH, "add_contact_mechanism");
       if (postalAddress.postalCode) this.requireMaxLength(postalAddress.postalCode, "postalCode", MAX_POSTAL_CODE_LENGTH, "add_contact_mechanism");

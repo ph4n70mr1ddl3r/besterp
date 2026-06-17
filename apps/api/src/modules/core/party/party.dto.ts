@@ -45,6 +45,7 @@ import {
   MAX_STATE_PROVINCE_LENGTH,
   MAX_POSTAL_CODE_LENGTH,
   MAX_COUNTRY_CODE_LENGTH,
+  MIN_COUNTRY_CODE_LENGTH,
   MAX_AREA_CODE_LENGTH,
   MAX_LINE_NUMBER_LENGTH,
   MAX_EXTENSION_LENGTH,
@@ -272,7 +273,7 @@ export class PostalAddressDto {
   @Transform(({ value }: { value: string }) => (typeof value === "string" ? value.trim().toUpperCase() : value))
   @IsString()
   @IsNotEmpty()
-  @MinLength(2)
+  @MinLength(MIN_COUNTRY_CODE_LENGTH)
   @MaxLength(MAX_COUNTRY_CODE_LENGTH)
   country!: string;
 }

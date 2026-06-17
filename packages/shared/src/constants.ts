@@ -44,6 +44,9 @@ export const MAX_POSTAL_CODE_LENGTH = 20;
 /** Maximum length for country codes (ISO 3166-1 alpha-2/3). */
 export const MAX_COUNTRY_CODE_LENGTH = 3;
 
+/** Minimum length for country codes (ISO 3166-1 alpha-2). */
+export const MIN_COUNTRY_CODE_LENGTH = 2;
+
 /** Maximum length for phone area codes. */
 export const MAX_AREA_CODE_LENGTH = 10;
 

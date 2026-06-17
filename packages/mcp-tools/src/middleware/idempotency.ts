@@ -174,11 +174,20 @@ async function executeAndUpdate(
   try {
     toolResult = await next(input, context);
   } catch (error: unknown) {
+    // Cap the message the same way the soft-failure path does
+    // (updateIdempotencyRecordWithRetry → capString). Without this, a
+    // verbose thrown error (Prisma dump, network stack trace) would store
+    // a multi-KB string verbatim in idempotency_record.error.message and
+    // bloat both the row and the 24h-TTL cleanup job's I/O.
+    const message = capString(
+      error instanceof Error ? error.message : String(error),
+      MAX_SOFT_FAILURE_MESSAGE_SIZE,
+    );
     await prisma.idempotencyRecord.update({
       where: { idempotencyKey, tenantId },
       data: {
         status: "failed",
-        error: { message: error instanceof Error ? error.message : String(error), code: getErrorCode(error) },
+        error: { message, code: getErrorCode(error) },
       },
     }).catch((updateErr) => {
       logIdempotencyWarn(`Failed to mark idempotency record '${idempotencyKey}' as failed: ${updateErr instanceof Error ? updateErr.message : String(updateErr)}`);

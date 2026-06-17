@@ -1216,6 +1216,24 @@ describe("PartyService", () => {
       await expect(partyService.addContactMechanism(input)).rejects.toThrow(InvalidTypeValueError);
     });
 
+    it("should throw error for country shorter than the ISO 3166-1 minimum", async () => {
+      // Defense-in-depth: the Zod schema and DTO enforce min length 2, but
+      // the service is the last line of defense for MCP callers that bypass
+      // those layers. A 1-char country like "U" must be rejected here too.
+      const input: AddContactMechanismInput = {
+        tenantId: "tenant-1",
+        partyId: "12345678-1234-1234-1234-123456789abc",
+        contactMechanismType: "POSTAL_ADDRESS",
+        postalAddress: {
+          addressLine1: "123 Main St",
+          city: "Anytown",
+          country: "U",
+        },
+      };
+
+      await expect(partyService.addContactMechanism(input)).rejects.toThrow(/country must be at least/);
+    });
+
     it("should throw error for email exceeding max length", async () => {
       const input: AddContactMechanismInput = {
         tenantId: "tenant-1",

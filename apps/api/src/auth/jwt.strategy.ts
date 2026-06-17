@@ -40,14 +40,17 @@ function validateAndTrimRequired(
   if (typeof value !== "string" || value.length === 0) {
     throw new UnauthorizedException(`Invalid token: missing ${fieldName}.`);
   }
-  if (value.length > maxLength) {
-    throw new UnauthorizedException(
-      `Invalid token: ${fieldName} is too long (${value.length} chars, max ${maxLength}).`
-    );
-  }
   const trimmed = value.trim();
   if (trimmed.length === 0) {
     throw new UnauthorizedException(`Invalid token: ${fieldName} is whitespace-only.`);
+  }
+  // Check length AFTER trimming so a claim at the cap with surrounding
+  // whitespace isn't rejected. Mirrors validateAndTrimOptional below and
+  // McpModule.buildContext — all of which measure the trimmed length.
+  if (trimmed.length > maxLength) {
+    throw new UnauthorizedException(
+      `Invalid token: ${fieldName} is too long (${trimmed.length} chars, max ${maxLength}).`
+    );
   }
   return trimmed;
 }
