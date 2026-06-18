@@ -42,7 +42,6 @@ export class HealthController {
     return this.healthService.getVersion();
   }
 
-  @Public()
   @Get("ready")
   async ready() {
     // Verify database connectivity with a 5-second timeout to prevent

@@ -6,9 +6,9 @@
 
 import { Injectable, Logger } from "@nestjs/common";
 import { PrismaService } from "./prisma/prisma.service.js";
-import * as fs from "fs/promises";
-import { join, dirname } from "path";
-import { fileURLToPath } from "url";
+import * as fs from "node:fs/promises";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 
 export interface HealthStatus {
   status: "ok" | "error";

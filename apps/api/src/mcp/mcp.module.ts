@@ -186,7 +186,7 @@ function validateReasoningField(value: string | undefined | null): string | unde
  */
 function validateOptionalField(
   fieldName: string,
-  value: string | undefined,
+  value: string | undefined | null,
   maxLength: number,
 ): string | undefined {
   if (value === undefined || value === null) {
