@@ -37,12 +37,12 @@ export class HealthController {
     return status;
   }
 
-  @Public()
   @Get("version")
   getVersion() {
     return this.healthService.getVersion();
   }
 
+  @Public()
   @Get("ready")
   async ready() {
     // Verify database connectivity with a 5-second timeout to prevent
@@ -78,9 +78,10 @@ export class HealthController {
     } catch (error) {
       // Re-throw ServiceUnavailableException as-is
       if (error instanceof ServiceUnavailableException) throw error;
-      // Wrap unexpected errors (e.g., health check threw)
+      // In production, use a generic message to avoid leaking internal details
+      const isProd = process.env.NODE_ENV === "production";
       throw new ServiceUnavailableException(
-        error instanceof Error ? error.message : "not ready"
+        isProd ? "not ready" : (error instanceof Error ? error.message : "not ready")
       );
     } finally {
       // Always clear the timer, regardless of which path we took. Without this,

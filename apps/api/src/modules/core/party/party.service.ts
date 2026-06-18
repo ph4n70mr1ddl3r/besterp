@@ -647,8 +647,7 @@ export class PartyService {
   // ─── Private Helpers ──────────────────────────────────────────
 
   /** Validate a required string field: must be non-empty and within maxLength.
-   *  Combines the empty check and length check into a single call site.
-   *  Callers are expected to pass already-trimmed values. */
+   *  Trims before both checks for defense-in-depth. */
   private requireStringField(
     value: string | undefined | null,
     field: string,
@@ -656,16 +655,17 @@ export class PartyService {
     parentType: string,
     tool = "add_contact_mechanism",
   ): void {
-    if (!value || value.trim().length === 0) {
+    const trimmed = value?.trim() ?? "";
+    if (trimmed.length === 0) {
       throw new InvalidTypeValueError(
         `${field} is required for ${parentType}`,
         { suggestedTools: [tool], context: { parentType, field } }
       );
     }
-    if (value.length > maxLength) {
+    if (trimmed.length > maxLength) {
       throw new InvalidTypeValueError(
-        `${field} is too long (${value.length} characters, max ${maxLength})`,
-        { suggestedTools: [tool], context: { field, length: value.length, maxLength } }
+        `${field} is too long (${trimmed.length} characters, max ${maxLength})`,
+        { suggestedTools: [tool], context: { field, length: trimmed.length, maxLength } }
       );
     }
   }

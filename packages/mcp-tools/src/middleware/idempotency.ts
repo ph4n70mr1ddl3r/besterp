@@ -132,11 +132,16 @@ function handleExistingRecord(
         },
       };
     }
+    const data = existing.result;
+    const isTruncated = data != null && typeof data === "object" && "_truncated" in (data as Record<string, unknown>);
     return {
       success: true,
-      data: existing.result,
+      data,
       replayed: true,
-      nextActions: [`This is a replay of a previous '${toolName}' call. No action needed.`],
+      nextActions: [
+        `This is a replay of a previous '${toolName}' call. No action needed.`,
+        ...(isTruncated ? ["Note: The original result was truncated for storage."] : []),
+      ],
     };
   }
 
@@ -183,15 +188,11 @@ async function executeAndUpdate(
       error instanceof Error ? error.message : String(error),
       MAX_SOFT_FAILURE_MESSAGE_SIZE,
     );
-    await prisma.idempotencyRecord.update({
-      where: { idempotencyKey, tenantId },
-      data: {
-        status: "failed",
-        error: { message, code: getErrorCode(error) },
-      },
-    }).catch((updateErr) => {
-      logIdempotencyWarn(`Failed to mark idempotency record '${idempotencyKey}' as failed: ${updateErr instanceof Error ? updateErr.message : String(updateErr)}`);
-    });
+    const failedResult: ToolResult = {
+      success: false,
+      error: { code: getErrorCode(error) ?? "EXECUTION_ERROR", message },
+    };
+    await updateIdempotencyRecordWithRetry(prisma, idempotencyKey, tenantId, failedResult, true);
     throw error;
   }
 

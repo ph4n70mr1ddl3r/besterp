@@ -167,7 +167,14 @@ function createTransactionWrapper(prisma: PrismaClient, tenantId: string) {
 
     if (fn) {
       const wrappedFn = async (tx: Prisma.TransactionClient) => {
-        await tx.$executeRaw`SELECT set_tenant_context(${tenantId})`;
+        try {
+          await tx.$executeRaw`SELECT set_tenant_context(${tenantId})`;
+        } catch (e) {
+          throw new Error(
+            `Failed to set tenant context for '${tenantId}': ${e instanceof Error ? e.message : String(e)}`,
+            { cause: e }
+          );
+        }
         return fn(tx);
       };
       return options ? (prisma as any).$transaction(wrappedFn, options) : (prisma as any).$transaction(wrappedFn);

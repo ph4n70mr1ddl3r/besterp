@@ -56,11 +56,17 @@ function setupGracefulShutdown(app: INestApplication): void {
   }
 
   process.on("uncaughtException", (error) => {
-    void gracefulShutdown("Uncaught exception", error);
+    void gracefulShutdown("Uncaught exception", error).catch((shutdownErr) => {
+      console.error("Error during shutdown handler:", shutdownErr);
+      process.exit(1);
+    });
   });
 
   process.on("unhandledRejection", (reason) => {
-    void gracefulShutdown("Unhandled promise rejection", reason);
+    void gracefulShutdown("Unhandled promise rejection", reason).catch((shutdownErr) => {
+      console.error("Error during shutdown handler:", shutdownErr);
+      process.exit(1);
+    });
   });
 
   app.enableShutdownHooks();

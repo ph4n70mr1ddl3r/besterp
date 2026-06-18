@@ -16,11 +16,7 @@ export class DomainError extends Error {
   constructor(
     code: string,
     message: string,
-    options?: {
-      suggestedTools?: string[];
-      context?: Record<string, unknown>;
-      cause?: Error;
-    }
+    options?: DomainErrorOptions
   ) {
     super(message, options?.cause ? { cause: options.cause } : undefined);
     // Hardcode name to survive minification (terser/mangle renames classes).
@@ -45,7 +41,12 @@ export class DomainError extends Error {
       suggestedTools: this.suggestedTools,
       context: this.context,
       stack: this.stack,
-      cause: this.cause instanceof Error ? this.cause.message : this.cause,
+      cause: (() => {
+        if (!(this.cause instanceof Error)) return this.cause;
+        const causeObj = this.cause as unknown as Record<string, unknown>;
+        if (typeof causeObj.toJSON === "function") return causeObj.toJSON();
+        return this.cause.message;
+      })(),
     };
   }
 }
