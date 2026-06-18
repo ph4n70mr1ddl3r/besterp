@@ -20,7 +20,7 @@
 
 import { Injectable, Logger } from "@nestjs/common";
 import { PrismaService } from "../../../prisma/prisma.service.js";
-import { Prisma } from "@prisma/client";
+import { Prisma, PrismaClient } from "@prisma/client";
 import {
   MissingSubtypeDataError,
   InvalidTypeValueError,
@@ -215,7 +215,7 @@ export class PartyService {
   }
 
   private async createPartyTransaction(
-    db: ReturnType<PrismaService["tenantScoped"]>,
+    db: PrismaClient,
     tenantId: string, partyTypeId: string,
     name: string, description: string | null,
     sanitizedPerson: CreatePartyInput["person"] | undefined,
@@ -395,7 +395,7 @@ export class PartyService {
   }
 
   private validateAddPartyRoleInput(roleType: string): string {
-    const trimmed = roleType?.trim() ?? "";
+    const trimmed = roleType.trim();
     if (!trimmed) {
       throw new InvalidTypeValueError("roleType cannot be empty", { suggestedTools: ["get_type_table_values"], context: { field: "roleType", received: roleType } });
     }
@@ -432,7 +432,7 @@ export class PartyService {
   }
 
   private async addPartyRoleTransaction(
-    db: ReturnType<PrismaService["tenantScoped"]>,
+    db: PrismaClient,
     tenantId: string, partyId: string, roleTypeId: string,
     trimmedRoleType: string, roleFromDate: Date,
   ): Promise<Prisma.PartyRoleGetPayload<{ include: { roleType: true } }>> {
@@ -561,7 +561,7 @@ export class PartyService {
   }
 
   private async createContactMechanismTransaction(
-    db: ReturnType<PrismaService["tenantScoped"]>,
+    db: PrismaClient,
     tenantId: string, partyId: string, type: string,
     contactMechanismTypeId: string,
     postalAddress: AddContactMechanismInput["postalAddress"],
