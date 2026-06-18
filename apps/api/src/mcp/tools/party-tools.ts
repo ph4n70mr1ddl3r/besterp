@@ -149,7 +149,7 @@ const personSchema = z.object({
   birthDate: z.string().optional().transform(s => s?.trim() || undefined)
     .pipe(z.string().max(MAX_DATE_STRING_LENGTH).optional())
     .refine(
-      v => v === undefined || isValidISODate(v),
+      v => v === undefined || v.length > 0 && isValidISODate(v),
       "Invalid date format - must be ISO 8601"
     )
     .describe("Date of birth (ISO 8601)"),
@@ -162,7 +162,7 @@ const organizationSchema = z.object({
   registrationDate: z.string().optional().transform(s => s?.trim() || undefined)
     .pipe(z.string().max(MAX_DATE_STRING_LENGTH).optional())
     .refine(
-      v => v === undefined || isValidISODate(v),
+      v => v === undefined || v.length > 0 && isValidISODate(v),
       "Invalid date format - must be ISO 8601"
     )
     .describe("Date of registration (ISO 8601)"),
@@ -331,7 +331,7 @@ const addPartyRoleSchema = z.object({
   fromDate: z.string().optional().transform(s => s?.trim() || undefined)
     .pipe(z.string().max(MAX_DATE_STRING_LENGTH).optional())
     .refine(
-      v => v === undefined || isValidISODate(v),
+      v => v === undefined || v.length > 0 && isValidISODate(v),
       "Invalid date format - must be ISO 8601"
     )
     .describe(`Start date for the role (ISO 8601, max ${MAX_DATE_STRING_LENGTH} chars, default: now)`),

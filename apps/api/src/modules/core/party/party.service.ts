@@ -186,10 +186,9 @@ export class PartyService {
           ...personData,
           firstName: stripHtmlTags(personData.firstName.trim()),
           lastName: stripHtmlTags(personData.lastName.trim()),
-          middleName: (() => {
-            const trimmed = personData.middleName?.trim();
-            return trimmed ? stripHtmlTags(trimmed) : undefined;
-          })(),
+          middleName: personData.middleName?.trim()
+            ? stripHtmlTags(personData.middleName.trim())
+            : undefined,
           gender: personData.gender ? stripHtmlTags(personData.gender.trim()) : undefined,
           // Trim dates so the stored value is canonical. Validation
           // (requireValidDate) accepts whitespace-padded ISO dates to stay
