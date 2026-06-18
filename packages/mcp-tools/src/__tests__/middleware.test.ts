@@ -1,7 +1,7 @@
 // Unit tests for MCP middleware functionality
 // Tests idempotency, audit logging, and error handling
 
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import { 
   idempotencyMiddleware, 
   auditLogMiddleware, 
@@ -654,19 +654,8 @@ describe("Audit Log Middleware", () => {
 });
 
 describe("Error Handler Middleware", () => {
-  let originalNodeEnv: string | undefined;
-
   beforeEach(() => {
     vi.clearAllMocks();
-    originalNodeEnv = process.env.NODE_ENV;
-  });
-
-  afterEach(() => {
-    if (originalNodeEnv === undefined) {
-      delete process.env.NODE_ENV;
-    } else {
-      process.env.NODE_ENV = originalNodeEnv;
-    }
   });
 
   it("should format domain errors correctly", async () => {
@@ -777,7 +766,7 @@ describe("Error Handler Middleware", () => {
   });
 
   it("should handle generic errors with fallback (non-prod: includes raw message)", async () => {
-    process.env.NODE_ENV = "development";
+    vi.stubEnv("NODE_ENV", "development");
     const genericError = new Error("connection to db at 10.0.0.5:5432 failed");
 
     const result = await errorHandlerMiddleware({}, mockContext, mockDefinition, throwingNext(genericError));
@@ -789,7 +778,7 @@ describe("Error Handler Middleware", () => {
   });
 
   it("should strip the raw error message in production (no internals leak)", async () => {
-    process.env.NODE_ENV = "production";
+    vi.stubEnv("NODE_ENV", "production");
     const sensitiveMessage = "PrismaClientKnownRequestError: Invalid `prisma.party.create()` invocation: connect ECONNREFUSED 10.0.0.5:5432";
     const genericError = new Error(sensitiveMessage);
 

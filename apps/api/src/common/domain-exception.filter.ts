@@ -11,8 +11,8 @@
 //   { statusCode, error: "CODE", message, suggestedTools, context }
 
 import { ExceptionFilter, Catch, ArgumentsHost, Logger, HttpException } from "@nestjs/common";
-import { Response } from "express";
-import { DomainError, isDomainError } from "@besterp/shared";
+import type { Response } from "express";
+import { DomainError, isDomainError, getErrorCode } from "@besterp/shared";
 
 /**
  * Map a DomainError code to an HTTP status code.
@@ -96,8 +96,9 @@ export class DomainExceptionFilter implements ExceptionFilter {
     // get a generic message to prevent leaking internal details (DB errors,
     // stack traces, etc.).
     // The server-side log captures the full details for debugging.
+    const errorCode = getErrorCode(exception);
     this.logger.error(
-      `Unhandled exception: ${exception instanceof Error ? exception.message : exception}`,
+      `Unhandled exception${errorCode ? ` [${errorCode}]` : ""}: ${exception instanceof Error ? exception.message : exception}`,
       exception instanceof Error ? exception.stack : undefined
     );
     const isDev = process.env.NODE_ENV === "development";

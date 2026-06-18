@@ -32,8 +32,8 @@ function makeStrategy() {
   // The constructor reads JWT_SECRET / NODE_ENV from process.env. The
   // production-secret check only triggers if NODE_ENV === "production" AND
   // JWT_SECRET is missing — neither of which is our test default.
-  process.env.JWT_SECRET = "test-secret";
-  process.env.NODE_ENV = "test";
+  vi.stubEnv("JWT_SECRET", "test-secret");
+  vi.stubEnv("NODE_ENV", "test");
   return new JwtStrategy();
 }
 
@@ -46,8 +46,7 @@ describe("JwtStrategy.validate", () => {
   });
 
   afterEach(() => {
-    delete process.env.JWT_SECRET;
-    delete process.env.NODE_ENV;
+    vi.unstubAllEnvs();
     resetJwtSecretCache();
   });
 

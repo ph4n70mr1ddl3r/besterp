@@ -744,7 +744,7 @@ export class PartyService {
    */
   private static safeParseDate(value: string): Date {
     const d = new Date(value);
-    if (isNaN(d.getTime())) {
+    if (Number.isNaN(d.getTime())) {
       throw new InvalidTypeValueError(
         `Invalid date value: ${value}`,
         { suggestedTools: ["create_party"], context: { field: "date", invalidValue: value } }

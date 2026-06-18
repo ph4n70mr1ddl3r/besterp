@@ -54,11 +54,6 @@ export class HealthController {
     //    will eventually time out per the driver's socket timeout.
     let timeoutId: ReturnType<typeof setTimeout> | undefined;
 
-    const healthPromise = this.healthService.getHealth();
-    // Suppress eventual rejection if timeout wins the race — without this,
-    // a slow-failing DB health check becomes an unhandled promise rejection.
-    void healthPromise.catch((err) => this.logger.warn(`Health check failed (suppressed): ${err instanceof Error ? err.message : err}`));
-
     const timeoutPromise = new Promise<"timeout">((resolve) => {
       timeoutId = setTimeout(() => resolve("timeout"), 5000);
       // Prevent the timer from keeping the process alive during shutdown.
@@ -66,7 +61,10 @@ export class HealthController {
     });
 
     try {
-      const result = await Promise.race([healthPromise, timeoutPromise]);
+      const result = await Promise.race([
+        this.healthService.getHealth(),
+        timeoutPromise,
+      ]);
       if (result === "timeout") {
         throw new ServiceUnavailableException("health check timed out");
       }
@@ -84,8 +82,8 @@ export class HealthController {
       );
     } finally {
       // Always clear the timer, regardless of which path we took. Without this,
-      // the timer fires uselessly 5s after a throw. .unref() on line 65 keeps
-      // it from holding the process open, but the callback still allocates.
+      // the timer fires uselessly 5s after a throw. .unref() keeps it from
+      // holding the process open, but the callback still allocates.
       if (timeoutId) clearTimeout(timeoutId);
     }
   }

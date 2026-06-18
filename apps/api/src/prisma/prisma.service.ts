@@ -91,9 +91,9 @@ export class PrismaService
       // In dev, warn so the operator notices the fallback.
       this.logger.warn(
         "DATABASE_ADMIN_URL is not set — admin client falls back to DATABASE_URL. " +
-        "In dev, audit logs and idempotency records (which use this client " +
-        "to bypass RLS) will be silently rejected by RLS policies. Set DATABASE_ADMIN_URL " +
-        "to a superuser connection string to fix."
+        "Audit logs and idempotency records (which use the admin client to bypass RLS) " +
+        "will be silently rejected by RLS policies. Set DATABASE_ADMIN_URL to a superuser " +
+        "connection string to fix."
       );
     }
     try {
