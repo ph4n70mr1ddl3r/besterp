@@ -37,9 +37,12 @@ describeIntegration("RLS Tenant Isolation", () => {
   });
 
   afterAll(async () => {
-    await cleanupTestData(admin, prefix);
-    await app.$disconnect();
-    await admin.$disconnect();
+    try {
+      await cleanupTestData(admin, prefix);
+    } finally {
+      await app.$disconnect();
+      await admin.$disconnect();
+    }
   });
 
   // ─── Tenant A cannot see Tenant B's data ────────────────
@@ -178,9 +181,12 @@ describeIntegration("Class Table Inheritance", () => {
   });
 
   afterAll(async () => {
-    await cleanupTestData(admin, prefix);
-    await app.$disconnect();
-    await admin.$disconnect();
+    try {
+      await cleanupTestData(admin, prefix);
+    } finally {
+      await app.$disconnect();
+      await admin.$disconnect();
+    }
   });
 
   it("creates a person party with subtype data", async () => {
@@ -241,9 +247,12 @@ describeIntegration("Idempotency", () => {
   });
 
   afterAll(async () => {
-    await cleanupTestData(admin, prefix);
-    await app.$disconnect();
-    await admin.$disconnect();
+    try {
+      await cleanupTestData(admin, prefix);
+    } finally {
+      await app.$disconnect();
+      await admin.$disconnect();
+    }
   });
 
   it("creates and replays idempotency records", async () => {

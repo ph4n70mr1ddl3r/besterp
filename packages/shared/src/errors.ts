@@ -44,6 +44,8 @@ export class DomainError extends Error {
       message: this.message,
       suggestedTools: this.suggestedTools,
       context: this.context,
+      stack: this.stack,
+      cause: this.cause instanceof Error ? this.cause.message : this.cause,
     };
   }
 }

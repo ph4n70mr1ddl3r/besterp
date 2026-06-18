@@ -65,14 +65,24 @@ function sortPlainObject(value: object, ancestors: Set<object>): Record<string, 
   return sorted;
 }
 
+function serializeSpecialObject(value: object): unknown {
+  if (value instanceof Date) return value.toISOString();
+  if (value instanceof RegExp) return value.source;
+  if (value instanceof Error) return { name: value.name, message: value.message };
+  return value;
+}
+
 function sortObject(value: object, ancestors: Set<object>): unknown {
   checkCircular(value, ancestors);
   ancestors.add(value);
 
   const proto = Object.getPrototypeOf(value);
-  const result = (proto === Object.prototype || proto === null)
-    ? sortPlainObject(value, ancestors)
-    : value;
+  let result: unknown;
+  if (proto === Object.prototype || proto === null) {
+    result = sortPlainObject(value, ancestors);
+  } else {
+    result = serializeSpecialObject(value);
+  }
 
   ancestors.delete(value);
   return result;

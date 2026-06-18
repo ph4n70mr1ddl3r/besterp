@@ -3,6 +3,7 @@
 // These helpers assume a running PostgreSQL instance with RLS configured.
 // Tests use a unique prefix to isolate test data and clean up after themselves.
 
+import { randomBytes } from "node:crypto";
 import { PrismaClient } from "@prisma/client";
 import { withTenant } from "@besterp/shared";
 
@@ -33,7 +34,8 @@ export function createAdminClient(): PrismaClient {
 
 let counter = 0;
 export function uniqueId(prefix: string): string {
-  return `${prefix}-${Date.now()}-${++counter}`;
+  const suffix = randomBytes(4).toString("hex");
+  return `${prefix}-${Date.now()}-${suffix}-${++counter}`;
 }
 
 /** Create a person party within a tenant context. */

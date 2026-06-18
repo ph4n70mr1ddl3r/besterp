@@ -98,7 +98,13 @@ export class PrismaService
     }
     try {
       await this.$connect();
-      await this._appClient.$connect();
+      try {
+        await this._appClient.$connect();
+      } catch (appError) {
+        // App client failed — disconnect admin client to avoid leaked connections
+        await this.$disconnect().catch(() => {});
+        throw appError;
+      }
       this.logger.log("Database connections established (admin + app)");
     } catch (error: unknown) {
       this.logger.error(

@@ -37,6 +37,7 @@ export class HealthController {
     return status;
   }
 
+  @Public()
   @Get("version")
   getVersion() {
     return this.healthService.getVersion();

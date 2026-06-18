@@ -19,6 +19,8 @@ const MAX_AUDIT_OUTPUT_SIZE = MAX_STORED_PAYLOAD_SIZE;
 
 /** Maximum concurrent audit log writes to prevent memory pressure under DB slowdown. */
 const MAX_CONCURRENT_AUDIT_WRITES = 100;
+/** Maximum queued audit entries before dropping to prevent unbounded memory growth. */
+const MAX_AUDIT_QUEUE_SIZE = 1000;
 
 /**
  * Create an audit log middleware backed by PostgreSQL.
@@ -53,6 +55,10 @@ export function auditLogMiddleware(prisma: PrismaClient): ToolMiddleware {
   }
 
   function logWithBackpressure(entry: AuditLogEntry): void {
+    if (writeQueue.length >= MAX_AUDIT_QUEUE_SIZE) {
+      process.stderr.write(`[AuditLog] Queue full (${MAX_AUDIT_QUEUE_SIZE}), dropping audit entry for '${entry.toolCalled}'\n`);
+      return;
+    }
     void acquireWriteSlot()
       .then(() => logAction(prisma, entry))
       .catch((logErr) => {

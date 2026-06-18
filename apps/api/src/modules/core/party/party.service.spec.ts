@@ -457,7 +457,7 @@ describe("PartyService", () => {
     it("should return party when found", async () => {
       const mockDb = {
         party: {
-          findFirst: vi.fn().mockResolvedValue(
+          findUnique: vi.fn().mockResolvedValue(
             mockParty({ name: "John Doe", person: { firstName: "John", lastName: "Doe" } })
           ),
         },
@@ -478,7 +478,7 @@ describe("PartyService", () => {
     it("should throw EntityNotFoundError when partyId is valid UUID but party doesn't exist", async () => {
       const mockDb = {
         party: {
-          findFirst: vi.fn().mockResolvedValue(null),
+          findUnique: vi.fn().mockResolvedValue(null),
         },
       };
 

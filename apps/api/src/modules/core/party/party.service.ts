@@ -263,8 +263,8 @@ export class PartyService {
 
     const db = this.prisma.tenantScoped(tenantId);
 
-    const party = await db.party.findFirst({
-      where: { partyId, tenantId },
+    const party = await db.party.findUnique({
+      where: { partyId },
       include: PartyService.PARTY_INCLUDE,
     });
 

@@ -49,12 +49,16 @@ export const COUNTRY_CODE_REGEX: Readonly<RegExp> = /^\+[1-9]\d{0,2}$/;
  * - `2024-06-15T00:00:00.000Z` (UTC with milliseconds)
  * - `2024-06-15T00:00:00+01:00` (with timezone offset)
  *
+ * Enforces valid calendar ranges:
+ * - Month: 01-12
+ * - Day: 01-31 (with month-specific limits enforced by isValidISODate)
+ *
  * Used by:
  * - Zod schemas in party-tools.ts (birthDate, registrationDate, fromDate)
  * - PartyService.requireValidDate()
  */
 export const ISO_DATE_REGEX: Readonly<RegExp> =
-  /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})?)?$/;
+  /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])(T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})?)?$/;
 
 /**
  * Validate that a string is a parseable ISO 8601 date.

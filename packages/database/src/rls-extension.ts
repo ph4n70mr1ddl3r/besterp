@@ -190,8 +190,8 @@ function createModelDelegateProxy(
   prisma: PrismaClient, tenantId: string,
 ) {
   return new Proxy(delegate, {
-    set(_modelTarget, modelProp) {
-      throw new Error(`Cannot set '${String(modelProp)}' on model '${modelName}' of a tenant-scoped client.`);
+    set(_modelTarget, _prop, _value) {
+      throw new Error(`Cannot set '${String(_prop)}' on model '${modelName}' of a tenant-scoped client.`);
     },
     deleteProperty(_modelTarget, modelProp) {
       throw new Error(`Cannot delete '${String(modelProp)}' on model '${modelName}' of a tenant-scoped client.`);

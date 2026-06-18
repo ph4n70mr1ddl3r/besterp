@@ -11,6 +11,7 @@
 DO $$
 BEGIN
   IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'besterp_app') THEN
+    -- DEV-ONLY password: must be rotated for any non-local environment
     CREATE ROLE besterp_app WITH LOGIN PASSWORD 'besterp_app_dev' NOINHERIT;
   END IF;
 END

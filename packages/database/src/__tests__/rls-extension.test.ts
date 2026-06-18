@@ -266,6 +266,7 @@ describe("RLS Extension", () => {
     });
 
     it("should provide detailed error messages for invalid tenant IDs", () => {
+      expect(() => createTenantClient(mockPrisma, "bad@tenant#123")).toThrow(InvalidTypeValueError);
       try {
         createTenantClient(mockPrisma, "bad@tenant#123");
       } catch (error) {
