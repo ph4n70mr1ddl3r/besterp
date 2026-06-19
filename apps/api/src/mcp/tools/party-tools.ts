@@ -37,6 +37,7 @@ import {
   MAX_EXTENSION_LENGTH,
   MAX_PHONE_COUNTRY_CODE_LENGTH,
   MAX_EMAIL_LENGTH,
+  DEFAULT_SEARCH_LIMIT,
 } from "@besterp/shared";
 import type {
   CreatePartyInput,
@@ -284,7 +285,7 @@ const searchPartiesSchema = z.object({
   name: z.string().optional().transform(s => s?.trim()).pipe(z.string().max(MAX_PARTY_NAME_LENGTH).optional()).refine(v => v === undefined || v.length > 0, "name filter cannot be whitespace-only").describe("Filter by name (case-insensitive partial match)"),
   partyType: z.enum(["PERSON", "ORGANIZATION"]).optional().describe("Filter by party type"),
   roleType: z.string().optional().transform(s => s?.trim()).pipe(z.string().max(MAX_ROLE_TYPE_LENGTH).optional()).refine(v => v === undefined || v.length > 0, "roleType filter cannot be whitespace-only").describe("Filter by role type name (e.g., 'Customer', 'Supplier')"),
-  limit: z.number().int().min(1).max(500).optional().default(50).describe("Maximum results to return (max 500)"),
+  limit: z.number().int().min(1).max(500).optional().default(DEFAULT_SEARCH_LIMIT).describe("Maximum results to return (max 500)"),
   offset: z.number().int().min(0).optional().default(0).describe("Number of results to skip (min 0)"),
 });
 

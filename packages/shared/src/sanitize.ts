@@ -23,8 +23,23 @@
  * @returns Sanitized string with HTML tags removed
  */
 const MAX_SANITIZE_ITERATIONS = 10;
+/** Maximum input length to prevent DoS via deeply nested encoded strings. */
+const MAX_INPUT_LENGTH = 100_000;
 
 export function stripHtmlTags(input: string): string {
+  // Early-exit for empty strings and oversized input. The length cap prevents
+  // DoS via deeply nested HTML entity encoding (e.g., &amp;amp;amp;...) where
+  // each iteration can expand the string, and the decode loop multiplies the
+  // work. 100 KB is well above any legitimate text field (the largest field
+  // MAX_PARTY_DESCRIPTION_LENGTH is 1000 chars).
+  if (input.length === 0) return input;
+  if (input.length > MAX_INPUT_LENGTH) {
+    throw new Error(
+      `stripHtmlTags: input too long (${input.length} chars, max ${MAX_INPUT_LENGTH}). ` +
+      `This may indicate a DoS attempt via deeply nested HTML encoding.`
+    );
+  }
+
   // Remove null bytes (can confuse parsers and bypass filters)
   let sanitized = input.replace(/\0/g, "");
 
@@ -56,6 +71,7 @@ export function stripHtmlTags(input: string): string {
       .replace(/&lt;/gi, "<")
       .replace(/&gt;/gi, ">")
       .replace(/&apos;/gi, "'")
+      .replace(/&nbsp;/gi, " ")
       .replace(/&amp;/gi, "&")
       .replace(/&quot;/gi, '"');
     // Strip script/style content including the tags themselves

@@ -19,6 +19,7 @@ import {
   Req,
   ParseUUIDPipe,
   UnauthorizedException,
+  HttpCode,
 } from "@nestjs/common";
 import type { Request } from "express";
 import { TenantContext } from "../../../common/tenant-context.js";
@@ -47,6 +48,7 @@ export class PartyController {
   }
 
   @Post()
+  @HttpCode(201)
   async create(
     @Req() req: Request,
     @Body() body: CreatePartyDto

@@ -109,7 +109,7 @@ async function acquireIdempotencyRecord(
         await delay(IDEMPOTENCY_RETRY_BASE_DELAY_MS * (attempt + 1));
         continue;
       }
-      if (code !== "P2034") throw e;
+      throw e;
     }
   }
 

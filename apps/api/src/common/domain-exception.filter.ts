@@ -51,8 +51,9 @@ export class DomainExceptionFilter implements ExceptionFilter {
     if (isDomainError(exception)) {
       const status = domainErrorToStatus(exception);
       if (status === 500) {
-        // Unexpected domain error code — log as error to surface the missing mapping.
-        this.logger.error(
+        // Unexpected domain error code — log as warn to surface the missing mapping.
+        // Not error-level because this is a code issue (missing mapping), not a runtime failure.
+        this.logger.warn(
           `Unknown DomainError code '${exception.code}' — add a mapping in domainErrorToStatus(). Defaulting to 500.`
         );
       } else {
