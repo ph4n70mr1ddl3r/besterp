@@ -192,7 +192,7 @@ function createTransactionWrapper(prisma: PrismaClient, tenantId: string) {
 }
 
 function createModelDelegateProxy(
-  target: PrismaClient, delegate: object, modelName: string,
+  delegate: object, modelName: string,
   methodCache: LruCache<string, (...args: unknown[]) => Promise<unknown>>,
   prisma: PrismaClient, tenantId: string,
 ) {
@@ -265,7 +265,7 @@ function createClientProxy(
       const delegate = (target as any)[prop];
       if (!delegate || typeof delegate !== "object") return delegate;
 
-      const proxy = createModelDelegateProxy(target, delegate, prop, methodCache, prisma, tenantId);
+      const proxy = createModelDelegateProxy(delegate, prop, methodCache, prisma, tenantId);
       delegateCache.set(prop, proxy);
       return proxy;
     },

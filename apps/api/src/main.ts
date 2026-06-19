@@ -9,6 +9,7 @@
 import "reflect-metadata";
 import { NestFactory } from "@nestjs/core";
 import { Logger, ValidationPipe, type INestApplication } from "@nestjs/common";
+import helmet from "helmet";
 import { AppModule } from "./app.module.js";
 
 function validateEnvironment(): void {
@@ -106,6 +107,8 @@ async function bootstrap() {
   app.setGlobalPrefix("api");
 
   configureCors(app);
+
+  app.use(helmet());
 
   app.useGlobalPipes(
     new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true })

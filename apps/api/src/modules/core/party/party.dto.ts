@@ -27,11 +27,8 @@ import {
   ValidationArguments,
 } from "class-validator";
 import { Type, Transform, TransformFnParams } from "class-transformer";
-
-function TrimTransform(): PropertyDecorator {
-  return Transform(({ value }: TransformFnParams) => (typeof value === "string" ? value.trim() : value));
-}
 import {
+  stripHtmlTags,
   MAX_PARTY_NAME_LENGTH,
   MAX_PARTY_DESCRIPTION_LENGTH,
   MAX_PERSON_NAME_LENGTH,
@@ -56,6 +53,10 @@ import {
   MAX_DATE_STRING_LENGTH,
   COUNTRY_CODE_REGEX,
 } from "@besterp/shared";
+
+function TrimTransform(): PropertyDecorator {
+  return Transform(({ value }: TransformFnParams) => (typeof value === "string" ? stripHtmlTags(value.trim()) : value));
+}
 
 // ─── Cross-field validators ──────────────────────────────────────
 

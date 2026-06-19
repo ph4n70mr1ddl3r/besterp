@@ -40,7 +40,6 @@ export class DomainError extends Error {
       message: this.message,
       suggestedTools: this.suggestedTools,
       context: this.context,
-      stack: this.stack,
       cause: (() => {
         if (!(this.cause instanceof Error)) return this.cause;
         const causeObj = this.cause as unknown as Record<string, unknown>;

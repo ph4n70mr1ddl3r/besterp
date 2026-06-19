@@ -16,7 +16,7 @@
 // If no idempotency key is provided, the middleware is a no-op pass-through.
 
 import { PrismaClient, Prisma, IdempotencyRecord } from "@prisma/client";
-import { hashInput, getErrorCode, MAX_SOFT_FAILURE_MESSAGE_SIZE, IDEMPOTENCY_TTL_MS, MAX_IDEMPOTENCY_KEY_LENGTH, IDEMPOTENCY_MAX_RETRIES } from "@besterp/shared";
+import { hashInput, getErrorCode, MAX_SOFT_FAILURE_MESSAGE_SIZE, IDEMPOTENCY_TTL_MS, MAX_IDEMPOTENCY_KEY_LENGTH, IDEMPOTENCY_MAX_RETRIES, IDEMPOTENCY_RETRY_BASE_DELAY_MS } from "@besterp/shared";
 import { ToolMiddleware, ToolResult, ToolContext } from "../schema/tool-definition.js";
 import { truncateValue, MAX_STORED_PAYLOAD_SIZE, capString } from "./truncate.js";
 
@@ -106,7 +106,7 @@ async function acquireIdempotencyRecord(
     } catch (e) {
       const code = getErrorCode(e);
       if (code === "P2034" && attempt < IDEMPOTENCY_MAX_RETRIES - 1) {
-        await delay(50 * (attempt + 1));
+        await delay(IDEMPOTENCY_RETRY_BASE_DELAY_MS * (attempt + 1));
         continue;
       }
       if (code !== "P2034") throw e;
@@ -224,7 +224,7 @@ async function updateIdempotencyRecordWithRetry(
       return;
     } catch (updateErr) {
       if (attempt < IDEMPOTENCY_MAX_RETRIES - 1) {
-        await delay(50 * (attempt + 1));
+        await delay(IDEMPOTENCY_RETRY_BASE_DELAY_MS * (attempt + 1));
         continue;
       }
       logIdempotencyWarn(`Failed to update idempotency record '${idempotencyKey}' after ${IDEMPOTENCY_MAX_RETRIES} attempts: ${updateErr instanceof Error ? updateErr.message : String(updateErr)}`);

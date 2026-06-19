@@ -116,7 +116,8 @@ export class PartyService {
 
     const party = await this.createPartyTransaction(db, tenantId, partyTypeRecord.partyTypeId, sanitizedName, sanitizedDescription, sanitizedPerson, sanitizedOrg);
 
-    this.logger.log(`Created ${partyType} party: ${trimmedName} (${party.partyId})`);
+    const safeName = trimmedName.replace(/[\r\n\t]/g, " ").slice(0, 80);
+    this.logger.log(`Created ${partyType} party: ${safeName} (${party.partyId})`);
     return PartyService.toPartyResult(party);
   }
 
@@ -385,7 +386,8 @@ export class PartyService {
 
     const role = await this.addPartyRoleTransaction(db, tenantId, partyId, roleTypeRecord.roleTypeId, trimmedRoleType, roleFromDate);
 
-    this.logger.log(`Added role '${trimmedRoleType}' to party ${partyId} (ID: ${role.partyRoleId})`);
+    const safeRoleType = trimmedRoleType.replace(/[\r\n\t]/g, " ").slice(0, 50);
+    this.logger.log(`Added role '${safeRoleType}' to party ${partyId} (ID: ${role.partyRoleId})`);
     return {
       partyRoleId: role.partyRoleId,
       partyId: role.partyId,
@@ -493,7 +495,8 @@ export class PartyService {
 
     const contactMechanism = await this.createContactMechanismTransaction(db, tenantId, partyId, trimmedCmType, cmType.contactMechanismTypeId, postalAddress, telecomNumber, normalizedEmail);
 
-    this.logger.log(`Added ${trimmedCmType} to party ${partyId} (ID: ${contactMechanism.contactMechanismId})`);
+    const safeCmType = trimmedCmType.replace(/[\r\n\t]/g, " ").slice(0, 50);
+    this.logger.log(`Added ${safeCmType} to party ${partyId} (ID: ${contactMechanism.contactMechanismId})`);
     return PartyService.formatContactResult(contactMechanism, partyId);
   }
 

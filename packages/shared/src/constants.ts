@@ -120,6 +120,9 @@ export const IDEMPOTENCY_TTL_MS = 86_400_000;
 /** Maximum retries for idempotency serialization failures. */
 export const IDEMPOTENCY_MAX_RETRIES = 3;
 
+/** Base delay (ms) between idempotency retry attempts. */
+export const IDEMPOTENCY_RETRY_BASE_DELAY_MS = 50;
+
 // ─── Payload Limits ────────────────────────────────────────────
 
 /** Maximum size (bytes) for stored audit log and idempotency payloads. */

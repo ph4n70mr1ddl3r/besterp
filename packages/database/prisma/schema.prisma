@@ -127,7 +127,7 @@ model PartyRole {
   createdAt   DateTime  @default(now()) @map("created_at")
 
   party    Party    @relation(fields: [partyId], references: [partyId], onDelete: Cascade)
-  roleType RoleType @relation(fields: [roleTypeId], references: [roleTypeId])
+  roleType RoleType @relation(fields: [roleTypeId], references: [roleTypeId], onDelete: Restrict)
 
   @@index([partyId])
   @@index([roleTypeId])
