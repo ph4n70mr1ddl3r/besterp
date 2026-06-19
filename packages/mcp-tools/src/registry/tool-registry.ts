@@ -33,6 +33,19 @@ export class ToolRegistry {
       throw new Error(`Tool '${definition.name}' is already registered.`);
     }
 
+    // Validate tool name format: must be non-empty snake_case identifier
+    if (!definition.name || typeof definition.name !== "string") {
+      throw new Error("Tool name must be a non-empty string.");
+    }
+    if (!/^[a-z][a-z0-9]*(_[a-z0-9]+)*$/.test(definition.name)) {
+      throw new Error(
+        `Tool name '${definition.name}' must be snake_case (lowercase letters, digits, underscores).`
+      );
+    }
+    if (definition.name.startsWith("__")) {
+      throw new Error(`Tool name '${definition.name}' must not start with '__' (reserved prefix).`);
+    }
+
     // Runtime check: the registry calls `inputSchema.safeParse(...)` when
     // executing the tool, which is Zod-specific. A tool registered with a
     // plain JSONSchema object (or anything that lacks `.safeParse`) would

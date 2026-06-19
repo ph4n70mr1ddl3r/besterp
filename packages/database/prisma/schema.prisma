@@ -244,6 +244,12 @@ model AiActionLog {
 
 // ─── Idempotency Record ─────────────────────────────────────────
 
+enum IdempotencyStatus {
+  pending
+  completed
+  failed
+}
+
 model IdempotencyRecord {
   idempotencyKey String    @id @map("idempotency_key")
   toolName       String    @map("tool_name")
@@ -251,7 +257,7 @@ model IdempotencyRecord {
   userId         String    @map("user_id")
   agentId        String?   @map("agent_id")
   conversationId String?   @map("conversation_id")
-  status         String    @default("pending")
+  status         IdempotencyStatus @default(pending)
   inputHash      String    @map("input_hash")
   result         Json?
   error          Json?

@@ -19,10 +19,11 @@ async function main() {
     process.exit(1);
   }
   if (!process.env.NODE_ENV) {
-    console.warn(
-      "⚠️  NODE_ENV is not set — assuming development. " +
-      "Set NODE_ENV=development explicitly for clarity."
+    console.error(
+      "❌ NODE_ENV is not set. Refusing to seed to prevent accidental data loss. " +
+      "Set NODE_ENV=development explicitly."
     );
+    process.exit(1);
   }
 
   console.log("🌱 Seeding type tables with AI-facing descriptions...\n");

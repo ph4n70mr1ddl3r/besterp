@@ -76,7 +76,7 @@ jobs:
         run: npm run migrate --workspace=@besterp/database -- --name init
 
       - name: Install PostgreSQL client
-        run: sudo apt-get install -y postgresql-client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
 
       - name: Create app role & RLS policies
         env:

@@ -83,6 +83,9 @@ function configureCors(app: INestApplication): void {
     }
   }
   if (process.env.NODE_ENV === "development") {
+    if (!corsOrigins) {
+      console.warn("⚠️  CORS_ORIGINS not set — using permissive origin: true for development.");
+    }
     app.enableCors({ origin: true, credentials: false });
   }
 }

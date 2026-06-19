@@ -116,7 +116,8 @@ export class PartyService {
 
     const party = await this.createPartyTransaction(db, tenantId, partyTypeRecord.partyTypeId, sanitizedName, sanitizedDescription, sanitizedPerson, sanitizedOrg);
 
-    const safeName = trimmedName.replace(/[\r\n\t]/g, " ").slice(0, 80);
+    // eslint-disable-next-line no-control-regex
+    const safeName = trimmedName.replace(/[\x00-\x1f\x7f]/g, " ").slice(0, 80);
     this.logger.log(`Created ${partyType} party: ${safeName} (${party.partyId})`);
     return PartyService.toPartyResult(party);
   }
@@ -259,6 +260,14 @@ export class PartyService {
         };
       }
       return tx.party.create({ data, include: PartyService.PARTY_INCLUDE });
+    }, { timeout: 10_000 }).catch((err) => {
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
+        throw new DuplicateEntityError(
+          `A party with the name '${name}' already exists in this tenant.`,
+          { suggestedTools: ["search_parties"], context: { name } }
+        );
+      }
+      throw err;
     });
   }
 
@@ -392,7 +401,8 @@ export class PartyService {
 
     const role = await this.addPartyRoleTransaction(db, tenantId, partyId, roleTypeRecord.roleTypeId, trimmedRoleType, roleFromDate);
 
-    const safeRoleType = trimmedRoleType.replace(/[\r\n\t]/g, " ").slice(0, 50);
+    // eslint-disable-next-line no-control-regex
+    const safeRoleType = trimmedRoleType.replace(/[\x00-\x1f\x7f]/g, " ").slice(0, 50);
     this.logger.log(`Added role '${safeRoleType}' to party ${partyId} (ID: ${role.partyRoleId})`);
     return {
       partyRoleId: role.partyRoleId,
@@ -466,7 +476,7 @@ export class PartyService {
         data: { partyId, roleTypeId, fromDate: roleFromDate },
         include: { roleType: true },
       });
-    }).catch((err) => {
+    }, { timeout: 10_000 }).catch((err) => {
       if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
         throw new DuplicateEntityError(
           `Party '${partyId}' already has active role '${trimmedRoleType}' (unique constraint violation). ` +
@@ -501,7 +511,8 @@ export class PartyService {
 
     const contactMechanism = await this.createContactMechanismTransaction(db, tenantId, partyId, trimmedCmType, cmType.contactMechanismTypeId, postalAddress, telecomNumber, normalizedEmail);
 
-    const safeCmType = trimmedCmType.replace(/[\r\n\t]/g, " ").slice(0, 50);
+    // eslint-disable-next-line no-control-regex
+    const safeCmType = trimmedCmType.replace(/[\x00-\x1f\x7f]/g, " ").slice(0, 50);
     this.logger.log(`Added ${safeCmType} to party ${partyId} (ID: ${contactMechanism.contactMechanismId})`);
     return PartyService.formatContactResult(contactMechanism, partyId);
   }
@@ -599,7 +610,7 @@ export class PartyService {
         },
         include: { postalAddress: true, telecomNumber: true, emailAddress: true, contactMechanismType: true },
       });
-    });
+    }, { timeout: 10_000 });
   }
 
   private static sanitizePostalAddress(addr: NonNullable<AddContactMechanismInput["postalAddress"]>) {

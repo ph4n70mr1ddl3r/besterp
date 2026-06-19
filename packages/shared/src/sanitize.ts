@@ -89,6 +89,12 @@ export function stripHtmlTags(input: string): string {
     // (e.g. &#x00; → \0).
     sanitized = sanitized.replace(/\0/g, "");
 
+    // Strip C0 control characters (U+0000–U+001F) and DEL (U+007F) that
+    // may have been introduced by entity decoding (e.g. &#x7F; → DEL).
+    // These can corrupt log output and terminal displays.
+    // eslint-disable-next-line no-control-regex
+    sanitized = sanitized.replace(/[\x00-\x1f\x7f]/g, "");
+
     iterations++;
   } while (sanitized !== prev && iterations < MAX_SANITIZE_ITERATIONS);
 

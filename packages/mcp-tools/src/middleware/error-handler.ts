@@ -89,7 +89,7 @@ function handlePrismaError(prismaCode: string, prismaMeta: { target?: string | s
 
 function handleGenericError(error: unknown, definition: { name: string }, tenantId: string, userId: string): ToolResult {
   const message = error instanceof Error ? error.message : "Unknown error";
-  const isDev = process.env.NODE_ENV !== "production";
+  const isDev = process.env.NODE_ENV === "development";
   // Only log stack traces in non-production to avoid leaking internals via log aggregators
   if (isDev) {
     process.stderr.write(

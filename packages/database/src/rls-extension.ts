@@ -170,8 +170,9 @@ function createTransactionWrapper(prisma: PrismaClient, tenantId: string) {
         try {
           await tx.$executeRaw`SELECT set_tenant_context(${tenantId})`;
         } catch (e) {
+          const safePreview = tenantId.replace(/[^a-zA-Z0-9_-]/g, "?").slice(0, 20);
           throw new Error(
-            `Failed to set tenant context for '${tenantId}': ${e instanceof Error ? e.message : String(e)}`,
+            `Failed to set tenant context for '${safePreview}': ${e instanceof Error ? e.message : String(e)}`,
             { cause: e }
           );
         }
