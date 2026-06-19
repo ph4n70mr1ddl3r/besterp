@@ -41,10 +41,14 @@ export class DomainError extends Error {
       suggestedTools: this.suggestedTools,
       context: this.context,
       cause: (() => {
-        if (!(this.cause instanceof Error)) return this.cause;
-        const causeObj = this.cause as unknown as Record<string, unknown>;
-        if (typeof causeObj.toJSON === "function") return causeObj.toJSON();
-        return this.cause.message;
+        try {
+          if (!(this.cause instanceof Error)) return this.cause;
+          const causeObj = this.cause as unknown as Record<string, unknown>;
+          if (typeof causeObj.toJSON === "function") return causeObj.toJSON();
+          return this.cause.message;
+        } catch {
+          return "[Error serializing cause]";
+        }
       })(),
     };
   }

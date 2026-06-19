@@ -73,7 +73,7 @@ export function validateTenantIdEnhanced(tenantId: string): void {
     const message = e instanceof Error ? e.message : String(e);
     throw new InvalidTypeValueError(
       message,
-      { context: { field: "tenantId", received: preview } }
+      { cause: e instanceof Error ? e : undefined, context: { field: "tenantId", received: preview } }
     );
   }
 }

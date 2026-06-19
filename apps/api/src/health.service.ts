@@ -4,7 +4,7 @@
 // diagnostic purposes. It checks database connectivity, system resources,
 // and application status.
 
-import { Injectable, Logger } from "@nestjs/common";
+import { Injectable, Logger, OnModuleInit } from "@nestjs/common";
 import { PrismaService } from "./prisma/prisma.service.js";
 import * as fs from "node:fs/promises";
 import { join, dirname } from "node:path";
@@ -37,16 +37,15 @@ export interface VersionInfo {
 }
 
 @Injectable()
-export class HealthService {
+export class HealthService implements OnModuleInit {
   private readonly logger = new Logger(HealthService.name);
 
   private packageInfo: { version: string; name: string } = { version: "0.0.0", name: "unknown" };
-  private readonly packageInfoReady: Promise<void>;
+  private packageInfoReady!: Promise<void>;
 
-  constructor(private readonly prisma: PrismaService) {
-    // Kick off async initialization — package.json is read once and cached.
-    // Store the promise so getVersion() can await it on first call, preventing
-    // a race where getVersion() returns defaults before init completes.
+  constructor(private readonly prisma: PrismaService) {}
+
+  async onModuleInit() {
     this.packageInfoReady = this.initPackageInfo().catch((err) => {
       this.logger.warn(
         `Could not read package.json: ${err instanceof Error ? err.message : err}`

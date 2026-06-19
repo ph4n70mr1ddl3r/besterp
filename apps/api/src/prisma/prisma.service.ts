@@ -231,8 +231,10 @@ export class PrismaService
       this.removeTenantClient(key);
     }
 
-    // If no stale entries, evict LRU live entry
-    if (staleKeys.length === 0 && lruKey) {
+    // After evicting stale entries, check if we're still at capacity.
+    // WeakRef targets may not be GC'd yet, so staleKeys could be empty
+    // even though the cache is logically full. Evict LRU if still at capacity.
+    if (this.tenantClientCache.size >= MAX_TENANT_CACHE_SIZE && lruKey) {
       this.logger.warn(
         `Tenant client cache full (${MAX_TENANT_CACHE_SIZE}). Evicting LRU entry: '${lruKey}'.`
       );

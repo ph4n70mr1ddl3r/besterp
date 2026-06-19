@@ -45,6 +45,9 @@ export class DomainExceptionFilter implements ExceptionFilter {
     const response = ctx.getResponse<Response>();
 
     if (response.headersSent) {
+      this.logger.warn(
+        `Headers already sent — cannot write error response. Exception: ${exception instanceof Error ? exception.message : String(exception)}`
+      );
       return;
     }
 

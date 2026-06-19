@@ -32,13 +32,18 @@ function sortArray(value: unknown[], ancestors: Set<object>): unknown[] {
 function sortMap(value: Map<unknown, unknown>, ancestors: Set<object>): unknown[] {
   checkCircular(value, ancestors);
   ancestors.add(value);
-  const sortedEntries = Array.from(value.entries())
-    .sort(([a], [b]) => {
-      const aStr = typeof a === "object" && a !== null ? JSON.stringify(sortKeysDeep(a, ancestors)) : String(a);
-      const bStr = typeof b === "object" && b !== null ? JSON.stringify(sortKeysDeep(b, ancestors)) : String(b);
-      return aStr < bStr ? -1 : aStr > bStr ? 1 : 0;
-    });
-  const result = sortedEntries.map(([k, v]) => [sortKeysDeep(k, ancestors), sortKeysDeep(v, ancestors)]);
+  // Pre-compute sorted keys to avoid processing each key twice (once in
+  // the comparator, once in the .map()). Each key is stringified once for
+  // comparison and once for the final sorted-key-value output.
+  const entries = Array.from(value.entries());
+  const sortedEntries = entries
+    .map(([k, v]) => ({
+      k,
+      v,
+      kStr: typeof k === "object" && k !== null ? JSON.stringify(sortKeysDeep(k, ancestors)) : String(k),
+    }))
+    .sort((a, b) => (a.kStr < b.kStr ? -1 : a.kStr > b.kStr ? 1 : 0));
+  const result = sortedEntries.map(({ k, v }) => [sortKeysDeep(k, ancestors), sortKeysDeep(v, ancestors)]);
   ancestors.delete(value);
   return result;
 }
@@ -56,10 +61,12 @@ function sortSet(value: Set<unknown>, ancestors: Set<object>): unknown[] {
 }
 
 function sortPlainObject(value: object, ancestors: Set<object>): Record<string, unknown> {
-  const sorted: Record<string, unknown> = {};
+  // Use Object.create(null) to prevent prototype pollution — even if the
+  // input contains __proto__, setting it on a null-prototype object creates
+  // a data property rather than modifying the object's prototype chain.
+  const sorted: Record<string, unknown> = Object.create(null);
   const keys = Object.keys(value).sort();
   for (const key of keys) {
-    if (key === "__proto__") continue;
     sorted[key] = sortKeysDeep((value as Record<string, unknown>)[key], ancestors);
   }
   return sorted;

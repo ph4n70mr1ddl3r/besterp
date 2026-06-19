@@ -122,8 +122,14 @@ export class PartyService {
   }
 
   private validateCreatePartyFields(name: string, description: string | undefined | null): { trimmedName: string; trimmedDescription: string | null } {
+    if (typeof name !== "string") {
+      throw new InvalidTypeValueError(
+        "Party name is required and must be a string.",
+        { suggestedTools: ["create_party"], context: { field: "name", received: typeof name } }
+      );
+    }
     const trimmedName = name.trim();
-    if (!trimmedName) {
+    if (trimmedName.length === 0) {
       throw new InvalidTypeValueError("Party name cannot be empty", { suggestedTools: ["create_party"], context: { field: "name", received: name } });
     }
     this.requireMaxLength(trimmedName, "Party name", MAX_PARTY_NAME_LENGTH);

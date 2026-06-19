@@ -91,7 +91,7 @@ export function auditLogMiddleware(prisma: PrismaClient): ToolMiddleware {
       return {
         agentId: context.agentId,
         conversationId: context.conversationId,
-        reasoning: context.reasoning,
+        reasoning: context.reasoning?.slice(0, MAX_REASONING_LENGTH) ?? null,
         userId: context.userId,
         tenantId: context.tenantId,
         toolCalled: definition.name,
@@ -146,7 +146,7 @@ async function logAction(prisma: PrismaClient, entry: AuditLogEntry): Promise<vo
       toolCalled: entry.toolCalled,
       toolInput: toolInput as unknown as Prisma.InputJsonValue,
       toolOutput: truncateValue(entry.toolOutput, MAX_AUDIT_OUTPUT_SIZE) as Prisma.InputJsonValue | undefined,
-      reasoning: entry.reasoning?.slice(0, MAX_REASONING_LENGTH) ?? null,
+      reasoning: entry.reasoning ?? null,
     },
   });
 }
