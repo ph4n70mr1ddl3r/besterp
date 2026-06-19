@@ -41,11 +41,13 @@ export class HealthService {
   private readonly logger = new Logger(HealthService.name);
 
   private packageInfo: { version: string; name: string } = { version: "0.0.0", name: "unknown" };
+  private readonly packageInfoReady: Promise<void>;
 
   constructor(private readonly prisma: PrismaService) {
     // Kick off async initialization — package.json is read once and cached.
-    // Using async readFile avoids blocking the event loop during startup.
-    this.initPackageInfo().catch((err) => {
+    // Store the promise so getVersion() can await it on first call, preventing
+    // a race where getVersion() returns defaults before init completes.
+    this.packageInfoReady = this.initPackageInfo().catch((err) => {
       this.logger.warn(
         `Could not read package.json: ${err instanceof Error ? err.message : err}`
       );
@@ -137,10 +139,11 @@ export class HealthService {
 
   /**
    * Get version information.
-   * Returns default values if package.json hasn't been read yet
-   * (e.g., if called before async init completes).
+   * Awaits async package.json init on first call so callers never see
+   * stale defaults due to a race with constructor-side initialization.
    */
-  getVersion(): VersionInfo {
+  async getVersion(): Promise<VersionInfo> {
+    await this.packageInfoReady;
     return {
       version: this.packageInfo.version,
       name: this.packageInfo.name,

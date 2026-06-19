@@ -79,9 +79,9 @@ describe("HealthService", () => {
   });
 
   describe("getVersion", () => {
-    it("should return version info with defaults before init completes", () => {
+    it("should return version info with defaults before init completes", async () => {
       const service = new HealthService(createMockPrisma());
-      const result = service.getVersion();
+      const result = await service.getVersion();
 
       expect(result.nodeVersion).toBe(process.version);
       expect(result.environment).toBeTruthy();
@@ -91,23 +91,23 @@ describe("HealthService", () => {
       expect(result).toHaveProperty("name");
     });
 
-    it("should include BUILD_NUMBER and BUILD_DATE from env when available", () => {
+    it("should include BUILD_NUMBER and BUILD_DATE from env when available", async () => {
       vi.stubEnv("BUILD_NUMBER", "42");
       vi.stubEnv("BUILD_DATE", "2026-06-05");
 
       const service = new HealthService(createMockPrisma());
-      const result = service.getVersion();
+      const result = await service.getVersion();
 
       expect(result.build?.number).toBe("42");
       expect(result.build?.date).toBe("2026-06-05");
     });
 
-    it("should omit build info when env vars are not set", () => {
+    it("should omit build info when env vars are not set", async () => {
       vi.stubEnv("BUILD_NUMBER", undefined);
       vi.stubEnv("BUILD_DATE", undefined);
 
       const service = new HealthService(createMockPrisma());
-      const result = service.getVersion();
+      const result = await service.getVersion();
 
       expect(result.build?.number).toBeUndefined();
       expect(result.build?.date).toBeUndefined();

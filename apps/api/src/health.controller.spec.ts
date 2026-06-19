@@ -59,7 +59,7 @@ describe("HealthController", () => {
   });
 
   describe("getVersion", () => {
-    it("should return version information", () => {
+    it("should return version information", async () => {
       const expectedResponse: VersionInfo = {
         version: "0.0.1",
         name: "@besterp/api",
@@ -69,17 +69,17 @@ describe("HealthController", () => {
 
       const mockHealthService = {
         getHealth: vi.fn(),
-        getVersion: vi.fn().mockReturnValue(expectedResponse),
+        getVersion: vi.fn().mockResolvedValue(expectedResponse),
       };
 
       const controller = new HealthController(mockHealthService as any);
-      const result = controller.getVersion();
+      const result = await controller.getVersion();
 
       expect(result).toEqual(expectedResponse);
       expect(mockHealthService.getVersion).toHaveBeenCalled();
     });
 
-    it("should include build information when available", () => {
+    it("should include build information when available", async () => {
       vi.stubEnv("BUILD_NUMBER", "123");
       vi.stubEnv("BUILD_DATE", "2024-01-01");
 
@@ -96,11 +96,11 @@ describe("HealthController", () => {
 
       const mockHealthService = {
         getHealth: vi.fn(),
-        getVersion: vi.fn().mockReturnValue(expectedResponse),
+        getVersion: vi.fn().mockResolvedValue(expectedResponse),
       };
 
       const controller = new HealthController(mockHealthService as any);
-      const result = controller.getVersion();
+      const result = await controller.getVersion();
 
       expect(result.build).toEqual(expectedResponse.build);
     });

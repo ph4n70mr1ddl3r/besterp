@@ -38,7 +38,7 @@ export class HealthController {
   }
 
   @Get("version")
-  getVersion() {
+  async getVersion() {
     return this.healthService.getVersion();
   }
 
