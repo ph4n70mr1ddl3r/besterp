@@ -197,13 +197,15 @@ export class PartyService {
           birthDate: personData.birthDate?.trim() || undefined,
         }
       : undefined;
-    const sanitizedOrg = orgData ? {
-      ...orgData,
-      legalName: stripHtmlTags(orgData.legalName.trim()),
-      taxId: orgData.taxId ? stripHtmlTags(orgData.taxId.trim()) : undefined,
-      // See birthDate above — store the trimmed (canonical) date string.
-      registrationDate: orgData.registrationDate?.trim() || undefined,
-    } : undefined;
+    const sanitizedOrg = orgData
+      ? {
+          ...orgData,
+          legalName: stripHtmlTags(orgData.legalName.trim()),
+          taxId: orgData.taxId ? stripHtmlTags(orgData.taxId.trim()) : undefined,
+          // See birthDate above — store the trimmed (canonical) date string.
+          registrationDate: orgData.registrationDate?.trim() || undefined,
+        }
+      : undefined;
 
     return {
       sanitizedPerson,

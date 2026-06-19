@@ -154,7 +154,12 @@ export class McpModule implements OnModuleInit {
  */
 function validateReasoningField(value: string | undefined | null): string | undefined {
   if (value === undefined || value === null) return undefined;
-  if (typeof value !== "string") return undefined;
+  if (typeof value !== "string") {
+    throw new InvalidTypeValueError(
+      `McpModule.buildContext: reasoning must be a string, received ${typeof value}.`,
+      { context: { field: "reasoning", receivedType: typeof value } }
+    );
+  }
   const trimmed = value.trim();
   if (trimmed.length === 0) return undefined;
   if (trimmed.length > MAX_REASONING_LENGTH) {
