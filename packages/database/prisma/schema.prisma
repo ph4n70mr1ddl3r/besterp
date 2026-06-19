@@ -63,11 +63,8 @@ model Party {
   @@index([tenantId])
   @@index([partyTypeId])
   @@index([tenantId, partyTypeId])
-  // NOTE: For production, consider adding a pg_trgm GIN index for efficient
-  // case-insensitive LIKE searches on `name`:
-  //   CREATE EXTENSION IF NOT EXISTS pg_trgm;
-  //   CREATE INDEX CONCURRENTLY party_name_trgm_idx ON party USING gin (name gin_trgm_ops);
-  // This avoids sequential scans on large tables when using search_parties with name filter.
+  // NOTE: pg_trgm GIN index added in migration 20260619000000_add_party_name_trgm_index.
+  // For large production tables, run CREATE INDEX CONCURRENTLY manually instead of via migration.
   @@map("party")
 }
 

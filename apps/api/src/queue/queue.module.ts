@@ -40,10 +40,10 @@ export class QueueModule {
     if (explicitPort !== undefined) return this.validatePort(explicitPort);
     if (process.env.REDIS_PORT) return this.validatePort(Number.parseInt(process.env.REDIS_PORT, 10));
     this.logger.warn(
-      "REDIS_PORT is not set — defaulting to 6379. Note: .env.example uses 6380. " +
+      "REDIS_PORT is not set — defaulting to 6380 to match .env.example. " +
       "Set REDIS_PORT explicitly to avoid connecting to the wrong Redis instance."
     );
-    return 6379;
+    return 6380;
   }
 
   private static validatePort(port: number): number {

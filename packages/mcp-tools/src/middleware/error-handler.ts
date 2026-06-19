@@ -15,8 +15,25 @@ import { ToolMiddleware, ToolResult } from "../schema/tool-definition.js";
 /**
  * Error handler middleware — catches all exceptions and returns rich errors.
  */
+const IRREGULAR_PLURALS: Record<string, string> = {
+  person: "people",
+  child: "children",
+  mouse: "mice",
+  goose: "geese",
+  man: "men",
+  woman: "women",
+  tooth: "teeth",
+  foot: "feet",
+  ox: "oxen",
+  datum: "data",
+  analysis: "analyses",
+  crisis: "crises",
+  index: "indices",
+};
+
 function pluralize(entity: string): string {
   const lower = entity.toLowerCase();
+  if (IRREGULAR_PLURALS[lower]) return IRREGULAR_PLURALS[lower];
   if (lower.endsWith("y") && !lower.endsWith("ay") && !lower.endsWith("ey") && !lower.endsWith("oy") && !lower.endsWith("uy")) {
     return entity.slice(0, -1) + "ies";
   }

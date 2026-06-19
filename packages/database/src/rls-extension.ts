@@ -217,7 +217,14 @@ function createModelDelegateProxy(
 
       const wrapped = async function (this: unknown, ...args: unknown[]) {
         return prisma.$transaction(async (tx) => {
-          await tx.$executeRaw`SELECT set_tenant_context(${tenantId})`;
+          try {
+            await tx.$executeRaw`SELECT set_tenant_context(${tenantId})`;
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            const error = new Error(`Failed to set tenant context for '${tenantId}': ${message}. Query aborted to prevent cross-tenant data leak.`);
+            if (err instanceof Error) error.cause = err;
+            throw error;
+          }
           const txDelegate = (tx as any)[modelName];
           if (!txDelegate) throw new Error(`Model "${modelName}" not found on transaction client`);
           const txMethod = txDelegate[method];

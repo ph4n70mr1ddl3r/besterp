@@ -13,6 +13,12 @@ import { getErrorCode, MAX_REASONING_LENGTH } from "@besterp/shared";
 import { ToolMiddleware, ToolResult } from "../schema/tool-definition.js";
 import { truncateValue, MAX_STORED_PAYLOAD_SIZE } from "./truncate.js";
 
+/** Fields whose values must be redacted before persisting in the audit log. */
+const SENSITIVE_FIELDS = new Set([
+  "password", "passwd", "secret", "token", "api_key", "apiKey",
+  "authorization", "creditCard", "credit_card", "ssn", "taxId", "tax_id",
+]);
+
 /** Audit log uses the same 64 KB cap as other stored payloads. */
 const MAX_AUDIT_INPUT_SIZE = MAX_STORED_PAYLOAD_SIZE;
 const MAX_AUDIT_OUTPUT_SIZE = MAX_STORED_PAYLOAD_SIZE;
@@ -132,10 +138,7 @@ interface AuditLogEntry {
 }
 
 async function logAction(prisma: PrismaClient, entry: AuditLogEntry): Promise<void> {
-  // Truncate oversized inputs and outputs to prevent unbounded audit log storage.
-  // If the serialized value exceeds the limit, store a truncated version
-  // with a marker so operators know data was elided.
-  const toolInput = truncateValue(entry.toolInput, MAX_AUDIT_INPUT_SIZE);
+  const toolInput = truncateValue(redactSensitiveFields(entry.toolInput), MAX_AUDIT_INPUT_SIZE);
 
   await prisma.aiActionLog.create({
     data: {
@@ -145,8 +148,22 @@ async function logAction(prisma: PrismaClient, entry: AuditLogEntry): Promise<vo
       tenantId: entry.tenantId,
       toolCalled: entry.toolCalled,
       toolInput: toolInput as unknown as Prisma.InputJsonValue,
-      toolOutput: truncateValue(entry.toolOutput, MAX_AUDIT_OUTPUT_SIZE) as Prisma.InputJsonValue | undefined,
+      toolOutput: truncateValue(redactSensitiveFields(entry.toolOutput), MAX_AUDIT_OUTPUT_SIZE) as Prisma.InputJsonValue | undefined,
       reasoning: entry.reasoning ?? null,
     },
   });
+}
+
+function redactSensitiveFields(value: unknown, depth = 0): unknown {
+  if (depth > 10 || value === null || value === undefined || typeof value !== "object") return value;
+  if (Array.isArray(value)) return value.map((item) => redactSensitiveFields(item, depth + 1));
+  const result: Record<string, unknown> = {};
+  for (const [key, val] of Object.entries(value as Record<string, unknown>)) {
+    if (SENSITIVE_FIELDS.has(key.toLowerCase())) {
+      result[key] = "[REDACTED]";
+    } else {
+      result[key] = redactSensitiveFields(val, depth + 1);
+    }
+  }
+  return result;
 }

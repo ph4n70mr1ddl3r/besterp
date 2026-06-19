@@ -32,6 +32,9 @@ jobs:
       - name: Generate Prisma client
         run: npm run generate --workspace=@besterp/database
 
+      - name: Lint
+        run: npm run lint
+
       - name: Build
         run: npm run build
 
