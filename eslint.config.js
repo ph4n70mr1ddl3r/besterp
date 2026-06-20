@@ -18,7 +18,7 @@ export default tseslint.config(
     },
     rules: {
       // Enforce strict TypeScript
-      "@typescript-eslint/no-explicit-any": "warn",
+      "@typescript-eslint/no-explicit-any": "error",
       "@typescript-eslint/no-unused-vars": [
         "error",
         { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
@@ -61,7 +61,6 @@ export default tseslint.config(
       "**/*.js",
       "**/*.d.ts",
       "packages/database/prisma/migrations/",
-      "packages/database/prisma/seed.ts",
       "packages/mcp-tools/spikes/",
     ],
   },

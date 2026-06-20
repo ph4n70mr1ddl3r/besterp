@@ -43,8 +43,9 @@ export class DomainError extends Error {
       cause: (() => {
         try {
           if (!(this.cause instanceof Error)) return this.cause;
-          const causeObj = this.cause as unknown as Record<string, unknown>;
-          if (typeof causeObj.toJSON === "function") return causeObj.toJSON();
+          // Only serialize the immediate cause's message, not its own cause chain,
+          // to prevent leaking internal error chains (e.g., Prisma errors with
+          // SQL/connection details) into audit logs or idempotency records.
           return this.cause.message;
         } catch {
           return "[Error serializing cause]";

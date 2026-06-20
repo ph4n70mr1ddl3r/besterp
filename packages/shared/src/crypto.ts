@@ -1,4 +1,5 @@
 import * as crypto from "node:crypto";
+import { InvalidTypeValueError } from "./errors.js";
 
 /**
  * Deterministically sort object keys at all nesting levels.
@@ -127,10 +128,19 @@ function sortKeysDeep(value: unknown, ancestors?: Set<object>): unknown {
  * Maps, and Sets.
  */
 export function hashInput(input: unknown): string {
-  const canonical = sortKeysDeep(input);
-  const serialized = JSON.stringify(canonical);
-  return crypto
-    .createHash("sha256")
-    .update(serialized)
-    .digest("hex");
+  try {
+    const canonical = sortKeysDeep(input);
+    const serialized = JSON.stringify(canonical);
+    return crypto
+      .createHash("sha256")
+      .update(serialized)
+      .digest("hex");
+  } catch (e) {
+    // Circular references and other serialization errors should result in a
+    // clear error rather than an opaque crash deep in the hash pipeline.
+    throw new InvalidTypeValueError(
+      `Failed to hash input: ${e instanceof Error ? e.message : "serialization error"}. ` +
+      `Ensure input does not contain circular references.`
+    );
+  }
 }

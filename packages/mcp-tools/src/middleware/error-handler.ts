@@ -106,21 +106,18 @@ function handlePrismaError(prismaCode: string, prismaMeta: { target?: string | s
 
 function handleGenericError(error: unknown, definition: { name: string }, tenantId: string, userId: string): ToolResult {
   const message = error instanceof Error ? error.message : "Unknown error";
-  const isDev = process.env.NODE_ENV === "development";
-  // Only log stack traces in non-production to avoid leaking internals via log aggregators
-  if (isDev) {
-    process.stderr.write(
-      `[MCP] [${new Date().toISOString()}] Unexpected error in '${definition.name}' (tenant=${tenantId}, user=${userId}): ${message}\n` +
-      (error instanceof Error ? `${error.stack}\n` : "")
-    );
-  }
+  // Always log full details to stderr for operators
+  process.stderr.write(
+    `[MCP] [${new Date().toISOString()}] Unexpected error in '${definition.name}' (tenant=${tenantId}, user=${userId}): ${message}\n` +
+    (error instanceof Error && process.env.NODE_ENV === "development" ? `${error.stack}\n` : "")
+  );
+  // Always return a generic message to the AI agent to prevent leaking internals
+  // (DB hostnames, Prisma connection strings, stack frames) if NODE_ENV is misconfigured
   return {
     success: false,
     error: {
       code: "INTERNAL_ERROR",
-      message: isDev
-        ? `Unexpected error in '${definition.name}': ${message}. Try again with a new idempotency key if applicable.`
-        : `Unexpected error in '${definition.name}'. Try again with a new idempotency key if applicable.`,
+      message: `Unexpected error in '${definition.name}'. Check server logs for details. Try again with a new idempotency key if applicable.`,
       suggestedTools: [definition.name, "list_available_tools"],
     },
   };

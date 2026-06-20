@@ -1,8 +1,15 @@
 import { PrismaClient } from "@prisma/client";
 
 // Seed uses admin connection to bypass RLS for creating tenant records
+if (!process.env.DATABASE_ADMIN_URL) {
+  console.error(
+    "❌ DATABASE_ADMIN_URL not set. Seed requires admin (superuser) connection to bypass RLS.\n" +
+    "Set DATABASE_ADMIN_URL to a superuser connection string."
+  );
+  process.exit(1);
+}
 const prisma = new PrismaClient({
-  datasourceUrl: process.env.DATABASE_ADMIN_URL || process.env.DATABASE_URL,
+  datasourceUrl: process.env.DATABASE_ADMIN_URL,
 });
 
 async function main() {

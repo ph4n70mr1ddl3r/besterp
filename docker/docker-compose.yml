@@ -25,10 +25,11 @@ services:
     image: redis:7-alpine
     container_name: besterp-redis
     restart: unless-stopped
+    command: redis-server --requirepass ${REDIS_PASSWORD:-besterp_redis_dev}
     ports:
       - "127.0.0.1:6380:6379"
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-besterp_redis_dev}", "ping"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -43,8 +44,8 @@ services:
       - "127.0.0.1:9000:9000"
       - "127.0.0.1:9001:9001"
     environment:
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: minioadmin
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-besterp_minio}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-besterp_minio_dev}
     command: server /data --console-address ":9001"
     volumes:
       - miniodata:/data

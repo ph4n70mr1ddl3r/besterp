@@ -20,6 +20,9 @@ const SENSITIVE_FIELDS = new Set([
   "access_token", "refresh_token", "session_id", "sessionId",
   "private_key", "privateKey", "secret_key", "secretKey",
   "accessKey", "access_key", "encryption_key", "encryptionKey",
+  // ERP-specific sensitive fields
+  "pin", "cc_number", "card_number", "date_of_birth", "dob",
+  "bank_account", "routing_number", "national_id", "passport",
 ]);
 
 /** Audit log uses the same 64 KB cap as other stored payloads. */

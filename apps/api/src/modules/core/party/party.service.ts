@@ -26,6 +26,7 @@ import {
   InvalidTypeValueError,
   DuplicateEntityError,
   EntityNotFoundError,
+  ConcurrencyConflictError,
   UUID_REGEX,
   EMAIL_REGEX,
   COUNTRY_CODE_REGEX,
@@ -271,6 +272,12 @@ export class PartyService {
           { suggestedTools: ["search_parties"] }
         );
       }
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2034") {
+        throw new ConcurrencyConflictError(
+          "Transaction conflict — please retry.",
+          { suggestedTools: ["create_party"] }
+        );
+      }
       throw err;
     });
   }
@@ -484,6 +491,12 @@ export class PartyService {
           `Party '${partyId}' already has active role '${trimmedRoleType}' (unique constraint violation). ` +
           `To change a party's role, first end the current role by setting a thruDate, then re-call add_party_role.`,
           { suggestedTools: ["get_party"], context: { partyId, roleType: trimmedRoleType } }
+        );
+      }
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2034") {
+        throw new ConcurrencyConflictError(
+          "Transaction conflict — please retry.",
+          { suggestedTools: ["get_party", "add_party_role"], context: { partyId, roleType: trimmedRoleType } }
         );
       }
       throw err;
