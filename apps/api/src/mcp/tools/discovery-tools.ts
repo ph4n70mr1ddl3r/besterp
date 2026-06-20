@@ -70,9 +70,10 @@ async function queryTypeTable(
   delegateKey: string,
   idField: string,
 ): Promise<TypeTableRow[]> {
-  if (typeof delegateKey !== "string" || !/^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(delegateKey)) {
+  const validKeys: readonly string[] = Object.values(TYPE_TABLE_MAP).map((c) => c.delegateKey);
+  if (!validKeys.includes(delegateKey)) {
     throw new InvalidTypeValueError(
-      `Invalid delegate key '${delegateKey}'.`,
+      `Invalid delegate key '${delegateKey}'. Must be one of: ${validKeys.join(", ")}.`,
       { context: { field: "delegateKey", received: delegateKey } }
     );
   }

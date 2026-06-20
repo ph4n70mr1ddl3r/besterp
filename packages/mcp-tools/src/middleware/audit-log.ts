@@ -25,6 +25,9 @@ const SENSITIVE_FIELDS = new Set([
   "bank_account", "routing_number", "national_id", "passport",
 ]);
 
+/** Regex pattern for catch-all sensitive field detection (password, secret, token, key, etc.). */
+const SENSITIVE_FIELD_PATTERN = /password|secret|token|key|credential|auth/i;
+
 /** Audit log uses the same 64 KB cap as other stored payloads. */
 const MAX_AUDIT_INPUT_SIZE = MAX_STORED_PAYLOAD_SIZE;
 const MAX_AUDIT_OUTPUT_SIZE = MAX_STORED_PAYLOAD_SIZE;
@@ -33,6 +36,8 @@ const MAX_AUDIT_OUTPUT_SIZE = MAX_STORED_PAYLOAD_SIZE;
 const MAX_CONCURRENT_AUDIT_WRITES = 100;
 /** Maximum queued audit entries before dropping to prevent unbounded memory growth. */
 const MAX_AUDIT_QUEUE_SIZE = 1000;
+/** Maximum time (ms) a write can wait in the queue before being dropped. */
+const WRITE_QUEUE_TIMEOUT_MS = 5_000;
 
 /**
  * Create an audit log middleware backed by PostgreSQL.
@@ -43,7 +48,7 @@ export function auditLogMiddleware(prisma: PrismaClient): ToolMiddleware {
   // Semaphore to limit concurrent audit log writes and prevent unbounded
   // promise accumulation if the database is slow or unavailable.
   let activeWrites = 0;
-  const writeQueue: Array<() => void> = [];
+  const writeQueue: Array<{ resolve: () => void; timer: ReturnType<typeof setTimeout> }> = [];
 
   function acquireWriteSlot(): Promise<void> {
     if (activeWrites < MAX_CONCURRENT_AUDIT_WRITES) {
@@ -51,7 +56,16 @@ export function auditLogMiddleware(prisma: PrismaClient): ToolMiddleware {
       return Promise.resolve();
     }
     return new Promise<void>((resolve) => {
-      writeQueue.push(resolve);
+      const timer = setTimeout(() => {
+        // Remove from queue and resolve — the entry will be dropped
+        const idx = writeQueue.findIndex((entry) => entry.timer === timer);
+        if (idx !== -1) writeQueue.splice(idx, 1);
+        process.stderr.write(`[AuditLog] Write slot timeout after ${WRITE_QUEUE_TIMEOUT_MS}ms — dropping audit entry\n`);
+        // Don't increment activeWrites — just let it resolve without writing
+        resolve();
+      }, WRITE_QUEUE_TIMEOUT_MS);
+      if (timer.unref) timer.unref();
+      writeQueue.push({ resolve, timer });
     });
   }
 
@@ -60,8 +74,9 @@ export function auditLogMiddleware(prisma: PrismaClient): ToolMiddleware {
     if (writeQueue.length > 0) {
       const next = writeQueue.shift();
       if (next) {
+        clearTimeout(next.timer);
         activeWrites++;
-        next();
+        next.resolve();
       }
     }
   }
@@ -163,9 +178,15 @@ async function logAction(prisma: PrismaClient, entry: AuditLogEntry): Promise<vo
 function redactSensitiveFields(value: unknown, depth = 0): unknown {
   if (depth > 10 || value === null || value === undefined || typeof value !== "object") return value;
   if (Array.isArray(value)) return value.map((item) => redactSensitiveFields(item, depth + 1));
+  if (value instanceof Map) {
+    return new Map([...value.entries()].map(([k, v]) => [k, redactSensitiveFields(v, depth + 1)]));
+  }
+  if (value instanceof Set) {
+    return new Set([...value].map((v) => redactSensitiveFields(v, depth + 1)));
+  }
   const result: Record<string, unknown> = {};
   for (const [key, val] of Object.entries(value as Record<string, unknown>)) {
-    if (SENSITIVE_FIELDS.has(key) || SENSITIVE_FIELDS.has(key.toLowerCase())) {
+    if (SENSITIVE_FIELDS.has(key) || SENSITIVE_FIELD_PATTERN.test(key)) {
       result[key] = "[REDACTED]";
     } else {
       result[key] = redactSensitiveFields(val, depth + 1);

@@ -12,7 +12,7 @@ import { PassportStrategy } from "@nestjs/passport";
 import { ExtractJwt, Strategy } from "passport-jwt";
 import { randomBytes } from "node:crypto";
 import { validateTenantIdEnhanced } from "@besterp/database";
-import { InvalidTypeValueError, MAX_USER_ID_LENGTH, MAX_AGENT_ID_LENGTH, MAX_ROLE_LENGTH, MAX_TENANT_ID_LENGTH } from "@besterp/shared";
+import { MAX_USER_ID_LENGTH, MAX_AGENT_ID_LENGTH, MAX_ROLE_LENGTH, MAX_TENANT_ID_LENGTH } from "@besterp/shared";
 
 export interface JwtPayload {
   sub: string;      // user ID
@@ -80,7 +80,7 @@ function validateAndTrimOptional(
 }
 
 /** Internal cache for the resolved JWT secret — initialized once per process. */
-const _jwtSecretCache = { value: undefined as string | undefined };
+const _jwtSecretCache = { value: undefined as string | undefined, resolving: undefined as Promise<string> | undefined };
 const _logger = new Logger("JwtSecret");
 
 /**
@@ -89,10 +89,17 @@ const _logger = new Logger("JwtSecret");
  * hardcoded value that could leak via stack traces or source control.
  *
  * The result is cached so both AuthModule (signing) and JwtStrategy
- * (verification) share the same secret.
+ * (verification) share the same secret. Uses a Promise-based pattern to
+ * prevent race conditions during concurrent initialization.
  */
 export function resolveJwtSecret(): string {
   if (_jwtSecretCache.value !== undefined) return _jwtSecretCache.value;
+
+  // If another caller is already resolving, wait for it to complete.
+  if (_jwtSecretCache.resolving) {
+    throw new Error("resolveJwtSecret() called concurrently during initialization. This should not happen — ensure JwtStrategy is not instantiated in parallel.");
+  }
+
   const secret = process.env.JWT_SECRET;
   if (secret) {
     _jwtSecretCache.value = secret;
@@ -114,6 +121,7 @@ export function resolveJwtSecret(): string {
  */
 export function resetJwtSecretCache(): void {
   _jwtSecretCache.value = undefined;
+  _jwtSecretCache.resolving = undefined;
 }
 
 // Length caps for user/agent/role identifiers in the JWT. Imported from
@@ -145,13 +153,13 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     // behavior of the other failure modes in this method.
     try {
       validateTenantIdEnhanced(tenantId);
-    } catch (e) {
-      if (e instanceof InvalidTypeValueError) {
-        throw new UnauthorizedException(
-          "Invalid token: tenantId failed format validation."
-        );
-      }
-      throw e;
+    } catch {
+      // Convert ALL exceptions to UnauthorizedException so the response
+      // is always 401 (bad credentials) rather than 500 (internal error)
+      // for any failure mode in tenantId validation.
+      throw new UnauthorizedException(
+        "Invalid token: tenantId failed format validation."
+      );
     }
 
     const agentId = validateAndTrimOptional(payload.agentId, "agentId", MAX_AGENT_ID_LENGTH);

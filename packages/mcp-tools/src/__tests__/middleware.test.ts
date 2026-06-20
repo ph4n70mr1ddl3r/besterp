@@ -767,7 +767,7 @@ describe("Error Handler Middleware", () => {
     expect(result.error?.suggestedTools).toContain("get_test");
   });
 
-  it("should handle generic errors with fallback (non-prod: includes raw message)", async () => {
+  it("should handle generic errors with fallback (always returns generic message)", async () => {
     vi.stubEnv("NODE_ENV", "development");
     const genericError = new Error("connection to db at 10.0.0.5:5432 failed");
 
@@ -775,8 +775,9 @@ describe("Error Handler Middleware", () => {
 
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe("INTERNAL_ERROR");
-    // Non-prod preserves the message for debugging.
-    expect(result.error?.message).toContain("connection to db at 10.0.0.5:5432 failed");
+    // Always returns a generic message to prevent leaking internals
+    expect(result.error?.message).toContain("Unexpected error in 'test_tool'");
+    expect(result.error?.message).not.toContain("10.0.0.5");
   });
 
   it("should strip the raw error message in production (no internals leak)", async () => {

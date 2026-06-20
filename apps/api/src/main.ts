@@ -23,6 +23,16 @@ function validateEnvironment(): void {
     console.warn("⚠️  DATABASE_URL not set — database operations will fail. Set DATABASE_URL before running the API.");
   }
 
+  // Fail if JWT_SECRET is missing in any non-development environment.
+  // In development, a random ephemeral secret is generated instead.
+  if (!process.env.JWT_SECRET && process.env.NODE_ENV !== "development") {
+    console.error(
+      "❌ FATAL: JWT_SECRET is not set. This is required in non-development environments. " +
+      "Set JWT_SECRET before running the API."
+    );
+    process.exit(1);
+  }
+
   const REDIS_WARN_VARS = ["REDIS_HOST", "REDIS_PORT"];
   const missingRedis = REDIS_WARN_VARS.filter((v) => !process.env[v]);
   if (missingRedis.length > 0 && process.env.NODE_ENV === "production") {
@@ -83,14 +93,20 @@ function configureCors(app: INestApplication): void {
     }
   }
   if (process.env.NODE_ENV === "development") {
-    if (!corsOrigins) {
-      console.warn("⚠️  CORS_ORIGINS not set — using permissive origin: true for development.");
-    }
-    app.enableCors({ origin: true, credentials: false });
+    const devOrigins = [
+      "http://localhost:3000",
+      "http://localhost:3001",
+      "http://localhost:5173",
+      "http://localhost:5174",
+    ];
+    console.warn(
+      "⚠️  CORS_ORIGINS not set — using restrictive localhost origins for development. " +
+      "Set CORS_ORIGINS for non-standard dev ports."
+    );
+    app.enableCors({ origin: devOrigins, credentials: false });
   } else if (process.env.NODE_ENV !== "production") {
     console.warn(
-      "⚠️  CORS is not configured. Set CORS_ORIGINS to allow cross-origin requests, " +
-      "or set NODE_ENV=development for permissive dev CORS."
+      "⚠️  CORS is not configured. Set CORS_ORIGINS to allow cross-origin requests."
     );
   }
 }

@@ -107,11 +107,19 @@ export class DomainExceptionFilter implements ExceptionFilter {
       exception instanceof Error ? exception.stack : undefined
     );
     const isDev = process.env.NODE_ENV === "development";
+    let devMessage = isDev && exception instanceof Error ? exception.message : "Internal server error";
+    // Sanitize development error messages to remove sensitive patterns
+    // (connection strings, file paths, internal hostnames)
+    if (isDev) {
+      devMessage = devMessage
+        .replace(/postgresql?:\/\/[^\s"']+/gi, "[DATABASE_URL]")
+        .replace(/redis:\/\/[^\s"']+/gi, "[REDIS_URL]")
+        .replace(/\/\/[^/\s]+\//g, "//[HOST]/")
+        .replace(/\bat\b[/\\][^\s"':]+/gi, "[PATH]");
+    }
     response.status(500).json({
       statusCode: 500,
-      message: isDev
-        ? (exception instanceof Error ? exception.message : "Internal server error")
-        : "Internal server error",
+      message: devMessage,
     });
   }
 }

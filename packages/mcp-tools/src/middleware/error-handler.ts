@@ -104,15 +104,24 @@ function handlePrismaError(prismaCode: string, prismaMeta: { target?: string | s
   return null;
 }
 
+function sanitizeErrorMessage(message: string): string {
+  return message
+    .replace(/postgresql?:\/\/[^\s"']+/gi, "[DATABASE_URL]")
+    .replace(/redis:\/\/[^\s"']+/gi, "[REDIS_URL]")
+    .replace(/\/\/[^/\s]+\//g, "//[HOST]/")
+    .replace(/\bat\b[/\\][^\s"':]+/gi, "[PATH]")
+    .slice(0, 500);
+}
+
 function handleGenericError(error: unknown, definition: { name: string }, tenantId: string, userId: string): ToolResult {
   const message = error instanceof Error ? error.message : "Unknown error";
-  // Always log full details to stderr for operators
+  const safeMessage = sanitizeErrorMessage(message);
+  // Log sanitized details to stderr to prevent leaking sensitive info
+  // (DB hostnames, connection strings, stack frames)
   process.stderr.write(
-    `[MCP] [${new Date().toISOString()}] Unexpected error in '${definition.name}' (tenant=${tenantId}, user=${userId}): ${message}\n` +
-    (error instanceof Error && process.env.NODE_ENV === "development" ? `${error.stack}\n` : "")
+    `[MCP] [${new Date().toISOString()}] Unexpected error in '${definition.name}' (tenant=${tenantId}, user=${userId}): ${safeMessage}\n`
   );
   // Always return a generic message to the AI agent to prevent leaking internals
-  // (DB hostnames, Prisma connection strings, stack frames) if NODE_ENV is misconfigured
   return {
     success: false,
     error: {
