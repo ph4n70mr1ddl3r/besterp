@@ -17,6 +17,9 @@ import { truncateValue, MAX_STORED_PAYLOAD_SIZE } from "./truncate.js";
 const SENSITIVE_FIELDS = new Set([
   "password", "passwd", "secret", "token", "api_key", "apiKey",
   "authorization", "creditCard", "credit_card", "ssn", "taxId", "tax_id",
+  "access_token", "refresh_token", "session_id", "sessionId",
+  "private_key", "privateKey", "secret_key", "secretKey",
+  "accessKey", "access_key", "encryption_key", "encryptionKey",
 ]);
 
 /** Audit log uses the same 64 KB cap as other stored payloads. */

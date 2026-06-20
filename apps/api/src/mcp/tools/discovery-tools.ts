@@ -11,6 +11,7 @@ import {
   ToolDefinition,
   ToolContext,
 } from "@besterp/mcp-tools";
+import { InvalidTypeValueError } from "@besterp/shared";
 
 // Mapping from type table names to Prisma model delegate keys and ID fields.
 const TYPE_TABLE_MAP = {
@@ -70,12 +71,18 @@ async function queryTypeTable(
   idField: string,
 ): Promise<TypeTableRow[]> {
   if (typeof delegateKey !== "string" || !/^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(delegateKey)) {
-    throw new Error(`Invalid delegate key '${delegateKey}'.`);
+    throw new InvalidTypeValueError(
+      `Invalid delegate key '${delegateKey}'.`,
+      { context: { field: "delegateKey", received: delegateKey } }
+    );
   }
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const raw = (prisma as any)[delegateKey];
   if (!raw || typeof raw !== "object" || typeof raw.findMany !== "function") {
-    throw new Error(`Prisma delegate '${delegateKey}' not found. Ensure the model exists in the schema.`);
+    throw new InvalidTypeValueError(
+      `Prisma delegate '${delegateKey}' not found. Ensure the model exists in the schema.`,
+      { context: { field: "delegateKey", received: delegateKey } }
+    );
   }
   const delegate = raw as PrismaModelDelegate;
   const rows = await delegate.findMany({

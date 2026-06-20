@@ -40,10 +40,16 @@ function sortMap(value: Map<unknown, unknown>, ancestors: Set<object>): unknown[
     .map(([k, v]) => ({
       k,
       v,
-      kStr: typeof k === "object" && k !== null ? JSON.stringify(sortKeysDeep(k, ancestors)) : String(k),
+      kSorted: sortKeysDeep(k, ancestors),
     }))
-    .sort((a, b) => (a.kStr < b.kStr ? -1 : a.kStr > b.kStr ? 1 : 0));
-  const result = sortedEntries.map(({ k, v }) => [sortKeysDeep(k, ancestors), sortKeysDeep(v, ancestors)]);
+    .sort((a, b) => {
+      const aStr = typeof a.kSorted === "object" && a.kSorted !== null
+        ? JSON.stringify(a.kSorted) : String(a.k);
+      const bStr = typeof b.kSorted === "object" && b.kSorted !== null
+        ? JSON.stringify(b.kSorted) : String(b.k);
+      return aStr < bStr ? -1 : aStr > bStr ? 1 : 0;
+    });
+  const result = sortedEntries.map(({ v, kSorted }) => [kSorted, sortKeysDeep(v, ancestors)]);
   ancestors.delete(value);
   return result;
 }

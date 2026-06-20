@@ -61,11 +61,14 @@ export class HealthController {
     });
 
     try {
+      const healthPromise = this.healthService.getHealth();
       const result = await Promise.race([
-        this.healthService.getHealth(),
+        healthPromise,
         timeoutPromise,
       ]);
       if (result === "timeout") {
+        // Prevent unhandled rejection from the in-flight health check.
+        healthPromise.catch(() => {});
         throw new ServiceUnavailableException("health check timed out");
       }
       if (result.database !== "connected") {

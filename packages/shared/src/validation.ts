@@ -61,9 +61,30 @@ export const ISO_DATE_REGEX: Readonly<RegExp> =
   /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])(T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})?)?$/;
 
 /**
+ * Days in each month (non-leap year). Index 0 is unused; month 1 = January.
+ */
+const DAYS_IN_MONTH = [0, 31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+
+/**
  * Validate that a string is a parseable ISO 8601 date.
  * Combines regex validation with Date.parse() for defense-in-depth.
+ * Also enforces month-specific day limits (e.g. Feb 30 is rejected).
  */
 export function isValidISODate(value: string): boolean {
-  return ISO_DATE_REGEX.test(value) && !isNaN(new Date(value).getTime());
+  if (!ISO_DATE_REGEX.test(value) || isNaN(new Date(value).getTime())) {
+    return false;
+  }
+  // Extract month and day from the date portion and validate calendar range.
+  const month = parseInt(value.slice(5, 7), 10);
+  const day = parseInt(value.slice(8, 10), 10);
+  if (month < 1 || month > 12 || day < 1 || day > (DAYS_IN_MONTH[month] ?? 0)) {
+    return false;
+  }
+  // Leap year check for February 29.
+  if (month === 2 && day === 29) {
+    const year = parseInt(value.slice(0, 4), 10);
+    const isLeap = (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
+    if (!isLeap) return false;
+  }
+  return true;
 }

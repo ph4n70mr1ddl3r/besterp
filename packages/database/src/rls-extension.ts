@@ -171,9 +171,9 @@ function createTransactionWrapper(prisma: PrismaClient, tenantId: string) {
           await tx.$executeRaw`SELECT set_tenant_context(${tenantId})`;
         } catch (e) {
           const safePreview = tenantId.replace(/[^a-zA-Z0-9_-]/g, "?").slice(0, 20);
-          throw new Error(
+          throw new InvalidTypeValueError(
             `Failed to set tenant context for '${safePreview}': ${e instanceof Error ? e.message : String(e)}`,
-            { cause: e }
+            { cause: e instanceof Error ? e : undefined, context: { field: "tenantId", received: safePreview } }
           );
         }
         return fn(tx);
@@ -220,9 +220,12 @@ function createModelDelegateProxy(
           try {
             await tx.$executeRaw`SELECT set_tenant_context(${tenantId})`;
           } catch (err) {
+            const safePreview = tenantId.replace(/[^a-zA-Z0-9_-]/g, "?").slice(0, 20);
             const message = err instanceof Error ? err.message : String(err);
-            const error = new Error(`Failed to set tenant context for '${tenantId}': ${message}. Query aborted to prevent cross-tenant data leak.`);
-            if (err instanceof Error) error.cause = err;
+            const error = new InvalidTypeValueError(
+              `Failed to set tenant context for '${safePreview}': ${message}. Query aborted to prevent cross-tenant data leak.`,
+              { cause: err instanceof Error ? err : undefined, context: { field: "tenantId", received: safePreview } }
+            );
             throw error;
           }
           const txDelegate = (tx as any)[modelName];

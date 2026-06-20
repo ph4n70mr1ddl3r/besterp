@@ -2,11 +2,10 @@
 // Tests tenant validation, Prisma client validation, and proxy behavior.
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { PrismaClient } from "@prisma/client";
-import { 
-  createTenantClient, 
-  validateTenantIdEnhanced, 
-  validatePrismaClientForRls 
+import {
+  createTenantClient,
+  validateTenantIdEnhanced,
+  validatePrismaClientForRls
 } from "../rls-extension.js";
 import { InvalidTypeValueError } from "@besterp/shared";
 
@@ -90,7 +89,7 @@ describe("RLS Extension", () => {
   });
 
   describe("createTenantClient", () => {
-    let mockPrisma: PrismaClient;
+    let mockPrisma: any;
 
     beforeEach(() => {
       const tx = {
@@ -253,7 +252,7 @@ describe("RLS Extension", () => {
   });
 
   describe("Error handling", () => {
-    let mockPrisma: PrismaClient;
+    let mockPrisma: any;
 
     beforeEach(() => {
       mockPrisma = {

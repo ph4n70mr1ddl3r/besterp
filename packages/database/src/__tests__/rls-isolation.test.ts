@@ -37,6 +37,7 @@ describeIntegration("RLS Tenant Isolation", () => {
   });
 
   afterAll(async () => {
+    if (!app || !admin) return;
     try {
       await cleanupTestData(admin, prefix);
     } finally {
@@ -181,6 +182,7 @@ describeIntegration("Class Table Inheritance", () => {
   });
 
   afterAll(async () => {
+    if (!app || !admin) return;
     try {
       await cleanupTestData(admin, prefix);
     } finally {
@@ -247,6 +249,7 @@ describeIntegration("Idempotency", () => {
   });
 
   afterAll(async () => {
+    if (!app || !admin) return;
     try {
       await cleanupTestData(admin, prefix);
     } finally {

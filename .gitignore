@@ -27,7 +27,8 @@ tmp/
 # Prisma
 packages/database/prisma/*.db
 packages/database/prisma/*.db-journal
+packages/database/prisma/*.db-wal
+packages/database/prisma/*.db-shm
 
 # Spikes & experiments
 spikes/
-**/spikes/

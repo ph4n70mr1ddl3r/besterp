@@ -140,13 +140,6 @@ CREATE POLICY IF NOT EXISTS tenant_isolation_idempotency_record ON idempotency_r
 -- These tables lack a direct tenant_id column, so policies JOIN through
 -- the parent Party table to enforce isolation.
 
--- ─── Performance Index: party_contact_mechanism.contact_mechanism_id ──
--- The RLS policy for party_contact_mechanism subqueries on
--- contact_mechanism_id to verify the contact belongs to the current
--- tenant. Without this index the policy triggers a sequential scan.
-CREATE INDEX IF NOT EXISTS party_contact_mechanism_contact_mechanism_id_idx
-  ON party_contact_mechanism (contact_mechanism_id);
-
 -- ─── Partial Unique Index: Active Party Roles ────────────────────
 -- Prevents duplicate active roles at the DB level (defense-in-depth).
 -- The application layer checks inside transactions, but this index
