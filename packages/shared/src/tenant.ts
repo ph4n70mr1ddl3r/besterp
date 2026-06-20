@@ -88,7 +88,7 @@ export async function withTenant<T>(
       throw new DomainError(
         "TENANT_CONTEXT_FAILED",
         "Failed to set tenant context. Ensure the set_tenant_context() function exists and the database role has correct permissions.",
-        { cause: e instanceof Error ? e : new Error(String(e)), context: { tenantId } }
+        { cause: e instanceof Error ? e : new Error(String(e)) }
       );
     }
     return fn(tx);

@@ -47,7 +47,8 @@ export function capString(value: unknown, maxBytes: number): string {
   const marker = `... [truncated, original was ${encoded.byteLength} bytes]`;
   const markerBytes = textEncoder.encode(marker).byteLength;
   if (effectiveMax <= markerBytes) {
-    return marker.slice(0, effectiveMax);
+    const markerEncoded = textEncoder.encode(marker);
+    return textDecoder.decode(markerEncoded.slice(0, effectiveMax));
   }
   // When slicing at a byte boundary, walk backwards to avoid splitting
   // a multi-byte UTF-8 character (e.g. CJK, emoji, accented chars).

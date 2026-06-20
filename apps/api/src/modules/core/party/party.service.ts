@@ -267,8 +267,8 @@ export class PartyService {
     }, { timeout: 10_000 }).catch((err) => {
       if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
         throw new DuplicateEntityError(
-          `A party with the name '${name}' already exists in this tenant.`,
-          { suggestedTools: ["search_parties"], context: { name } }
+          "A party with this name already exists in this tenant.",
+          { suggestedTools: ["search_parties"] }
         );
       }
       throw err;

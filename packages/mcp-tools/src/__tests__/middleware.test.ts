@@ -202,7 +202,8 @@ describe("Idempotency Middleware", () => {
     const middleware = idempotencyMiddleware(mockPrisma as any);
     const result = await middleware(input, mockContext, mockDefinition, successNext({ success: true, data: "passed through" }));
 
-    expect(mockPrisma.idempotencyRecord.findUnique).not.toHaveBeenCalled();
+    expect(mockPrisma.idempotencyRecord.findFirst).not.toHaveBeenCalled();
+    expect(mockPrisma.idempotencyRecord.create).not.toHaveBeenCalled();
     expect(result.success).toBe(true);
     expect(result.data).toBe("passed through");
   });
@@ -427,7 +428,7 @@ describe("Idempotency Middleware", () => {
     expect(result.data).toBe("passed through");
     // No record should have been created — the middleware bailed out early.
     expect(mockPrisma.idempotencyRecord.create).not.toHaveBeenCalled();
-    expect(mockPrisma.idempotencyRecord.findUnique).not.toHaveBeenCalled();
+    expect(mockPrisma.idempotencyRecord.findFirst).not.toHaveBeenCalled();
   });
 
   it("should pass through when idempotencyKey is not a string (defensive pre-check)", async () => {
@@ -656,6 +657,7 @@ describe("Audit Log Middleware", () => {
 describe("Error Handler Middleware", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.unstubAllEnvs();
   });
 
   it("should format domain errors correctly", async () => {

@@ -162,7 +162,7 @@ function redactSensitiveFields(value: unknown, depth = 0): unknown {
   if (Array.isArray(value)) return value.map((item) => redactSensitiveFields(item, depth + 1));
   const result: Record<string, unknown> = {};
   for (const [key, val] of Object.entries(value as Record<string, unknown>)) {
-    if (SENSITIVE_FIELDS.has(key.toLowerCase())) {
+    if (SENSITIVE_FIELDS.has(key) || SENSITIVE_FIELDS.has(key.toLowerCase())) {
       result[key] = "[REDACTED]";
     } else {
       result[key] = redactSensitiveFields(val, depth + 1);

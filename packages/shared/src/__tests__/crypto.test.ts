@@ -171,9 +171,6 @@ describe("hashInput", () => {
     
     // Same symbol should produce the same hash
     expect(hashInput(symbol1)).toBe(hashInput(symbol1));
-    
-    // Ensure hashes are consistent for the same symbol instance
-    expect(hashInput(symbol1)).toBe(hashInput(symbol1));
   });
 
   it("should handle mixed types in nested structures", () => {

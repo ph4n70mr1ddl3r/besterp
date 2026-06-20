@@ -61,7 +61,8 @@ export const ISO_DATE_REGEX: Readonly<RegExp> =
   /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])(T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})?)?$/;
 
 /**
- * Days in each month (non-leap year). Index 0 is unused; month 1 = January.
+ * Days in each month. Index 0 is unused; month 1 = January.
+ * February is set to 29; a separate leap-year check catches non-leap Feb 29.
  */
 const DAYS_IN_MONTH = [0, 31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
 

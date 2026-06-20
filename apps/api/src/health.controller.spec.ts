@@ -8,6 +8,7 @@ import { HealthStatus, VersionInfo } from "./health.service.js";
 describe("HealthController", () => {
   afterEach(() => {
     vi.unstubAllEnvs();
+    vi.useRealTimers();
   });
   describe("getHealth", () => {
     it("should return health status", async () => {

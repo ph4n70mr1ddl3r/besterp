@@ -67,13 +67,10 @@ export function validateTenantIdEnhanced(tenantId: string): void {
   } catch (e) {
     // Re-throw as a structured DomainError so callers only need to
     // catch InvalidTypeValueError instead of plain Error.
-    // Sanitize preview to avoid leaking untrusted input in error context.
-    const safePreview = tenantId.replace(/[^a-zA-Z0-9_-]/g, "?");
-    const preview = safePreview.length > 20 ? `${safePreview.slice(0, 20)}...` : safePreview;
     const message = e instanceof Error ? e.message : String(e);
     throw new InvalidTypeValueError(
       message,
-      { cause: e instanceof Error ? e : undefined, context: { field: "tenantId", received: preview } }
+      { cause: e instanceof Error ? e : undefined, context: { field: "tenantId" } }
     );
   }
 }
@@ -170,10 +167,10 @@ function createTransactionWrapper(prisma: PrismaClient, tenantId: string) {
         try {
           await tx.$executeRaw`SELECT set_tenant_context(${tenantId})`;
         } catch (e) {
-          const safePreview = tenantId.replace(/[^a-zA-Z0-9_-]/g, "?").slice(0, 20);
+          const message = e instanceof Error ? e.message : String(e);
           throw new InvalidTypeValueError(
-            `Failed to set tenant context for '${safePreview}': ${e instanceof Error ? e.message : String(e)}`,
-            { cause: e instanceof Error ? e : undefined, context: { field: "tenantId", received: safePreview } }
+            `Failed to set tenant context: ${message}`,
+            { cause: e instanceof Error ? e : undefined, context: { field: "tenantId" } }
           );
         }
         return fn(tx);
@@ -220,12 +217,11 @@ function createModelDelegateProxy(
           try {
             await tx.$executeRaw`SELECT set_tenant_context(${tenantId})`;
           } catch (err) {
-            const safePreview = tenantId.replace(/[^a-zA-Z0-9_-]/g, "?").slice(0, 20);
-            const message = err instanceof Error ? err.message : String(err);
-            const error = new InvalidTypeValueError(
-              `Failed to set tenant context for '${safePreview}': ${message}. Query aborted to prevent cross-tenant data leak.`,
-              { cause: err instanceof Error ? err : undefined, context: { field: "tenantId", received: safePreview } }
-            );
+          const message = err instanceof Error ? err.message : String(err);
+          const error = new InvalidTypeValueError(
+            `Failed to set tenant context: ${message}. Query aborted to prevent cross-tenant data leak.`,
+            { cause: err instanceof Error ? err : undefined, context: { field: "tenantId" } }
+          );
             throw error;
           }
           const txDelegate = (tx as any)[modelName];

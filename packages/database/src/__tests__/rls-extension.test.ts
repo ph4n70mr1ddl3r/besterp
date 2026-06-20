@@ -209,33 +209,33 @@ describe("RLS Extension", () => {
       expect(() => (client as any)._engineConfig).toThrow(/Cannot access/);
     });
 
-  it("should block property assignment on tenant-scoped client", () => {
-    const client = createTenantClient(mockPrisma, "tenant-1");
-    expect(() => { (client as any).party = {}; }).toThrow(/Cannot set/);
-  });
+    it("should block property assignment on tenant-scoped client", () => {
+      const client = createTenantClient(mockPrisma, "tenant-1");
+      expect(() => { (client as any).party = {}; }).toThrow(/Cannot set/);
+    });
 
-  it("should block property deletion on tenant-scoped client", () => {
-    const client = createTenantClient(mockPrisma, "tenant-1");
-    expect(() => delete (client as any).party).toThrow(/Cannot delete/);
-  });
+    it("should block property deletion on tenant-scoped client", () => {
+      const client = createTenantClient(mockPrisma, "tenant-1");
+      expect(() => delete (client as any).party).toThrow(/Cannot delete/);
+    });
 
-  it("should block property assignment on a model delegate (e.g. db.party)", () => {
-    // Inner Proxy traps: without set/deleteProperty on the model delegate,
-    // `scoped.party.someField = "x"` would silently mutate the underlying
-    // shared model delegate (since all tenant-scoped clients share the
-    // same _appClient). This polluted the delegate across tenants.
-    const client = createTenantClient(mockPrisma, "tenant-1");
-    expect(() => { (client.party as any).someField = "x"; }).toThrow(
-      /Cannot set 'someField' on model 'party'/
-    );
-  });
+    it("should block property assignment on a model delegate (e.g. db.party)", () => {
+      // Inner Proxy traps: without set/deleteProperty on the model delegate,
+      // `scoped.party.someField = "x"` would silently mutate the underlying
+      // shared model delegate (since all tenant-scoped clients share the
+      // same _appClient). This polluted the delegate across tenants.
+      const client = createTenantClient(mockPrisma, "tenant-1");
+      expect(() => { (client.party as any).someField = "x"; }).toThrow(
+        /Cannot set 'someField' on model 'party'/
+      );
+    });
 
-  it("should block property deletion on a model delegate", () => {
-    const client = createTenantClient(mockPrisma, "tenant-1");
-    expect(() => { delete (client.party as any).findMany; }).toThrow(
-      /Cannot delete 'findMany' on model 'party'/
-    );
-  });
+    it("should block property deletion on a model delegate", () => {
+      const client = createTenantClient(mockPrisma, "tenant-1");
+      expect(() => { delete (client.party as any).findMany; }).toThrow(
+        /Cannot delete 'findMany' on model 'party'/
+      );
+    });
 
     it("should reject batch transactions on tenant-scoped client", () => {
       const client = createTenantClient(mockPrisma, "tenant-1");
@@ -265,6 +265,7 @@ describe("RLS Extension", () => {
     });
 
     it("should provide detailed error messages for invalid tenant IDs", () => {
+      expect.assertions(3);
       expect(() => createTenantClient(mockPrisma, "bad@tenant#123")).toThrow(InvalidTypeValueError);
       try {
         createTenantClient(mockPrisma, "bad@tenant#123");
