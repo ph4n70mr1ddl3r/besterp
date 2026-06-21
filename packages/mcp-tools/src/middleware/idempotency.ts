@@ -99,6 +99,9 @@ async function acquireIdempotencyRecord(
         }
 
         if (record.status === "failed") {
+          if (record.inputHash !== inputHash) {
+            return { existing: record, created: false };
+          }
           await tx.idempotencyRecord.update({
             where: { idempotencyKey, tenantId },
             data: { status: "pending", inputHash, expiresAt: new Date(Date.now() + IDEMPOTENCY_TTL_MS), error: Prisma.DbNull },
@@ -171,6 +174,20 @@ function handleExistingRecord(
         suggestedTools: [toolName],
       },
     };
+  }
+
+  if (existing.status === "failed") {
+    if (existing.inputHash !== inputHash) {
+      return {
+        success: false,
+        error: {
+          code: "IDEMPOTENCY_KEY_MISMATCH",
+          message: `Idempotency key '${idempotencyKey}' was previously used with different input. Use a new idempotency key.`,
+          suggestedTools: [toolName],
+          context: { originalInputHash: existing.inputHash },
+        },
+      };
+    }
   }
 
   return { success: false, error: { code: "INTERNAL_ERROR", message: "Unexpected idempotency state" } };

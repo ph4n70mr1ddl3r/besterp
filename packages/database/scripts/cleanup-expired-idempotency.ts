@@ -37,6 +37,7 @@ async function main() {
     }
   } catch (e) {
     console.error("❌ Could not query advisory lock — aborting:", e);
+    await prisma.$disconnect().catch(() => {});
     process.exit(1);
   }
 

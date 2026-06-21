@@ -104,6 +104,9 @@ export const MIN_SEARCH_LIMIT = 1;
 /** Minimum offset for search results. */
 export const MIN_SEARCH_OFFSET = 0;
 
+/** Maximum offset for search results (prevents deep pagination performance issues). */
+export const MAX_SEARCH_OFFSET = 10_000;
+
 // ─── Cache ─────────────────────────────────────────────────────
 
 /** Maximum number of tenant-scoped clients to cache. */

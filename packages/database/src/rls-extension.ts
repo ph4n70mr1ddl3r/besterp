@@ -217,12 +217,11 @@ function createModelDelegateProxy(
           try {
             await tx.$executeRaw`SELECT set_tenant_context(${tenantId})`;
           } catch (err) {
-          const message = err instanceof Error ? err.message : String(err);
-          const error = new InvalidTypeValueError(
-            `Failed to set tenant context: ${message}. Query aborted to prevent cross-tenant data leak.`,
-            { cause: err instanceof Error ? err : undefined, context: { field: "tenantId" } }
-          );
-            throw error;
+            const message = err instanceof Error ? err.message : String(err);
+            throw new InvalidTypeValueError(
+              `Failed to set tenant context: ${message}. Query aborted to prevent cross-tenant data leak.`,
+              { cause: err instanceof Error ? err : undefined, context: { field: "tenantId" } }
+            );
           }
           const txDelegate = (tx as any)[modelName];
           if (!txDelegate) throw new Error(`Model "${modelName}" not found on transaction client`);

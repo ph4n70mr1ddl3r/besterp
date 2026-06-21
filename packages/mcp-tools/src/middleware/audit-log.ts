@@ -194,7 +194,7 @@ function redactSensitiveFields(value: unknown, depth = 0): unknown {
   if (value instanceof Set) {
     return new Set([...value].map((v) => redactSensitiveFields(v, depth + 1)));
   }
-  const result: Record<string, unknown> = {};
+  const result: Record<string, unknown> = Object.create(null);
   for (const [key, val] of Object.entries(value as Record<string, unknown>)) {
     if (SENSITIVE_FIELDS.has(key) || SENSITIVE_FIELD_PATTERN.test(key)) {
       result[key] = "[REDACTED]";

@@ -27,6 +27,12 @@ const TENANT_ID_PATTERN = /^[a-zA-Z0-9_-]+$/;
  * obviously invalid tenant IDs early with a clear error message.
  */
 export function validateTenantId(tenantId: string): void {
+  if (typeof tenantId !== "string" || tenantId.length === 0) {
+    throw new DomainError(
+      "INVALID_TENANT_ID",
+      "Tenant ID must be a non-empty string."
+    );
+  }
   if (tenantId.length > MAX_TENANT_ID_LENGTH) {
     throw new DomainError(
       "INVALID_TENANT_ID",

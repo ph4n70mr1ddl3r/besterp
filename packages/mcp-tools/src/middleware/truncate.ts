@@ -101,6 +101,18 @@ export function truncateValue(value: unknown, maxSize: number = MAX_STORED_PAYLO
     }
     return value;
   }
+  if (typeof value === "bigint") {
+    const str = value.toString();
+    const encoded = textEncoder.encode(str);
+    if (encoded.byteLength > effectiveMax) {
+      return {
+        _truncated: true,
+        _originalSize: encoded.byteLength,
+        _preview: textDecoder.decode(encoded.slice(0, PREVIEW_BYTES)),
+      };
+    }
+    return str;
+  }
 
   try {
     const serialized = JSON.stringify(value);
