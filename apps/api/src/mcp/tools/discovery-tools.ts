@@ -70,13 +70,6 @@ async function queryTypeTable(
   delegateKey: string,
   idField: string,
 ): Promise<TypeTableRow[]> {
-  const validKeys: readonly string[] = Object.values(TYPE_TABLE_MAP).map((c) => c.delegateKey);
-  if (!validKeys.includes(delegateKey)) {
-    throw new InvalidTypeValueError(
-      `Invalid delegate key '${delegateKey}'. Must be one of: ${validKeys.join(", ")}.`,
-      { context: { field: "delegateKey", received: delegateKey } }
-    );
-  }
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const raw = (prisma as any)[delegateKey];
   if (!raw || typeof raw !== "object" || typeof raw.findMany !== "function") {

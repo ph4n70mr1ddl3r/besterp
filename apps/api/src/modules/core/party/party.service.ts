@@ -268,9 +268,6 @@ export class PartyService {
       return tx.party.create({ data, include: PartyService.PARTY_INCLUDE });
     }, { timeout: 10_000 }).catch((err) => {
       PartyService.handleTransactionError(err, "create_party", "search_parties");
-      // handleTransactionError is typed never, but if it ever returns, re-throw
-      // to prevent the promise from resolving with undefined.
-      throw err;
     });
   }
 
@@ -329,7 +326,9 @@ export class PartyService {
   // ─── Search Parties ───────────────────────────────────────────
 
   async searchParties(input: SearchPartiesInput): Promise<SearchPartiesResult> {
-    const { tenantId, name, partyType, roleType, limit = DEFAULT_SEARCH_LIMIT, offset = MIN_SEARCH_OFFSET } = input;
+    const { tenantId, name, partyType, roleType } = input;
+    const limit = input.limit ?? DEFAULT_SEARCH_LIMIT;
+    const offset = input.offset ?? MIN_SEARCH_OFFSET;
 
     // Validate pagination parameters
     const validatedLimit = Math.min(Math.max(limit, MIN_SEARCH_LIMIT), MAX_SEARCH_LIMIT); // Clamp between 1-500
