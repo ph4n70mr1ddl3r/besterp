@@ -266,20 +266,36 @@ export class PartyService {
       }
       return tx.party.create({ data, include: PartyService.PARTY_INCLUDE });
     }, { timeout: 10_000 }).catch((err) => {
-      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
-        throw new DuplicateEntityError(
-          "A party with this name already exists in this tenant.",
-          { suggestedTools: ["search_parties"] }
-        );
-      }
-      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2034") {
-        throw new ConcurrencyConflictError(
-          "Transaction conflict — please retry.",
-          { suggestedTools: ["create_party"] }
-        );
-      }
+      PartyService.handleTransactionError(err, "create_party", "search_parties");
+      // handleTransactionError is typed never, but if it ever returns, re-throw
+      // to prevent the promise from resolving with undefined.
       throw err;
     });
+  }
+
+  /** Map Prisma transaction errors to DomainErrors. Throws the mapped error. */
+  private static handleTransactionError(
+    err: unknown,
+    retryTool: string,
+    suggestTool: string,
+  ): never {
+    if (err instanceof Prisma.PrismaClientKnownRequestError) {
+      if (err.code === "P2002") {
+        const target = (err.meta?.target as string[] | undefined);
+        const field = Array.isArray(target) && target.length > 0 ? target[0] : "this record";
+        throw new DuplicateEntityError(
+          `A record with the same ${field} already exists in this tenant.`,
+          { suggestedTools: [suggestTool] }
+        );
+      }
+      if (err.code === "P2034") {
+        throw new ConcurrencyConflictError(
+          "Transaction conflict — please retry.",
+          { suggestedTools: [retryTool] }
+        );
+      }
+    }
+    throw err;
   }
 
   // ─── Get Party ────────────────────────────────────────────────
@@ -486,18 +502,20 @@ export class PartyService {
         include: { roleType: true },
       });
     }, { timeout: 10_000 }).catch((err) => {
-      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
-        throw new DuplicateEntityError(
-          `Party '${partyId}' already has active role '${trimmedRoleType}' (unique constraint violation). ` +
-          `To change a party's role, first end the current role by setting a thruDate, then re-call add_party_role.`,
-          { suggestedTools: ["get_party"], context: { partyId, roleType: trimmedRoleType } }
-        );
-      }
-      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2034") {
-        throw new ConcurrencyConflictError(
-          "Transaction conflict — please retry.",
-          { suggestedTools: ["get_party", "add_party_role"], context: { partyId, roleType: trimmedRoleType } }
-        );
+      if (err instanceof Prisma.PrismaClientKnownRequestError) {
+        if (err.code === "P2002") {
+          throw new DuplicateEntityError(
+            `Party '${partyId}' already has active role '${trimmedRoleType}' (unique constraint violation). ` +
+            `To change a party's role, first end the current role by setting a thruDate, then re-call add_party_role.`,
+            { suggestedTools: ["get_party"], context: { partyId, roleType: trimmedRoleType } }
+          );
+        }
+        if (err.code === "P2034") {
+          throw new ConcurrencyConflictError(
+            "Transaction conflict — please retry.",
+            { suggestedTools: ["get_party", "add_party_role"], context: { partyId, roleType: trimmedRoleType } }
+          );
+        }
       }
       throw err;
     });

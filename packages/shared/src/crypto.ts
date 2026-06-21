@@ -81,8 +81,16 @@ function sortPlainObject(value: object, ancestors: Set<object>): Record<string, 
 
 function serializeSpecialObject(value: object): unknown {
   if (value instanceof Date) return value.toISOString();
-  if (value instanceof RegExp) return value.source;
-  if (value instanceof Error) return { name: value.name, message: value.message };
+  if (value instanceof RegExp) return { source: value.source, flags: value.flags };
+  if (value instanceof Error) {
+    const serialized: Record<string, unknown> = { name: value.name, message: value.message };
+    if (value.cause !== undefined && value.cause !== null) {
+      serialized.cause = value.cause instanceof Error
+        ? { name: value.cause.name, message: value.cause.message }
+        : String(value.cause);
+    }
+    return serialized;
+  }
   return value;
 }
 

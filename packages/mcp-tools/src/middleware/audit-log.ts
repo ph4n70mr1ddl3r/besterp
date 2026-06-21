@@ -48,7 +48,7 @@ export function auditLogMiddleware(prisma: PrismaClient): ToolMiddleware {
   // Semaphore to limit concurrent audit log writes and prevent unbounded
   // promise accumulation if the database is slow or unavailable.
   let activeWrites = 0;
-  const writeQueue: Array<{ resolve: () => void; timer: ReturnType<typeof setTimeout> }> = [];
+    const writeQueue: Array<{ resolve: () => void; timer: ReturnType<typeof setTimeout> }> = [];
 
   function acquireWriteSlot(): Promise<void> {
     if (activeWrites < MAX_CONCURRENT_AUDIT_WRITES) {
@@ -61,7 +61,9 @@ export function auditLogMiddleware(prisma: PrismaClient): ToolMiddleware {
         const idx = writeQueue.findIndex((entry) => entry.timer === timer);
         if (idx !== -1) writeQueue.splice(idx, 1);
         process.stderr.write(`[AuditLog] Write slot timeout after ${WRITE_QUEUE_TIMEOUT_MS}ms — dropping audit entry\n`);
-        // Don't increment activeWrites — just let it resolve without writing
+        // Don't increment activeWrites — just let it resolve without writing.
+        // slotAcquired remains false in logWithBackpressure, so releaseWriteSlot
+        // is NOT called in .finally().
         resolve();
       }, WRITE_QUEUE_TIMEOUT_MS);
       if (timer.unref) timer.unref();
@@ -86,8 +88,12 @@ export function auditLogMiddleware(prisma: PrismaClient): ToolMiddleware {
       process.stderr.write(`[AuditLog] Queue full (${MAX_AUDIT_QUEUE_SIZE}), dropping audit entry for '${entry.toolCalled}'\n`);
       return;
     }
+    let slotAcquired = false;
     void acquireWriteSlot()
-      .then(() => logAction(prisma, entry))
+      .then(() => {
+        slotAcquired = true;
+        return logAction(prisma, entry);
+      })
       .catch((logErr) => {
         const errorMeta = {
           timestamp: new Date().toISOString(),
@@ -99,6 +105,10 @@ export function auditLogMiddleware(prisma: PrismaClient): ToolMiddleware {
         process.stderr.write(`[AuditLog] ${JSON.stringify(errorMeta)}\n`);
       })
       .finally(() => {
+        // Only release the slot if it was actually acquired (not on timeout-drop).
+        // Timed-out entries resolve without incrementing activeWrites, so
+        // calling releaseWriteSlot would decrement the counter below zero.
+        if (!slotAcquired) return;
         releaseWriteSlot();
       });
   }

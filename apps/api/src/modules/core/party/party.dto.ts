@@ -274,7 +274,7 @@ export class PostalAddressDto {
   @MaxLength(MAX_POSTAL_CODE_LENGTH)
   postalCode?: string;
 
-  @Transform(({ value }: { value: string }) => (typeof value === "string" ? value.trim().toUpperCase() : value))
+  @Transform(({ value }: { value: string }) => (typeof value === "string" ? stripHtmlTags(value.trim().toUpperCase()) : value))
   @IsString()
   @IsNotEmpty()
   @MinLength(MIN_COUNTRY_CODE_LENGTH)

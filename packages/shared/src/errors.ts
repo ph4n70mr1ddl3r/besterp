@@ -25,6 +25,9 @@ export class DomainError extends Error {
     this.code = code;
     this.suggestedTools = options?.suggestedTools ?? [];
     this.context = options?.context ?? {};
+    // Fix instanceof checks for custom Error subclasses in environments
+    // that don't properly support class extension of built-ins.
+    Object.setPrototypeOf(this, new.target.prototype);
   }
 
   /**

@@ -15,7 +15,7 @@ BEGIN
   -- string "p_tenant_id" instead of the parameter value.
   EXECUTE format('SET LOCAL app.current_tenant = %L', p_tenant_id);
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SECURITY INVOKER;
 
 -- ─── Force RLS even for table owner ──────────────────────────
 -- By default, table OWNERS bypass RLS. We need FORCE ROW LEVEL SECURITY

@@ -80,7 +80,7 @@ function validateAndTrimOptional(
 }
 
 /** Internal cache for the resolved JWT secret — initialized once per process. */
-const _jwtSecretCache = { value: undefined as string | undefined, resolving: undefined as Promise<string> | undefined };
+const _jwtSecretCache = { value: undefined as string | undefined };
 const _logger = new Logger("JwtSecret");
 
 /**
@@ -89,16 +89,12 @@ const _logger = new Logger("JwtSecret");
  * hardcoded value that could leak via stack traces or source control.
  *
  * The result is cached so both AuthModule (signing) and JwtStrategy
- * (verification) share the same secret. Uses a Promise-based pattern to
- * prevent race conditions during concurrent initialization.
+ * (verification) share the same secret. Thread-safe: concurrent callers
+ * may compute the same value, but the result is idempotent (env var or
+ * random bytes) so there is no correctness issue.
  */
 export function resolveJwtSecret(): string {
   if (_jwtSecretCache.value !== undefined) return _jwtSecretCache.value;
-
-  // If another caller is already resolving, wait for it to complete.
-  if (_jwtSecretCache.resolving) {
-    throw new Error("resolveJwtSecret() called concurrently during initialization. This should not happen — ensure JwtStrategy is not instantiated in parallel.");
-  }
 
   const secret = process.env.JWT_SECRET;
   if (secret) {
@@ -121,7 +117,6 @@ export function resolveJwtSecret(): string {
  */
 export function resetJwtSecretCache(): void {
   _jwtSecretCache.value = undefined;
-  _jwtSecretCache.resolving = undefined;
 }
 
 // Length caps for user/agent/role identifiers in the JWT. Imported from

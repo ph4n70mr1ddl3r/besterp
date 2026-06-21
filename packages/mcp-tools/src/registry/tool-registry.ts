@@ -185,8 +185,9 @@ export class ToolRegistry {
     return Array.from(this.tools.keys())
       .filter((existing) => {
         const lower = existing.toLowerCase();
-        // Check if either contains the other, or shares significant words
-        if (lower.includes(lowerName) || lowerName.includes(lower)) return true;
+        // Require minimum 3 chars for substring match to avoid false positives
+        // (e.g., "in" matching "create_invoice", "or" matching "create_order")
+        if (lowerName.length >= 3 && (lower.includes(lowerName) || lowerName.includes(lower))) return true;
         // Check Levenshtein-like: shared word stems
         const nameParts = lowerName.split(/[_\s]+/).filter(Boolean);
         const existingParts = lower.split(/[_\s]+/).filter(Boolean);

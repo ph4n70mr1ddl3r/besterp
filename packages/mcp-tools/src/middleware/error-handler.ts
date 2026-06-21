@@ -37,6 +37,9 @@ function pluralize(entity: string): string {
   if (lower.endsWith("y") && !lower.endsWith("ay") && !lower.endsWith("ey") && !lower.endsWith("oy") && !lower.endsWith("uy")) {
     return entity.slice(0, -1) + "ies";
   }
+  if (lower.endsWith("fe") || lower.endsWith("ves")) {
+    return entity.slice(0, -2) + "ves";
+  }
   if (lower.endsWith("s") || lower.endsWith("x") || lower.endsWith("z") || lower.endsWith("ch") || lower.endsWith("sh")) {
     return entity + "es";
   }
@@ -45,10 +48,13 @@ function pluralize(entity: string): string {
 
 function extractPrismaError(error: unknown): { code: string | undefined; meta: { target?: string | string[] } | undefined } {
   if (error != null && typeof error === "object") {
-    return {
-      code: (error as Record<string, unknown>).code as string | undefined,
-      meta: (error as Record<string, unknown>).meta as { target?: string | string[] } | undefined,
-    };
+    const raw = error as Record<string, unknown>;
+    const code = typeof raw.code === "string" ? raw.code : undefined;
+    const rawMeta = raw.meta;
+    const meta = (rawMeta != null && typeof rawMeta === "object" && !Array.isArray(rawMeta))
+      ? rawMeta as { target?: string | string[] }
+      : undefined;
+    return { code, meta };
   }
   return { code: undefined, meta: undefined };
 }
@@ -106,9 +112,7 @@ function handlePrismaError(prismaCode: string, prismaMeta: { target?: string | s
 
 function sanitizeErrorMessage(message: string): string {
   return message
-    .replace(/postgresql?:\/\/[^\s"']+/gi, "[DATABASE_URL]")
-    .replace(/redis:\/\/[^\s"']+/gi, "[REDIS_URL]")
-    .replace(/\/\/[^/\s]+\//g, "//[HOST]/")
+    .replace(/[a-z][a-z\d+\-.]*:\/\/[^\s"']+/gi, "[CONNECTION_URL]")
     .replace(/\bat\b[/\\][^\s"':]+/gi, "[PATH]")
     .slice(0, 500);
 }

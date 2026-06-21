@@ -38,7 +38,14 @@ export function idempotencyMiddleware(prisma: PrismaClient): ToolMiddleware {
       return next(input, context);
     }
 
-    const inputHash = hashInput(input);
+    let inputHash: string;
+    try {
+      inputHash = hashInput(input);
+    } catch {
+      // Circular references or unserializable input — skip idempotency
+      // rather than crashing the entire tool pipeline.
+      return next(input, context);
+    }
 
     const { existingRecord, recordCreated } = await acquireIdempotencyRecord(prisma, idempotencyKey, tenantId, userId, agentId, conversationId, definition.name, inputHash);
 
