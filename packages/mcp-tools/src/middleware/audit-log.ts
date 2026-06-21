@@ -48,7 +48,12 @@ export function auditLogMiddleware(prisma: PrismaClient): ToolMiddleware {
   // Semaphore to limit concurrent audit log writes and prevent unbounded
   // promise accumulation if the database is slow or unavailable.
   let activeWrites = 0;
-    const writeQueue: Array<{ resolve: () => void; timer: ReturnType<typeof setTimeout> }> = [];
+  const writeQueue: Array<{ resolve: () => void; timer: ReturnType<typeof setTimeout> }> = [];
+
+  // Drop/error counters for monitoring. In production, these should be
+  // exposed via a metrics collector (e.g., Prometheus).
+  let droppedCount = 0;
+  let errorCount = 0;
 
   function acquireWriteSlot(): Promise<void> {
     if (activeWrites < MAX_CONCURRENT_AUDIT_WRITES) {
@@ -85,7 +90,8 @@ export function auditLogMiddleware(prisma: PrismaClient): ToolMiddleware {
 
   function logWithBackpressure(entry: AuditLogEntry): void {
     if (writeQueue.length >= MAX_AUDIT_QUEUE_SIZE) {
-      process.stderr.write(`[AuditLog] Queue full (${MAX_AUDIT_QUEUE_SIZE}), dropping audit entry for '${entry.toolCalled}'\n`);
+      droppedCount++;
+      process.stderr.write(`[AuditLog] Queue full (${MAX_AUDIT_QUEUE_SIZE}), dropping audit entry for '${entry.toolCalled}' (total dropped: ${droppedCount})\n`);
       return;
     }
     let slotAcquired = false;
@@ -95,12 +101,14 @@ export function auditLogMiddleware(prisma: PrismaClient): ToolMiddleware {
         return logAction(prisma, entry);
       })
       .catch((logErr) => {
+        errorCount++;
         const errorMeta = {
           timestamp: new Date().toISOString(),
           tool: entry.toolCalled,
           tenant: entry.tenantId,
           user: entry.userId,
           error: logErr instanceof Error ? logErr.message : String(logErr),
+          totalErrors: errorCount,
         };
         process.stderr.write(`[AuditLog] ${JSON.stringify(errorMeta)}\n`);
       })

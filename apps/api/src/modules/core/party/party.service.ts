@@ -56,6 +56,7 @@ import {
   MAX_SEARCH_LIMIT,
   MIN_SEARCH_LIMIT,
   MIN_SEARCH_OFFSET,
+  MAX_SEARCH_OFFSET,
   DEFAULT_SEARCH_LIMIT,
 } from "@besterp/shared";
 import {
@@ -332,7 +333,7 @@ export class PartyService {
 
     // Validate pagination parameters
     const validatedLimit = Math.min(Math.max(limit, MIN_SEARCH_LIMIT), MAX_SEARCH_LIMIT); // Clamp between 1-500
-    const validatedOffset = Math.max(offset, MIN_SEARCH_OFFSET);
+    const validatedOffset = Math.min(Math.max(offset, MIN_SEARCH_OFFSET), MAX_SEARCH_OFFSET);
 
     const db = this.prisma.tenantScoped(tenantId);
 

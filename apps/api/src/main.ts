@@ -44,8 +44,17 @@ function setupGracefulShutdown(app: INestApplication): void {
   const HARD_EXIT_TIMEOUT_MS = Number(process.env.HARD_EXIT_TIMEOUT_MS) || 10_000;
   let shuttingDown = false;
 
+  function sanitizeLogOutput(message: string): string {
+    return message
+      .replace(/postgresql?:\/\/[^\s"']+/gi, "[DATABASE_URL]")
+      .replace(/redis:\/\/[^\s"']+/gi, "[REDIS_URL]")
+      .replace(/\/\/[^/\s]+\//g, "//[HOST]/")
+      .replace(/\bat\b[/\\][^\s"':]+/gi, "[PATH]");
+  }
+
   async function gracefulShutdown(label: string, detail: unknown): Promise<void> {
-    console.error(`❌ ${label}:`, detail instanceof Error ? detail.stack : detail);
+    const raw = detail instanceof Error ? detail.stack ?? detail.message : String(detail);
+    console.error(`❌ ${label}:`, sanitizeLogOutput(raw));
     if (shuttingDown) process.exit(1);
     shuttingDown = true;
 
@@ -60,7 +69,8 @@ function setupGracefulShutdown(app: INestApplication): void {
       clearTimeout(hardExitTimer);
       process.exit(0);
     } catch (closeErr) {
-      console.error("❌ Error during graceful shutdown:", closeErr instanceof Error ? closeErr.stack : closeErr);
+      const raw = closeErr instanceof Error ? closeErr.stack ?? closeErr.message : String(closeErr);
+      console.error("❌ Error during graceful shutdown:", sanitizeLogOutput(raw));
       clearTimeout(hardExitTimer);
       process.exit(1);
     }
