@@ -249,7 +249,7 @@ export class PartyService {
             firstName: sanitizedPerson.firstName,
             lastName: sanitizedPerson.lastName,
             middleName: sanitizedPerson.middleName ?? null,
-            birthDate: sanitizedPerson.birthDate ? PartyService.safeParseDate(sanitizedPerson.birthDate) : null,
+            birthDate: sanitizedPerson.birthDate ? new Date(sanitizedPerson.birthDate) : null,
             gender: sanitizedPerson.gender ?? null,
           },
         };
@@ -260,7 +260,7 @@ export class PartyService {
             legalName: sanitizedOrg.legalName,
             taxId: sanitizedOrg.taxId ?? null,
             registrationDate: sanitizedOrg.registrationDate
-              ? PartyService.safeParseDate(sanitizedOrg.registrationDate)
+              ? new Date(sanitizedOrg.registrationDate)
               : null,
           },
         };
@@ -536,9 +536,8 @@ export class PartyService {
     const cmType = await db.contactMechanismType.findUnique({ where: { name: trimmedCmType } });
     if (!cmType) {
       throw new InvalidTypeValueError(
-        `CONTACT_MECHANISM_TYPE '${trimmedCmType}' exists as a known type but was not found in the database. ` +
-        `This may indicate the database has not been seeded. Run 'npm run db:seed'.`,
-        { suggestedTools: ["get_type_table_values"], context: { field: "contactMechanismType", invalidValue: trimmedCmType, validValues: ["POSTAL_ADDRESS", "TELECOM_NUMBER", "EMAIL_ADDRESS"], hint: "Database may need seeding" } }
+        `CONTACT_MECHANISM_TYPE '${trimmedCmType}' is not valid. Valid types: ['POSTAL_ADDRESS', 'TELECOM_NUMBER', 'EMAIL_ADDRESS'].`,
+        { suggestedTools: ["get_type_table_values"], context: { field: "contactMechanismType", invalidValue: trimmedCmType, validValues: ["POSTAL_ADDRESS", "TELECOM_NUMBER", "EMAIL_ADDRESS"] } }
       );
     }
 
@@ -788,22 +787,6 @@ export class PartyService {
         { suggestedTools: ["create_party"], context: { field, invalidValue: value } }
       );
     }
-  }
-
-  /**
-   * Parse a date string to a Date object. Throws if the value is not valid.
-   * Callers MUST validate the format first via requireValidDate() before
-   * calling this — it is a last-line defense, not a soft fallback.
-   */
-  private static safeParseDate(value: string): Date {
-    const d = new Date(value);
-    if (Number.isNaN(d.getTime())) {
-      throw new InvalidTypeValueError(
-        `Invalid date value: ${value}`,
-        { suggestedTools: ["create_party"], context: { field: "date", invalidValue: value } }
-      );
-    }
-    return d;
   }
 
   private static toPartyResult(party: PartyWithIncludes): PartyResult {

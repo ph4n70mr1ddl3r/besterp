@@ -12,7 +12,7 @@
 
 import { ExceptionFilter, Catch, ArgumentsHost, Logger, HttpException } from "@nestjs/common";
 import type { Response } from "express";
-import { DomainError, isDomainError, getErrorCode } from "@besterp/shared";
+import { DomainError, isDomainError, getErrorCode, sanitizeLogOutput } from "@besterp/shared";
 
 /**
  * Map a DomainError code to an HTTP status code.
@@ -111,11 +111,7 @@ export class DomainExceptionFilter implements ExceptionFilter {
     // Sanitize development error messages to remove sensitive patterns
     // (connection strings, file paths, internal hostnames)
     if (isDev) {
-      devMessage = devMessage
-        .replace(/postgresql?:\/\/[^\s"']+/gi, "[DATABASE_URL]")
-        .replace(/redis:\/\/[^\s"']+/gi, "[REDIS_URL]")
-        .replace(/\/\/[^/\s]+\//g, "//[HOST]/")
-        .replace(/\bat\b[/\\][^\s"':]+/gi, "[PATH]");
+      devMessage = sanitizeLogOutput(devMessage);
     }
     response.status(500).json({
       statusCode: 500,

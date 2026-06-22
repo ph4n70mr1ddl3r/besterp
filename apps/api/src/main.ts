@@ -10,6 +10,7 @@ import "reflect-metadata";
 import { NestFactory } from "@nestjs/core";
 import { Logger, ValidationPipe, type INestApplication } from "@nestjs/common";
 import helmet from "helmet";
+import { sanitizeLogOutput } from "@besterp/shared";
 import { AppModule } from "./app.module.js";
 
 function validateEnvironment(): void {
@@ -43,14 +44,6 @@ function validateEnvironment(): void {
 function setupGracefulShutdown(app: INestApplication): void {
   const HARD_EXIT_TIMEOUT_MS = Number(process.env.HARD_EXIT_TIMEOUT_MS) || 10_000;
   let shuttingDown = false;
-
-  function sanitizeLogOutput(message: string): string {
-    return message
-      .replace(/postgresql?:\/\/[^\s"']+/gi, "[DATABASE_URL]")
-      .replace(/redis:\/\/[^\s"']+/gi, "[REDIS_URL]")
-      .replace(/\/\/[^/\s]+\//g, "//[HOST]/")
-      .replace(/\bat\b[/\\][^\s"':]+/gi, "[PATH]");
-  }
 
   async function gracefulShutdown(label: string, detail: unknown): Promise<void> {
     const raw = detail instanceof Error ? detail.stack ?? detail.message : String(detail);

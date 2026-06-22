@@ -10,7 +10,7 @@
 
 import { PrismaClient, Prisma } from "@prisma/client";
 import { getErrorCode, MAX_REASONING_LENGTH } from "@besterp/shared";
-import { ToolMiddleware, ToolResult } from "../schema/tool-definition.js";
+import { ToolMiddleware, ToolContext, ToolResult } from "../schema/tool-definition.js";
 import { truncateValue, MAX_STORED_PAYLOAD_SIZE } from "./truncate.js";
 
 /** Fields whose values must be redacted before persisting in the audit log. */
@@ -62,13 +62,9 @@ export function auditLogMiddleware(prisma: PrismaClient): ToolMiddleware {
     }
     return new Promise<void>((resolve) => {
       const timer = setTimeout(() => {
-        // Remove from queue and resolve — the entry will be dropped
         const idx = writeQueue.findIndex((entry) => entry.timer === timer);
         if (idx !== -1) writeQueue.splice(idx, 1);
         process.stderr.write(`[AuditLog] Write slot timeout after ${WRITE_QUEUE_TIMEOUT_MS}ms — dropping audit entry\n`);
-        // Don't increment activeWrites — just let it resolve without writing.
-        // slotAcquired remains false in logWithBackpressure, so releaseWriteSlot
-        // is NOT called in .finally().
         resolve();
       }, WRITE_QUEUE_TIMEOUT_MS);
       if (timer.unref) timer.unref();
@@ -113,16 +109,24 @@ export function auditLogMiddleware(prisma: PrismaClient): ToolMiddleware {
         process.stderr.write(`[AuditLog] ${JSON.stringify(errorMeta)}\n`);
       })
       .finally(() => {
-        // Only release the slot if it was actually acquired (not on timeout-drop).
-        // Timed-out entries resolve without incrementing activeWrites, so
-        // calling releaseWriteSlot would decrement the counter below zero.
         if (!slotAcquired) return;
         releaseWriteSlot();
       });
   }
 
-  return async (input, context, definition, next) => {
-    // Guard against misconfigured middleware (e.g., null prisma).
+  function createBaseEntry(context: { agentId?: string; conversationId?: string; reasoning?: string; userId: string; tenantId: string }, definition: { name: string }, input: unknown): Omit<AuditLogEntry, "toolOutput"> {
+    return {
+      agentId: context.agentId,
+      conversationId: context.conversationId,
+      reasoning: context.reasoning?.slice(0, MAX_REASONING_LENGTH) ?? null,
+      userId: context.userId,
+      tenantId: context.tenantId,
+      toolCalled: definition.name,
+      toolInput: input,
+    };
+  }
+
+  async function executeAndLog(input: unknown, context: ToolContext, definition: { name: string }, next: (input: unknown, context: ToolContext) => Promise<ToolResult>): Promise<ToolResult> {
     if (!prisma?.aiActionLog) {
       const warnMeta = {
         timestamp: new Date().toISOString(),
@@ -132,37 +136,23 @@ export function auditLogMiddleware(prisma: PrismaClient): ToolMiddleware {
       return next(input, context);
     }
 
-    function baseEntry(): Omit<AuditLogEntry, "toolOutput"> {
-      return {
-        agentId: context.agentId,
-        conversationId: context.conversationId,
-        reasoning: context.reasoning?.slice(0, MAX_REASONING_LENGTH) ?? null,
-        userId: context.userId,
-        tenantId: context.tenantId,
-        toolCalled: definition.name,
-        toolInput: input,
-      };
-    }
-
+    const base = createBaseEntry(context, definition, input);
     let result: ToolResult;
     try {
       result = await next(input, context);
     } catch (error: unknown) {
       logWithBackpressure({
-        ...baseEntry(),
+        ...base,
         toolOutput: { error: { message: error instanceof Error ? error.message : String(error), code: getErrorCode(error) } },
       });
-
       throw error;
     }
 
-    logWithBackpressure({
-      ...baseEntry(),
-      toolOutput: result.data ?? null,
-    });
-
+    logWithBackpressure({ ...base, toolOutput: result.data ?? null });
     return result;
-  };
+  }
+
+  return (input, context, definition, next) => executeAndLog(input, context, definition, next);
 }
 
 interface AuditLogEntry {

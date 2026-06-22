@@ -104,6 +104,19 @@ export function stripHtmlTags(input: string): string {
 }
 
 /**
+ * Sanitize a log message to remove sensitive patterns (connection strings,
+ * internal file paths, hostnames). Used by error handlers and shutdown
+ * routines to prevent leaking infrastructure details in logs.
+ */
+export function sanitizeLogOutput(message: string): string {
+  return message
+    .replace(/postgresql?:\/\/[^\s"']+/gi, "[DATABASE_URL]")
+    .replace(/redis:\/\/[^\s"']+/gi, "[REDIS_URL]")
+    .replace(/\/\/[^/\s]+\//g, "//[HOST]/")
+    .replace(/\bat\b[/\\][^\s"':]+/gi, "[PATH]");
+}
+
+/**
  * Safely decode a Unicode code point.
  *
  * `String.fromCodePoint()` throws RangeError for lone surrogates
