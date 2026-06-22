@@ -398,5 +398,94 @@ describe("McpModule", () => {
       });
       expect(ctx.agentId).toBeUndefined();
     });
+
+    describe("reasoning field", () => {
+      it("should accept a valid reasoning string", () => {
+        const ctx = mcpModule.buildContext({
+          tenantId: "tenant-1",
+          userId: "user-1",
+          reasoning: "Because the user requested it",
+        });
+        expect(ctx.reasoning).toBe("Because the user requested it");
+      });
+
+      it("should reject non-string reasoning with a structured error", () => {
+        expect(() =>
+          mcpModule.buildContext({
+            tenantId: "tenant-1",
+            userId: "user-1",
+            reasoning: 42 as unknown as string,
+          })
+        ).toThrow(InvalidTypeValueError);
+        expect(() =>
+          mcpModule.buildContext({
+            tenantId: "tenant-1",
+            userId: "user-1",
+            reasoning: 42 as unknown as string,
+          })
+        ).toThrow(/reasoning must be a string/);
+      });
+
+      it("should reject reasoning exceeding max length", () => {
+        expect(() =>
+          mcpModule.buildContext({
+            tenantId: "tenant-1",
+            userId: "user-1",
+            reasoning: "x".repeat(2001),
+          })
+        ).toThrow(InvalidTypeValueError);
+        expect(() =>
+          mcpModule.buildContext({
+            tenantId: "tenant-1",
+            userId: "user-1",
+            reasoning: "x".repeat(2001),
+          })
+        ).toThrow("reasoning is too long");
+      });
+
+      it("should normalise whitespace-only reasoning to undefined", () => {
+        const ctx = mcpModule.buildContext({
+          tenantId: "tenant-1",
+          userId: "user-1",
+          reasoning: "   ",
+        });
+        expect(ctx.reasoning).toBeUndefined();
+      });
+
+      it("should trim reasoning before storing", () => {
+        const ctx = mcpModule.buildContext({
+          tenantId: "tenant-1",
+          userId: "user-1",
+          reasoning: "  my reasoning  ",
+        });
+        expect(ctx.reasoning).toBe("my reasoning");
+      });
+
+      it("should normalise null reasoning to undefined", () => {
+        const ctx = mcpModule.buildContext({
+          tenantId: "tenant-1",
+          userId: "user-1",
+          reasoning: null as unknown as string,
+        });
+        expect(ctx.reasoning).toBeUndefined();
+      });
+
+      it("should accept reasoning at max length", () => {
+        const ctx = mcpModule.buildContext({
+          tenantId: "tenant-1",
+          userId: "user-1",
+          reasoning: "x".repeat(2000),
+        });
+        expect(ctx.reasoning).toBe("x".repeat(2000));
+      });
+    });
+
+    describe("getRegistry", () => {
+      it("should return a ToolRegistry instance", () => {
+        const registry = mcpModule.getRegistry();
+        expect(registry).toBeDefined();
+        expect(registry.names).toBeDefined();
+      });
+    });
   });
 });

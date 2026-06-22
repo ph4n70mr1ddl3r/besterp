@@ -4,8 +4,17 @@
 
 import { describe, it, expect } from "vitest";
 import { validateTenantId, withTenant } from "../tenant.js";
-import { COUNTRY_CODE_REGEX, EMAIL_REGEX, UUID_REGEX } from "../validation.js";
-import { ConcurrencyConflictError, getErrorCode } from "../errors.js";
+import { COUNTRY_CODE_REGEX, EMAIL_REGEX, UUID_REGEX, isValidISODate } from "../validation.js";
+import {
+  ConcurrencyConflictError,
+  DomainError,
+  DuplicateEntityError,
+  EntityNotFoundError,
+  InvalidTypeValueError,
+  MissingSubtypeDataError,
+  isDomainError,
+  getErrorCode,
+} from "../errors.js";
 
 describe("validateTenantId", () => {
   it("accepts valid tenant IDs", () => {
@@ -143,5 +152,102 @@ describe("getErrorCode", () => {
 
   it("returns undefined for plain Error instances (no Prisma code)", () => {
     expect(getErrorCode(new Error("something broke"))).toBeUndefined();
+  });
+});
+
+describe("DomainError subclasses", () => {
+  it("EntityNotFoundError creates error with correct code and name", () => {
+    const error = new EntityNotFoundError("Not found", {
+      suggestedTools: ["search_parties"],
+      context: { partyId: "abc" },
+    });
+    expect(error).toBeInstanceOf(DomainError);
+    expect(error).toBeInstanceOf(Error);
+    expect(error.code).toBe("ENTITY_NOT_FOUND");
+    expect(error.name).toBe("EntityNotFoundError");
+    expect(error.message).toBe("Not found");
+    expect(error.suggestedTools).toEqual(["search_parties"]);
+    expect(error.context).toEqual({ partyId: "abc" });
+  });
+
+  it("DuplicateEntityError creates error with correct code", () => {
+    const error = new DuplicateEntityError("Already exists");
+    expect(error.code).toBe("DUPLICATE_ENTITY");
+    expect(error.name).toBe("DuplicateEntityError");
+  });
+
+  it("InvalidTypeValueError creates error with correct code", () => {
+    const error = new InvalidTypeValueError("Bad value");
+    expect(error.code).toBe("INVALID_TYPE_VALUE");
+    expect(error.name).toBe("InvalidTypeValueError");
+  });
+
+  it("MissingSubtypeDataError creates error with correct code", () => {
+    const error = new MissingSubtypeDataError("Missing person data");
+    expect(error.code).toBe("MISSING_SUBTYPE_DATA");
+    expect(error.name).toBe("MissingSubtypeDataError");
+  });
+
+  it("DomainError toJSON serializes all fields", () => {
+    const cause = new Error("root cause");
+    const error = new DomainError("TEST_CODE", "test message", {
+      suggestedTools: ["tool_a"],
+      context: { key: "value" },
+      cause,
+    });
+    const json = error.toJSON();
+    expect(json.code).toBe("TEST_CODE");
+    expect(json.message).toBe("test message");
+    expect(json.suggestedTools).toEqual(["tool_a"]);
+    expect(json.context).toEqual({ key: "value" });
+    expect(json.cause).toBe("root cause");
+  });
+
+  it("DomainError toJSON handles non-Error cause", () => {
+    const error = new DomainError("TEST", "msg", { cause: "string cause" as any });
+    expect(error.toJSON().cause).toBe("string cause");
+  });
+
+  it("DomainError toJSON handles null cause", () => {
+    const error = new DomainError("TEST", "msg");
+    expect(error.toJSON().cause).toBeUndefined();
+  });
+
+  it("isDomainError returns true for DomainError instances", () => {
+    expect(isDomainError(new DomainError("C", "m"))).toBe(true);
+    expect(isDomainError(new EntityNotFoundError("m"))).toBe(true);
+    expect(isDomainError(new Error("m"))).toBe(false);
+    expect(isDomainError(null)).toBe(false);
+  });
+});
+
+describe("isValidISODate", () => {
+  it("accepts valid dates", () => {
+    expect(isValidISODate("2024-06-15")).toBe(true);
+    expect(isValidISODate("2000-02-29")).toBe(true);
+  });
+
+  it("rejects dates with years before 1900", () => {
+    expect(isValidISODate("1899-12-31")).toBe(false);
+    expect(isValidISODate("0001-01-01")).toBe(false);
+  });
+
+  it("rejects dates with years after 2100", () => {
+    expect(isValidISODate("2101-01-01")).toBe(false);
+    expect(isValidISODate("9999-12-31")).toBe(false);
+  });
+
+  it("rejects invalid calendar dates", () => {
+    expect(isValidISODate("2024-02-30")).toBe(false);
+    expect(isValidISODate("2023-13-01")).toBe(false);
+  });
+
+  it("rejects non-leap-year Feb 29", () => {
+    expect(isValidISODate("2023-02-29")).toBe(false);
+  });
+
+  it("rejects non-date strings", () => {
+    expect(isValidISODate("not-a-date")).toBe(false);
+    expect(isValidISODate("")).toBe(false);
   });
 });

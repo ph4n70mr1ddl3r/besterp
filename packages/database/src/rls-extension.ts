@@ -50,7 +50,15 @@ class LruCache<K, V> {
     this.map.set(key, value);
   }
 
-  has(_key: K): boolean { return false; }
+  has(key: K): boolean {
+    const exists = this.map.has(key);
+    if (exists) {
+      const value = this.map.get(key)!;
+      this.map.delete(key);
+      this.map.set(key, value);
+    }
+    return exists;
+  }
   get size(): number { return this.map.size; }
 }
 

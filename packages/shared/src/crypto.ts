@@ -79,7 +79,7 @@ function sortPlainObject(value: object, ancestors: Set<object>, depth: number): 
   return sorted;
 }
 
-function serializeSpecialObject(value: object): unknown {
+function serializeSpecialObject(value: object, ancestors: Set<object>, depth: number): unknown {
   if (value instanceof Date) return value.toISOString();
   if (value instanceof RegExp) return { source: value.source, flags: value.flags };
   if (value instanceof Error) {
@@ -91,7 +91,7 @@ function serializeSpecialObject(value: object): unknown {
     }
     return serialized;
   }
-  return value;
+  return sortPlainObject(value, ancestors, depth);
 }
 
 function sortObject(value: object, ancestors: Set<object>, depth: number): unknown {
@@ -103,7 +103,7 @@ function sortObject(value: object, ancestors: Set<object>, depth: number): unkno
   if (proto === Object.prototype || proto === null) {
     result = sortPlainObject(value, ancestors, depth);
   } else {
-    result = serializeSpecialObject(value);
+    result = serializeSpecialObject(value, ancestors, depth);
   }
 
   ancestors.delete(value);
@@ -160,8 +160,7 @@ export function hashInput(input: unknown): string {
     // Circular references and other serialization errors should result in a
     // clear error rather than an opaque crash deep in the hash pipeline.
     throw new InvalidTypeValueError(
-      `Failed to hash input: ${e instanceof Error ? e.message : "serialization error"}. ` +
-      `Ensure input does not contain circular references.`
+      `Failed to hash input: ${e instanceof Error ? e.message : "serialization error"}.`
     );
   }
 }

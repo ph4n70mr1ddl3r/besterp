@@ -5,7 +5,7 @@
 // surface as a 500 with a clear message rather than a silent 403.
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { ExecutionContext, InternalServerErrorException } from "@nestjs/common";
+import { ExecutionContext, InternalServerErrorException, UnauthorizedException } from "@nestjs/common";
 import { Reflector } from "@nestjs/core";
 import { TenantGuard } from "./tenant.guard.js";
 
@@ -108,5 +108,50 @@ describe("TenantGuard", () => {
 
     const req = ctx.switchToHttp().getRequest() as any;
     expect(req.tenantContext.agentId).toBeUndefined();
+  });
+
+  it("throws UnauthorizedException when tenantId is not a string", () => {
+    (reflector.getAllAndOverride as any).mockReturnValue(false);
+    const ctx = makeContext({
+      user: { userId: "u1", tenantId: 42 },
+    });
+
+    expect(() => guard.canActivate(ctx)).toThrow(UnauthorizedException);
+  });
+
+  it("throws UnauthorizedException when userId is not a string", () => {
+    (reflector.getAllAndOverride as any).mockReturnValue(false);
+    const ctx = makeContext({
+      user: { userId: 42, tenantId: "t1" },
+    });
+
+    expect(() => guard.canActivate(ctx)).toThrow(UnauthorizedException);
+  });
+
+  it("throws UnauthorizedException when agentId is not a string", () => {
+    (reflector.getAllAndOverride as any).mockReturnValue(false);
+    const ctx = makeContext({
+      user: { userId: "u1", tenantId: "t1", agentId: 42 },
+    });
+
+    expect(() => guard.canActivate(ctx)).toThrow(UnauthorizedException);
+  });
+
+  it("throws UnauthorizedException when tenantId is empty after trimming", () => {
+    (reflector.getAllAndOverride as any).mockReturnValue(false);
+    const ctx = makeContext({
+      user: { userId: "u1", tenantId: "   " },
+    });
+
+    expect(() => guard.canActivate(ctx)).toThrow(UnauthorizedException);
+  });
+
+  it("throws UnauthorizedException when userId is empty after trimming", () => {
+    (reflector.getAllAndOverride as any).mockReturnValue(false);
+    const ctx = makeContext({
+      user: { userId: "   ", tenantId: "t1" },
+    });
+
+    expect(() => guard.canActivate(ctx)).toThrow(UnauthorizedException);
   });
 });

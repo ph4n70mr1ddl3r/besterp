@@ -219,6 +219,24 @@ describe("ToolRegistry", () => {
     });
   });
 
+  describe("tool name validation", () => {
+    it("should reject non-snake_case tool names with camelCase", () => {
+      expect(() => registry.register(makeTool("camelCase"))).toThrow(/snake_case/);
+    });
+
+    it("should reject non-snake_case tool names with hyphens", () => {
+      expect(() => registry.register(makeTool("tool-name"))).toThrow(/snake_case/);
+    });
+
+    it("should reject tool names starting with __", () => {
+      expect(() => registry.register(makeTool("__reserved"))).toThrow(/snake_case/);
+    });
+
+    it("should reject tool names with spaces", () => {
+      expect(() => registry.register(makeTool("tool name"))).toThrow(/snake_case/);
+    });
+  });
+
   describe("idempotency key promotion", () => {
     it("should promote idempotencyKey from raw input into context", async () => {
       const handler = vi.fn().mockResolvedValue({ success: true, data: "ok" });

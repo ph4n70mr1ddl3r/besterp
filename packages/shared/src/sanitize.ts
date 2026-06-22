@@ -114,7 +114,7 @@ export function sanitizeLogOutput(message: string): string {
     .replace(/redis:\/\/[^\s"']+/gi, "[REDIS_URL]")
     .replace(/mongodb(\+srv)?:\/\/[^\s"']+/gi, "[DATABASE_URL]")
     .replace(/mysql:\/\/[^\s"']+/gi, "[DATABASE_URL]")
-    .replace(/\/\/[^/\s]+\//g, "//[HOST]/")
+    .replace(/((?:https?|redis|mysql|mongodb(?:\+srv)?):\/\/)[^/\s]+\//gi, "$1[HOST]/")
     .replace(/\bat\b[/\\][^\s"':]+/gi, "[PATH]");
 }
 

@@ -5,6 +5,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { UnauthorizedException } from "@nestjs/common";
 import { PartyController } from "./party.controller.js";
 import { PartyService } from "./party.service.js";
+import { EntityNotFoundError, DuplicateEntityError, InvalidTypeValueError } from "@besterp/shared";
 
 function mockRequest(tenantContext?: any) {
   return { user: { userId: "user-1", tenantId: "tenant-1" }, tenantContext } as any;
@@ -207,6 +208,40 @@ describe("PartyController", () => {
       expect(partyService.addContactMechanism).toHaveBeenCalledWith(
         expect.objectContaining({ partyId: "not-a-uuid", tenantId: "tenant-1" })
       );
+    });
+  });
+
+  describe("error propagation", () => {
+    it("should propagate EntityNotFoundError from service", async () => {
+      partyService.getParty = vi.fn().mockRejectedValue(
+        new EntityNotFoundError("Party not found")
+      );
+      const req = mockRequest({ tenantId: "tenant-1", userId: "user-1" });
+      await expect(
+        controller.get(req, "12345678-1234-1234-1234-123456789abc")
+      ).rejects.toThrow(EntityNotFoundError);
+    });
+
+    it("should propagate DuplicateEntityError from service", async () => {
+      partyService.createParty = vi.fn().mockRejectedValue(
+        new DuplicateEntityError("Party already exists")
+      );
+      const req = mockRequest({ tenantId: "tenant-1", userId: "user-1" });
+      const body = { partyType: "PERSON", name: "Test", person: { firstName: "A", lastName: "B" } };
+      await expect(
+        controller.create(req, body as any)
+      ).rejects.toThrow(DuplicateEntityError);
+    });
+
+    it("should propagate InvalidTypeValueError from service", async () => {
+      partyService.createParty = vi.fn().mockRejectedValue(
+        new InvalidTypeValueError("Invalid party type")
+      );
+      const req = mockRequest({ tenantId: "tenant-1", userId: "user-1" });
+      const body = { partyType: "PERSON", name: "Test", person: { firstName: "A", lastName: "B" } };
+      await expect(
+        controller.create(req, body as any)
+      ).rejects.toThrow(InvalidTypeValueError);
     });
   });
 });

@@ -51,6 +51,9 @@ export function validateTenantId(tenantId: string): void {
   }
 }
 
+/** Default transaction timeout in milliseconds (30 seconds). */
+const DEFAULT_TRANSACTION_TIMEOUT_MS = 30_000;
+
 /**
  * Execute a function within a tenant-scoped database transaction.
  *
@@ -72,12 +75,14 @@ export function validateTenantId(tenantId: string): void {
  * @param prisma   - PrismaClient instance (must use non-superuser role for RLS)
  * @param tenantId - The tenant ID to scope queries to
  * @param fn       - Async function receiving the typed transaction client
+ * @param options  - Optional transaction configuration
  * @returns The return value of fn
  */
 export async function withTenant<T>(
   prisma: PrismaClient,
   tenantId: string,
-  fn: (tx: PrismaTransactionClient) => Promise<T>
+  fn: (tx: PrismaTransactionClient) => Promise<T>,
+  options?: { timeout?: number }
 ): Promise<T> {
   if (!prisma || typeof prisma.$transaction !== "function") {
     throw new Error(
@@ -103,5 +108,5 @@ export async function withTenant<T>(
       );
     }
     return fn(tx);
-  });
+  }, { timeout: options?.timeout ?? DEFAULT_TRANSACTION_TIMEOUT_MS });
 }

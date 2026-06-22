@@ -185,6 +185,7 @@ async function logAction(prisma: PrismaClient, entry: AuditLogEntry): Promise<vo
 
 function redactSensitiveFields(value: unknown, depth = 0): unknown {
   if (depth > 10 || value === null || value === undefined || typeof value !== "object") return value;
+  if (value instanceof Date || value instanceof RegExp) return value;
   if (Array.isArray(value)) return value.map((item) => redactSensitiveFields(item, depth + 1));
   if (value instanceof Map) {
     return new Map([...value.entries()].map(([k, v]) => [k, redactSensitiveFields(v, depth + 1)]));

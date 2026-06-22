@@ -108,7 +108,7 @@ export class McpModule implements OnModuleInit {
     const reasoning = validateReasoningField(overrides.reasoning);
 
     return {
-      tenantId: overrides.tenantId,
+      tenantId: overrides.tenantId.trim(),
       userId,
       agentId,
       conversationId,

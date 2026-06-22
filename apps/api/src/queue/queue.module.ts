@@ -34,9 +34,11 @@ export class QueueModule {
       throw new Error("Redis password is set but empty. Provide a non-empty password or unset REDIS_PASSWORD.");
     }
     if (!password && process.env.NODE_ENV !== "development") {
-      this.logger.warn(
-        "⚠️  REDIS_PASSWORD not set — connecting to Redis without authentication. " +
-        "This is insecure in non-development environments."
+      this.logger.error(
+        "REDIS_PASSWORD not set in production — refusing to connect without authentication."
+      );
+      throw new Error(
+        "Redis password is required in non-development environments. Set REDIS_PASSWORD."
       );
     }
     return { host, port, password };
