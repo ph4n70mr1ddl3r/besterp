@@ -131,6 +131,11 @@ function sortKeysDeep(value: unknown, ancestors?: Set<object>, depth = 0): unkno
   if (typeof value === "object") return sortObject(value, ancestors, depth);
   if (typeof value === "bigint") return `BigInt:${value.toString()}`;
   if (typeof value === "symbol") return `Symbol:${value.toString()}`;
+  if (typeof value === "function") {
+    throw new InvalidTypeValueError(
+      "Cannot hash a function value. Functions are not serializable and cannot be included in idempotency hashes."
+    );
+  }
   return value;
 }
 

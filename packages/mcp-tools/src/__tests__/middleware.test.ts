@@ -224,6 +224,10 @@ describe("Idempotency Middleware", () => {
     const idempotencyKey = "test-key";
     const contextWithKey = { ...mockContext, idempotencyKey };
 
+    // Compute the actual hash so it matches what the middleware generates
+    const { hashInput } = await import("@besterp/shared");
+    const inputHash = hashInput(input);
+
     // Simulate a failed record being found and reset inside the transaction
     mockPrisma.$transaction.mockImplementation(async (fn: (tx: any) => Promise<any>, _opts?: any) => {
       const tx = {
@@ -231,7 +235,7 @@ describe("Idempotency Middleware", () => {
           findFirst: vi.fn().mockResolvedValue({
             idempotencyKey,
             status: "failed",
-            inputHash: "old-hash",
+            inputHash, // Matching hash allows re-execution
           }),
           // The reset-to-pending update
           update: vi.fn().mockResolvedValue({}),

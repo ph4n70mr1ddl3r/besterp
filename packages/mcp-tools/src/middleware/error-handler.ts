@@ -37,8 +37,11 @@ function pluralize(entity: string): string {
   if (lower.endsWith("y") && !lower.endsWith("ay") && !lower.endsWith("ey") && !lower.endsWith("oy") && !lower.endsWith("uy")) {
     return entity.slice(0, -1) + "ies";
   }
-  if (lower.endsWith("fe") || lower.endsWith("ves")) {
+  if (lower.endsWith("fe")) {
     return entity.slice(0, -2) + "ves";
+  }
+  if (lower.endsWith("ves")) {
+    return entity;
   }
   if (lower.endsWith("s") || lower.endsWith("x") || lower.endsWith("z") || lower.endsWith("ch") || lower.endsWith("sh")) {
     return entity + "es";

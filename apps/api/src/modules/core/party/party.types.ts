@@ -52,7 +52,7 @@ export interface PartyResult {
     partyRoleId: string;
     roleTypeName: string;
     fromDate: string;
-    thruDate?: string | null;
+    thruDate: string | null;
   }>;
   createdAt: string;
   updatedAt: string;

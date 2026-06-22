@@ -45,9 +45,9 @@ export function capString(value: unknown, maxBytes: number): string {
     return value;
   }
   const marker = `... [truncated, original was ${encoded.byteLength} bytes]`;
-  const markerBytes = textEncoder.encode(marker).byteLength;
+  const markerEncoded = textEncoder.encode(marker);
+  const markerBytes = markerEncoded.byteLength;
   if (effectiveMax <= markerBytes) {
-    const markerEncoded = textEncoder.encode(marker);
     return textDecoder.decode(markerEncoded.slice(0, effectiveMax));
   }
   // When slicing at a byte boundary, walk backwards to avoid splitting

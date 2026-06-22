@@ -97,13 +97,16 @@ export class PrismaService
       );
     }
     try {
-      await this.$connect();
-      try {
-        await this._appClient.$connect();
-      } catch (appError) {
-        // App client failed — disconnect admin client to avoid leaked connections
-        await this.$disconnect().catch(() => {});
-        throw appError;
+      const connectResults = await Promise.allSettled([
+        this.$connect(),
+        this._appClient.$connect(),
+      ]);
+      for (const result of connectResults) {
+        if (result.status === "rejected") {
+          // Disconnect any successfully connected clients before re-throwing
+          await Promise.allSettled([this.$disconnect(), this._appClient.$disconnect()]);
+          throw result.reason;
+        }
       }
       this.logger.log("Database connections established (admin + app)");
     } catch (error: unknown) {

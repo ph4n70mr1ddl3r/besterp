@@ -502,22 +502,7 @@ export class PartyService {
         include: { roleType: true },
       });
     }, { timeout: 10_000 }).catch((err) => {
-      if (err instanceof Prisma.PrismaClientKnownRequestError) {
-        if (err.code === "P2002") {
-          throw new DuplicateEntityError(
-            `Party '${partyId}' already has active role '${trimmedRoleType}' (unique constraint violation). ` +
-            `To change a party's role, first end the current role by setting a thruDate, then re-call add_party_role.`,
-            { suggestedTools: ["get_party"], context: { partyId, roleType: trimmedRoleType } }
-          );
-        }
-        if (err.code === "P2034") {
-          throw new ConcurrencyConflictError(
-            "Transaction conflict — please retry.",
-            { suggestedTools: ["get_party", "add_party_role"], context: { partyId, roleType: trimmedRoleType } }
-          );
-        }
-      }
-      throw err;
+      PartyService.handleTransactionError(err, "add_party_role", "get_party");
     });
   }
 
@@ -640,7 +625,9 @@ export class PartyService {
         },
         include: { postalAddress: true, telecomNumber: true, emailAddress: true, contactMechanismType: true },
       });
-    }, { timeout: 10_000 });
+    }, { timeout: 10_000 }).catch((err) => {
+      PartyService.handleTransactionError(err, "add_contact_mechanism", "search_parties");
+    });
   }
 
   private static sanitizePostalAddress(addr: NonNullable<AddContactMechanismInput["postalAddress"]>) {

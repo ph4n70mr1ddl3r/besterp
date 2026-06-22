@@ -43,13 +43,18 @@ export function idempotencyMiddleware(prisma: PrismaClient): ToolMiddleware {
       inputHash = hashInput(input);
     } catch {
       // Circular references or unserializable input — skip idempotency
-      // rather than crashing the entire tool pipeline.
+      // rather than crashing the entire tool pipeline. Log a warning so
+      // operators can identify tools that consistently produce unhashable input.
+      logIdempotencyWarn(
+        `Skipping idempotency for '${definition.name}': input cannot be hashed (circular reference or unserializable type)`
+      );
       return next(input, context);
     }
 
     const { existingRecord, recordCreated } = await acquireIdempotencyRecord(prisma, idempotencyKey, tenantId, userId, agentId, conversationId, definition.name, inputHash);
 
     if (!recordCreated && !existingRecord) {
+      // All retries exhausted due to serialization failures (P2034)
       return {
         success: false,
         error: {
@@ -119,7 +124,17 @@ async function acquireIdempotencyRecord(
         await delay(IDEMPOTENCY_RETRY_BASE_DELAY_MS * (attempt + 1));
         continue;
       }
-      throw e;
+      // Non-P2034 errors (connection failures, auth errors, schema mismatches)
+      // are fatal — log them so operators can distinguish infrastructure issues
+      // from normal serialization contention.
+      if (code !== "P2034") {
+        logIdempotencyWarn(
+          `Non-retryable error acquiring idempotency record '${idempotencyKey}' (code=${code ?? "none"}): ${e instanceof Error ? e.message : String(e)}`
+        );
+      }
+      // Return contention failure instead of throwing so the middleware
+      // can produce a structured error response for the AI agent.
+      return { existingRecord: null, recordCreated: false };
     }
   }
 

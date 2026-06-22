@@ -168,7 +168,7 @@ export class ToolRegistry {
   }> {
     return Array.from(this.tools.values()).map((entry) => ({
       name: entry.definition.name,
-      description: entry.definition.description.split("\n")[0] ?? entry.definition.description,
+      description: entry.definition.description.split("\n")[0] || entry.definition.description,
       riskLevel: entry.definition.riskLevel,
       entity: entry.definition.entity,
       tags: entry.definition.tags,
@@ -192,7 +192,7 @@ export class ToolRegistry {
         const nameParts = lowerName.split(/[_\s]+/).filter(Boolean);
         const existingParts = lower.split(/[_\s]+/).filter(Boolean);
         return nameParts.length > 0 && existingParts.length > 0 &&
-          nameParts.some((p) => existingParts.some((ep) => ep.includes(p) || p.includes(ep)));
+          nameParts.some((p) => p.length >= 3 && existingParts.some((ep) => ep.includes(p) || p.includes(ep)));
       })
       .slice(0, 5);
   }

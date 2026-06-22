@@ -16,7 +16,7 @@ describe("validateTenantId", () => {
   });
 
   it("rejects empty strings", () => {
-    expect(() => validateTenantId("")).toThrow("Invalid tenant ID");
+    expect(() => validateTenantId("")).toThrow("Tenant ID must be a non-empty string");
   });
 
   it("rejects SQL injection attempts", () => {

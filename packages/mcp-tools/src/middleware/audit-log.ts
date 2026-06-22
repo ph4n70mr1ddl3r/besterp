@@ -48,24 +48,24 @@ export function auditLogMiddleware(prisma: PrismaClient): ToolMiddleware {
   // Semaphore to limit concurrent audit log writes and prevent unbounded
   // promise accumulation if the database is slow or unavailable.
   let activeWrites = 0;
-  const writeQueue: Array<{ resolve: () => void; timer: ReturnType<typeof setTimeout> }> = [];
+  const writeQueue: Array<{ resolve: (value: { acquired: boolean }) => void; timer: ReturnType<typeof setTimeout> }> = [];
 
   // Drop/error counters for monitoring. In production, these should be
   // exposed via a metrics collector (e.g., Prometheus).
   let droppedCount = 0;
   let errorCount = 0;
 
-  function acquireWriteSlot(): Promise<void> {
+  function acquireWriteSlot(): Promise<{ acquired: boolean }> {
     if (activeWrites < MAX_CONCURRENT_AUDIT_WRITES) {
       activeWrites++;
-      return Promise.resolve();
+      return Promise.resolve({ acquired: true });
     }
-    return new Promise<void>((resolve) => {
+    return new Promise<{ acquired: boolean }>((resolve) => {
       const timer = setTimeout(() => {
         const idx = writeQueue.findIndex((entry) => entry.timer === timer);
         if (idx !== -1) writeQueue.splice(idx, 1);
         process.stderr.write(`[AuditLog] Write slot timeout after ${WRITE_QUEUE_TIMEOUT_MS}ms — dropping audit entry\n`);
-        resolve();
+        resolve({ acquired: false });
       }, WRITE_QUEUE_TIMEOUT_MS);
       if (timer.unref) timer.unref();
       writeQueue.push({ resolve, timer });
@@ -73,13 +73,13 @@ export function auditLogMiddleware(prisma: PrismaClient): ToolMiddleware {
   }
 
   function releaseWriteSlot(): void {
-    activeWrites--;
+    if (activeWrites > 0) activeWrites--;
     if (writeQueue.length > 0) {
       const next = writeQueue.shift();
       if (next) {
         clearTimeout(next.timer);
         activeWrites++;
-        next.resolve();
+        next.resolve({ acquired: true });
       }
     }
   }
@@ -92,7 +92,8 @@ export function auditLogMiddleware(prisma: PrismaClient): ToolMiddleware {
     }
     let slotAcquired = false;
     void acquireWriteSlot()
-      .then(() => {
+      .then(({ acquired }) => {
+        if (!acquired) return;
         slotAcquired = true;
         return logAction(prisma, entry);
       })
@@ -109,8 +110,7 @@ export function auditLogMiddleware(prisma: PrismaClient): ToolMiddleware {
         process.stderr.write(`[AuditLog] ${JSON.stringify(errorMeta)}\n`);
       })
       .finally(() => {
-        if (!slotAcquired) return;
-        releaseWriteSlot();
+        if (slotAcquired) releaseWriteSlot();
       });
   }
 

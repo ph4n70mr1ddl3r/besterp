@@ -50,7 +50,7 @@ class LruCache<K, V> {
     this.map.set(key, value);
   }
 
-  has(key: K): boolean { return this.map.has(key); }
+  has(_key: K): boolean { return false; }
   get size(): number { return this.map.size; }
 }
 

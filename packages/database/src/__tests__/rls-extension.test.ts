@@ -38,9 +38,9 @@ describe("RLS Extension", () => {
         "'; EXEC sp_executesql N'DELETE FROM parties';--"
       ];
       
-      sqlInjections.forEach(sql => {
+      for (const sql of sqlInjections) {
         expect(() => validateTenantIdEnhanced(sql)).toThrow();
-      });
+      }
     });
 
     it("should reject tenant IDs that are too long", () => {
@@ -56,9 +56,9 @@ describe("RLS Extension", () => {
         "SELECT * FROM users; DELETE FROM users--"
       ];
       
-      dangerousInputs.forEach(input => {
+      for (const input of dangerousInputs) {
         expect(() => validateTenantIdEnhanced(input)).toThrow();
-      });
+      }
     });
   });
 

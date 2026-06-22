@@ -84,6 +84,11 @@ export async function withTenant<T>(
       "withTenant: Invalid PrismaClient. Provide a connected PrismaClient instance."
     );
   }
+  if (typeof fn !== "function") {
+    throw new Error(
+      "withTenant: 'fn' must be a function receiving the transaction client."
+    );
+  }
   validateTenantId(tenantId);
   return prisma.$transaction(async (tx) => {
     // Parameterized query via tagged template — tenant ID is sent as $1,

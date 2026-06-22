@@ -45,7 +45,8 @@ export class DomainError extends Error {
       context: this.context,
       cause: (() => {
         try {
-          if (!(this.cause instanceof Error)) return this.cause;
+          if (this.cause === undefined || this.cause === null) return this.cause;
+          if (!(this.cause instanceof Error)) return String(this.cause);
           // Only serialize the immediate cause's message, not its own cause chain,
           // to prevent leaking internal error chains (e.g., Prisma errors with
           // SQL/connection details) into audit logs or idempotency records.
