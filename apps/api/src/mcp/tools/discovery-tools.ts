@@ -70,15 +70,14 @@ async function queryTypeTable(
   delegateKey: string,
   idField: string,
 ): Promise<TypeTableRow[]> {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const raw = (prisma as any)[delegateKey];
+  const raw = (prisma as unknown as Record<string, unknown>)[delegateKey] as Record<string, unknown> | undefined;
   if (!raw || typeof raw !== "object" || typeof raw.findMany !== "function") {
     throw new InvalidTypeValueError(
       `Prisma delegate '${delegateKey}' not found. Ensure the model exists in the schema.`,
       { context: { field: "delegateKey", received: delegateKey } }
     );
   }
-  const delegate = raw as PrismaModelDelegate;
+  const delegate = raw as unknown as PrismaModelDelegate;
   const rows = await delegate.findMany({
     select: { [idField]: true, name: true, description: true, aiPromptHint: true },
   });

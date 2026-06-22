@@ -160,13 +160,13 @@ export interface CreateTenantClientOptions {
 function createTransactionWrapper(prisma: PrismaClient, tenantId: string) {
   return (...args: unknown[]) => {
     let fn: ((tx: Prisma.TransactionClient) => Promise<unknown>) | undefined;
-    let options: unknown;
+    let options: { timeout?: number } | undefined;
 
     if (typeof args[0] === "function") {
       fn = args[0] as (tx: Prisma.TransactionClient) => Promise<unknown>;
-      options = typeof args[1] === "object" && args[1] !== null ? args[1] : undefined;
+      options = typeof args[1] === "object" && args[1] !== null ? args[1] as { timeout?: number } : undefined;
     } else if (typeof args[0] === "object" && args[0] !== null) {
-      options = args[0];
+      options = args[0] as { timeout?: number };
       fn = typeof args[1] === "function" ? (args[1] as (tx: Prisma.TransactionClient) => Promise<unknown>) : undefined;
     }
 

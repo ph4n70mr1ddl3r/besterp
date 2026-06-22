@@ -86,7 +86,6 @@ export function isValidISODate(value: string): boolean {
   }
   // Leap year check for February 29.
   if (month === 2 && day === 29) {
-    const year = parseInt(value.slice(0, 4), 10);
     const isLeap = (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
     if (!isLeap) return false;
   }
