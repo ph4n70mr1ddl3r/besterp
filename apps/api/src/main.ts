@@ -111,7 +111,8 @@ function configureCors(app: INestApplication): void {
     app.enableCors({ origin: devOrigins, credentials: false });
   } else if (process.env.NODE_ENV !== "production") {
     console.warn(
-      "⚠️  CORS is not configured. Set CORS_ORIGINS to allow cross-origin requests."
+      "⚠️  CORS is not configured for this environment. " +
+      "Set CORS_ORIGINS (comma-separated list) to enable cross-origin requests."
     );
   }
 }

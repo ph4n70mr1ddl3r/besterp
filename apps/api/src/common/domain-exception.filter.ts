@@ -104,13 +104,14 @@ export class DomainExceptionFilter implements ExceptionFilter {
       exception instanceof Error ? exception.stack : undefined
     );
     const isDev = process.env.NODE_ENV === "development";
-    let devMessage = isDev && exception instanceof Error ? exception.message : "Internal server error";
-    if (isDev) {
-      devMessage = sanitizeLogOutput(devMessage);
-    }
+    // In development, include the (sanitized) error message to aid debugging.
+    // In all other environments, return a safe generic message.
+    const responseMessage = isDev && exception instanceof Error
+      ? sanitizeLogOutput(exception.message)
+      : "Internal server error";
     response.status(500).json({
       statusCode: 500,
-      message: devMessage,
+      message: responseMessage,
     });
   }
 }

@@ -4,6 +4,7 @@
 // Delegates to HealthService for actual health checks.
 
 import { Controller, Get, Logger, ServiceUnavailableException } from "@nestjs/common";
+import { sanitizeLogOutput } from "@besterp/shared";
 import { Public } from "./auth/public.decorator.js";
 import { HealthService } from "./health.service.js";
 
@@ -78,10 +79,14 @@ export class HealthController {
     } catch (error) {
       // Re-throw ServiceUnavailableException as-is
       if (error instanceof ServiceUnavailableException) throw error;
-      // In production, use a generic message to avoid leaking internal details
+      // In production, use a generic message to avoid leaking internal details.
+      // In non-production, sanitize the error message to strip connection
+      // strings, hostnames, and file paths that could help an attacker
+      // understand infrastructure topology.
       const isProd = process.env.NODE_ENV === "production";
+      const rawMessage = error instanceof Error ? error.message : "not ready";
       throw new ServiceUnavailableException(
-        isProd ? "not ready" : (error instanceof Error ? error.message : "not ready")
+        isProd ? "not ready" : sanitizeLogOutput(rawMessage)
       );
     } finally {
       // Always clear the timer, regardless of which path we took. Without this,
