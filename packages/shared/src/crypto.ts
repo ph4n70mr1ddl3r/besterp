@@ -160,7 +160,8 @@ export function hashInput(input: unknown): string {
     // Circular references and other serialization errors should result in a
     // clear error rather than an opaque crash deep in the hash pipeline.
     throw new InvalidTypeValueError(
-      `Failed to hash input: ${e instanceof Error ? e.message : "serialization error"}.`
+      `Failed to hash input: ${e instanceof Error ? e.message : "serialization error"}.`,
+      { cause: e instanceof Error ? e : undefined }
     );
   }
 }

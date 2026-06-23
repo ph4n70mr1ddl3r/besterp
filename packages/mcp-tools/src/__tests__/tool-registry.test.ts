@@ -229,7 +229,7 @@ describe("ToolRegistry", () => {
     });
 
     it("should reject tool names starting with __", () => {
-      expect(() => registry.register(makeTool("__reserved"))).toThrow(/snake_case/);
+      expect(() => registry.register(makeTool("__reserved"))).toThrow(/reserved prefix/);
     });
 
     it("should reject tool names with spaces", () => {

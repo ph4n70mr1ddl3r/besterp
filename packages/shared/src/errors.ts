@@ -64,7 +64,7 @@ export class DomainError extends Error {
 export interface DomainErrorOptions {
   suggestedTools?: string[];
   context?: Record<string, unknown>;
-  cause?: Error;
+  cause?: unknown;
 }
 
 /** Thrown when required subtype data is missing (e.g., person details for PERSON party type). */

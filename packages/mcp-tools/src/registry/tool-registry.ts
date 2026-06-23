@@ -37,13 +37,15 @@ export class ToolRegistry {
     if (!definition.name || typeof definition.name !== "string") {
       throw new Error("Tool name must be a non-empty string.");
     }
+    // Check reserved prefix FIRST — the snake_case regex would reject `__`
+    // (requires [a-z] as first char), making this check unreachable.
+    if (definition.name.startsWith("__")) {
+      throw new Error(`Tool name '${definition.name}' must not start with '__' (reserved prefix).`);
+    }
     if (!/^[a-z][a-z0-9]*(_[a-z0-9]+)*$/.test(definition.name)) {
       throw new Error(
         `Tool name '${definition.name}' must be snake_case (lowercase letters, digits, underscores).`
       );
-    }
-    if (definition.name.startsWith("__")) {
-      throw new Error(`Tool name '${definition.name}' must not start with '__' (reserved prefix).`);
     }
 
     // Runtime check: the registry calls `inputSchema.safeParse(...)` when
@@ -118,7 +120,11 @@ export class ToolRegistry {
     // Promote idempotency key from raw input into context so the
     // idempotency middleware can see it. Tool schemas validate the key,
     // but the middleware reads from context — not from parsed input.
-    const raw = rawInput as Record<string, unknown> | null | undefined;
+    // Runtime guard: only treat non-null objects as potential sources;
+    // primitives (number, string, boolean) cannot have an idempotencyKey.
+    const raw = (rawInput != null && typeof rawInput === "object" && !Array.isArray(rawInput))
+      ? rawInput as Record<string, unknown>
+      : null;
     const effectiveContext: ToolContext =
       raw?.idempotencyKey && typeof raw.idempotencyKey === "string" && !context.idempotencyKey
         ? { ...context, idempotencyKey: raw.idempotencyKey }

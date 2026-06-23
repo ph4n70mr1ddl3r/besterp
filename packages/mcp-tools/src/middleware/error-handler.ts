@@ -113,9 +113,14 @@ function handlePrismaError(prismaCode: string, prismaMeta: { target?: string | s
   return null;
 }
 
+/** Strip newlines from strings to prevent log injection via user-controlled messages. */
+function sanitizeForLog(s: string): string {
+  return s.replace(/[\r\n]/g, "_");
+}
+
 function sanitizeErrorMessage(message: string): string {
-  return message
-    .replace(/[a-z][a-z\d+\-.]*:\/\/[^\s"']+/gi, "[CONNECTION_URL]")
+  return sanitizeForLog(message)
+    .replace(/(?:postgresql?|redis|mongodb(?:\+srv)?|mysql):\/\/[^\s"']+/gi, "[CONNECTION_URL]")
     .replace(/\bat\b[/\\][^\s"':]+/gi, "[PATH]")
     .slice(0, 500);
 }
@@ -126,7 +131,7 @@ function handleGenericError(error: unknown, definition: { name: string }, tenant
   // Log sanitized details to stderr to prevent leaking sensitive info
   // (DB hostnames, connection strings, stack frames)
   process.stderr.write(
-    `[MCP] [${new Date().toISOString()}] Unexpected error in '${definition.name}' (tenant=${tenantId}, user=${userId}): ${safeMessage}\n`
+    `[MCP] [${new Date().toISOString()}] Unexpected error in '${sanitizeForLog(definition.name)}' (tenant=${tenantId}, user=${userId}): ${safeMessage}\n`
   );
   // Always return a generic message to the AI agent to prevent leaking internals
   return {

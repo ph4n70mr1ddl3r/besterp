@@ -365,6 +365,11 @@ export class PartyService {
       const trimmedPartyType = partyType.trim();
       if (trimmedPartyType.length > 0) {
         where.partyType = { name: { equals: trimmedPartyType, mode: "insensitive" } };
+      } else {
+        throw new InvalidTypeValueError(
+          "partyType filter cannot be whitespace-only.",
+          { suggestedTools: ["search_parties"], context: { field: "partyType" } }
+        );
       }
     }
     

@@ -39,6 +39,11 @@ const MAX_AUDIT_QUEUE_SIZE = 1000;
 /** Maximum time (ms) a write can wait in the queue before being dropped. */
 const WRITE_QUEUE_TIMEOUT_MS = 5_000;
 
+/** Strip newlines from strings to prevent log injection via user-controlled values. */
+function sanitizeForLog(s: string): string {
+  return s.replace(/[\r\n]/g, "_");
+}
+
 /**
  * Create an audit log middleware backed by PostgreSQL.
  *
@@ -133,7 +138,7 @@ function createBackpressureManager(prisma: PrismaClient): BackpressureManager {
     log(entry: AuditLogEntry): void {
       if (writeQueue.length >= MAX_AUDIT_QUEUE_SIZE) {
         droppedCount++;
-        process.stderr.write(`[AuditLog] Queue full (${MAX_AUDIT_QUEUE_SIZE}), dropping audit entry for '${entry.toolCalled}' (total dropped: ${droppedCount})\n`);
+        process.stderr.write(`[AuditLog] Queue full (${MAX_AUDIT_QUEUE_SIZE}), dropping audit entry for '${sanitizeForLog(entry.toolCalled)}' (total dropped: ${droppedCount})\n`);
         return;
       }
       let slotAcquired = false;
