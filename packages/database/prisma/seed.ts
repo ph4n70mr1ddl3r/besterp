@@ -19,18 +19,16 @@ async function main() {
   // never appear in a real production environment. An accidental
   // `npm run seed` against prod would silently pollute the database.
   if (process.env.NODE_ENV === "production") {
-    console.error(
-      "❌ Refusing to seed in NODE_ENV=production. " +
+    throw new Error(
+      "Refusing to seed in NODE_ENV=production. " +
       "Set NODE_ENV to something other than 'production' to run the seed."
     );
-    process.exit(1);
   }
   if (!process.env.NODE_ENV) {
-    console.error(
-      "❌ NODE_ENV is not set. Refusing to seed to prevent accidental data loss. " +
+    throw new Error(
+      "NODE_ENV is not set. Refusing to seed to prevent accidental data loss. " +
       "Set NODE_ENV=development explicitly."
     );
-    process.exit(1);
   }
 
   console.log("🌱 Seeding type tables with AI-facing descriptions...\n");

@@ -87,7 +87,7 @@ export function validateTenantIdEnhanced(tenantId: string): void {
  * Validate that a Prisma client has the required methods for RLS.
  */
 export function validatePrismaClientForRls(prisma: PrismaClient): void {
-  if (!prisma || typeof prisma.$executeRaw !== "function") {
+  if (!prisma || typeof prisma.$executeRaw !== "function" || typeof prisma.$transaction !== "function") {
     throw new InvalidTypeValueError(
       "Prisma client does not support RLS operations. Make sure it's connected with the correct role.",
       { context: { provided: typeof prisma } }
@@ -165,9 +165,11 @@ function createTransactionWrapper(prisma: PrismaClient, tenantId: string) {
     if (typeof args[0] === "function") {
       fn = args[0] as (tx: Prisma.TransactionClient) => Promise<unknown>;
       options = typeof args[1] === "object" && args[1] !== null ? args[1] as { timeout?: number } : undefined;
-    } else if (typeof args[0] === "object" && args[0] !== null) {
-      options = args[0] as { timeout?: number };
-      fn = typeof args[1] === "function" ? (args[1] as (tx: Prisma.TransactionClient) => Promise<unknown>) : undefined;
+    } else if (Array.isArray(args[0])) {
+      throw new Error(
+        "Batch $transaction([...promises]) is not supported on a tenant-scoped client. " +
+        "Use an interactive transaction: $transaction(async (tx) => { ... })"
+      );
     }
 
     if (fn) {
@@ -184,13 +186,6 @@ function createTransactionWrapper(prisma: PrismaClient, tenantId: string) {
         return fn(tx);
       };
       return options ? (prisma as any).$transaction(wrappedFn, options) : (prisma as any).$transaction(wrappedFn);
-    }
-
-    if (Array.isArray(args[0])) {
-      throw new Error(
-        "Batch $transaction([...promises]) is not supported on a tenant-scoped client. " +
-        "Use an interactive transaction: $transaction(async (tx) => { ... })"
-      );
     }
 
     throw new Error("Unsupported $transaction arguments. Use $transaction(async (tx) => { ... })");

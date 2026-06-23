@@ -66,6 +66,7 @@ describe("RLS Extension", () => {
     it("should accept valid Prisma clients", () => {
       const mockPrisma = {
         $executeRaw: vi.fn(),
+        $transaction: vi.fn(),
         $connect: vi.fn(),
         $disconnect: vi.fn(),
       };
@@ -80,6 +81,16 @@ describe("RLS Extension", () => {
 
     it("should reject Prisma clients without $executeRaw method", () => {
       const mockPrisma = {
+        $connect: vi.fn(),
+        $disconnect: vi.fn(),
+      };
+      
+      expect(() => validatePrismaClientForRls(mockPrisma as any)).toThrow(InvalidTypeValueError);
+    });
+
+    it("should reject Prisma clients without $transaction method", () => {
+      const mockPrisma = {
+        $executeRaw: vi.fn(),
         $connect: vi.fn(),
         $disconnect: vi.fn(),
       };

@@ -80,7 +80,10 @@ export class McpModule implements OnModuleInit {
   }) {
     // Validate tenant ID format before building context. This catches invalid
     // tenant IDs from forged JWT tokens before any database operations.
-    validateTenantIdEnhanced(overrides.tenantId);
+    // Trim before validation so whitespace-padded values are validated against
+    // their canonical form and stored trimmed.
+    const tenantId = overrides.tenantId.trim();
+    validateTenantIdEnhanced(tenantId);
 
     // Validate userId — prevents null/empty user IDs in audit logs.
     let userId = overrides.userId;
@@ -108,7 +111,7 @@ export class McpModule implements OnModuleInit {
     const reasoning = validateReasoningField(overrides.reasoning);
 
     return {
-      tenantId: overrides.tenantId.trim(),
+      tenantId,
       userId,
       agentId,
       conversationId,

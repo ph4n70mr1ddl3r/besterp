@@ -89,6 +89,7 @@ export class PartyController {
   }
 
   @Post(":id/roles")
+  @HttpCode(201)
   async addRole(
     @Req() req: Request,
     @Param("id", ParseUUIDPipe) partyId: string,
@@ -103,6 +104,7 @@ export class PartyController {
   }
 
   @Post(":id/contacts")
+  @HttpCode(201)
   async addContact(
     @Req() req: Request,
     @Param("id", ParseUUIDPipe) partyId: string,

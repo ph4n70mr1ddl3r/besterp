@@ -55,7 +55,7 @@ function setupGracefulShutdown(app: INestApplication): void {
       console.error(`❌ Graceful shutdown exceeded ${HARD_EXIT_TIMEOUT_MS}ms — forcing exit.`);
       process.exit(1);
     }, HARD_EXIT_TIMEOUT_MS);
-    if (hardExitTimer.unref) hardExitTimer.unref();
+    hardExitTimer.unref();
 
     try {
       await app.close();
@@ -70,10 +70,12 @@ function setupGracefulShutdown(app: INestApplication): void {
   }
 
   process.on("uncaughtException", (error) => {
-    void gracefulShutdown("Uncaught exception", error).catch((shutdownErr) => {
-      console.error("Error during shutdown handler:", shutdownErr);
-      process.exit(1);
-    });
+    // After an uncaughtException, the process is in an undefined state.
+    // Attempting graceful shutdown (app.close()) may hang or corrupt in-flight
+    // requests. Log the error and exit immediately — let the process manager
+    // (systemd, Docker, PM2) restart a clean instance.
+    console.error("❌ Uncaught exception:", error.stack ?? error.message);
+    process.exit(1);
   });
 
   process.on("unhandledRejection", (reason) => {

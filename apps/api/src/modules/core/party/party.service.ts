@@ -112,19 +112,20 @@ export class PartyService {
     const { sanitizedPerson, sanitizedOrg, sanitizedName, sanitizedDescription } =
       this.sanitizeCreatePartyInput(trimmedName, trimmedDescription, personData, orgData);
 
+    const trimmedPartyType = partyType.trim();
     const db = this.prisma.tenantScoped(tenantId);
 
-    const partyTypeRecord = await db.partyType.findUnique({ where: { name: partyType } });
+    const partyTypeRecord = await db.partyType.findUnique({ where: { name: trimmedPartyType } });
     if (!partyTypeRecord) {
       throw new InvalidTypeValueError(
-        `PARTY_TYPE '${partyType}' is not valid. Valid types: ['PERSON', 'ORGANIZATION'].`,
-        { suggestedTools: ["get_type_table_values"], context: { field: "partyType", invalidValue: partyType, validValues: ["PERSON", "ORGANIZATION"] } }
+        `PARTY_TYPE '${trimmedPartyType}' is not valid. Valid types: ['PERSON', 'ORGANIZATION'].`,
+        { suggestedTools: ["get_type_table_values"], context: { field: "partyType", invalidValue: trimmedPartyType, validValues: ["PERSON", "ORGANIZATION"] } }
       );
     }
 
     const party = await this.createPartyTransaction(db, tenantId, partyTypeRecord.partyTypeId, sanitizedName, sanitizedDescription, sanitizedPerson, sanitizedOrg);
 
-    this.logger.log(`Created ${partyType} party: ${sanitizeForLog(trimmedName)} (${party.partyId})`);
+    this.logger.log(`Created ${trimmedPartyType} party: ${sanitizeForLog(trimmedName)} (${party.partyId})`);
     return PartyService.toPartyResult(party);
   }
 
@@ -197,7 +198,6 @@ export class PartyService {
   ): { sanitizedPerson: typeof personData; sanitizedOrg: typeof orgData; sanitizedName: string; sanitizedDescription: string | null } {
     const sanitizedPerson = personData
       ? {
-          ...personData,
           firstName: stripHtmlTags(personData.firstName.trim()),
           lastName: stripHtmlTags(personData.lastName.trim()),
           middleName: personData.middleName?.trim()
@@ -213,7 +213,6 @@ export class PartyService {
       : undefined;
     const sanitizedOrg = orgData
       ? {
-          ...orgData,
           legalName: stripHtmlTags(orgData.legalName.trim()),
           taxId: orgData.taxId ? stripHtmlTags(orgData.taxId.trim()) : undefined,
           // See birthDate above — store the trimmed (canonical) date string.
@@ -363,7 +362,10 @@ export class PartyService {
     }
     
     if (partyType) {
-      where.partyType = { name: { equals: partyType, mode: "insensitive" } };
+      const trimmedPartyType = partyType.trim();
+      if (trimmedPartyType.length > 0) {
+        where.partyType = { name: { equals: trimmedPartyType, mode: "insensitive" } };
+      }
     }
     
     if (roleType) {

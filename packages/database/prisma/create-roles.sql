@@ -29,6 +29,10 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO besterp_a
 -- Grant sequence access (existing sequences)
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO besterp_app;
 
+-- Revoke default PUBLIC privileges — prevent other roles from inheriting access
+REVOKE CONNECT ON DATABASE besterp FROM PUBLIC;
+REVOKE USAGE ON SCHEMA public FROM PUBLIC;
+
 -- Grant on future tables (created by migrations)
 ALTER DEFAULT PRIVILEGES IN SCHEMA public
   GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO besterp_app;
@@ -36,8 +40,6 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public
 ALTER DEFAULT PRIVILEGES IN SCHEMA public
   GRANT USAGE, SELECT ON SEQUENCES TO besterp_app;
 
--- Grant access to RLS-protected tables for the app role
--- Type tables are shared across tenants and need SELECT for lookups
-GRANT SELECT ON party_type TO besterp_app;
-GRANT SELECT ON role_type TO besterp_app;
-GRANT SELECT ON contact_mechanism_type TO besterp_app;
+-- Restrict set_tenant_context() to app role only (defense-in-depth)
+REVOKE EXECUTE ON FUNCTION set_tenant_context(TEXT) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION set_tenant_context(TEXT) TO besterp_app;
