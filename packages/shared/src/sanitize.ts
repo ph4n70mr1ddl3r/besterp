@@ -110,10 +110,11 @@ export function stripHtmlTags(input: string): string {
  */
 export function sanitizeLogOutput(message: string): string {
   return message
-    .replace(/postgresql?:\/\/[^\s"']+/gi, "[DATABASE_URL]")
+    .replace(/postgres(?:ql)?:\/\/[^\s"']+/gi, "[DATABASE_URL]")
     .replace(/redis:\/\/[^\s"']+/gi, "[REDIS_URL]")
     .replace(/mongodb(\+srv)?:\/\/[^\s"']+/gi, "[DATABASE_URL]")
     .replace(/mysql:\/\/[^\s"']+/gi, "[DATABASE_URL]")
+    .replace(/amqps?:\/\/[^\s"']+/gi, "[MESSAGE_BROKER_URL]")
     .replace(/((?:https?|redis|mysql|mongodb(?:\+srv)?):\/\/)[^/\s]+\//gi, "$1[HOST]/")
     .replace(/\bat\b[/\\][^\s"':]+/gi, "[PATH]");
 }

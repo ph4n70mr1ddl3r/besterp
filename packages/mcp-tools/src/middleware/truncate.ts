@@ -113,6 +113,12 @@ export function truncateValue(value: unknown, maxSize: number = MAX_STORED_PAYLO
     }
     return str;
   }
+  if (typeof value === "symbol") {
+    return { _truncated: true, _originalSize: 0, _preview: "[Symbol]" };
+  }
+  if (typeof value === "function") {
+    return { _truncated: true, _originalSize: 0, _preview: "[Function]" };
+  }
 
   try {
     const serialized = JSON.stringify(value);

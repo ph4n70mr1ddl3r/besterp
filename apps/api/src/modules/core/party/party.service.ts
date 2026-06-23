@@ -115,15 +115,7 @@ export class PartyService {
     const trimmedPartyType = partyType.trim();
     const db = this.prisma.tenantScoped(tenantId);
 
-    const partyTypeRecord = await db.partyType.findUnique({ where: { name: trimmedPartyType } });
-    if (!partyTypeRecord) {
-      throw new InvalidTypeValueError(
-        `PARTY_TYPE '${trimmedPartyType}' is not valid. Valid types: ['PERSON', 'ORGANIZATION'].`,
-        { suggestedTools: ["get_type_table_values"], context: { field: "partyType", invalidValue: trimmedPartyType, validValues: ["PERSON", "ORGANIZATION"] } }
-      );
-    }
-
-    const party = await this.createPartyTransaction(db, tenantId, partyTypeRecord.partyTypeId, sanitizedName, sanitizedDescription, sanitizedPerson, sanitizedOrg);
+    const party = await this.createPartyTransaction(db, tenantId, trimmedPartyType, sanitizedName, sanitizedDescription, sanitizedPerson, sanitizedOrg);
 
     this.logger.log(`Created ${trimmedPartyType} party: ${sanitizeForLog(trimmedName)} (${party.partyId})`);
     return PartyService.toPartyResult(party);
@@ -230,14 +222,22 @@ export class PartyService {
 
   private async createPartyTransaction(
     db: PrismaClient,
-    tenantId: string, partyTypeId: string,
+    tenantId: string, partyTypeName: string,
     name: string, description: string | null,
     sanitizedPerson: CreatePartyInput["person"] | undefined,
     sanitizedOrg: CreatePartyInput["organization"] | undefined,
   ) {
     return db.$transaction(async (tx: Prisma.TransactionClient) => {
+      const partyTypeRecord = await tx.partyType.findUnique({ where: { name: partyTypeName } });
+      if (!partyTypeRecord) {
+        throw new InvalidTypeValueError(
+          `PARTY_TYPE '${partyTypeName}' is not valid. Valid types: ['PERSON', 'ORGANIZATION'].`,
+          { suggestedTools: ["get_type_table_values"], context: { field: "partyType", invalidValue: partyTypeName, validValues: ["PERSON", "ORGANIZATION"] } }
+        );
+      }
+
       const data: Prisma.PartyCreateInput = {
-        partyType: { connect: { partyTypeId } },
+        partyType: { connect: { partyTypeId: partyTypeRecord.partyTypeId } },
         tenantId,
         name,
         description,
@@ -335,7 +335,7 @@ export class PartyService {
 
     const db = this.prisma.tenantScoped(tenantId);
 
-    // Build where clause more efficiently
+    // Build where clause after validation to ensure tenantId is validated first
     const where: Prisma.PartyWhereInput = { tenantId };
     
     if (name) {

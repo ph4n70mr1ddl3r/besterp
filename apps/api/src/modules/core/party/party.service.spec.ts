@@ -53,11 +53,11 @@ describe("PartyService", () => {
       };
 
       const mockDb = {
-        partyType: {
-          findUnique: vi.fn().mockResolvedValue({ partyTypeId: "pt-person" }),
-        },
         $transaction: vi.fn().mockImplementation(async (fn) => {
           const tx = {
+            partyType: {
+              findUnique: vi.fn().mockResolvedValue({ partyTypeId: "pt-person" }),
+            },
             party: {
               create: vi.fn().mockResolvedValue(
                 mockParty({
@@ -90,11 +90,11 @@ describe("PartyService", () => {
       };
 
       const mockDb = {
-        partyType: {
-          findUnique: vi.fn().mockResolvedValue({ partyTypeId: "pt-org" }),
-        },
         $transaction: vi.fn().mockImplementation(async (fn) => {
           const tx = {
+            partyType: {
+              findUnique: vi.fn().mockResolvedValue({ partyTypeId: "pt-org" }),
+            },
             party: {
               create: vi.fn().mockResolvedValue(
                 mockParty({
@@ -215,9 +215,14 @@ describe("PartyService", () => {
       };
 
       const mockDb = {
-        partyType: {
-          findUnique: vi.fn().mockResolvedValue(null),
-        },
+        $transaction: vi.fn().mockImplementation(async (fn) => {
+          const tx = {
+            partyType: {
+              findUnique: vi.fn().mockResolvedValue(null),
+            },
+          };
+          return fn(tx);
+        }),
       };
 
       mockPrismaService.tenantScoped.mockReturnValue(mockDb);
@@ -298,11 +303,11 @@ describe("PartyService", () => {
       };
 
       const mockDb = {
-        partyType: {
-          findUnique: vi.fn().mockResolvedValue({ partyTypeId: "pt-person" }),
-        },
         $transaction: vi.fn().mockImplementation(async (fn) => {
           const tx = {
+            partyType: {
+              findUnique: vi.fn().mockResolvedValue({ partyTypeId: "pt-person" }),
+            },
             party: {
               create: vi.fn().mockResolvedValue(
                 mockParty({
@@ -388,11 +393,11 @@ describe("PartyService", () => {
       };
 
       const mockDb = {
-        partyType: {
-          findUnique: vi.fn().mockResolvedValue({ partyTypeId: "pt-person" }),
-        },
         $transaction: vi.fn().mockImplementation(async (fn) => {
           const tx = {
+            partyType: {
+              findUnique: vi.fn().mockResolvedValue({ partyTypeId: "pt-person" }),
+            },
             party: {
               create: vi.fn().mockResolvedValue(
                 mockParty({
@@ -429,11 +434,11 @@ describe("PartyService", () => {
       };
 
       const mockDb = {
-        partyType: {
-          findUnique: vi.fn().mockResolvedValue({ partyTypeId: "pt-person" }),
-        },
         $transaction: vi.fn().mockImplementation(async (fn) => {
           const tx = {
+            partyType: {
+              findUnique: vi.fn().mockResolvedValue({ partyTypeId: "pt-person" }),
+            },
             party: {
               create: vi.fn().mockResolvedValue(
                 mockParty({

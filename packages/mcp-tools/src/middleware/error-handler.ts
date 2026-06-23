@@ -110,6 +110,17 @@ function handlePrismaError(prismaCode: string, prismaMeta: { target?: string | s
     };
   }
 
+  if (prismaCode === "P2003") {
+    return {
+      success: false,
+      error: {
+        code: "REFERENCE_ERROR",
+        message: `A referenced entity was not found. Check foreign key values and ensure all referenced records exist.`,
+        suggestedTools: [`search_${entityPlural}`, definition.name],
+      },
+    };
+  }
+
   return null;
 }
 
