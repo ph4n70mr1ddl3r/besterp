@@ -45,13 +45,58 @@ const WRITE_QUEUE_TIMEOUT_MS = 5_000;
  * @param prisma - Admin PrismaClient (superuser, for cross-tenant audit writes)
  */
 export function auditLogMiddleware(prisma: PrismaClient): ToolMiddleware {
-  // Semaphore to limit concurrent audit log writes and prevent unbounded
-  // promise accumulation if the database is slow or unavailable.
+  const backpressure = createBackpressureManager(prisma);
+
+  return (input, context, definition, next) => executeAndLog(prisma, backpressure, input, context, definition, next);
+}
+
+function createBaseEntry(context: { agentId?: string; conversationId?: string; reasoning?: string; userId: string; tenantId: string }, definition: { name: string }, input: unknown): Omit<AuditLogEntry, "toolOutput"> {
+  return {
+    agentId: context.agentId,
+    conversationId: context.conversationId,
+    reasoning: context.reasoning?.slice(0, MAX_REASONING_LENGTH) ?? null,
+    userId: context.userId,
+    tenantId: context.tenantId,
+    toolCalled: definition.name,
+    toolInput: input,
+  };
+}
+
+async function executeAndLog(prisma: PrismaClient, backpressure: BackpressureManager, input: unknown, context: ToolContext, definition: { name: string }, next: (input: unknown, context: ToolContext) => Promise<ToolResult>): Promise<ToolResult> {
+  if (!prisma?.aiActionLog) {
+    const warnMeta = {
+      timestamp: new Date().toISOString(),
+      message: "Prisma client not available — skipping audit log",
+    };
+    process.stderr.write(`[AuditLog] ${JSON.stringify(warnMeta)}\n`);
+    return next(input, context);
+  }
+
+  const base = createBaseEntry(context, definition, input);
+  let result: ToolResult;
+  try {
+    result = await next(input, context);
+  } catch (error: unknown) {
+    backpressure.log({
+      ...base,
+      toolOutput: { error: { message: error instanceof Error ? error.message : String(error), code: getErrorCode(error) } },
+    });
+    throw error;
+  }
+
+  backpressure.log({ ...base, toolOutput: result.data ?? null });
+  return result;
+}
+
+// ─── Backpressure Manager ────────────────────────────────────────
+
+interface BackpressureManager {
+  log(entry: AuditLogEntry): void;
+}
+
+function createBackpressureManager(prisma: PrismaClient): BackpressureManager {
   let activeWrites = 0;
   const writeQueue: Array<{ resolve: (value: { acquired: boolean }) => void; timer: ReturnType<typeof setTimeout> }> = [];
-
-  // Drop/error counters for monitoring. In production, these should be
-  // exposed via a metrics collector (e.g., Prometheus).
   let droppedCount = 0;
   let errorCount = 0;
 
@@ -84,75 +129,37 @@ export function auditLogMiddleware(prisma: PrismaClient): ToolMiddleware {
     }
   }
 
-  function logWithBackpressure(entry: AuditLogEntry): void {
-    if (writeQueue.length >= MAX_AUDIT_QUEUE_SIZE) {
-      droppedCount++;
-      process.stderr.write(`[AuditLog] Queue full (${MAX_AUDIT_QUEUE_SIZE}), dropping audit entry for '${entry.toolCalled}' (total dropped: ${droppedCount})\n`);
-      return;
-    }
-    let slotAcquired = false;
-    void acquireWriteSlot()
-      .then(({ acquired }) => {
-        if (!acquired) return;
-        slotAcquired = true;
-        return logAction(prisma, entry);
-      })
-      .catch((logErr) => {
-        errorCount++;
-        const errorMeta = {
-          timestamp: new Date().toISOString(),
-          tool: entry.toolCalled,
-          tenant: entry.tenantId,
-          user: entry.userId,
-          error: logErr instanceof Error ? logErr.message : String(logErr),
-          totalErrors: errorCount,
-        };
-        process.stderr.write(`[AuditLog] ${JSON.stringify(errorMeta)}\n`);
-      })
-      .finally(() => {
-        if (slotAcquired) releaseWriteSlot();
-      });
-  }
-
-  function createBaseEntry(context: { agentId?: string; conversationId?: string; reasoning?: string; userId: string; tenantId: string }, definition: { name: string }, input: unknown): Omit<AuditLogEntry, "toolOutput"> {
-    return {
-      agentId: context.agentId,
-      conversationId: context.conversationId,
-      reasoning: context.reasoning?.slice(0, MAX_REASONING_LENGTH) ?? null,
-      userId: context.userId,
-      tenantId: context.tenantId,
-      toolCalled: definition.name,
-      toolInput: input,
-    };
-  }
-
-  async function executeAndLog(input: unknown, context: ToolContext, definition: { name: string }, next: (input: unknown, context: ToolContext) => Promise<ToolResult>): Promise<ToolResult> {
-    if (!prisma?.aiActionLog) {
-      const warnMeta = {
-        timestamp: new Date().toISOString(),
-        message: "Prisma client not available — skipping audit log",
-      };
-      process.stderr.write(`[AuditLog] ${JSON.stringify(warnMeta)}\n`);
-      return next(input, context);
-    }
-
-    const base = createBaseEntry(context, definition, input);
-    let result: ToolResult;
-    try {
-      result = await next(input, context);
-    } catch (error: unknown) {
-      logWithBackpressure({
-        ...base,
-        toolOutput: { error: { message: error instanceof Error ? error.message : String(error), code: getErrorCode(error) } },
-      });
-      throw error;
-    }
-
-    logWithBackpressure({ ...base, toolOutput: result.data ?? null });
-    return result;
-  }
-
-  return (input, context, definition, next) => executeAndLog(input, context, definition, next);
+  return {
+    log(entry: AuditLogEntry): void {
+      if (writeQueue.length >= MAX_AUDIT_QUEUE_SIZE) {
+        droppedCount++;
+        process.stderr.write(`[AuditLog] Queue full (${MAX_AUDIT_QUEUE_SIZE}), dropping audit entry for '${entry.toolCalled}' (total dropped: ${droppedCount})\n`);
+        return;
+      }
+      let slotAcquired = false;
+      void acquireWriteSlot()
+        .then(({ acquired }) => {
+          if (!acquired) return;
+          slotAcquired = true;
+          return logAction(prisma, entry);
+        })
+        .catch((logErr) => {
+          errorCount++;
+          const errorMeta = {
+            timestamp: new Date().toISOString(),
+            tool: entry.toolCalled,
+            tenant: entry.tenantId,
+            user: entry.userId,
+            error: logErr instanceof Error ? logErr.message : String(logErr),
+            totalErrors: errorCount,
+          };
+          process.stderr.write(`[AuditLog] ${JSON.stringify(errorMeta)}\n`);
+        })
+        .finally(() => {
+          if (slotAcquired) releaseWriteSlot();
+        });
+    },
+  };
 }
 
 interface AuditLogEntry {

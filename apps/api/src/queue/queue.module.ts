@@ -29,7 +29,12 @@ export class QueueModule {
       throw new Error("Redis host is required. Set REDIS_HOST or provide options.redis.host.");
     }
     const port = this.resolvePort(options?.redis?.port);
-    const password = options?.redis?.password || process.env.REDIS_PASSWORD || undefined;
+    const password = this.resolvePassword(options?.redis?.password);
+    return { host, port, password };
+  }
+
+  private static resolvePassword(explicitPassword?: string): string | undefined {
+    const password = explicitPassword || process.env.REDIS_PASSWORD || undefined;
     if (password !== undefined && password.trim().length === 0) {
       throw new Error("Redis password is set but empty. Provide a non-empty password or unset REDIS_PASSWORD.");
     }
@@ -41,7 +46,7 @@ export class QueueModule {
         "Redis password is required in non-development environments. Set REDIS_PASSWORD."
       );
     }
-    return { host, port, password };
+    return password;
   }
 
   private static resolvePort(explicitPort?: number): number {

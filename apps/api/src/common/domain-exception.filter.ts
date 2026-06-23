@@ -52,55 +52,52 @@ export class DomainExceptionFilter implements ExceptionFilter {
     }
 
     if (isDomainError(exception)) {
-      const status = domainErrorToStatus(exception);
-      if (status === 500) {
-        // Unexpected domain error code — log as warn to surface the missing mapping.
-        // Not error-level because this is a code issue (missing mapping), not a runtime failure.
-        this.logger.warn(
-          `Unknown DomainError code '${exception.code}' — add a mapping in domainErrorToStatus(). Defaulting to 500.`
-        );
-      } else {
-        this.logger.warn(
-          `DomainError [${exception.code}]: ${exception.message}`
-        );
-      }
-
-      const isProd = process.env.NODE_ENV === "production";
-      response.status(status).json({
-        statusCode: status,
-        // In production, omit error code for 500s to avoid leaking internal naming conventions
-        ...(status === 500 && isProd ? {} : { error: exception.code }),
-        // In production, omit message for unexpected domain errors (status 500)
-        // to avoid leaking internals. Expected domain errors (4xx) are safe to include.
-        ...(status === 500 && isProd
-          ? { message: "An unexpected error occurred" }
-          : { message: exception.message }),
-        // suggestedTools and context are intentionally omitted from REST responses.
-        // They contain AI-oriented guidance (tool names, internal field names) that
-        // is useful for MCP agents but could confuse or leak internals to API consumers.
-      });
+      this.handleDomainError(exception, response);
       return;
     }
 
-    // Pass through NestJS HttpExceptions (NotFoundException, BadRequestException, etc.)
-    // by serializing them the same way NestJS's default filter would.
     if (exception instanceof HttpException) {
-      const status = exception.getStatus();
-      const exceptionResponse = exception.getResponse();
-
-      response.status(status).json(
-        typeof exceptionResponse === "string"
-          ? { statusCode: status, message: exceptionResponse }
-          : exceptionResponse
-      );
+      this.handleHttpException(exception, response);
       return;
     }
 
-    // Unexpected errors — return 500 to avoid leaking internals.
-    // Only show raw error messages in development; staging/test/production
-    // get a generic message to prevent leaking internal details (DB errors,
-    // stack traces, etc.).
-    // The server-side log captures the full details for debugging.
+    this.handleUnexpectedError(exception, response);
+  }
+
+  private handleDomainError(exception: DomainError, response: Response): void {
+    const status = domainErrorToStatus(exception);
+    if (status === 500) {
+      this.logger.warn(
+        `Unknown DomainError code '${exception.code}' — add a mapping in domainErrorToStatus(). Defaulting to 500.`
+      );
+    } else {
+      this.logger.warn(
+        `DomainError [${exception.code}]: ${exception.message}`
+      );
+    }
+
+    const isProd = process.env.NODE_ENV === "production";
+    response.status(status).json({
+      statusCode: status,
+      ...(status === 500 && isProd ? {} : { error: exception.code }),
+      ...(status === 500 && isProd
+        ? { message: "An unexpected error occurred" }
+        : { message: exception.message }),
+    });
+  }
+
+  private handleHttpException(exception: HttpException, response: Response): void {
+    const status = exception.getStatus();
+    const exceptionResponse = exception.getResponse();
+
+    response.status(status).json(
+      typeof exceptionResponse === "string"
+        ? { statusCode: status, message: exceptionResponse }
+        : exceptionResponse
+    );
+  }
+
+  private handleUnexpectedError(exception: unknown, response: Response): void {
     const errorCode = getErrorCode(exception);
     this.logger.error(
       `Unhandled exception${errorCode ? ` [${errorCode}]` : ""}: ${exception instanceof Error ? exception.message : exception}`,
@@ -108,8 +105,6 @@ export class DomainExceptionFilter implements ExceptionFilter {
     );
     const isDev = process.env.NODE_ENV === "development";
     let devMessage = isDev && exception instanceof Error ? exception.message : "Internal server error";
-    // Sanitize development error messages to remove sensitive patterns
-    // (connection strings, file paths, internal hostnames)
     if (isDev) {
       devMessage = sanitizeLogOutput(devMessage);
     }

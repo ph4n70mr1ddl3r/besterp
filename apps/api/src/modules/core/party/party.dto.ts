@@ -50,6 +50,7 @@ import {
   MAX_EMAIL_LENGTH,
   MAX_SEARCH_LIMIT,
   MIN_SEARCH_LIMIT,
+  MAX_SEARCH_OFFSET,
   MAX_DATE_STRING_LENGTH,
   COUNTRY_CODE_REGEX,
 } from "@besterp/shared";
@@ -223,6 +224,7 @@ export class SearchPartiesDto {
   @Type(() => Number)
   @IsInt()
   @Min(0)
+  @Max(MAX_SEARCH_OFFSET)
   offset?: number;
 }
 
