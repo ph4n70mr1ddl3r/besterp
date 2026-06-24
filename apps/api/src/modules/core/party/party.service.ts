@@ -81,7 +81,7 @@ type PartyWithIncludes = Prisma.PartyGetPayload<{
 }>;
 
 /** Sanitize a string for safe logging — strip control chars and cap length. */
-function sanitizeForLog(value: string, maxLength = 80): string {
+function sanitizeLogField(value: string, maxLength = 80): string {
   // eslint-disable-next-line no-control-regex
   return value.replace(/[\x00-\x1f\x7f]/g, " ").slice(0, maxLength);
 }
@@ -117,7 +117,7 @@ export class PartyService {
 
     const party = await this.createPartyTransaction(db, tenantId, trimmedPartyType, sanitizedName, sanitizedDescription, sanitizedPerson, sanitizedOrg);
 
-    this.logger.log(`Created ${trimmedPartyType} party: ${sanitizeForLog(trimmedName)} (${party.partyId})`);
+    this.logger.log(`Created ${trimmedPartyType} party: ${sanitizeLogField(trimmedName)} (${party.partyId})`);
     return PartyService.toPartyResult(party);
   }
 
@@ -437,7 +437,7 @@ export class PartyService {
 
     const role = await this.addPartyRoleTransaction(db, tenantId, partyId, roleTypeRecord.roleTypeId, trimmedRoleType, roleFromDate);
 
-    this.logger.log(`Added role '${sanitizeForLog(trimmedRoleType, 50)}' to party ${partyId} (ID: ${role.partyRoleId})`);
+    this.logger.log(`Added role '${sanitizeLogField(trimmedRoleType, 50)}' to party ${partyId} (ID: ${role.partyRoleId})`);
     return {
       partyRoleId: role.partyRoleId,
       partyId: role.partyId,
@@ -539,7 +539,7 @@ export class PartyService {
 
     const contactMechanism = await this.createContactMechanismTransaction(db, tenantId, partyId, trimmedCmType, cmType.contactMechanismTypeId, postalAddress, telecomNumber, normalizedEmail);
 
-    this.logger.log(`Added ${sanitizeForLog(trimmedCmType, 50)} to party ${partyId} (ID: ${contactMechanism.contactMechanismId})`);
+    this.logger.log(`Added ${sanitizeLogField(trimmedCmType, 50)} to party ${partyId} (ID: ${contactMechanism.contactMechanismId})`);
     return PartyService.formatContactResult(contactMechanism, partyId);
   }
 

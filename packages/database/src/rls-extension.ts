@@ -1,5 +1,4 @@
 // Prisma Client Extension for automatic Row-Level Security (RLS) tenant scoping.
-/* eslint-disable @typescript-eslint/no-explicit-any */
 //
 // Provides `createTenantClient()` which wraps all model operations in a
 // transaction that calls `set_tenant_context()` before executing each query.
@@ -177,6 +176,7 @@ function createTransactionWrapper(prisma: PrismaClient, tenantId: string) {
         }
         return fn(tx);
       };
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       return options ? (prisma as any).$transaction(wrappedFn, options) : (prisma as any).$transaction(wrappedFn);
     }
 
@@ -200,8 +200,10 @@ function createModelDelegateProxy(
       throw new Error(`Cannot delete '${String(modelProp)}' on model '${modelName}' of a tenant-scoped client.`);
     },
     get(modelTarget, method: string | symbol) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       if (typeof method !== "string") return (modelTarget as any)[method];
 
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const originalFn = (modelTarget as any)[method];
       if (typeof originalFn !== "function") return originalFn;
       if (!DATA_METHODS.has(method)) return originalFn;
@@ -221,6 +223,7 @@ function createModelDelegateProxy(
               { cause: err instanceof Error ? err : undefined, context: { field: "tenantId" } }
             );
           }
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const txDelegate = (tx as any)[modelName];
           if (!txDelegate) throw new Error(`Model "${modelName}" not found on transaction client`);
           const txMethod = txDelegate[method];
@@ -248,6 +251,7 @@ function createClientProxy(
       throw new Error(`Cannot delete '${String(prop)}' on a tenant-scoped client. Use the base PrismaClient directly.`);
     },
     get(target, prop: string | symbol) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       if (typeof prop !== "string") return (target as any)[prop];
       if (prop === "$transaction") return transactionWrapper;
       if (BLOCKED_LIFECYCLE.has(prop)) {
@@ -266,6 +270,7 @@ function createClientProxy(
       const cachedDelegate = delegateCache.get(prop);
       if (cachedDelegate) return cachedDelegate;
 
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const delegate = (target as any)[prop];
       if (!delegate || typeof delegate !== "object") return delegate;
 

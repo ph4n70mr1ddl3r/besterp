@@ -79,7 +79,7 @@ export class DomainExceptionFilter implements ExceptionFilter {
     const isProd = process.env.NODE_ENV === "production";
     response.status(status).json({
       statusCode: status,
-      ...(status === 500 && isProd ? {} : { error: exception.code }),
+      ...(isProd ? {} : { error: exception.code }),
       ...(status === 500 && isProd
         ? { message: "An unexpected error occurred" }
         : { message: exception.message }),
