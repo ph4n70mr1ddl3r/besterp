@@ -193,6 +193,11 @@ async function logAction(prisma: PrismaClient, entry: AuditLogEntry): Promise<vo
   });
 }
 
+/** Returns true if a field name matches a sensitive pattern. */
+function isSensitiveField(key: string): boolean {
+  return SENSITIVE_FIELDS.has(key) || SENSITIVE_FIELD_PATTERN.test(key);
+}
+
 function redactSensitiveFields(value: unknown, depth = 0, seen?: WeakSet<object>): unknown {
   if (depth > 10 || value === null || value === undefined || typeof value !== "object") return value;
   if (value instanceof Date || value instanceof RegExp) return value;
@@ -202,8 +207,7 @@ function redactSensitiveFields(value: unknown, depth = 0, seen?: WeakSet<object>
   if (Array.isArray(value)) return value.map((item) => redactSensitiveFields(item, depth + 1, seen));
   if (value instanceof Map) {
     return new Map([...value.entries()].map(([k, v]) => {
-      const redactedKey = (typeof k === "string" && (SENSITIVE_FIELDS.has(k) || SENSITIVE_FIELD_PATTERN.test(k)))
-        ? "[REDACTED]" : k;
+      const redactedKey = (typeof k === "string" && isSensitiveField(k)) ? "[REDACTED]" : k;
       return [redactedKey, redactSensitiveFields(v, depth + 1, seen)];
     }));
   }
@@ -212,7 +216,7 @@ function redactSensitiveFields(value: unknown, depth = 0, seen?: WeakSet<object>
   }
   const result: Record<string, unknown> = Object.create(null);
   for (const [key, val] of Object.entries(value as Record<string, unknown>)) {
-    if (SENSITIVE_FIELDS.has(key) || SENSITIVE_FIELD_PATTERN.test(key)) {
+    if (isSensitiveField(key)) {
       result[key] = "[REDACTED]";
     } else {
       result[key] = redactSensitiveFields(val, depth + 1, seen);

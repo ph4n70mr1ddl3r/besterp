@@ -410,37 +410,25 @@ describe("McpModule", () => {
       });
 
       it("should reject non-string reasoning with a structured error", () => {
-        expect(() =>
+        const callWithType = () =>
           mcpModule.buildContext({
             tenantId: "tenant-1",
             userId: "user-1",
             reasoning: 42 as unknown as string,
-          })
-        ).toThrow(InvalidTypeValueError);
-        expect(() =>
-          mcpModule.buildContext({
-            tenantId: "tenant-1",
-            userId: "user-1",
-            reasoning: 42 as unknown as string,
-          })
-        ).toThrow(/reasoning must be a string/);
+          });
+        expect(callWithType).toThrow(InvalidTypeValueError);
+        expect(callWithType).toThrow(/reasoning must be a string/);
       });
 
       it("should reject reasoning exceeding max length", () => {
-        expect(() =>
+        const callWithLongReasoning = () =>
           mcpModule.buildContext({
             tenantId: "tenant-1",
             userId: "user-1",
             reasoning: "x".repeat(2001),
-          })
-        ).toThrow(InvalidTypeValueError);
-        expect(() =>
-          mcpModule.buildContext({
-            tenantId: "tenant-1",
-            userId: "user-1",
-            reasoning: "x".repeat(2001),
-          })
-        ).toThrow("reasoning is too long");
+          });
+        expect(callWithLongReasoning).toThrow(InvalidTypeValueError);
+        expect(callWithLongReasoning).toThrow("reasoning is too long");
       });
 
       it("should normalise whitespace-only reasoning to undefined", () => {

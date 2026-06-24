@@ -7,7 +7,7 @@ import {
   validateTenantIdEnhanced,
   validatePrismaClientForRls
 } from "../rls-extension.js";
-import { InvalidTypeValueError } from "@besterp/shared";
+import { DomainError, InvalidTypeValueError } from "@besterp/shared";
 
 describe("RLS Extension", () => {
   describe("validateTenantIdEnhanced", () => {
@@ -45,7 +45,7 @@ describe("RLS Extension", () => {
 
     it("should reject tenant IDs that are too long", () => {
       const longId = "a".repeat(101);
-      expect(() => validateTenantIdEnhanced(longId)).toThrow(InvalidTypeValueError);
+      expect(() => validateTenantIdEnhanced(longId)).toThrow(DomainError);
     });
 
     it("should reject tenant IDs with dangerous patterns", () => {
@@ -277,13 +277,13 @@ describe("RLS Extension", () => {
 
     it("should provide detailed error messages for invalid tenant IDs", () => {
       expect.assertions(3);
-      expect(() => createTenantClient(mockPrisma, "bad@tenant#123")).toThrow(InvalidTypeValueError);
+      expect(() => createTenantClient(mockPrisma, "bad@tenant#123")).toThrow(DomainError);
       try {
         createTenantClient(mockPrisma, "bad@tenant#123");
       } catch (error) {
-        if (error instanceof InvalidTypeValueError) {
+        if (error instanceof DomainError) {
           expect(error.context).toBeDefined();
-          expect(error.context.field).toBe("tenantId");
+          expect(error.code).toBe("INVALID_TENANT_ID");
         }
       }
     });

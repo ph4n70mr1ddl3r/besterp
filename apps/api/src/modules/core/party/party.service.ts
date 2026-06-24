@@ -269,6 +269,7 @@ export class PartyService {
       }, { timeout: 10_000 });
     } catch (err) {
       PartyService.handleTransactionError(err, "create_party", "search_parties");
+      throw err; // unreachable — handleTransactionError is `never`, but satisfies TypeScript
     }
   }
 
@@ -514,6 +515,7 @@ export class PartyService {
       }, { timeout: 10_000 });
     } catch (err) {
       PartyService.handleTransactionError(err, "add_party_role", "get_party");
+      throw err; // unreachable — handleTransactionError is `never`, but satisfies TypeScript
     }
   }
 
@@ -640,6 +642,7 @@ export class PartyService {
       }, { timeout: 10_000 });
     } catch (err) {
       PartyService.handleTransactionError(err, "add_contact_mechanism", "search_parties");
+      throw err; // unreachable — handleTransactionError is `never`, but satisfies TypeScript
     }
   }
 
