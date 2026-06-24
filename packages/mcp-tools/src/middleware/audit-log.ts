@@ -9,7 +9,7 @@
 // never break the tool).
 
 import { PrismaClient, Prisma } from "@prisma/client";
-import { getErrorCode, MAX_REASONING_LENGTH } from "@besterp/shared";
+import { getErrorCode, MAX_REASONING_LENGTH, sanitizeForLog } from "@besterp/shared";
 import { ToolMiddleware, ToolContext, ToolResult } from "../schema/tool-definition.js";
 import { truncateValue, MAX_STORED_PAYLOAD_SIZE } from "./truncate.js";
 
@@ -26,7 +26,7 @@ const SENSITIVE_FIELDS = new Set([
 ]);
 
 /** Regex pattern for catch-all sensitive field detection (password, secret, token, key, etc.). */
-const SENSITIVE_FIELD_PATTERN = /password|secret|token|key|credential|auth/i;
+const SENSITIVE_FIELD_PATTERN = /\b(password|secret|token|api[_-]?key|credential|auth)\b/i;
 
 /** Audit log uses the same 64 KB cap as other stored payloads. */
 const MAX_AUDIT_INPUT_SIZE = MAX_STORED_PAYLOAD_SIZE;
@@ -38,11 +38,6 @@ const MAX_CONCURRENT_AUDIT_WRITES = 100;
 const MAX_AUDIT_QUEUE_SIZE = 1000;
 /** Maximum time (ms) a write can wait in the queue before being dropped. */
 const WRITE_QUEUE_TIMEOUT_MS = 5_000;
-
-/** Strip newlines from strings to prevent log injection via user-controlled values. */
-function sanitizeForLog(s: string): string {
-  return s.replace(/[\r\n]/g, "_");
-}
 
 /**
  * Create an audit log middleware backed by PostgreSQL.

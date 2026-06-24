@@ -120,6 +120,13 @@ export function sanitizeLogOutput(message: string): string {
 }
 
 /**
+ * Strip newlines from strings to prevent log injection via user-controlled messages.
+ */
+export function sanitizeForLog(s: string): string {
+  return s.replace(/[\r\n]/g, "_");
+}
+
+/**
  * Safely decode a Unicode code point.
  *
  * `String.fromCodePoint()` throws RangeError for lone surrogates

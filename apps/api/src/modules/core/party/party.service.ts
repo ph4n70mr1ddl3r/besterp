@@ -227,47 +227,49 @@ export class PartyService {
     sanitizedPerson: CreatePartyInput["person"] | undefined,
     sanitizedOrg: CreatePartyInput["organization"] | undefined,
   ) {
-    return db.$transaction(async (tx: Prisma.TransactionClient) => {
-      const partyTypeRecord = await tx.partyType.findUnique({ where: { name: partyTypeName } });
-      if (!partyTypeRecord) {
-        throw new InvalidTypeValueError(
-          `PARTY_TYPE '${partyTypeName}' is not valid. Valid types: ['PERSON', 'ORGANIZATION'].`,
-          { suggestedTools: ["get_type_table_values"], context: { field: "partyType", invalidValue: partyTypeName, validValues: ["PERSON", "ORGANIZATION"] } }
-        );
-      }
+    try {
+      return await db.$transaction(async (tx: Prisma.TransactionClient) => {
+        const partyTypeRecord = await tx.partyType.findUnique({ where: { name: partyTypeName } });
+        if (!partyTypeRecord) {
+          throw new InvalidTypeValueError(
+            `PARTY_TYPE '${partyTypeName}' is not valid. Valid types: ['PERSON', 'ORGANIZATION'].`,
+            { suggestedTools: ["get_type_table_values"], context: { field: "partyType", invalidValue: partyTypeName, validValues: ["PERSON", "ORGANIZATION"] } }
+          );
+        }
 
-      const data: Prisma.PartyCreateInput = {
-        partyType: { connect: { partyTypeId: partyTypeRecord.partyTypeId } },
-        tenantId,
-        name,
-        description,
-      };
-      if (sanitizedPerson) {
-        data.person = {
-          create: {
-            firstName: sanitizedPerson.firstName,
-            lastName: sanitizedPerson.lastName,
-            middleName: sanitizedPerson.middleName ?? null,
-            birthDate: sanitizedPerson.birthDate ? new Date(sanitizedPerson.birthDate) : null,
-            gender: sanitizedPerson.gender ?? null,
-          },
+        const data: Prisma.PartyCreateInput = {
+          partyType: { connect: { partyTypeId: partyTypeRecord.partyTypeId } },
+          tenantId,
+          name,
+          description,
         };
-      }
-      if (sanitizedOrg) {
-        data.organization = {
-          create: {
-            legalName: sanitizedOrg.legalName,
-            taxId: sanitizedOrg.taxId ?? null,
-            registrationDate: sanitizedOrg.registrationDate
-              ? new Date(sanitizedOrg.registrationDate)
-              : null,
-          },
-        };
-      }
-      return tx.party.create({ data, include: PartyService.PARTY_INCLUDE });
-    }, { timeout: 10_000 }).catch((err) => {
+        if (sanitizedPerson) {
+          data.person = {
+            create: {
+              firstName: sanitizedPerson.firstName,
+              lastName: sanitizedPerson.lastName,
+              middleName: sanitizedPerson.middleName ?? null,
+              birthDate: sanitizedPerson.birthDate ? new Date(sanitizedPerson.birthDate) : null,
+              gender: sanitizedPerson.gender ?? null,
+            },
+          };
+        }
+        if (sanitizedOrg) {
+          data.organization = {
+            create: {
+              legalName: sanitizedOrg.legalName,
+              taxId: sanitizedOrg.taxId ?? null,
+              registrationDate: sanitizedOrg.registrationDate
+                ? new Date(sanitizedOrg.registrationDate)
+                : null,
+            },
+          };
+        }
+        return tx.party.create({ data, include: PartyService.PARTY_INCLUDE });
+      }, { timeout: 10_000 });
+    } catch (err) {
       PartyService.handleTransactionError(err, "create_party", "search_parties");
-    });
+    }
   }
 
   /** Map Prisma transaction errors to DomainErrors. Throws the mapped error. */
@@ -487,30 +489,32 @@ export class PartyService {
     tenantId: string, partyId: string, roleTypeId: string,
     trimmedRoleType: string, roleFromDate: Date,
   ): Promise<Prisma.PartyRoleGetPayload<{ include: { roleType: true } }>> {
-    return db.$transaction(async (tx) => {
-      const party = await tx.party.findFirst({ where: { partyId, tenantId } });
-      if (!party) {
-        throw new EntityNotFoundError(`Party '${partyId}' not found.`, { suggestedTools: ["search_parties", "get_party"], context: { partyId } });
-      }
+    try {
+      return await db.$transaction(async (tx) => {
+        const party = await tx.party.findFirst({ where: { partyId, tenantId } });
+        if (!party) {
+          throw new EntityNotFoundError(`Party '${partyId}' not found.`, { suggestedTools: ["search_parties", "get_party"], context: { partyId } });
+        }
 
-      const existingRole = await tx.partyRole.findFirst({
-        where: { partyId, roleTypeId, thruDate: null, party: { tenantId } },
-      });
-      if (existingRole) {
-        throw new DuplicateEntityError(
-          `Party '${partyId}' already has active role '${trimmedRoleType}'. Existing role started on ${existingRole.fromDate.toISOString()}. ` +
-          `To change a party's role, first end the current role by setting a thruDate, then re-call add_party_role.`,
-          { suggestedTools: ["get_party"], context: { partyId, roleType: trimmedRoleType, existingRoleId: existingRole.partyRoleId, existingRoleDate: existingRole.fromDate.toISOString() } }
-        );
-      }
+        const existingRole = await tx.partyRole.findFirst({
+          where: { partyId, roleTypeId, thruDate: null, party: { tenantId } },
+        });
+        if (existingRole) {
+          throw new DuplicateEntityError(
+            `Party '${partyId}' already has active role '${trimmedRoleType}'. Existing role started on ${existingRole.fromDate.toISOString()}. ` +
+            `To change a party's role, first end the current role by setting a thruDate, then re-call add_party_role.`,
+            { suggestedTools: ["get_party"], context: { partyId, roleType: trimmedRoleType, existingRoleId: existingRole.partyRoleId, existingRoleDate: existingRole.fromDate.toISOString() } }
+          );
+        }
 
-      return tx.partyRole.create({
-        data: { partyId, roleTypeId, fromDate: roleFromDate },
-        include: { roleType: true },
-      });
-    }, { timeout: 10_000 }).catch((err) => {
+        return tx.partyRole.create({
+          data: { partyId, roleTypeId, fromDate: roleFromDate },
+          include: { roleType: true },
+        });
+      }, { timeout: 10_000 });
+    } catch (err) {
       PartyService.handleTransactionError(err, "add_party_role", "get_party");
-    });
+    }
   }
 
   // ─── Add Contact Mechanism ────────────────────────────────────
@@ -615,26 +619,28 @@ export class PartyService {
       postalAddress: true; telecomNumber: true; emailAddress: true; contactMechanismType: true;
     };
   }>> {
-    return db.$transaction(async (tx: Prisma.TransactionClient) => {
-      const existingParty = await tx.party.findFirst({ where: { partyId, tenantId } });
-      if (!existingParty) {
-        throw new EntityNotFoundError(`Party '${partyId}' not found.`, { suggestedTools: ["search_parties", "get_party"], context: { partyId } });
-      }
+    try {
+      return await db.$transaction(async (tx: Prisma.TransactionClient) => {
+        const existingParty = await tx.party.findFirst({ where: { partyId, tenantId } });
+        if (!existingParty) {
+          throw new EntityNotFoundError(`Party '${partyId}' not found.`, { suggestedTools: ["search_parties", "get_party"], context: { partyId } });
+        }
 
-      return tx.contactMechanism.create({
-        data: {
-          contactMechanismTypeId,
-          tenantId,
-          postalAddress: type === "POSTAL_ADDRESS" && postalAddress ? { create: PartyService.sanitizePostalAddress(postalAddress) } : undefined,
-          telecomNumber: type === "TELECOM_NUMBER" && telecomNumber ? { create: PartyService.sanitizeTelecomNumber(telecomNumber) } : undefined,
-          emailAddress: type === "EMAIL_ADDRESS" && normalizedEmail ? { create: { email: normalizedEmail } } : undefined,
-          partyContacts: { create: { partyId } },
-        },
-        include: { postalAddress: true, telecomNumber: true, emailAddress: true, contactMechanismType: true },
-      });
-    }, { timeout: 10_000 }).catch((err) => {
+        return tx.contactMechanism.create({
+          data: {
+            contactMechanismTypeId,
+            tenantId,
+            postalAddress: type === "POSTAL_ADDRESS" && postalAddress ? { create: PartyService.sanitizePostalAddress(postalAddress) } : undefined,
+            telecomNumber: type === "TELECOM_NUMBER" && telecomNumber ? { create: PartyService.sanitizeTelecomNumber(telecomNumber) } : undefined,
+            emailAddress: type === "EMAIL_ADDRESS" && normalizedEmail ? { create: { email: normalizedEmail } } : undefined,
+            partyContacts: { create: { partyId } },
+          },
+          include: { postalAddress: true, telecomNumber: true, emailAddress: true, contactMechanismType: true },
+        });
+      }, { timeout: 10_000 });
+    } catch (err) {
       PartyService.handleTransactionError(err, "add_contact_mechanism", "search_parties");
-    });
+    }
   }
 
   private static sanitizePostalAddress(addr: NonNullable<AddContactMechanismInput["postalAddress"]>) {

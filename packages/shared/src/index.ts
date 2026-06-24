@@ -18,7 +18,7 @@ export { hashInput } from "./crypto.js";
 
 export { UUID_REGEX, EMAIL_REGEX, COUNTRY_CODE_REGEX, ISO_DATE_REGEX, isValidISODate } from "./validation.js";
 
-export { stripHtmlTags, safeFromCodePoint, sanitizeLogOutput } from "./sanitize.js";
+export { stripHtmlTags, safeFromCodePoint, sanitizeLogOutput, sanitizeForLog } from "./sanitize.js";
 
 export {
   MAX_PARTY_NAME_LENGTH,

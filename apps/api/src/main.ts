@@ -60,7 +60,7 @@ function setupGracefulShutdown(app: INestApplication): void {
     try {
       await app.close();
       clearTimeout(hardExitTimer);
-      process.exit(0);
+      process.exit(1);
     } catch (closeErr) {
       const errorDetail = closeErr instanceof Error ? closeErr.stack ?? closeErr.message : String(closeErr);
       console.error("❌ Error during graceful shutdown:", sanitizeLogOutput(errorDetail));
@@ -130,7 +130,7 @@ function parsePort(): number {
 async function bootstrap() {
   validateEnvironment();
 
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create(AppModule, { bodyParser: false });
 
   setupGracefulShutdown(app);
 
@@ -139,6 +139,13 @@ async function bootstrap() {
   configureCors(app);
 
   app.use(helmet());
+
+  // Limit request body size to 100 KB to prevent DoS via oversized payloads.
+  // Uses the raw express middleware since NestFactory.create({ bodyParser: false })
+  // disables the built-in body parser.
+  const express = await import("express");
+  app.use(express.default.json({ limit: "100kb" }));
+  app.use(express.default.urlencoded({ extended: true, limit: "100kb" }));
 
   app.useGlobalPipes(
     new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true })

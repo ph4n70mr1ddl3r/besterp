@@ -12,6 +12,7 @@ import {
   ToolContext,
   ZodSchemaLike,
 } from "../schema/tool-definition.js";
+import { MAX_IDEMPOTENCY_KEY_LENGTH } from "@besterp/shared";
 
 export class ToolRegistry {
   private readonly tools = new Map<string, RegistryEntry>();
@@ -126,7 +127,7 @@ export class ToolRegistry {
       ? rawInput as Record<string, unknown>
       : null;
     const effectiveContext: ToolContext =
-      raw?.idempotencyKey && typeof raw.idempotencyKey === "string" && !context.idempotencyKey
+      raw?.idempotencyKey && typeof raw.idempotencyKey === "string" && raw.idempotencyKey.length <= MAX_IDEMPOTENCY_KEY_LENGTH && !context.idempotencyKey
         ? { ...context, idempotencyKey: raw.idempotencyKey }
         : context;
 

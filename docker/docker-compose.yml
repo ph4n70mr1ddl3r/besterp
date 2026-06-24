@@ -28,6 +28,8 @@ services:
     command: redis-server --requirepass ${REDIS_PASSWORD:-besterp_redis_dev}
     ports:
       - "127.0.0.1:6380:6379"
+    volumes:
+      - redisdata:/data
     healthcheck:
       test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-besterp_redis_dev}", "ping"]
       interval: 5s
@@ -58,3 +60,4 @@ services:
 volumes:
   pgdata:
   miniodata:
+  redisdata:

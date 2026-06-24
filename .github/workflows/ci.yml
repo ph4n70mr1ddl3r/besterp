@@ -30,13 +30,16 @@ jobs:
         run: npm ci
 
       - name: Security audit
-        run: npm audit --audit-level=high
+        run: npm audit --audit-level=moderate
 
       - name: Generate Prisma client
         run: npm run generate --workspace=@besterp/database
 
       - name: Lint
         run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
 
       - name: Build
         run: npm run build
@@ -103,16 +106,16 @@ jobs:
         run: npm run db:seed
 
       - name: Run shared package tests
-        run: npm run test --workspace=@besterp/shared
+        run: npm run test --workspace=@besterp/shared -- --coverage
 
       - name: Run MCP tools unit tests
-        run: npm run test --workspace=@besterp/mcp-tools
+        run: npm run test --workspace=@besterp/mcp-tools -- --coverage
 
       - name: Run database integration tests
         env:
           DATABASE_URL: postgresql://besterp_app:besterp_app_dev@localhost:5434/besterp
           DATABASE_ADMIN_URL: postgresql://besterp:besterp_dev@localhost:5434/besterp
-        run: npm run test --workspace=@besterp/database
+        run: npm run test --workspace=@besterp/database -- --coverage
 
       - name: Run API unit tests
-        run: npm run test --workspace=@besterp/api
+        run: npm run test --workspace=@besterp/api -- --coverage

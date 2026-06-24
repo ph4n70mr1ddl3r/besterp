@@ -9,6 +9,8 @@
 import {
   isDomainError,
   DomainError,
+  sanitizeForLog,
+  sanitizeLogOutput,
 } from "@besterp/shared";
 import { ToolMiddleware, ToolResult } from "../schema/tool-definition.js";
 
@@ -124,16 +126,8 @@ function handlePrismaError(prismaCode: string, prismaMeta: { target?: string | s
   return null;
 }
 
-/** Strip newlines from strings to prevent log injection via user-controlled messages. */
-function sanitizeForLog(s: string): string {
-  return s.replace(/[\r\n]/g, "_");
-}
-
 function sanitizeErrorMessage(message: string): string {
-  return sanitizeForLog(message)
-    .replace(/(?:postgresql?|redis|mongodb(?:\+srv)?|mysql):\/\/[^\s"']+/gi, "[CONNECTION_URL]")
-    .replace(/\bat\b[/\\][^\s"':]+/gi, "[PATH]")
-    .slice(0, 500);
+  return sanitizeLogOutput(sanitizeForLog(message)).slice(0, 500);
 }
 
 function handleGenericError(error: unknown, definition: { name: string }, tenantId: string, userId: string): ToolResult {

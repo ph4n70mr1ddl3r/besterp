@@ -77,10 +77,10 @@ export class HealthService implements OnModuleInit {
       return;
     }
     try {
-      const pkg = JSON.parse(raw);
+      const pkg = JSON.parse(raw) as Record<string, unknown>;
       this.packageInfo = {
-        version: pkg.version || "0.0.0",
-        name: pkg.name || "unknown",
+        version: typeof pkg.version === "string" ? pkg.version : "0.0.0",
+        name: typeof pkg.name === "string" ? pkg.name : "unknown",
       };
     } catch (parseErr) {
       this.logger.warn(
