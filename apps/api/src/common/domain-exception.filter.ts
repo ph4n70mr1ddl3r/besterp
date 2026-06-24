@@ -77,13 +77,20 @@ export class DomainExceptionFilter implements ExceptionFilter {
     }
 
     const isProd = process.env.NODE_ENV === "production";
-    response.status(status).json({
+    const body: Record<string, unknown> = {
       statusCode: status,
       ...(isProd ? {} : { error: exception.code }),
       ...(status === 500 && isProd
         ? { message: "An unexpected error occurred" }
         : { message: exception.message }),
-    });
+    };
+    if (!isProd && exception.suggestedTools.length > 0) {
+      body.suggestedTools = exception.suggestedTools;
+    }
+    if (!isProd && Object.keys(exception.context).length > 0) {
+      body.context = exception.context;
+    }
+    response.status(status).json(body);
   }
 
   private handleHttpException(exception: HttpException, response: Response): void {

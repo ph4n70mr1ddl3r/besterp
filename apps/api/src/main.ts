@@ -60,7 +60,7 @@ function setupGracefulShutdown(app: INestApplication): void {
     try {
       await app.close();
       clearTimeout(hardExitTimer);
-      process.exit(1);
+      process.exit(0);
     } catch (closeErr) {
       const errorDetail = closeErr instanceof Error ? closeErr.stack ?? closeErr.message : String(closeErr);
       console.error("❌ Error during graceful shutdown:", sanitizeLogOutput(errorDetail));

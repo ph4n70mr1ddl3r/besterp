@@ -3,7 +3,7 @@
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { McpModule } from "./mcp.module.js";
-import { InvalidTypeValueError } from "@besterp/shared";
+import { DomainError, InvalidTypeValueError } from "@besterp/shared";
 
 // McpModule depends on PrismaService + PartyService.
 // We mock them minimally so onModuleInit doesn't crash.
@@ -89,7 +89,7 @@ describe("McpModule", () => {
           tenantId: "a".repeat(101),
           userId: "user-123",
         })
-      ).toThrow(InvalidTypeValueError);
+      ).toThrow(DomainError);
     });
 
     it("should reject missing userId", () => {
