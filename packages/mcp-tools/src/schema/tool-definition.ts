@@ -56,24 +56,24 @@ export interface ToolServices {
  */
 export interface ToolContext {
   /** The tenant ID for this request (from auth or explicit parameter). */
-  tenantId: string;
+  readonly tenantId: string;
   /** The user ID on whose behalf this tool is called. */
-  userId: string;
+  readonly userId: string;
   /** The AI agent ID making the call. */
-  agentId?: string;
+  readonly agentId?: string;
   /** The conversation/session ID. */
-  conversationId?: string;
+  readonly conversationId?: string;
   /** Idempotency key (if provided by the caller). */
-  idempotencyKey?: string;
+  readonly idempotencyKey?: string;
   /** Reasoning provided by the AI agent for why this tool was called. */
-  reasoning?: string;
+  readonly reasoning?: string;
   /**
    * Service locator — allows tools to access domain services
    * without importing NestJS directly. Populated by the MCP module.
    * Typed as ToolServices for type safety; tools cast to their specific
    * service interface when accessing services.
    */
-  services: ToolServices;
+  readonly services: ToolServices;
 }
 
 // ─── Tool Result ──────────────────────────────────────────────────

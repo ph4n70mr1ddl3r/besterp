@@ -44,10 +44,8 @@ function sortMap(value: Map<unknown, unknown>, ancestors: Set<object>, depth: nu
       kSorted: sortKeysDeep(k, ancestors, depth + 1),
     }))
     .sort((a, b) => {
-      const aStr = typeof a.kSorted === "object" && a.kSorted !== null
-        ? JSON.stringify(a.kSorted) : String(a.k);
-      const bStr = typeof b.kSorted === "object" && b.kSorted !== null
-        ? JSON.stringify(b.kSorted) : String(b.k);
+      const aStr = JSON.stringify(a.kSorted);
+      const bStr = JSON.stringify(b.kSorted);
       return aStr < bStr ? -1 : aStr > bStr ? 1 : 0;
     });
   const result = sortedEntries.map(({ v, kSorted }) => [kSorted, sortKeysDeep(v, ancestors, depth + 1)]);

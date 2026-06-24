@@ -40,7 +40,7 @@ export default tseslint.config(
       "no-var": "error",
 
       // Complexity limits
-      "max-lines-per-function": ["warn", { max: 80, skipBlankLines: true, skipComments: true }],
+      "max-lines-per-function": ["warn", { max: 120, skipBlankLines: true, skipComments: true }],
       "max-nested-callbacks": ["warn", { max: 4 }],
       "max-depth": ["warn", { max: 4 }],
       complexity: ["warn", { max: 15 }],

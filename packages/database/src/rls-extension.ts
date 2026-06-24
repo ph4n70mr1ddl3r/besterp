@@ -50,15 +50,6 @@ class LruCache<K, V> {
     this.map.set(key, value);
   }
 
-  has(key: K): boolean {
-    const exists = this.map.has(key);
-    if (exists) {
-      const value = this.map.get(key)!;
-      this.map.delete(key);
-      this.map.set(key, value);
-    }
-    return exists;
-  }
   get size(): number { return this.map.size; }
 }
 
@@ -73,8 +64,9 @@ export function validateTenantIdEnhanced(tenantId: string): void {
   try {
     validateTenantId(tenantId);
   } catch (e) {
-    // Re-throw as a structured DomainError so callers only need to
-    // catch InvalidTypeValueError instead of plain Error.
+    // Preserve original DomainError with its specific code (e.g. INVALID_TENANT_ID)
+    // instead of wrapping it as INVALID_TYPE_VALUE, which loses error specificity.
+    if (e instanceof Error && "code" in e) throw e;
     const message = e instanceof Error ? e.message : String(e);
     throw new InvalidTypeValueError(
       message,
@@ -188,7 +180,10 @@ function createTransactionWrapper(prisma: PrismaClient, tenantId: string) {
       return options ? (prisma as any).$transaction(wrappedFn, options) : (prisma as any).$transaction(wrappedFn);
     }
 
-    throw new Error("Unsupported $transaction arguments. Use $transaction(async (tx) => { ... })");
+    throw new Error(
+      `Unsupported $transaction argument: expected a function or array, got ${typeof args[0]}. ` +
+      `Use $transaction(async (tx) => { ... })`
+    );
   };
 }
 

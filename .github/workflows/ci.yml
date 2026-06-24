@@ -32,7 +32,15 @@ jobs:
       - name: Security audit
         run: npm audit --audit-level=moderate
 
+      - name: Cache Prisma client
+        id: prisma-cache
+        uses: actions/cache@v4
+        with:
+          path: packages/database/node_modules/.prisma
+          key: prisma-${{ runner.os }}-${{ hashFiles('packages/database/prisma/schema.prisma') }}
+
       - name: Generate Prisma client
+        if: steps.prisma-cache.outputs.cache-hit != 'true'
         run: npm run generate --workspace=@besterp/database
 
       - name: Lint
@@ -78,7 +86,15 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Cache Prisma client
+        id: prisma-cache-test
+        uses: actions/cache@v4
+        with:
+          path: packages/database/node_modules/.prisma
+          key: prisma-${{ runner.os }}-${{ hashFiles('packages/database/prisma/schema.prisma') }}
+
       - name: Generate Prisma client
+        if: steps.prisma-cache-test.outputs.cache-hit != 'true'
         run: npm run generate --workspace=@besterp/database
 
       - name: Run migrations

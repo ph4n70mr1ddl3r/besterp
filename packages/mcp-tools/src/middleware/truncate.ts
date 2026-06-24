@@ -76,7 +76,8 @@ export function truncateValue(value: unknown, maxSize: number = MAX_STORED_PAYLO
   // stringify+parse roundtrip that class instances, Maps, etc. need.
   if (value === null) return null;
   if (typeof value === "string" || typeof value === "boolean") {
-    const encoded = textEncoder.encode(String(value));
+    const serialized = JSON.stringify(value);
+    const encoded = textEncoder.encode(serialized);
     if (encoded.byteLength > effectiveMax) {
       return {
         _truncated: true,

@@ -232,6 +232,7 @@ model AiActionLog {
   createdAt      DateTime @default(now()) @map("created_at")
 
   @@index([tenantId])
+  @@index([tenantId, createdAt])
   @@index([tenantId, toolCalled])
   @@index([userId])
   @@index([agentId])

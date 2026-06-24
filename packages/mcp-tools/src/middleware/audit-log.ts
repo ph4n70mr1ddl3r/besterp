@@ -96,7 +96,7 @@ interface BackpressureManager {
 
 function createBackpressureManager(prisma: PrismaClient): BackpressureManager {
   let activeWrites = 0;
-  const writeQueue: Array<{ resolve: (value: { acquired: boolean }) => void; timer: ReturnType<typeof setTimeout> }> = [];
+  const writeQueue: Array<{ resolve: (value: { acquired: boolean }) => void; timer: ReturnType<typeof setTimeout>; settled?: boolean }> = [];
   let droppedCount = 0;
   let errorCount = 0;
 
@@ -106,26 +106,29 @@ function createBackpressureManager(prisma: PrismaClient): BackpressureManager {
       return Promise.resolve({ acquired: true });
     }
     return new Promise<{ acquired: boolean }>((resolve) => {
+      let settled = false;
       const timer = setTimeout(() => {
+        if (settled) return;
+        settled = true;
         const idx = writeQueue.findIndex((entry) => entry.timer === timer);
         if (idx !== -1) writeQueue.splice(idx, 1);
         process.stderr.write(`[AuditLog] Write slot timeout after ${WRITE_QUEUE_TIMEOUT_MS}ms — dropping audit entry\n`);
         resolve({ acquired: false });
       }, WRITE_QUEUE_TIMEOUT_MS);
       if (timer.unref) timer.unref();
-      writeQueue.push({ resolve, timer });
+      writeQueue.push({ resolve, timer, get settled() { return settled; } });
     });
   }
 
   function releaseWriteSlot(): void {
     if (activeWrites > 0) activeWrites--;
-    if (writeQueue.length > 0) {
-      const next = writeQueue.shift();
-      if (next) {
-        clearTimeout(next.timer);
-        activeWrites++;
-        next.resolve({ acquired: true });
-      }
+    while (writeQueue.length > 0) {
+      const next = writeQueue.shift()!;
+      clearTimeout(next.timer);
+      if (next.settled) continue;
+      activeWrites++;
+      next.resolve({ acquired: true });
+      return;
     }
   }
 
@@ -190,22 +193,29 @@ async function logAction(prisma: PrismaClient, entry: AuditLogEntry): Promise<vo
   });
 }
 
-function redactSensitiveFields(value: unknown, depth = 0): unknown {
+function redactSensitiveFields(value: unknown, depth = 0, seen?: WeakSet<object>): unknown {
   if (depth > 10 || value === null || value === undefined || typeof value !== "object") return value;
   if (value instanceof Date || value instanceof RegExp) return value;
-  if (Array.isArray(value)) return value.map((item) => redactSensitiveFields(item, depth + 1));
+  seen = seen ?? new WeakSet();
+  if (seen.has(value as object)) return "[Circular]";
+  seen.add(value as object);
+  if (Array.isArray(value)) return value.map((item) => redactSensitiveFields(item, depth + 1, seen));
   if (value instanceof Map) {
-    return new Map([...value.entries()].map(([k, v]) => [k, redactSensitiveFields(v, depth + 1)]));
+    return new Map([...value.entries()].map(([k, v]) => {
+      const redactedKey = (typeof k === "string" && (SENSITIVE_FIELDS.has(k) || SENSITIVE_FIELD_PATTERN.test(k)))
+        ? "[REDACTED]" : k;
+      return [redactedKey, redactSensitiveFields(v, depth + 1, seen)];
+    }));
   }
   if (value instanceof Set) {
-    return new Set([...value].map((v) => redactSensitiveFields(v, depth + 1)));
+    return new Set([...value].map((v) => redactSensitiveFields(v, depth + 1, seen)));
   }
   const result: Record<string, unknown> = Object.create(null);
   for (const [key, val] of Object.entries(value as Record<string, unknown>)) {
     if (SENSITIVE_FIELDS.has(key) || SENSITIVE_FIELD_PATTERN.test(key)) {
       result[key] = "[REDACTED]";
     } else {
-      result[key] = redactSensitiveFields(val, depth + 1);
+      result[key] = redactSensitiveFields(val, depth + 1, seen);
     }
   }
   return result;

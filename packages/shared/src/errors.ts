@@ -50,6 +50,9 @@ export class DomainError extends Error {
           // Only serialize the immediate cause's message, not its own cause chain,
           // to prevent leaking internal error chains (e.g., Prisma errors with
           // SQL/connection details) into audit logs or idempotency records.
+          // NOTE: `stack` is deliberately omitted from the top-level serialization
+          // to prevent leaking internal stack frames (Prisma, database drivers,
+          // Node internals) into audit logs and error responses.
           return this.cause.message;
         } catch {
           return "[Error serializing cause]";
