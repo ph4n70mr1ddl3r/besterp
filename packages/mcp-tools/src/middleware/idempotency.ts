@@ -16,7 +16,7 @@
 // If no idempotency key is provided, the middleware is a no-op pass-through.
 
 import { PrismaClient, Prisma, IdempotencyRecord } from "@prisma/client";
-import { hashInput, getErrorCode, MAX_SOFT_FAILURE_MESSAGE_SIZE, IDEMPOTENCY_TTL_MS, MAX_IDEMPOTENCY_KEY_LENGTH, IDEMPOTENCY_MAX_RETRIES, IDEMPOTENCY_RETRY_BASE_DELAY_MS } from "@besterp/shared";
+import { hashInput, getErrorCode, sanitizeForLog, MAX_SOFT_FAILURE_MESSAGE_SIZE, IDEMPOTENCY_TTL_MS, MAX_IDEMPOTENCY_KEY_LENGTH, IDEMPOTENCY_MAX_RETRIES, IDEMPOTENCY_RETRY_BASE_DELAY_MS } from "@besterp/shared";
 import { ToolMiddleware, ToolResult, ToolContext } from "../schema/tool-definition.js";
 import { truncateValue, MAX_STORED_PAYLOAD_SIZE, capString } from "./truncate.js";
 
@@ -55,11 +55,12 @@ export function idempotencyMiddleware(prisma: PrismaClient): ToolMiddleware {
 
     if (!recordCreated && !existingRecord) {
       // All retries exhausted due to serialization failures (P2034)
+      const safeKey = sanitizeForLog(idempotencyKey.slice(0, 32));
       return {
         success: false,
         error: {
           code: "IDEMPOTENCY_CONTENTION",
-          message: `Could not acquire idempotency record for '${idempotencyKey}' after ${IDEMPOTENCY_MAX_RETRIES} attempts. Please retry with a new idempotency key.`,
+          message: `Could not acquire idempotency record for '${safeKey}' after ${IDEMPOTENCY_MAX_RETRIES} attempts. Please retry with a new idempotency key.`,
           suggestedTools: [definition.name],
         },
       };
@@ -137,7 +138,8 @@ async function acquireIdempotencyRecord(
       return { existingRecord: null, recordCreated: false };
     }
   }
-
+  // Unreachable — the for loop always exits via return in the try/catch.
+  // Kept for TypeScript flow analysis (TS2366).
   return { existingRecord: null, recordCreated: false };
 }
 
@@ -151,7 +153,7 @@ function handleExistingRecord(
         success: false,
         error: {
           code: "IDEMPOTENCY_KEY_MISMATCH",
-          message: `Idempotency key '${idempotencyKey}' was already used with different input. Use a new idempotency key for a different operation.`,
+          message: `Idempotency key '${sanitizeForLog(idempotencyKey.slice(0, 32))}' was already used with different input. Use a new idempotency key for a different operation.`,
           suggestedTools: [toolName],
           context: { originalInputHash: existing.inputHash },
         },
@@ -176,7 +178,7 @@ function handleExistingRecord(
         success: false,
         error: {
           code: "IDEMPOTENCY_KEY_MISMATCH",
-          message: `Idempotency key '${idempotencyKey}' is in use with different input. Use a new idempotency key.`,
+          message: `Idempotency key '${sanitizeForLog(idempotencyKey.slice(0, 32))}' is in use with different input. Use a new idempotency key.`,
           suggestedTools: [toolName],
         },
       };
@@ -185,7 +187,7 @@ function handleExistingRecord(
       success: false,
       error: {
         code: "REQUEST_IN_PROGRESS",
-        message: `A request with idempotency key '${idempotencyKey}' is already in progress. Wait and retry.`,
+        message: `A request with idempotency key '${sanitizeForLog(idempotencyKey.slice(0, 32))}' is already in progress. Wait and retry.`,
         suggestedTools: [toolName],
       },
     };
@@ -197,7 +199,7 @@ function handleExistingRecord(
         success: false,
         error: {
           code: "IDEMPOTENCY_KEY_MISMATCH",
-          message: `Idempotency key '${idempotencyKey}' was previously used with different input. Use a new idempotency key.`,
+          message: `Idempotency key '${sanitizeForLog(idempotencyKey.slice(0, 32))}' was previously used with different input. Use a new idempotency key.`,
           suggestedTools: [toolName],
           context: { originalInputHash: existing.inputHash },
         },

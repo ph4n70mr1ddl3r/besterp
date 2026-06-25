@@ -144,46 +144,81 @@ const CONTACT_SUBTYPE_CONFIGS: Record<string, SubtypeFieldConfig> = {
 
 // ─── Schemas ──────────────────────────────────────────────────────
 
-const personSchema = z.object({
-  firstName: z.string().transform(s => stripHtmlTags(s.trim())).pipe(z.string().min(1).max(MAX_PERSON_NAME_LENGTH)).describe("First/given name"),
-  lastName: z.string().transform(s => stripHtmlTags(s.trim())).pipe(z.string().min(1).max(MAX_PERSON_NAME_LENGTH)).describe("Last/family name"),
-  middleName: z.string().optional().transform(s => s?.trim() || undefined).pipe(z.string().max(MAX_MIDDLE_NAME_LENGTH).optional()).describe("Middle name"),
-  birthDate: z.string().optional().transform(s => s?.trim() || undefined)
-    .pipe(z.string().max(MAX_DATE_STRING_LENGTH).optional())
+// Reusable Zod schema builders — eliminate repeated transform+pipe chains.
+// Each helper applies stripHtmlTags + trim + length validation in one step.
+
+/** Required string: trims, strips HTML, enforces min/max length. */
+function sanitizedString(min: number, max: number) {
+  return z.string()
+    .transform(s => stripHtmlTags(s.trim()))
+    .pipe(z.string().min(min).max(max));
+}
+
+/** Optional string: trims, strips HTML, enforces max length. Empty → undefined. */
+function optionalSanitizedString(max: number) {
+  return z.string()
+    .optional()
+    .transform(s => s?.trim() || undefined)
+    .pipe(z.string().max(max).optional());
+}
+
+/** Optional text: trims, strips HTML, enforces max length. Empty → undefined.
+ *  Unlike optionalSanitizedString, whitespace-only input becomes undefined
+ *  (for description-like fields where " " is not meaningful). */
+function optionalSanitizedText(max: number) {
+  return z.string()
+    .optional()
+    .transform(s => s?.trim() ? stripHtmlTags(s.trim()) : undefined)
+    .pipe(z.string().max(max).optional());
+}
+
+/** Optional ISO 8601 date: trims, validates format, enforces max length. */
+function optionalIsoDate(max: number = MAX_DATE_STRING_LENGTH) {
+  return z.string()
+    .optional()
+    .transform(s => s?.trim() || undefined)
+    .pipe(z.string().max(max).optional())
     .refine(
       v => v === undefined || v.length > 0 && isValidISODate(v),
       "Invalid date format - must be ISO 8601"
-    )
-    .describe("Date of birth (ISO 8601)"),
-  gender: z.string().optional().transform(s => s?.trim() || undefined).pipe(z.string().max(MAX_GENDER_LENGTH).optional()).describe("Gender"),
+    );
+}
+
+const personSchema = z.object({
+  firstName: sanitizedString(1, MAX_PERSON_NAME_LENGTH).describe("First/given name"),
+  lastName: sanitizedString(1, MAX_PERSON_NAME_LENGTH).describe("Last/family name"),
+  middleName: optionalSanitizedString(MAX_MIDDLE_NAME_LENGTH).describe("Middle name"),
+  birthDate: optionalIsoDate().describe("Date of birth (ISO 8601)"),
+  gender: optionalSanitizedString(MAX_GENDER_LENGTH).describe("Gender"),
 });
 
 const organizationSchema = z.object({
-  legalName: z.string().transform(s => stripHtmlTags(s.trim())).pipe(z.string().min(1).max(MAX_LEGAL_NAME_LENGTH)).describe("Legal/registered name of the organization"),
-  taxId: z.string().optional().transform(s => s?.trim() || undefined).pipe(z.string().max(MAX_TAX_ID_LENGTH).optional()).describe("Tax identification number"),
-  registrationDate: z.string().optional().transform(s => s?.trim() || undefined)
-    .pipe(z.string().max(MAX_DATE_STRING_LENGTH).optional())
-    .refine(
-      v => v === undefined || v.length > 0 && isValidISODate(v),
-      "Invalid date format - must be ISO 8601"
-    )
-    .describe("Date of registration (ISO 8601)"),
+  legalName: sanitizedString(1, MAX_LEGAL_NAME_LENGTH).describe("Legal/registered name of the organization"),
+  taxId: optionalSanitizedString(MAX_TAX_ID_LENGTH).describe("Tax identification number"),
+  registrationDate: optionalIsoDate().describe("Date of registration (ISO 8601)"),
 });
 
 const postalAddressSchema = z.object({
-  addressLine1: z.string().transform(s => stripHtmlTags(s.trim())).pipe(z.string().min(1).max(MAX_ADDRESS_LINE_LENGTH)).describe("Street address line 1"),
-  addressLine2: z.string().optional().transform(s => s?.trim() ? stripHtmlTags(s.trim()) : undefined).pipe(z.string().max(MAX_ADDRESS_LINE_LENGTH).optional()).describe("Street address line 2"),
-  city: z.string().transform(s => stripHtmlTags(s.trim())).pipe(z.string().min(1).max(MAX_CITY_LENGTH)).describe("City"),
-  stateProvince: z.string().optional().transform(s => s?.trim() ? stripHtmlTags(s.trim()) : undefined).pipe(z.string().max(MAX_STATE_PROVINCE_LENGTH).optional()).describe("State or province"),
-  postalCode: z.string().optional().transform(s => s?.trim() || undefined).pipe(z.string().max(MAX_POSTAL_CODE_LENGTH).optional()).describe("Postal/ZIP code"),
-  country: z.string().transform(s => stripHtmlTags(s.trim().toUpperCase())).pipe(z.string().min(MIN_COUNTRY_CODE_LENGTH).max(MAX_COUNTRY_CODE_LENGTH)).describe("Country code (e.g., US, DE, JP)"),
+  addressLine1: sanitizedString(1, MAX_ADDRESS_LINE_LENGTH).describe("Street address line 1"),
+  addressLine2: optionalSanitizedText(MAX_ADDRESS_LINE_LENGTH).describe("Street address line 2"),
+  city: sanitizedString(1, MAX_CITY_LENGTH).describe("City"),
+  stateProvince: optionalSanitizedText(MAX_STATE_PROVINCE_LENGTH).describe("State or province"),
+  postalCode: optionalSanitizedString(MAX_POSTAL_CODE_LENGTH).describe("Postal/ZIP code"),
+  country: z.string()
+    .transform(s => stripHtmlTags(s.trim().toUpperCase()))
+    .pipe(z.string().min(MIN_COUNTRY_CODE_LENGTH).max(MAX_COUNTRY_CODE_LENGTH))
+    .describe("Country code (e.g., US, DE, JP)"),
 });
 
 const telecomNumberSchema = z.object({
-  countryCode: z.string().optional().transform(s => s?.trim() || undefined).pipe(z.string().min(1).max(MAX_PHONE_COUNTRY_CODE_LENGTH).regex(COUNTRY_CODE_REGEX, "Must be an E.164 country code (e.g., '+1', '+44')").optional()).describe("E.164 country code (e.g., '+1', '+44'). Defaults to '+1' if omitted."),
-  areaCode: z.string().transform(s => stripHtmlTags(s.trim())).pipe(z.string().min(1).max(MAX_AREA_CODE_LENGTH)).describe("Area code"),
-  lineNumber: z.string().transform(s => stripHtmlTags(s.trim())).pipe(z.string().min(1).max(MAX_LINE_NUMBER_LENGTH)).describe("Phone line number"),
-  extension: z.string().optional().transform(s => s?.trim() ? stripHtmlTags(s.trim()) : undefined).pipe(z.string().max(MAX_EXTENSION_LENGTH).optional()).describe("Extension"),
+  countryCode: z.string()
+    .optional()
+    .transform(s => s?.trim() || undefined)
+    .pipe(z.string().min(1).max(MAX_PHONE_COUNTRY_CODE_LENGTH).regex(COUNTRY_CODE_REGEX, "Must be an E.164 country code (e.g., '+1', '+44')").optional())
+    .describe("E.164 country code (e.g., '+1', '+44'). Defaults to '+1' if omitted."),
+  areaCode: sanitizedString(1, MAX_AREA_CODE_LENGTH).describe("Area code"),
+  lineNumber: sanitizedString(1, MAX_LINE_NUMBER_LENGTH).describe("Phone line number"),
+  extension: optionalSanitizedText(MAX_EXTENSION_LENGTH).describe("Extension"),
 });
 
 const emailAddressSchema = z.object({
@@ -194,8 +229,8 @@ const emailAddressSchema = z.object({
 
 const createPartySchema = z.object({
   partyType: z.enum(["PERSON", "ORGANIZATION"]).describe("Type of party to create"),
-  name: z.string().transform(s => stripHtmlTags(s.trim())).pipe(z.string().min(1).max(MAX_PARTY_NAME_LENGTH)).describe("Display name for the party (1-500 characters)"),
-  description: z.string().optional().transform(s => s?.trim() ? stripHtmlTags(s.trim()) : undefined).pipe(z.string().max(MAX_PARTY_DESCRIPTION_LENGTH).optional()).describe("Optional description (max 1000 characters)"),
+  name: sanitizedString(1, MAX_PARTY_NAME_LENGTH).describe("Display name for the party (1-500 characters)"),
+  description: optionalSanitizedText(MAX_PARTY_DESCRIPTION_LENGTH).describe("Optional description (max 1000 characters)"),
   person: personSchema.optional().describe("Person details (required when partyType is PERSON)"),
   organization: organizationSchema.optional().describe("Organization details (required when partyType is ORGANIZATION)"),
 }).superRefine((data, ctx) => {
@@ -282,10 +317,19 @@ Returns full party details. Use this to inspect a specific party's information.`
 
 // ─── Tool: search_parties ─────────────────────────────────────────
 
+/** Optional trimmed string that rejects whitespace-only input (for search filters). */
+function optionalFilteredString(max: number) {
+  return z.string()
+    .optional()
+    .transform(s => s?.trim())
+    .pipe(z.string().max(max).optional())
+    .refine(v => v === undefined || v.length > 0, "cannot be whitespace-only");
+}
+
 const searchPartiesSchema = z.object({
-  name: z.string().optional().transform(s => s?.trim()).pipe(z.string().max(MAX_PARTY_NAME_LENGTH).optional()).refine(v => v === undefined || v.length > 0, "name filter cannot be whitespace-only").describe("Filter by name (case-insensitive partial match)"),
+  name: optionalFilteredString(MAX_PARTY_NAME_LENGTH).describe("Filter by name (case-insensitive partial match)"),
   partyType: z.enum(["PERSON", "ORGANIZATION"]).optional().describe("Filter by party type"),
-  roleType: z.string().optional().transform(s => s?.trim()).pipe(z.string().max(MAX_ROLE_TYPE_LENGTH).optional()).refine(v => v === undefined || v.length > 0, "roleType filter cannot be whitespace-only").describe("Filter by role type name (e.g., 'Customer', 'Supplier')"),
+  roleType: optionalFilteredString(MAX_ROLE_TYPE_LENGTH).describe("Filter by role type name (e.g., 'Customer', 'Supplier')"),
   limit: z.number().int().min(1).max(500).optional().default(DEFAULT_SEARCH_LIMIT).describe("Maximum results to return (max 500)"),
   offset: z.number().int().min(0).max(MAX_SEARCH_OFFSET).optional().default(0).describe("Number of results to skip (min 0)"),
 });
@@ -329,14 +373,8 @@ Use this to find customers, suppliers, or any party by name, type, or role.`,
 
 const addPartyRoleSchema = z.object({
   partyId: z.string().min(1).max(200).regex(UUID_REGEX, "Must be a valid UUID").describe("The UUID of the party to assign the role to"),
-  roleType: z.string().transform(s => s.trim()).pipe(z.string().min(1).max(MAX_ROLE_TYPE_LENGTH)).describe("Role type name (e.g., 'Customer', 'Supplier', 'Employee')"),
-  fromDate: z.string().optional().transform(s => s?.trim() || undefined)
-    .pipe(z.string().max(MAX_DATE_STRING_LENGTH).optional())
-    .refine(
-      v => v === undefined || v.length > 0 && isValidISODate(v),
-      "Invalid date format - must be ISO 8601"
-    )
-    .describe(`Start date for the role (ISO 8601, max ${MAX_DATE_STRING_LENGTH} chars, default: now)`),
+  roleType: sanitizedString(1, MAX_ROLE_TYPE_LENGTH).describe("Role type name (e.g., 'Customer', 'Supplier', 'Employee')"),
+  fromDate: optionalIsoDate().describe(`Start date for the role (ISO 8601, max ${MAX_DATE_STRING_LENGTH} chars, default: now)`),
 });
 
 type AddPartyRoleInput_z = z.infer<typeof addPartyRoleSchema>;

@@ -56,10 +56,15 @@ function extractPrismaError(error: unknown): { code: string | undefined; meta: {
     const raw = error as Record<string, unknown>;
     const code = typeof raw.code === "string" ? raw.code : undefined;
     const rawMeta = raw.meta;
-    const meta = (rawMeta != null && typeof rawMeta === "object" && !Array.isArray(rawMeta))
-      ? rawMeta as { target?: string | string[] }
-      : undefined;
-    return { code, meta };
+    if (rawMeta != null && typeof rawMeta === "object" && !Array.isArray(rawMeta)) {
+      const metaObj = rawMeta as Record<string, unknown>;
+      const target = metaObj.target;
+      const validatedTarget = (typeof target === "string" || (Array.isArray(target) && target.every((t) => typeof t === "string")))
+        ? target as string | string[]
+        : undefined;
+      return { code, meta: validatedTarget !== undefined ? { target: validatedTarget } : undefined };
+    }
+    return { code, meta: undefined };
   }
   return { code: undefined, meta: undefined };
 }

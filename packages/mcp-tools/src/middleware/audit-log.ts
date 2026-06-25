@@ -9,7 +9,7 @@
 // never break the tool).
 
 import { PrismaClient, Prisma } from "@prisma/client";
-import { getErrorCode, MAX_REASONING_LENGTH, sanitizeForLog } from "@besterp/shared";
+import { getErrorCode, sanitizeForLog, MAX_REASONING_LENGTH } from "@besterp/shared";
 import { ToolMiddleware, ToolContext, ToolResult } from "../schema/tool-definition.js";
 import { truncateValue, MAX_STORED_PAYLOAD_SIZE } from "./truncate.js";
 
