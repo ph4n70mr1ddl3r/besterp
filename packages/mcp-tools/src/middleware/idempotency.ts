@@ -75,7 +75,16 @@ export function idempotencyMiddleware(prisma: PrismaClient): ToolMiddleware {
 }
 
 function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, ms);
+    // unref so an in-flight retry backoff (used by both the acquire- and
+    // update-record retry loops) does not hold the event loop open during
+    // graceful shutdown. Mirrors the unref pattern in main.ts (hardExitTimer),
+    // health.controller.ts (readiness timeout), and audit-log.ts. The promise
+    // still resolves normally while the loop is running, so retry timing is
+    // unchanged.
+    if (timer.unref) timer.unref();
+  });
 }
 
 function logIdempotencyWarn(message: string): void {
