@@ -100,14 +100,24 @@ export class PartyService {
     const { tenantId, partyType, name, description, person: personData, organization: orgData } = input;
 
     const { trimmedName, trimmedDescription } = this.validateCreatePartyFields(name, description);
-    this.validateCreatePartySubtype(partyType, personData, orgData);
+    // Trim partyType ONCE so every downstream check (subtype exclusivity,
+    // DB lookup) compares the canonical value. The boundary layers (REST
+    // @IsEnum, MCP z.enum) reject whitespace-padded values, but the service
+    // is the last line of defense for direct/internal callers. Validating
+    // against the untrimmed value previously let such a caller pass
+    // partyType " PERSON " together with BOTH person and organization
+    // data: the `=== "PERSON"` checks never matched, so the exclusivity
+    // guard was skipped and BOTH subtype rows were created (no DB
+    // constraint enforces at-most-one subtype). Mirrors addContactMechanism,
+    // which already trims first.
+    const trimmedPartyType = partyType.trim();
+    this.validateCreatePartySubtype(trimmedPartyType, personData, orgData);
     this.validatePersonData(personData);
     this.validateOrganizationData(orgData);
 
     const { sanitizedPerson, sanitizedOrg, sanitizedName, sanitizedDescription } =
       this.sanitizeCreatePartyInput(trimmedName, trimmedDescription, personData, orgData);
 
-    const trimmedPartyType = partyType.trim();
     const db = this.prisma.tenantScoped(tenantId);
 
     const party = await this.createPartyTransaction(db, tenantId, trimmedPartyType, sanitizedName, sanitizedDescription, sanitizedPerson, sanitizedOrg);

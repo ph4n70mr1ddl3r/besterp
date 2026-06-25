@@ -20,8 +20,12 @@ const SENSITIVE_FIELDS = new Set([
   "access_token", "refresh_token", "session_id", "sessionId",
   "private_key", "privateKey", "secret_key", "secretKey",
   "accessKey", "access_key", "encryption_key", "encryptionKey",
-  // ERP-specific sensitive fields
+  // ERP-specific sensitive fields. birthDate/birth_date are the camelCase
+  // field names that actually flow through MCP tool inputs and the Person
+  // subtype — date_of_birth/dob alone miss them, leaking DOB (sensitive PII)
+  // into ai_action_log.tool_input.
   "pin", "cc_number", "card_number", "date_of_birth", "dob",
+  "birthDate", "birth_date",
   "bank_account", "routing_number", "national_id", "passport",
 ]);
 

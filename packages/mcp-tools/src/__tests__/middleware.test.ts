@@ -604,6 +604,32 @@ describe("Audit Log Middleware", () => {
     expect(result).toEqual(toolResult);
   });
 
+  it("should redact sensitive fields (e.g. birthDate, taxId, password) from the audit log", async () => {
+    // Regression guard: birthDate is the camelCase field that actually
+    // flows through person subtype inputs. The redaction list previously
+    // only had date_of_birth/dob (snake), so DOB was persisted in
+    // plaintext in ai_action_log.tool_input.
+    const input = {
+      person: { birthDate: "1990-06-15", taxId: "123-45-6789" },
+      password: "hunter2",
+      name: "Jane Doe",
+    };
+    const toolResult: ToolResult = { success: true, data: "ok" };
+
+    mockPrisma.aiActionLog.create.mockResolvedValue({ id: "log-id" });
+
+    const middleware = auditLogMiddleware(mockPrisma as any);
+    await middleware(input, mockContext, mockDefinition, successNext(toolResult));
+
+    const createCall = mockPrisma.aiActionLog.create.mock.calls[0];
+    const storedInput = createCall[0].data.toolInput;
+    expect(storedInput.person.birthDate).toBe("[REDACTED]");
+    expect(storedInput.person.taxId).toBe("[REDACTED]");
+    expect(storedInput.password).toBe("[REDACTED]");
+    // Non-sensitive fields remain intact.
+    expect(storedInput.name).toBe("Jane Doe");
+  });
+
   it("should log tool execution even when handler throws", async () => {
     const input = { test: "value" };
     const error = new Error("Test error");

@@ -132,7 +132,7 @@ async function acquireIdempotencyRecord(
       // from normal serialization contention.
       if (code !== "P2034") {
         logIdempotencyWarn(
-          `Non-retryable error acquiring idempotency record '${idempotencyKey}' (code=${code ?? "none"}): ${e instanceof Error ? e.message : String(e)}`
+          `Non-retryable error acquiring idempotency record '${sanitizeForLog(idempotencyKey.slice(0, 32))}' (code=${code ?? "none"}): ${e instanceof Error ? e.message : String(e)}`
         );
       }
       // Return contention failure instead of throwing so the middleware
@@ -277,7 +277,7 @@ async function updateIdempotencyRecordWithRetry(
         await delay(IDEMPOTENCY_RETRY_BASE_DELAY_MS * (attempt + 1));
         continue;
       }
-      logIdempotencyWarn(`Failed to update idempotency record '${idempotencyKey}' after ${IDEMPOTENCY_MAX_RETRIES} attempts: ${updateErr instanceof Error ? updateErr.message : String(updateErr)}`);
+      logIdempotencyWarn(`Failed to update idempotency record '${sanitizeForLog(idempotencyKey.slice(0, 32))}' after ${IDEMPOTENCY_MAX_RETRIES} attempts: ${updateErr instanceof Error ? updateErr.message : String(updateErr)}`);
     }
   }
 }

@@ -207,6 +207,27 @@ describe("PartyService", () => {
       await expect(partyService.createParty(input)).rejects.toThrow("person");
     });
 
+    it("should reject whitespace-padded partyType that hides a conflicting subtype (defense-in-depth)", async () => {
+      // Regression guard: validateCreatePartySubtype must compare the
+      // TRIMMED partyType. The boundary layers (REST @IsEnum, MCP z.enum)
+      // reject whitespace-padded values, but the service is the last line
+      // of defense for direct/internal callers. Previously it compared the
+      // untrimmed value, so partyType " PERSON " with BOTH person and
+      // organization data bypassed the exclusivity check — and since no
+      // DB constraint enforces at-most-one subtype, BOTH subtype rows
+      // were created. The service must reject this regardless of padding.
+      const input: CreatePartyInput = {
+        tenantId: "tenant-1",
+        partyType: " PERSON " as any,
+        name: "John Doe",
+        person: { firstName: "John", lastName: "Doe" },
+        organization: { legalName: "Acme Corp" },
+      } as any;
+
+      await expect(partyService.createParty(input)).rejects.toThrow(InvalidTypeValueError);
+      await expect(partyService.createParty(input)).rejects.toThrow("organization");
+    });
+
     it("should throw error for invalid party type", async () => {
       const input: CreatePartyInput = {
         tenantId: "tenant-1",
