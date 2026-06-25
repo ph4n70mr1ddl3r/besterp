@@ -1210,6 +1210,58 @@ describe("PartyService", () => {
       expect(result.emailAddress?.email).toBe("test@example.com");
     });
 
+    it("should strip HTML tags from email before storing (defense-in-depth)", async () => {
+      // Regression guard: the service is the last line of defense for
+      // direct/internal callers that bypass the REST DTO's stricter
+      // @IsEmail. EMAIL_REGEX permits '<' and '>', so without stripping,
+      // tags embedded in the address would be stored verbatim (stored-XSS
+      // surface if ever rendered). The MCP path already strips HTML; the
+      // service must match it. A whole <script>...</script> payload is
+      // removed entirely (and thus rejected as an empty local part), so we
+      // use a tag pair that strips to a still-valid address.
+      const input: AddContactMechanismInput = {
+        tenantId: "tenant-1",
+        partyId: "12345678-1234-1234-1234-123456789abc",
+        contactMechanismType: "EMAIL_ADDRESS",
+        emailAddress: {
+          email: "<b>jane</b>.doe@Example.COM",
+        },
+      };
+
+      const createSpy = vi.fn().mockResolvedValue({
+        contactMechanismId: "contact-email-1",
+        contactMechanismTypeId: "cmt-email",
+        contactMechanismType: { name: "EMAIL_ADDRESS", contactMechanismTypeId: "cmt-email" },
+        postalAddress: null,
+        telecomNumber: null,
+        emailAddress: { email: "jane.doe@example.com" },
+      });
+      const mockDb = {
+        contactMechanismType: {
+          findUnique: vi.fn().mockResolvedValue({ contactMechanismTypeId: "cmt-email" }),
+        },
+        $transaction: vi.fn().mockImplementation(async (fn) => {
+          const tx = {
+            party: {
+              findFirst: vi.fn().mockResolvedValue({ partyId: "12345678-1234-1234-1234-123456789abc" }),
+            },
+            contactMechanism: { create: createSpy },
+          };
+          return fn(tx);
+        }),
+      };
+
+      mockPrismaService.tenantScoped.mockReturnValue(mockDb);
+
+      await partyService.addContactMechanism(input);
+
+      // The HTML tags must be stripped and the address lowercased before
+      // being passed to the persistence layer.
+      expect(createSpy).toHaveBeenCalledTimes(1);
+      const created = createSpy.mock.calls[0]![0].data.emailAddress.create;
+      expect(created.email).toBe("jane.doe@example.com");
+    });
+
     it("should throw InvalidTypeValueError when areaCode is missing for telecom", async () => {
       const input = {
         tenantId: "tenant-1",

@@ -9,7 +9,7 @@
 // never break the tool).
 
 import { PrismaClient, Prisma } from "@prisma/client";
-import { getErrorCode, sanitizeForLog, MAX_REASONING_LENGTH } from "@besterp/shared";
+import { getErrorCode, sanitizeForLog, sanitizeLogOutput, MAX_REASONING_LENGTH } from "@besterp/shared";
 import { ToolMiddleware, ToolContext, ToolResult } from "../schema/tool-definition.js";
 import { truncateValue, MAX_STORED_PAYLOAD_SIZE } from "./truncate.js";
 
@@ -81,9 +81,13 @@ async function executeAndLog(prisma: PrismaClient, backpressure: BackpressureMan
   try {
     result = await next(input, context);
   } catch (error: unknown) {
+    // Sanitize before persisting: a thrown Prisma/driver error can embed a
+    // connection string or hostname in its message. Unlike the stderr path
+    // (handled by errorHandlerMiddleware), this value lands in the durable
+    // ai_action_log table, so we strip it the same way shutdown/log paths do.
     backpressure.log({
       ...base,
-      toolOutput: { error: { message: error instanceof Error ? error.message : String(error), code: getErrorCode(error) } },
+      toolOutput: { error: { message: sanitizeLogOutput(error instanceof Error ? error.message : String(error)), code: getErrorCode(error) } },
     });
     throw error;
   }

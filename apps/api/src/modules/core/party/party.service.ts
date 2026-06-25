@@ -598,7 +598,15 @@ export class PartyService {
         throw new MissingSubtypeDataError("emailAddress is required when contactMechanismType is EMAIL_ADDRESS.", { suggestedTools: ["add_contact_mechanism"], context: { contactMechanismType: type, missingField: "emailAddress" } });
       }
       this.requireStringField(emailAddress.email, "email", MAX_EMAIL_LENGTH, "email address");
-      const normalized = emailAddress.email.trim().toLowerCase();
+      // Strip HTML tags for consistency with the MCP path and every other
+      // field this service sanitizes. The service is the last line of
+      // defense for direct/internal callers that bypass the REST DTO's
+      // stricter @IsEmail, and EMAIL_REGEX permits '<' and '>', so without
+      // this a value like '<script>alert(1)</script>@x.com' would be stored
+      // verbatim (stored-XSS surface if ever rendered). stripHtmlTags never
+      // changes a valid email — the local part cannot contain '<' or '>' —
+      // so legitimate addresses pass through untouched.
+      const normalized = stripHtmlTags(emailAddress.email.trim().toLowerCase());
       if (!EMAIL_REGEX.test(normalized)) {
         throw new InvalidTypeValueError(`Invalid email format: ${normalized}`, { suggestedTools: ["add_contact_mechanism"], context: { contactMechanismType: type, field: "email", invalidValue: normalized } });
       }

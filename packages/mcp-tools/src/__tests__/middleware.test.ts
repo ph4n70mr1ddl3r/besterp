@@ -574,6 +574,39 @@ describe("Idempotency Middleware", () => {
     expect(stored.length).toBeGreaterThan(0);
     expect(stored).toMatch(/truncated/);
   });
+
+  it("should sanitize DB connection strings from the thrown-error message", async () => {
+    // Regression guard: the hard-throw path in executeAndUpdate receives
+    // the raw error (before errorHandlerMiddleware scrubs it) and persists
+    // its message into the durable idempotency_record.error.message. A
+    // driver/Prisma error can embed a connection string (credentials +
+    // hostname); that secret must be redacted (→ [DATABASE_URL]) before it
+    // is written, mirroring the audit-log error path.
+    const input = { test: "value" };
+    const idempotencyKey = "test-hard-msg-sanitize";
+    const contextWithKey = { ...mockContext, idempotencyKey };
+    const error = new Error(
+      "Connection failed: postgres://besterp:s3cret-pw@10.0.0.5:5432/besterp (ECONNREFUSED)"
+    );
+
+    mockFindInTransaction(null);
+    mockPrisma.idempotencyRecord.create.mockResolvedValue({
+      idempotencyKey,
+      status: "pending",
+    });
+    mockPrisma.idempotencyRecord.update.mockResolvedValue({});
+
+    const middleware = idempotencyMiddleware(mockPrisma as any);
+    await expect(
+      middleware(input, contextWithKey, mockDefinition, throwingNext(error))
+    ).rejects.toThrow();
+
+    const updateCall = mockPrisma.idempotencyRecord.update.mock.calls[0];
+    const stored = updateCall[0].data.error.message;
+    expect(stored).not.toContain("s3cret-pw");
+    expect(stored).not.toContain("postgres://");
+    expect(stored).toContain("[DATABASE_URL]");
+  });
 });
 
 describe("Audit Log Middleware", () => {
@@ -712,6 +745,32 @@ describe("Audit Log Middleware", () => {
     const storedOutput = createCall[0].data.toolOutput;
     // Error output should be truncated consistently with the success path
     expect(storedOutput._truncated).toBe(true);
+  });
+
+  it("should sanitize DB connection strings from error-path output", async () => {
+    // Regression guard: the throw path stores error.message into the
+    // durable ai_action_log.tool_output. A raw Prisma/driver error can
+    // embed a connection string (credentials + hostname). Without
+    // sanitization that secret would be persisted to the audit table —
+    // worse than the stderr path, which the errorHandlerMiddleware already
+    // scrubs. The message must be redacted before it lands in the DB.
+    const input = { test: "value" };
+    const error = new Error(
+      "Connection failed: postgres://besterp:s3cret-pw@10.0.0.5:5432/besterp (ECONNREFUSED)"
+    );
+
+    mockPrisma.aiActionLog.create.mockResolvedValue({ id: "log-id" });
+
+    const middleware = auditLogMiddleware(mockPrisma as any);
+    await expect(
+      middleware(input, mockContext, mockDefinition, throwingNext(error))
+    ).rejects.toThrow(error);
+
+    const createCall = mockPrisma.aiActionLog.create.mock.calls[0];
+    const storedMessage = createCall[0].data.toolOutput.error.message;
+    expect(storedMessage).not.toContain("s3cret-pw");
+    expect(storedMessage).not.toContain("postgres://");
+    expect(storedMessage).toContain("[DATABASE_URL]");
   });
 });
 

@@ -16,7 +16,7 @@
 // If no idempotency key is provided, the middleware is a no-op pass-through.
 
 import { PrismaClient, Prisma, IdempotencyRecord } from "@prisma/client";
-import { hashInput, getErrorCode, sanitizeForLog, MAX_SOFT_FAILURE_MESSAGE_SIZE, IDEMPOTENCY_TTL_MS, MAX_IDEMPOTENCY_KEY_LENGTH, IDEMPOTENCY_MAX_RETRIES, IDEMPOTENCY_RETRY_BASE_DELAY_MS } from "@besterp/shared";
+import { hashInput, getErrorCode, sanitizeForLog, sanitizeLogOutput, MAX_SOFT_FAILURE_MESSAGE_SIZE, IDEMPOTENCY_TTL_MS, MAX_IDEMPOTENCY_KEY_LENGTH, IDEMPOTENCY_MAX_RETRIES, IDEMPOTENCY_RETRY_BASE_DELAY_MS } from "@besterp/shared";
 import { ToolMiddleware, ToolResult, ToolContext } from "../schema/tool-definition.js";
 import { truncateValue, MAX_STORED_PAYLOAD_SIZE, capString } from "./truncate.js";
 
@@ -241,8 +241,14 @@ async function executeAndUpdate(
     // verbose thrown error (Prisma dump, network stack trace) would store
     // a multi-KB string verbatim in idempotency_record.error.message and
     // bloat both the row and the 24h-TTL cleanup job's I/O.
+    //
+    // Sanitize FIRST: this throw path receives the raw error before the
+    // errorHandlerMiddleware gets a chance to scrub it, so a driver/Prisma
+    // message can embed a DB connection string or hostname. We strip those
+    // (→ [DATABASE_URL], [HOST]) before persisting to the durable
+    // idempotency_record table — mirroring the audit-log error path.
     const message = capString(
-      error instanceof Error ? error.message : String(error),
+      sanitizeLogOutput(error instanceof Error ? error.message : String(error)),
       MAX_SOFT_FAILURE_MESSAGE_SIZE,
     );
     const failedResult: ToolResult = {
