@@ -50,20 +50,28 @@ async function main() {
     // expired rows can hold a write lock for seconds.
     let deleted: number;
     do {
-      // Find IDs to delete first, then delete by ID to avoid full-table scans
-      // in the DELETE statement on databases with many non-expired rows.
+      // Find expired rows by their composite (idempotencyKey, tenantId) primary
+      // key, then delete those exact rows. Idempotency keys are tenant-scoped
+      // (composite PK), so the same key can exist for multiple tenants; a
+      // key-only delete would wrongly remove another tenant's NON-expired record
+      // that happens to reuse the key. Selecting the (key, tenant) pair and
+      // deleting by it is precise.
       // orderBy ensures deterministic iteration so the oldest expired rows
       // are always cleaned first (helps with retention SLAs).
       const expired = await prisma.idempotencyRecord.findMany({
         where: { expiresAt: { lt: new Date() } },
         orderBy: { expiresAt: "asc" },
-        select: { idempotencyKey: true },
+        select: { idempotencyKey: true, tenantId: true },
         take: BATCH_SIZE,
       });
       if (expired.length === 0) break;
 
       const result = await prisma.idempotencyRecord.deleteMany({
-        where: { idempotencyKey: { in: expired.map((r) => r.idempotencyKey) } },
+        where: {
+          OR: expired.map((r) => ({
+            idempotencyKey_tenantId: { idempotencyKey: r.idempotencyKey, tenantId: r.tenantId },
+          })),
+        },
       });
       deleted = result.count;
       totalDeleted += deleted;

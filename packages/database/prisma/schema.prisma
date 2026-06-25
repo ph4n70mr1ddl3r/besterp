@@ -249,7 +249,13 @@ enum IdempotencyStatus {
 }
 
 model IdempotencyRecord {
-  idempotencyKey String    @id @map("idempotency_key")
+  // Idempotency keys are TENANT-SCOPED, not globally unique. A composite
+  // primary key on (idempotencyKey, tenantId) is required: otherwise two
+  // tenants that happen to reuse the same key (very common — clients emit
+  // sequential or hash-derived keys) collide on a global PK violation when
+  // the second tenant inserts, surfacing as a misleading
+  // IDEMPOTENCY_CONTENTION error instead of working correctly.
+  idempotencyKey String    @map("idempotency_key")
   toolName       String    @map("tool_name")
   tenantId       String    @map("tenant_id")
   userId         String    @map("user_id")
@@ -267,5 +273,6 @@ model IdempotencyRecord {
   @@index([expiresAt])
   @@index([status, expiresAt])
   @@index([toolName])
+  @@id([idempotencyKey, tenantId])
   @@map("idempotency_record")
 }

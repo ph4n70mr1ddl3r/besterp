@@ -113,6 +113,37 @@ describe("Idempotency Middleware", () => {
     expect(result.data).toBe("created");
   });
 
+  it("should treat idempotency keys as tenant-scoped (same key, different tenants each create their own record)", async () => {
+    // Regression: idempotency_record's primary key is composite
+    // (idempotency_key, tenant_id), so a key is unique only WITHIN a tenant.
+    // Two tenants that independently reuse the same key must both succeed.
+    // A global PK on idempotency_key alone would throw P2002 on the second
+    // create and surface as a misleading IDEMPOTENCY_CONTENTION error.
+    const input = { test: "value" };
+    const idempotencyKey = "shared-key";
+
+    // Neither tenant has an existing record → both proceed to create.
+    mockFindInTransaction(null);
+    mockPrisma.idempotencyRecord.create.mockResolvedValue({ idempotencyKey, status: "pending" });
+    mockPrisma.idempotencyRecord.update.mockResolvedValue({});
+
+    const middleware = idempotencyMiddleware(mockPrisma as any);
+    const ctxA = { ...mockContext, tenantId: "tenant-a", idempotencyKey };
+    const ctxB = { ...mockContext, tenantId: "tenant-b", idempotencyKey };
+
+    const resA = await middleware(input, ctxA, mockDefinition, successNext({ success: true, data: "a" }));
+    const resB = await middleware(input, ctxB, mockDefinition, successNext({ success: true, data: "b" }));
+
+    expect(resA.success).toBe(true);
+    expect(resB.success).toBe(true);
+
+    // Two distinct records were created, one per tenant, both carrying the same key.
+    const createCalls = mockPrisma.idempotencyRecord.create.mock.calls;
+    expect(createCalls).toHaveLength(2);
+    expect(createCalls[0][0].data).toMatchObject({ idempotencyKey, tenantId: "tenant-a" });
+    expect(createCalls[1][0].data).toMatchObject({ idempotencyKey, tenantId: "tenant-b" });
+  });
+
   it("should return existing result for completed record with matching hash", async () => {
     const input = { test: "value" };
     const idempotencyKey = "test-key";
@@ -304,7 +335,7 @@ describe("Idempotency Middleware", () => {
     // response. The 'failed' status forces re-execution on the next call.
     expect(mockPrisma.idempotencyRecord.update).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { idempotencyKey, tenantId: mockContext.tenantId },
+        where: { idempotencyKey_tenantId: { idempotencyKey, tenantId: mockContext.tenantId } },
         data: expect.objectContaining({
           status: "failed",
           error: expect.objectContaining({

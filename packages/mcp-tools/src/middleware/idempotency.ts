@@ -109,7 +109,9 @@ async function acquireIdempotencyRecord(
             return { existing: record, created: false };
           }
           await tx.idempotencyRecord.update({
-            where: { idempotencyKey, tenantId },
+            // Composite PK (idempotencyKey, tenantId) — select via the
+            // compound unique selector.
+            where: { idempotencyKey_tenantId: { idempotencyKey, tenantId } },
             data: { status: "pending", inputHash, expiresAt: new Date(Date.now() + IDEMPOTENCY_TTL_MS), error: Prisma.DbNull },
           });
           return { existing: null, created: true };
@@ -255,7 +257,9 @@ async function updateIdempotencyRecordWithRetry(
   for (let attempt = 0; attempt < IDEMPOTENCY_MAX_RETRIES; attempt++) {
     try {
       await prisma.idempotencyRecord.update({
-        where: { idempotencyKey, tenantId },
+        // Composite PK (idempotencyKey, tenantId) — select via the
+        // compound unique selector.
+        where: { idempotencyKey_tenantId: { idempotencyKey, tenantId } },
         data: {
           status: isSoftFailure ? "failed" : "completed",
           result: toolResult.data != null
