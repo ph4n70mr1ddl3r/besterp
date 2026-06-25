@@ -32,6 +32,7 @@ import {
   COUNTRY_CODE_REGEX,
   isValidISODate,
   stripHtmlTags,
+  sanitizeForLog,
   MAX_PARTY_NAME_LENGTH,
   MAX_PARTY_DESCRIPTION_LENGTH,
   MAX_PERSON_NAME_LENGTH,
@@ -80,12 +81,6 @@ type PartyWithIncludes = Prisma.PartyGetPayload<{
   };
 }>;
 
-/** Sanitize a string for safe logging — strip control chars and cap length. */
-function sanitizeLogField(value: string, maxLength = 80): string {
-  // eslint-disable-next-line no-control-regex
-  return value.replace(/[\x00-\x1f\x7f]/g, " ").slice(0, maxLength);
-}
-
 @Injectable()
 export class PartyService {
   private readonly logger = new Logger(PartyService.name);
@@ -117,7 +112,7 @@ export class PartyService {
 
     const party = await this.createPartyTransaction(db, tenantId, trimmedPartyType, sanitizedName, sanitizedDescription, sanitizedPerson, sanitizedOrg);
 
-    this.logger.log(`Created ${trimmedPartyType} party: ${sanitizeLogField(trimmedName)} (${party.partyId})`);
+    this.logger.log(`Created ${trimmedPartyType} party: ${sanitizeForLog(trimmedName)} (${party.partyId})`);
     return PartyService.toPartyResult(party);
   }
 
@@ -344,11 +339,7 @@ export class PartyService {
     if (name) {
       // Use contains for flexible partial matching (case-insensitive).
       // Trim whitespace to avoid useless LIKE '%  %' queries.
-      //
-      // TODO: For production, add a pg_trgm GIN index on party.name
-      // to avoid sequential scans on large tables:
-      //   CREATE EXTENSION IF NOT EXISTS pg_trgm;
-      //   CREATE INDEX CONCURRENTLY party_name_trgm_idx ON party USING gin (name gin_trgm_ops);
+      // The pg_trgm GIN index (migration 20260619000000) supports these queries.
       const trimmedName = name.trim();
       if (trimmedName.length > 0) {
         where.name = { contains: trimmedName, mode: "insensitive" };
@@ -438,7 +429,7 @@ export class PartyService {
 
     const role = await this.addPartyRoleTransaction(db, tenantId, partyId, roleTypeRecord.roleTypeId, trimmedRoleType, roleFromDate);
 
-    this.logger.log(`Added role '${sanitizeLogField(trimmedRoleType, 50)}' to party ${partyId} (ID: ${role.partyRoleId})`);
+    this.logger.log(`Added role '${sanitizeForLog(trimmedRoleType)}' to party ${partyId} (ID: ${role.partyRoleId})`);
     return {
       partyRoleId: role.partyRoleId,
       partyId: role.partyId,
@@ -541,7 +532,7 @@ export class PartyService {
 
     const contactMechanism = await this.createContactMechanismTransaction(db, tenantId, partyId, trimmedCmType, cmType.contactMechanismTypeId, postalAddress, telecomNumber, normalizedEmail);
 
-    this.logger.log(`Added ${sanitizeLogField(trimmedCmType, 50)} to party ${partyId} (ID: ${contactMechanism.contactMechanismId})`);
+    this.logger.log(`Added ${sanitizeForLog(trimmedCmType)} to party ${partyId} (ID: ${contactMechanism.contactMechanismId})`);
     return PartyService.formatContactResult(contactMechanism, partyId);
   }
 
@@ -797,7 +788,7 @@ export class PartyService {
       partyId: party.partyId,
       name: party.name,
       partyType: party.partyType?.name ?? "UNKNOWN",
-      description: party.description,
+      description: party.description ?? null,
       person: party.person
         ? {
             firstName: party.person.firstName,

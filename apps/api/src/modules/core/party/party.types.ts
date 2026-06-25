@@ -35,7 +35,7 @@ export interface PartyResult {
   partyId: string;
   name: string;
   partyType: string;
-  description?: string | null;
+  description: string | null;
   person: {
     firstName: string;
     lastName: string;
