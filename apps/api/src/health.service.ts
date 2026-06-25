@@ -55,13 +55,14 @@ export class HealthService implements OnModuleInit {
 
   private async initPackageInfo(): Promise<void> {
     const serviceDir = dirname(fileURLToPath(import.meta.url));
-    // In development: dist/ is at the same level as src/ so ../package.json works.
-    // In production (compiled): serviceDir IS dist/ and package.json is a sibling.
-    // Try both paths to handle both layouts.
+    // After compilation, serviceDir IS the dist/ directory. package.json
+    // lives in the package root (one level up from dist/). Try multiple
+    // candidate paths to handle different build layouts and monorepo
+    // structures (e.g., hoisted node_modules).
     const candidates = [
-      join(serviceDir, "../package.json"),  // dev: src/../package.json or dist/../package.json
+      join(serviceDir, "../package.json"),   // standard: dist/../package.json
       join(serviceDir, "package.json"),       // flat dist layout
-      join(serviceDir, "../../package.json"), // monorepo: dist/ inside package
+      join(serviceDir, "../../package.json"), // deeply nested build output
     ];
     let raw: string | undefined;
     for (const p of candidates) {

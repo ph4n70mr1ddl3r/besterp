@@ -67,7 +67,7 @@ export class DomainExceptionFilter implements ExceptionFilter {
   private handleDomainError(exception: DomainError, response: Response): void {
     const status = domainErrorToStatus(exception);
     if (status === 500) {
-      this.logger.warn(
+      this.logger.error(
         `Unknown DomainError code '${exception.code}' — add a mapping in domainErrorToStatus(). Defaulting to 500.`
       );
     } else {

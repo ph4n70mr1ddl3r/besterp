@@ -222,7 +222,7 @@ const telecomNumberSchema = z.object({
 });
 
 const emailAddressSchema = z.object({
-  email: z.string().transform(s => s.trim().toLowerCase()).pipe(z.string().email().max(MAX_EMAIL_LENGTH)).describe("Email address"),
+  email: z.string().transform(s => stripHtmlTags(s.trim().toLowerCase())).pipe(z.string().email().max(MAX_EMAIL_LENGTH)).describe("Email address"),
 });
 
 // ─── Tool: create_party ───────────────────────────────────────────
