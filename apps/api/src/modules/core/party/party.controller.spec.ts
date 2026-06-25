@@ -11,6 +11,15 @@ function mockRequest(tenantContext?: any) {
   return { user: { userId: "user-1", tenantId: "tenant-1" }, tenantContext } as any;
 }
 
+function mockResponse() {
+  const headers: Record<string, string> = {};
+  return {
+    setHeader: vi.fn((key: string, value: string) => { headers[key] = value; }),
+    getHeader: vi.fn((key: string) => headers[key]),
+    _headers: headers,
+  } as any;
+}
+
 function mockRequestNoContext() {
   return {} as any;
 }
@@ -91,9 +100,10 @@ describe("PartyController", () => {
   describe("search", () => {
     it("should pass tenantId and query params to service", async () => {
       const req = mockRequest({ tenantId: "tenant-1", userId: "user-1" });
+      const res = mockResponse();
       const query = { name: "Test", limit: 10, offset: 5 };
 
-      await controller.search(req, query as any);
+      await controller.search(req, res, query as any);
 
       expect(partyService.searchParties).toHaveBeenCalledWith({
         tenantId: "tenant-1",
@@ -107,15 +117,43 @@ describe("PartyController", () => {
 
     it("should default limit and offset when not provided", async () => {
       const req = mockRequest({ tenantId: "tenant-1", userId: "user-1" });
+      const res = mockResponse();
       const query = {};
 
-      await controller.search(req, query as any);
+      await controller.search(req, res, query as any);
 
       // Defaults are now handled by the service, not the controller.
       // Controller passes through undefined values.
       expect(partyService.searchParties).toHaveBeenCalledWith(
         expect.objectContaining({ limit: undefined, offset: undefined })
       );
+    });
+
+    it("should set pagination headers on response", async () => {
+      const req = mockRequest({ tenantId: "tenant-1", userId: "user-1" });
+      const res = mockResponse();
+      partyService.searchParties = vi.fn().mockResolvedValue({
+        items: [], total: 42, limit: 10, offset: 0, hasMore: true,
+      });
+
+      await controller.search(req, res, {} as any);
+
+      expect(res.setHeader).toHaveBeenCalledWith("X-Total-Count", "42");
+      expect(res.setHeader).toHaveBeenCalledWith("X-Page-Limit", "10");
+      expect(res.setHeader).toHaveBeenCalledWith("X-Page-Offset", "0");
+      expect(res.setHeader).toHaveBeenCalledWith("X-Next-Offset", "10");
+    });
+
+    it("should not set X-Next-Offset when hasMore is false", async () => {
+      const req = mockRequest({ tenantId: "tenant-1", userId: "user-1" });
+      const res = mockResponse();
+      partyService.searchParties = vi.fn().mockResolvedValue({
+        items: [], total: 5, limit: 50, offset: 0, hasMore: false,
+      });
+
+      await controller.search(req, res, {} as any);
+
+      expect(res.setHeader).not.toHaveBeenCalledWith("X-Next-Offset", expect.anything());
     });
   });
 

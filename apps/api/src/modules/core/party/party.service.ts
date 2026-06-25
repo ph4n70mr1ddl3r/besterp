@@ -263,7 +263,7 @@ export class PartyService {
         return tx.party.create({ data, include: PartyService.PARTY_INCLUDE });
       }, { timeout: 10_000 });
     } catch (err) {
-      PartyService.handleTransactionError(err, "create_party", "search_parties");
+      PartyService.handleTransactionError(err, "create_party", "search_parties", "party");
       throw err; // unreachable — handleTransactionError is `never`, but satisfies TypeScript
     }
   }
@@ -273,20 +273,21 @@ export class PartyService {
     err: unknown,
     retryTool: string,
     suggestTool: string,
+    entityName = "record",
   ): never {
     if (err instanceof Prisma.PrismaClientKnownRequestError) {
       if (err.code === "P2002") {
         const target = (err.meta?.target as string[] | undefined);
         const field = Array.isArray(target) && target.length > 0 ? target[0] : "this record";
         throw new DuplicateEntityError(
-          `A record with the same ${field} already exists in this tenant.`,
-          { suggestedTools: [suggestTool] }
+          `A ${entityName} with the same ${field} already exists in this tenant.`,
+          { suggestedTools: [suggestTool], context: { prismaCode: "P2002", conflictingField: field } }
         );
       }
       if (err.code === "P2034") {
         throw new ConcurrencyConflictError(
-          "Transaction conflict — please retry.",
-          { suggestedTools: [retryTool] }
+          `Transaction conflict on ${entityName} — please retry.`,
+          { suggestedTools: [retryTool], context: { prismaCode: "P2034" } }
         );
       }
     }
@@ -505,7 +506,7 @@ export class PartyService {
         });
       }, { timeout: 10_000 });
     } catch (err) {
-      PartyService.handleTransactionError(err, "add_party_role", "get_party");
+      PartyService.handleTransactionError(err, "add_party_role", "get_party", "party role");
       throw err; // unreachable — handleTransactionError is `never`, but satisfies TypeScript
     }
   }
@@ -632,7 +633,7 @@ export class PartyService {
         });
       }, { timeout: 10_000 });
     } catch (err) {
-      PartyService.handleTransactionError(err, "add_contact_mechanism", "search_parties");
+      PartyService.handleTransactionError(err, "add_contact_mechanism", "search_parties", "contact mechanism");
       throw err; // unreachable — handleTransactionError is `never`, but satisfies TypeScript
     }
   }

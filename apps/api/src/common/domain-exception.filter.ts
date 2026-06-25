@@ -97,6 +97,19 @@ export class DomainExceptionFilter implements ExceptionFilter {
     const status = exception.getStatus();
     const exceptionResponse = exception.getResponse();
 
+    // In production, strip any internal details from HttpException responses.
+    // Some NestJS exceptions (e.g., ValidationPipe errors) include the full
+    // validation error array, which could leak internal field names or logic.
+    if (process.env.NODE_ENV === "production" && typeof exceptionResponse === "object" && exceptionResponse !== null) {
+      const res = exceptionResponse as Record<string, unknown>;
+      // Keep only safe, client-facing fields; drop validation details, stack, etc.
+      const safeBody: Record<string, unknown> = { statusCode: status };
+      if (typeof res.message === "string") safeBody.message = res.message;
+      if (typeof res.error === "string") safeBody.error = res.error;
+      response.status(status).json(safeBody);
+      return;
+    }
+
     response.status(status).json(
       typeof exceptionResponse === "string"
         ? { statusCode: status, message: exceptionResponse }

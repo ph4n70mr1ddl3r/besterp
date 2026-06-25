@@ -17,11 +17,12 @@ import {
   Param,
   Query,
   Req,
+  Res,
   ParseUUIDPipe,
   UnauthorizedException,
   HttpCode,
 } from "@nestjs/common";
-import type { Request } from "express";
+import type { Request, Response } from "express";
 import { TenantContext } from "../../../common/tenant-context.js";
 import { PartyService } from "./party.service.js";
 import {
@@ -65,11 +66,12 @@ export class PartyController {
   @Get()
   async search(
     @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
     @Query() query: SearchPartiesDto
   ) {
     const { tenantId } = this.getTenantContext(req);
     const { name, partyType, roleType, limit, offset } = query;
-    return this.partyService.searchParties({
+    const result = await this.partyService.searchParties({
       tenantId,
       name,
       partyType,
@@ -77,6 +79,15 @@ export class PartyController {
       limit,
       offset,
     });
+    // Set pagination headers for API discoverability.
+    // Clients can use these to build pagination UIs without parsing the body.
+    res.setHeader("X-Total-Count", String(result.total));
+    res.setHeader("X-Page-Limit", String(result.limit));
+    res.setHeader("X-Page-Offset", String(result.offset));
+    if (result.hasMore) {
+      res.setHeader("X-Next-Offset", String(result.offset + result.limit));
+    }
+    return result;
   }
 
   @Get(":id")
