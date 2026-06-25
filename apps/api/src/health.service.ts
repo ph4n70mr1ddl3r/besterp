@@ -41,7 +41,7 @@ export class HealthService implements OnModuleInit {
   private readonly logger = new Logger(HealthService.name);
 
   private packageInfo: { version: string; name: string } = { version: "0.0.0", name: "unknown" };
-  private packageInfoReady: Promise<void> = Promise.resolve();
+  private packageInfoReady!: Promise<void>;
 
   constructor(private readonly prisma: PrismaService) {}
 

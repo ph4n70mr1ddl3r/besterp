@@ -13,6 +13,15 @@ import helmet from "helmet";
 import { sanitizeLogOutput } from "@besterp/shared";
 import { AppModule } from "./app.module.js";
 
+function normalizeEnvironment(): void {
+  // Normalize NODE_ENV early so all downstream comparisons are case-insensitive.
+  // Without this, "Production", "PRODUCTION", or "Production" would silently
+  // bypass production guards and fall back to development behavior.
+  if (process.env.NODE_ENV) {
+    process.env.NODE_ENV = process.env.NODE_ENV.toLowerCase();
+  }
+}
+
 function validateEnvironment(): void {
   const requiredInProduction = ["DATABASE_URL", "DATABASE_ADMIN_URL", "JWT_SECRET"];
   const missing = requiredInProduction.filter((v) => !process.env[v]);
@@ -128,6 +137,7 @@ function parsePort(): number {
 }
 
 async function bootstrap() {
+  normalizeEnvironment();
   validateEnvironment();
 
   const app = await NestFactory.create(AppModule, { bodyParser: false });
