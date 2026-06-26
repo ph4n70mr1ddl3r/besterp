@@ -45,6 +45,10 @@ export class PrismaService
   /** Access timestamps for LRU eviction — updated on each cache hit. */
   private readonly lastAccessed = new Map<string, number>();
 
+  /** Cache hit/miss counters for observability. */
+  private cacheHits = 0;
+  private cacheMisses = 0;
+
   // Cache sizes — configurable via env vars for tuning in production
   private readonly maxMethodCacheSize: number;
   private readonly maxDelegateCacheSize: number;
@@ -187,9 +191,12 @@ export class PrismaService
 
     const cached = this.tenantClientCache.get(tenantId)?.deref();
     if (cached) {
+      this.cacheHits++;
       this.lastAccessed.set(tenantId, Date.now());
       return cached;
     }
+
+    this.cacheMisses++;
 
     if (this.tenantClientCache.size >= MAX_TENANT_CACHE_SIZE) {
       this.evictTenantClient();
@@ -206,6 +213,27 @@ export class PrismaService
     this.cacheRegistry.register(client, tenantId, token);
     this.lastAccessed.set(tenantId, Date.now());
     return client;
+  }
+
+  /**
+   * Get cache statistics for observability.
+   * @returns Object with hits, misses, hit rate, and current cache size
+   */
+  getTenantCacheStats(): {
+    hits: number;
+    misses: number;
+    hitRate: number;
+    size: number;
+    maxSize: number;
+  } {
+    const total = this.cacheHits + this.cacheMisses;
+    return {
+      hits: this.cacheHits,
+      misses: this.cacheMisses,
+      hitRate: total > 0 ? this.cacheHits / total : 0,
+      size: this.tenantClientCache.size,
+      maxSize: MAX_TENANT_CACHE_SIZE,
+    };
   }
 
   /**
@@ -244,6 +272,21 @@ export class PrismaService
       );
       this.removeTenantClient(lruKey);
     }
+  }
+
+  /**
+   * Force cleanup of the tenant client cache.
+   * Useful for testing or manual cache clearing.
+   */
+  clearTenantCache(): void {
+    for (const [, token] of this.unregisterTokens) {
+      this.cacheRegistry.unregister(token);
+    }
+    this.tenantClientCache.clear();
+    this.unregisterTokens.clear();
+    this.lastAccessed.clear();
+    this.cacheHits = 0;
+    this.cacheMisses = 0;
   }
 
   /** Remove a tenant client and its associated tracking data. */

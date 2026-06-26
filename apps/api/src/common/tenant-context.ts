@@ -14,3 +14,11 @@ export interface TenantContext {
   /** Optional AI agent ID (for MCP tool calls). */
   agentId?: string;
 }
+
+/** Extend Express Request with tenant context and request ID for type safety. */
+declare module "express" {
+  interface Request {
+    tenantContext?: TenantContext;
+    requestId?: string;
+  }
+}

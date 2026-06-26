@@ -10,8 +10,10 @@ import "reflect-metadata";
 import { NestFactory } from "@nestjs/core";
 import { Logger, ValidationPipe, type INestApplication } from "@nestjs/common";
 import helmet from "helmet";
+import { randomUUID } from "node:crypto";
 import { sanitizeLogOutput } from "@besterp/shared";
 import { AppModule } from "./app.module.js";
+import type { Request, Response, NextFunction } from "express";
 
 function normalizeEnvironment(): void {
   // Normalize NODE_ENV early so all downstream comparisons are case-insensitive.
@@ -41,6 +43,36 @@ function validateEnvironment(): void {
       "Set JWT_SECRET before running the API."
     );
     process.exit(1);
+  }
+
+  // Validate JWT_SECRET strength if provided.
+  if (process.env.JWT_SECRET) {
+    const secret = process.env.JWT_SECRET;
+    if (secret.length < 32) {
+      console.error(
+        `❌ FATAL: JWT_SECRET is too short (${secret.length} chars). Must be at least 32 characters. ` +
+        "Generate a secure secret with: openssl rand -hex 32"
+      );
+      process.exit(1);
+    }
+    // Warn if secret looks like a default/test value
+    const weakPatterns = [
+      /^secret$/i,
+      /^changeme$/i,
+      /^test$/i,
+      /^dev$/i,
+      /^development$/i,
+      /^[a-f0-9]{32}$/i, // Only hex without entropy (could be all zeros)
+    ];
+    for (const pattern of weakPatterns) {
+      if (pattern.test(secret)) {
+        console.warn(
+          "⚠️  JWT_SECRET appears to be a weak or default value. " +
+          "Use a cryptographically random secret in production: openssl rand -hex 32"
+        );
+        break;
+      }
+    }
   }
 
   const REDIS_WARN_VARS = ["REDIS_HOST", "REDIS_PORT"];
@@ -149,6 +181,15 @@ async function bootstrap() {
   configureCors(app);
 
   app.use(helmet());
+
+  // Request ID middleware for correlation across logs, traces, and audit.
+  // Generates a UUID v4 if not provided via x-request-id header.
+  app.use((req: Request, res: Response, next: NextFunction) => {
+    const requestId = (req.headers["x-request-id"] as string) || randomUUID();
+    req.requestId = requestId;
+    res.setHeader("x-request-id", requestId);
+    next();
+  });
 
   // Limit request body size to 100 KB to prevent DoS via oversized payloads.
   // Uses the raw express middleware since NestFactory.create({ bodyParser: false })

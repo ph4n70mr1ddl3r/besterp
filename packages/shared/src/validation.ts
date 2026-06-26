@@ -29,7 +29,7 @@ export const UUID_REGEX: Readonly<RegExp> =
  * - Zod schemas in party-tools.ts (via .email() — kept aligned by tests)
  * - DTOs in party.dto.ts (via class-validator's @IsEmail — kept aligned by tests)
  */
-export const EMAIL_REGEX: Readonly<RegExp> = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+export const EMAIL_REGEX: Readonly<RegExp> = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$/;
 
 /**
  * E.164 country code validation — `+` followed by 1 to 3 digits, first digit

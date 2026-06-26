@@ -10,18 +10,9 @@
 import { Injectable, ExecutionContext, CanActivate, InternalServerErrorException, UnauthorizedException } from "@nestjs/common";
 import { Reflector } from "@nestjs/core";
 import { Request } from "express";
-import { JwtValidatedUser } from "./jwt.strategy.js";
+import type { JwtValidatedUser } from "./jwt.strategy.js";
 import { TenantContext } from "../common/tenant-context.js";
 import { IS_PUBLIC_KEY } from "./public.decorator.js";
-
-// Extend Express Request to include tenant context set by guards.
-// This avoids `any` casts and provides type safety for downstream consumers.
-declare module "express" {
-  interface Request {
-    user?: JwtValidatedUser;
-    tenantContext?: TenantContext;
-  }
-}
 
 @Injectable()
 export class TenantGuard implements CanActivate {
@@ -37,7 +28,7 @@ export class TenantGuard implements CanActivate {
     }
 
     const request = context.switchToHttp().getRequest<Request>();
-    const user = request.user;
+    const user = request.user as JwtValidatedUser;
 
     if (!user) {
       // JwtAuthGuard should always run before TenantGuard and populate
