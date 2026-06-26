@@ -62,7 +62,7 @@ function validateEnvironment(): void {
       /^test$/i,
       /^dev$/i,
       /^development$/i,
-      /^[a-f0-9]{32}$/i, // Only hex without entropy (could be all zeros)
+      /^(0{32}|[a-f]{32}|[A-F]{32})$/i, // All zeros or all same-case hex (no entropy)
     ];
     for (const pattern of weakPatterns) {
       if (pattern.test(secret)) {

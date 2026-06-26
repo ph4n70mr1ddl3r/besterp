@@ -6,6 +6,12 @@
 //
 // Each DTO maps to a corresponding input type in party.types.ts but includes
 // validation rules. The controller spreads these into the domain input types.
+//
+// VALIDATION STRATEGY (defense-in-depth across layers):
+// - REST endpoints: class-validator DTOs in this file (ValidationPipe)
+// - MCP tools: Zod schemas in party-tools.ts with superRefine for cross-field
+// - Service layer: Explicit validation in party.service.ts
+// - Database: Constraints (unique indexes, FK, CHECK) as final safety net
 
 import {
   IsString,

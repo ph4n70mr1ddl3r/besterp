@@ -4,6 +4,12 @@
 // Each tool delegates to the NestJS PartyService for business logic.
 //
 // Tool naming convention: verb_entity (e.g., create_party, search_parties)
+//
+// VALIDATION STRATEGY (defense-in-depth across layers):
+// - REST endpoints: class-validator DTOs in party.dto.ts (ValidationPipe)
+// - MCP tools: Zod schemas in this file with superRefine for cross-field
+// - Service layer: Explicit validation in party.service.ts
+// - Database: Constraints (unique indexes, FK, CHECK) as final safety net
 
 import { z } from "zod";
 import {

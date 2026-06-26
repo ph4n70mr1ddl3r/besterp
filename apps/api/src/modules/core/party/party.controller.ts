@@ -8,6 +8,12 @@
 //
 // Validation: All request bodies are validated by class-validator DTOs via
 // the global ValidationPipe (configured in main.ts).
+//
+// VALIDATION STRATEGY (defense-in-depth across layers):
+// - REST endpoints: class-validator DTOs in party.dto.ts (ValidationPipe)
+// - MCP tools: Zod schemas in party-tools.ts with superRefine for cross-field
+// - Service layer: Explicit validation in party.service.ts
+// - Database: Constraints (unique indexes, FK, CHECK) as final safety net
 
 import {
   Controller,

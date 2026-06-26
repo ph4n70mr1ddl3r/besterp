@@ -431,13 +431,21 @@ describe("McpModule", () => {
         expect(callWithLongReasoning).toThrow("reasoning is too long");
       });
 
-      it("should normalise whitespace-only reasoning to undefined", () => {
-        const ctx = mcpModule.buildContext({
-          tenantId: "tenant-1",
-          userId: "user-1",
-          reasoning: "   ",
-        });
-        expect(ctx.reasoning).toBeUndefined();
+      it("should reject whitespace-only reasoning", () => {
+        expect(() =>
+          mcpModule.buildContext({
+            tenantId: "tenant-1",
+            userId: "user-1",
+            reasoning: "   ",
+          })
+        ).toThrow(InvalidTypeValueError);
+        expect(() =>
+          mcpModule.buildContext({
+            tenantId: "tenant-1",
+            userId: "user-1",
+            reasoning: "   ",
+          })
+        ).toThrow("reasoning cannot be whitespace-only");
       });
 
       it("should trim reasoning before storing", () => {

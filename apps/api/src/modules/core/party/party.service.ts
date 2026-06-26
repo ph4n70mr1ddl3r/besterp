@@ -13,6 +13,12 @@
 // 2. Application-level: Explicit `tenantId` filters are still applied as a
 //    secondary safeguard and for query performance.
 //
+// VALIDATION STRATEGY (defense-in-depth across layers):
+// - REST endpoints: class-validator DTOs in party.dto.ts (ValidationPipe)
+// - MCP tools: Zod schemas in party-tools.ts with superRefine for cross-field
+// - Service layer: Explicit validation in each method (this file)
+// - Database: Constraints (unique indexes, FK, CHECK) as final safety net
+//
 // This service is a create-and-relation path — it does not perform
 // general-purpose updates. Duplicate-role prevention is enforced by the
 // `party_active_role_unique` DB constraint (and caught as P2002 if the
@@ -21,6 +27,7 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { PrismaService } from "../../../prisma/prisma.service.js";
 import { Prisma, PrismaClient } from "@prisma/client";
+import type { TenantScopedClient } from "@besterp/database";
 import {
   MissingSubtypeDataError,
   InvalidTypeValueError,
@@ -119,7 +126,7 @@ export class PartyService {
     const { sanitizedPerson, sanitizedOrg, sanitizedName, sanitizedDescription } =
       this.sanitizeCreatePartyInput(trimmedName, trimmedDescription, personData, orgData);
 
-    const db = this.prisma.tenantScoped(tenantId);
+    const db: TenantScopedClient = this.prisma.tenantScoped(tenantId);
 
     const party = await this.createPartyTransaction(db, tenantId, trimmedPartyType, sanitizedName, sanitizedDescription, sanitizedPerson, sanitizedOrg);
 
@@ -315,7 +322,7 @@ export class PartyService {
     // requireUuid(), so we need defense-in-depth at the service layer.
     this.requireUuid(partyId, "partyId");
 
-    const db = this.prisma.tenantScoped(tenantId);
+    const db: TenantScopedClient = this.prisma.tenantScoped(tenantId);
 
     const party = await db.party.findUnique({
       where: { partyId },
@@ -349,7 +356,7 @@ export class PartyService {
     const validatedLimit = Math.min(Math.max(limit, MIN_SEARCH_LIMIT), MAX_SEARCH_LIMIT); // Clamp between 1-500
     const validatedOffset = Math.min(Math.max(offset, MIN_SEARCH_OFFSET), MAX_SEARCH_OFFSET);
 
-    const db = this.prisma.tenantScoped(tenantId);
+    const db: TenantScopedClient = this.prisma.tenantScoped(tenantId);
 
     // Build where clause after validation to ensure tenantId is validated first
     const where: Prisma.PartyWhereInput = { tenantId };
@@ -435,7 +442,7 @@ export class PartyService {
 
     this.requireUuid(partyId, "partyId");
 
-    const db = this.prisma.tenantScoped(tenantId);
+    const db: TenantScopedClient = this.prisma.tenantScoped(tenantId);
 
     const trimmedRoleType = this.validateAddPartyRoleInput(roleType);
     const roleFromDate = this.parseFromDate(fromDate);
@@ -541,7 +548,7 @@ export class PartyService {
 
     this.requireUuid(partyId, "partyId");
 
-    const db = this.prisma.tenantScoped(tenantId);
+    const db: TenantScopedClient = this.prisma.tenantScoped(tenantId);
 
     const trimmedCmType = this.validateContactMechanismType(contactMechanismType);
     const normalizedEmail = this.validateContactMechanismSubtype(trimmedCmType, postalAddress, telecomNumber, emailAddress);
