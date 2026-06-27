@@ -431,7 +431,7 @@ describe("Idempotency Middleware", () => {
       const middleware = idempotencyMiddleware(mockPrisma as any);
       await expect(
         middleware(input, contextWithKey, mockDefinition, throwingNext(new Error("boom")))
-      ).rejects.toThrow("boom");
+      ).rejects.toThrow("Idempotency record could not be updated");
 
       // The catch handler runs as a microtask after the rejected update is
       // caught. Let the event loop flush so the fire-and-forget stderr.write

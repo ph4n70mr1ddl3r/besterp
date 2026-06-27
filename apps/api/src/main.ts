@@ -185,7 +185,10 @@ async function bootstrap() {
   // Request ID middleware for correlation across logs, traces, and audit.
   // Generates a UUID v4 if not provided via x-request-id header.
   app.use((req: Request, res: Response, next: NextFunction) => {
-    const requestId = (req.headers["x-request-id"] as string) || randomUUID();
+    const raw = req.headers["x-request-id"];
+    const requestId = (typeof raw === "string" && raw.length > 0)
+      ? raw.slice(0, 128)
+      : randomUUID();
     req.requestId = requestId;
     res.setHeader("x-request-id", requestId);
     next();

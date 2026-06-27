@@ -28,8 +28,9 @@ export interface HealthStatus {
 export interface VersionInfo {
   version: string;
   name: string;
-  nodeVersion: string;
+  nodeVersion?: string;
   environment: string;
+  warning?: string;
   build?: {
     number?: string;
     date?: string;
@@ -42,14 +43,15 @@ export class HealthService implements OnModuleInit {
 
   private packageInfo: { version: string; name: string } = { version: "0.0.0", name: "unknown" };
   private packageInfoReady: Promise<void> = Promise.resolve();
+  private packageInfoError: string | undefined;
 
   constructor(private readonly prisma: PrismaService) {}
 
   async onModuleInit() {
     this.packageInfoReady = this.initPackageInfo().catch((err) => {
-      this.logger.warn(
-        `Could not read package.json: ${err instanceof Error ? err.message : err}`
-      );
+      const msg = err instanceof Error ? err.message : String(err);
+      this.packageInfoError = msg;
+      this.logger.warn(`Could not read package.json: ${msg}`);
     });
   }
 
@@ -147,8 +149,9 @@ export class HealthService implements OnModuleInit {
     return {
       version: this.packageInfo.version,
       name: this.packageInfo.name,
-      nodeVersion: process.version,
+      nodeVersion: process.env.NODE_ENV === "production" ? undefined : process.version,
       environment: process.env.NODE_ENV || "development",
+      warning: this.packageInfoError ?? undefined,
       build: {
         number: process.env.BUILD_NUMBER,
         date: process.env.BUILD_DATE,

@@ -292,7 +292,14 @@ async function updateIdempotencyRecordWithRetry(
         await delay(IDEMPOTENCY_RETRY_BASE_DELAY_MS * (attempt + 1));
         continue;
       }
-      logIdempotencyWarn(`Failed to update idempotency record '${sanitizeForLog(idempotencyKey.slice(0, 32))}' after ${IDEMPOTENCY_MAX_RETRIES} attempts: ${updateErr instanceof Error ? updateErr.message : String(updateErr)}`);
+      const detail = updateErr instanceof Error ? updateErr.message : String(updateErr);
+      logIdempotencyWarn(`Failed to update idempotency record '${sanitizeForLog(idempotencyKey.slice(0, 32))}' after ${IDEMPOTENCY_MAX_RETRIES} attempts: ${detail}`);
+      throw new Error(
+        `Idempotency record could not be updated after ${IDEMPOTENCY_MAX_RETRIES} attempts. ` +
+        `The operation may have succeeded but subsequent retries will receive REQUEST_IN_PROGRESS. ` +
+        `Detail: ${sanitizeForLog(detail)}`,
+        { cause: updateErr },
+      );
     }
   }
 }

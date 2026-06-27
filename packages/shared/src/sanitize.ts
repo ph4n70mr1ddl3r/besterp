@@ -123,7 +123,11 @@ export function sanitizeLogOutput(message: string): string {
  * Strip newlines from strings to prevent log injection via user-controlled messages.
  */
 export function sanitizeForLog(s: string): string {
-  return s.replace(/[\r\n]/g, "_");
+  // Strip newlines, carriage returns, tabs, and ANSI escape sequences to
+  // prevent log injection via user-controlled messages. ANSI escapes can
+  // manipulate terminal output (e.g., clearing screen, changing colors).
+  // eslint-disable-next-line no-control-regex
+  return s.replace(/[\r\n\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, "_").replace(/\x1b\[[0-9;]*[a-zA-Z]/g, "");
 }
 
 /**

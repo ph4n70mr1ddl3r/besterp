@@ -163,7 +163,7 @@ export const errorHandlerMiddleware: ToolMiddleware = async (input, context, def
     }
 
     const { code: prismaCode, meta: prismaMeta } = extractPrismaError(error);
-    const entityName = definition.entity || "entity";
+    const entityName = definition.entity ?? "entity";
     const entityPlural = pluralize(entityName);
 
     if (prismaCode) {

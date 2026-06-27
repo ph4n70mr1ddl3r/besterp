@@ -18,7 +18,7 @@
 //   because they cannot receive tenant context. Use interactive transactions.
 
 import { PrismaClient, Prisma } from "@prisma/client";
-import { validateTenantId, InvalidTypeValueError } from "@besterp/shared";
+import { validateTenantId, InvalidTypeValueError, isDomainError } from "@besterp/shared";
 
 // ─── LRU Cache ────────────────────────────────────────────────────
 
@@ -168,6 +168,10 @@ function createTransactionWrapper(prisma: PrismaClient, tenantId: string) {
         try {
           await tx.$executeRaw`SELECT set_tenant_context(${tenantId})`;
         } catch (e) {
+          // Re-throw DomainError (from validateTenantIdEnhanced) as-is to
+          // preserve its specific code. Only wrap non-DomainError failures
+          // (e.g. Postgres function missing, permission denied).
+          if (isDomainError(e)) throw e;
           const message = e instanceof Error ? e.message : String(e);
           throw new InvalidTypeValueError(
             `Failed to set tenant context: ${message}`,

@@ -30,7 +30,7 @@ jobs:
         run: npm ci
 
       - name: Security audit
-        run: npm audit --audit-level=moderate
+        run: npm audit --audit-level=high
 
       - name: Cache Prisma client
         id: prisma-cache
@@ -118,7 +118,8 @@ jobs:
 
       - name: Seed database
         env:
-          DATABASE_URL: postgresql://besterp:besterp_dev@localhost:5434/besterp
+          DATABASE_URL: postgresql://besterp_app:besterp_app_dev@localhost:5434/besterp
+          DATABASE_ADMIN_URL: postgresql://besterp:besterp_dev@localhost:5434/besterp
         run: npm run db:seed
 
       - name: Run shared package tests

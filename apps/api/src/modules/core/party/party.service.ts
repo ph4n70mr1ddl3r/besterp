@@ -281,7 +281,7 @@ export class PartyService {
         return tx.party.create({ data, include: PartyService.PARTY_INCLUDE });
       }, { timeout: 10_000 });
     } catch (err) {
-      PartyService.handleTransactionError(err, "create_party", "search_parties", "party");
+      PartyService.handleTransactionError(err, "create_party", "create_party", "party");
       throw err; // unreachable — handleTransactionError always throws; satisfies return type
     }
   }
@@ -645,7 +645,7 @@ export class PartyService {
         });
       }, { timeout: 10_000 });
     } catch (err) {
-      PartyService.handleTransactionError(err, "add_contact_mechanism", "search_parties", "contact mechanism");
+      PartyService.handleTransactionError(err, "add_contact_mechanism", "add_contact_mechanism", "contact mechanism");
       throw err; // unreachable — handleTransactionError always throws; satisfies return type
     }
   }

@@ -61,7 +61,7 @@ import {
   COUNTRY_CODE_REGEX,
 } from "@besterp/shared";
 
-function SanitizeTransform(): PropertyDecorator {
+function sanitizeTransform(): PropertyDecorator {
   return Transform(({ value }: TransformFnParams) => (typeof value === "string" ? stripHtmlTags(value.trim()) : value));
 }
 
@@ -111,20 +111,20 @@ class PartySubtypeExclusiveConstraint implements ValidatorConstraintInterface {
 // ─── Person Subtype ──────────────────────────────────────────────
 
 export class CreatePersonDto {
-  @SanitizeTransform()
+  @sanitizeTransform()
   @IsString()
   @IsNotEmpty()
   @MaxLength(MAX_PERSON_NAME_LENGTH)
   firstName!: string;
 
-  @SanitizeTransform()
+  @sanitizeTransform()
   @IsString()
   @IsNotEmpty()
   @MaxLength(MAX_PERSON_NAME_LENGTH)
   lastName!: string;
 
   @IsOptional()
-  @SanitizeTransform()
+  @sanitizeTransform()
   @IsString()
   @MaxLength(MAX_MIDDLE_NAME_LENGTH)
   middleName?: string;
@@ -135,7 +135,7 @@ export class CreatePersonDto {
   birthDate?: string;
 
   @IsOptional()
-  @SanitizeTransform()
+  @sanitizeTransform()
   @IsString()
   @MaxLength(MAX_GENDER_LENGTH)
   gender?: string;
@@ -144,14 +144,14 @@ export class CreatePersonDto {
 // ─── Organization Subtype ────────────────────────────────────────
 
 export class CreateOrganizationDto {
-  @SanitizeTransform()
+  @sanitizeTransform()
   @IsString()
   @IsNotEmpty()
   @MaxLength(MAX_LEGAL_NAME_LENGTH)
   legalName!: string;
 
   @IsOptional()
-  @SanitizeTransform()
+  @sanitizeTransform()
   @IsString()
   @MaxLength(MAX_TAX_ID_LENGTH)
   taxId?: string;
@@ -168,14 +168,14 @@ export class CreatePartyDto {
   @IsEnum(["PERSON", "ORGANIZATION"])
   partyType!: "PERSON" | "ORGANIZATION";
 
-  @SanitizeTransform()
+  @sanitizeTransform()
   @IsString()
   @IsNotEmpty()
   @MaxLength(MAX_PARTY_NAME_LENGTH)
   name!: string;
 
   @IsOptional()
-  @SanitizeTransform()
+  @sanitizeTransform()
   @IsString()
   @MaxLength(MAX_PARTY_DESCRIPTION_LENGTH)
   description?: string;
@@ -203,7 +203,7 @@ export class CreatePartyDto {
 // ─── Search Parties ──────────────────────────────────────────────
 
 export class SearchPartiesDto {
-  @SanitizeTransform()
+  @sanitizeTransform()
   @IsOptional()
   @IsString()
   @MaxLength(MAX_PARTY_NAME_LENGTH)
@@ -214,7 +214,7 @@ export class SearchPartiesDto {
   partyType?: "PERSON" | "ORGANIZATION";
 
   @IsOptional()
-  @SanitizeTransform()
+  @sanitizeTransform()
   @IsString()
   @MaxLength(MAX_ROLE_TYPE_LENGTH)
   roleType?: string;
@@ -237,7 +237,7 @@ export class SearchPartiesDto {
 // ─── Add Party Role ──────────────────────────────────────────────
 
 export class AddPartyRoleDto {
-  @SanitizeTransform()
+  @sanitizeTransform()
   @IsString()
   @IsNotEmpty()
   @MaxLength(MAX_ROLE_TYPE_LENGTH)
@@ -252,32 +252,32 @@ export class AddPartyRoleDto {
 // ─── Contact Mechanism Subtypes ──────────────────────────────────
 
 export class PostalAddressDto {
-  @SanitizeTransform()
+  @sanitizeTransform()
   @IsString()
   @IsNotEmpty()
   @MaxLength(MAX_ADDRESS_LINE_LENGTH)
   addressLine1!: string;
 
   @IsOptional()
-  @SanitizeTransform()
+  @sanitizeTransform()
   @IsString()
   @MaxLength(MAX_ADDRESS_LINE_LENGTH)
   addressLine2?: string;
 
-  @SanitizeTransform()
+  @sanitizeTransform()
   @IsString()
   @IsNotEmpty()
   @MaxLength(MAX_CITY_LENGTH)
   city!: string;
 
   @IsOptional()
-  @SanitizeTransform()
+  @sanitizeTransform()
   @IsString()
   @MaxLength(MAX_STATE_PROVINCE_LENGTH)
   stateProvince?: string;
 
   @IsOptional()
-  @SanitizeTransform()
+  @sanitizeTransform()
   @IsString()
   @MaxLength(MAX_POSTAL_CODE_LENGTH)
   postalCode?: string;
@@ -292,27 +292,27 @@ export class PostalAddressDto {
 
 export class TelecomNumberDto {
   @IsOptional()
-  @SanitizeTransform()
+  @sanitizeTransform()
   @IsString()
   @MinLength(1)
   @MaxLength(MAX_PHONE_COUNTRY_CODE_LENGTH)
   @Matches(COUNTRY_CODE_REGEX, { message: "countryCode must be an E.164 country code (e.g., '+1', '+44')" })
   countryCode?: string;
 
-  @SanitizeTransform()
+  @sanitizeTransform()
   @IsString()
   @IsNotEmpty()
   @MaxLength(MAX_AREA_CODE_LENGTH)
   areaCode!: string;
 
-  @SanitizeTransform()
+  @sanitizeTransform()
   @IsString()
   @IsNotEmpty()
   @MaxLength(MAX_LINE_NUMBER_LENGTH)
   lineNumber!: string;
 
   @IsOptional()
-  @SanitizeTransform()
+  @sanitizeTransform()
   @IsString()
   @MaxLength(MAX_EXTENSION_LENGTH)
   extension?: string;
