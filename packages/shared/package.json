@@ -11,9 +11,6 @@
     "lint": "eslint src/",
     "typecheck": "tsc --noEmit"
   },
-  "peerDependencies": {
-    "@prisma/client": "^6.8.0"
-  },
   "devDependencies": {
     "@prisma/client": "^6.8.0",
     "typescript": "^5.8.0",

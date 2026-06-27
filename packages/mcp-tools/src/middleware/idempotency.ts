@@ -83,7 +83,7 @@ function delay(ms: number): Promise<void> {
     // health.controller.ts (readiness timeout), and audit-log.ts. The promise
     // still resolves normally while the loop is running, so retry timing is
     // unchanged.
-    if (timer.unref) timer.unref();
+    timer.unref();
   });
 }
 

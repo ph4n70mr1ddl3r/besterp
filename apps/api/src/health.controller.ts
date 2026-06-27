@@ -58,7 +58,7 @@ export class HealthController {
     const timeoutPromise = new Promise<"timeout">((resolve) => {
       timeoutId = setTimeout(() => resolve("timeout"), 5000);
       // Prevent the timer from keeping the process alive during shutdown.
-      if (timeoutId.unref) timeoutId.unref();
+      timeoutId.unref();
     });
 
     try {

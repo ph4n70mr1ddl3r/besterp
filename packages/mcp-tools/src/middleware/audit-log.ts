@@ -123,7 +123,7 @@ function createBackpressureManager(prisma: PrismaClient): BackpressureManager {
         process.stderr.write(`[AuditLog] Write slot timeout after ${WRITE_QUEUE_TIMEOUT_MS}ms — dropping audit entry\n`);
         resolve({ acquired: false });
       }, WRITE_QUEUE_TIMEOUT_MS);
-      if (timer.unref) timer.unref();
+      timer.unref();
       writeQueue.push({ resolve, timer, get settled() { return settled; } });
     });
   }

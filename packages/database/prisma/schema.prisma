@@ -62,10 +62,10 @@ model Party {
 
   @@index([tenantId])
   @@index([partyTypeId])
-   @@index([tenantId, partyTypeId])
-   // pg_trgm GIN index added in migration 20260619000000 (party_name_trgm_idx).
-   // For large production tables, consider running CREATE INDEX CONCURRENTLY manually.
-   @@map("party")
+  @@index([tenantId, partyTypeId])
+  // pg_trgm GIN index added in migration 20260619000000 (party_name_trgm_idx).
+  // For large production tables, consider running CREATE INDEX CONCURRENTLY manually.
+  @@map("party")
 }
 
 // ─── Subtype: PERSON ────────────────────────────────────────────
