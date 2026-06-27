@@ -361,48 +361,22 @@ export class PartyService {
     // Build where clause after validation to ensure tenantId is validated first
     const where: Prisma.PartyWhereInput = { tenantId };
     
-    if (name) {
+    const trimmedName = this.requireNonEmptyFilter(name, "name", ["search_parties"]);
+    if (trimmedName) {
       // Use contains for flexible partial matching (case-insensitive).
       // Trim whitespace to avoid useless LIKE '%  %' queries.
       // The pg_trgm GIN index (migration 20260619000000) supports these queries.
-      const trimmedName = name.trim();
-      if (trimmedName.length > 0) {
-        where.name = { contains: trimmedName, mode: "insensitive" };
-      } else {
-        // Whitespace-only name: silently widening the query to "return all
-        // parties" is a footgun — a caller who types "   " probably meant
-        // a real filter, and the response size can be surprising. Reject
-        // explicitly so the caller gets a clear error.
-        throw new InvalidTypeValueError(
-          "name filter cannot be whitespace-only.",
-          { suggestedTools: ["search_parties"], context: { field: "name" } }
-        );
-      }
+      where.name = { contains: trimmedName, mode: "insensitive" };
     }
-    
-    if (partyType) {
-      const trimmedPartyType = partyType.trim();
-      if (trimmedPartyType.length > 0) {
-        where.partyType = { name: { equals: trimmedPartyType, mode: "insensitive" } };
-      } else {
-        throw new InvalidTypeValueError(
-          "partyType filter cannot be whitespace-only.",
-          { suggestedTools: ["search_parties"], context: { field: "partyType" } }
-        );
-      }
+
+    const trimmedPartyType = this.requireNonEmptyFilter(partyType, "partyType", ["search_parties"]);
+    if (trimmedPartyType) {
+      where.partyType = { name: { equals: trimmedPartyType, mode: "insensitive" } };
     }
-    
-    if (roleType) {
-      const trimmedRoleType = roleType.trim();
-      if (trimmedRoleType.length > 0) {
-        where.roles = { some: { roleType: { name: { equals: trimmedRoleType, mode: "insensitive" } } } };
-      } else {
-        // See `name` filter above for rationale.
-        throw new InvalidTypeValueError(
-          "roleType filter cannot be whitespace-only.",
-          { suggestedTools: ["search_parties", "get_type_table_values"], context: { field: "roleType" } }
-        );
-      }
+
+    const trimmedRoleType = this.requireNonEmptyFilter(roleType, "roleType", ["search_parties", "get_type_table_values"]);
+    if (trimmedRoleType) {
+      where.roles = { some: { roleType: { name: { equals: trimmedRoleType, mode: "insensitive" } } } };
     }
 
     // NOTE: Under PostgreSQL READ COMMITTED, each statement inside the
@@ -729,6 +703,25 @@ export class PartyService {
   }
 
   // ─── Private Helpers ──────────────────────────────────────────
+
+  /** Validate and trim an optional search filter. Returns trimmed value or undefined.
+   *  Rejects whitespace-only input — a caller who types "   " probably meant
+   *  a real filter, and silently widening the query to "return all" is a footgun. */
+  private requireNonEmptyFilter(
+    value: string | undefined,
+    fieldName: string,
+    suggestedTools: string[],
+  ): string | undefined {
+    if (value === undefined) return undefined;
+    const trimmed = value.trim();
+    if (trimmed.length === 0) {
+      throw new InvalidTypeValueError(
+        `${fieldName} filter cannot be whitespace-only.`,
+        { suggestedTools, context: { field: fieldName } }
+      );
+    }
+    return trimmed;
+  }
 
   /** Validate a required string field: must be non-empty and within maxLength.
    *  Trims before both checks for defense-in-depth. */
