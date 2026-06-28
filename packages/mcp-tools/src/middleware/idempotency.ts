@@ -149,8 +149,9 @@ async function acquireIdempotencyRecord(
       return { existingRecord: null, recordCreated: false };
     }
   }
-  // Unreachable — the for loop always exits via return in the try/catch.
-  // Kept for TypeScript flow analysis (TS2366).
+  // Exhausted all retries — surface contention rather than a silent fallthrough.
+  // The for-loop always returns via try/catch, but TS needs an unconditional
+  // return after the loop for flow analysis (TS2366).
   return { existingRecord: null, recordCreated: false };
 }
 

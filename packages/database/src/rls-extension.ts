@@ -180,8 +180,7 @@ function createTransactionWrapper(prisma: PrismaClient, tenantId: string) {
         }
         return fn(tx);
       };
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      return options ? (prisma as any).$transaction(wrappedFn, options) : (prisma as any).$transaction(wrappedFn);
+      return prisma.$transaction(wrappedFn, options ?? undefined);
     }
 
     throw new Error(

@@ -13,7 +13,7 @@ import helmet from "helmet";
 import { randomUUID } from "node:crypto";
 import { sanitizeLogOutput } from "@besterp/shared";
 import { AppModule } from "./app.module.js";
-import type { Request, Response, NextFunction } from "express";
+import express, { type Request, type Response, type NextFunction } from "express";
 
 const logger = new Logger("Bootstrap");
 
@@ -199,9 +199,8 @@ async function bootstrap() {
   // Limit request body size to 100 KB to prevent DoS via oversized payloads.
   // Uses the raw express middleware since NestFactory.create({ bodyParser: false })
   // disables the built-in body parser.
-  const express = await import("express");
-  app.use(express.default.json({ limit: "100kb" }));
-  app.use(express.default.urlencoded({ extended: true, limit: "100kb" }));
+  app.use(express.json({ limit: "100kb" }));
+  app.use(express.urlencoded({ extended: true, limit: "100kb" }));
 
   app.useGlobalPipes(
     new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true })

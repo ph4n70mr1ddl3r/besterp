@@ -65,7 +65,7 @@ export class DomainError extends Error {
 // NOTE: not named ErrorOptions to avoid shadowing the global ErrorOptions
 // interface from lib.es2022.error.d.ts (which has { cause?: unknown }).
 /** Safe context values — only primitives and simple arrays to prevent accidental sensitive data exposure. */
-type ContextValue = string | number | boolean | null | ContextValue[] | { [key: string]: ContextValue };
+export type ContextValue = string | number | boolean | null | ContextValue[] | { [key: string]: ContextValue };
 
 export interface DomainErrorOptions {
   suggestedTools?: string[];
