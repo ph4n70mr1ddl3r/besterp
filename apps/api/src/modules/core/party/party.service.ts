@@ -282,7 +282,6 @@ export class PartyService {
       }, { timeout: 10_000 });
     } catch (err) {
       PartyService.handleTransactionError(err, "create_party", "create_party", "party");
-      throw err; // unreachable — handleTransactionError always throws; satisfies return type
     }
   }
 
@@ -508,7 +507,6 @@ export class PartyService {
       }, { timeout: 10_000 });
     } catch (err) {
       PartyService.handleTransactionError(err, "add_party_role", "get_party", "party role");
-      throw err; // unreachable — handleTransactionError always throws; satisfies return type
     }
   }
 
@@ -646,7 +644,6 @@ export class PartyService {
       }, { timeout: 10_000 });
     } catch (err) {
       PartyService.handleTransactionError(err, "add_contact_mechanism", "add_contact_mechanism", "contact mechanism");
-      throw err; // unreachable — handleTransactionError always throws; satisfies return type
     }
   }
 

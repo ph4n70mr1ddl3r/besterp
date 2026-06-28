@@ -24,15 +24,6 @@ export {
   isValidISODate,
 } from "./validation.js";
 
-export {
-  validateRequiredString,
-  validateOptionalString,
-  validateUuid,
-  validateIsoDate,
-  validateEmail,
-  validateCountryCode,
-} from "./validation-utils.js";
-
 export { stripHtmlTags, safeFromCodePoint, sanitizeLogOutput, sanitizeForLog } from "./sanitize.js";
 
 export {
