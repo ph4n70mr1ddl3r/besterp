@@ -319,6 +319,7 @@ export class TelecomNumberDto {
 }
 
 export class EmailAddressDto {
+  @sanitizeTransform()
   @Transform(({ value }: { value: string }) =>
     typeof value === "string" ? value.trim().toLowerCase() : value
   )

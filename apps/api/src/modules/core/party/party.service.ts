@@ -296,7 +296,7 @@ export class PartyService {
     if (err instanceof Prisma.PrismaClientKnownRequestError) {
       if (err.code === "P2002") {
         const target = (err.meta?.target as string[] | undefined);
-        const field = Array.isArray(target) && target.length > 0 ? target[0] : "this record";
+        const field = Array.isArray(target) && target.length > 0 ? (target[0] as string) : "this record";
         throw new DuplicateEntityError(
           `A ${entityName} with the same ${field} already exists in this tenant.`,
           { suggestedTools: [suggestTool], context: { prismaCode: "P2002", conflictingField: field } }
@@ -472,7 +472,7 @@ export class PartyService {
     if (!isValidISODate(trimmed)) {
       throw new InvalidTypeValueError(
         `Invalid fromDate format: ${fromDate}. Use ISO 8601 format (YYYY-MM-DDTHH:mm:ss.sssZ)`,
-        { suggestedTools: ["add_party_role"], context: { field: "fromDate", invalidValue: fromDate } }
+        { suggestedTools: ["add_party_role"], context: { field: "fromDate", invalidValue: fromDate ?? "undefined" } }
       );
     }
     return new Date(trimmed);

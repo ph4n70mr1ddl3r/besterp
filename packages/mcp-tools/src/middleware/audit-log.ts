@@ -62,7 +62,7 @@ function createBaseEntry(context: { agentId?: string; conversationId?: string; r
     userId: context.userId,
     tenantId: context.tenantId,
     toolCalled: definition.name,
-    toolInput: input,
+    toolInput: redactSensitiveFields(input),
   };
 }
 

@@ -69,6 +69,29 @@ function extractPrismaError(error: unknown): { code: string | undefined; meta: {
   return { code: undefined, meta: undefined };
 }
 
+function sanitizeContextValue(value: unknown): unknown {
+  if (typeof value === "string") return sanitizeErrorMessage(value);
+  if (Array.isArray(value)) return value.map(sanitizeContextValue);
+  if (value != null && typeof value === "object" && !(value instanceof Date || value instanceof RegExp)) {
+    const result: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      result[k] = sanitizeContextValue(v);
+    }
+    return result;
+  }
+  if (value === undefined) return null;
+  return value;
+}
+
+function sanitizeContextValueForToolResult(value: unknown): Record<string, unknown> | undefined {
+  const sanitized = sanitizeContextValue(value);
+  if (sanitized === null || sanitized === undefined) return undefined;
+  if (typeof sanitized === "object" && sanitized !== null) {
+    return sanitized as Record<string, unknown>;
+  }
+  return undefined;
+}
+
 function handleDomainError(error: DomainError, definition: { name: string }): ToolResult {
   return {
     success: false,
@@ -76,7 +99,7 @@ function handleDomainError(error: DomainError, definition: { name: string }): To
       code: error.code,
       message: error.message,
       suggestedTools: error.suggestedTools.length > 0 ? error.suggestedTools : [definition.name, "list_available_tools"],
-      context: error.context,
+      context: sanitizeContextValueForToolResult(error.context),
     },
   };
 }
