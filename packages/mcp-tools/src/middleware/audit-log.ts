@@ -104,7 +104,7 @@ interface BackpressureManager {
 
 function createBackpressureManager(prisma: PrismaClient): BackpressureManager {
   let activeWrites = 0;
-  const writeQueue: Array<{ resolve: (value: { acquired: boolean }) => void; timer: ReturnType<typeof setTimeout>; settled?: boolean }> = [];
+  const writeQueue: Array<{ resolve: (value: { acquired: boolean }) => void; timer: ReturnType<typeof setTimeout>; settled: boolean }> = [];
   let droppedCount = 0;
   let errorCount = 0;
 
@@ -124,7 +124,7 @@ function createBackpressureManager(prisma: PrismaClient): BackpressureManager {
         resolve({ acquired: false });
       }, WRITE_QUEUE_TIMEOUT_MS);
       timer.unref();
-      writeQueue.push({ resolve, timer, get settled() { return settled; } });
+      writeQueue.push({ resolve, timer, settled: false });
     });
   }
 
@@ -134,6 +134,7 @@ function createBackpressureManager(prisma: PrismaClient): BackpressureManager {
       const next = writeQueue.shift()!;
       clearTimeout(next.timer);
       if (next.settled) continue;
+      next.settled = true;
       activeWrites++;
       next.resolve({ acquired: true });
       return;

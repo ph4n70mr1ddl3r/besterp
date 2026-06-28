@@ -15,6 +15,8 @@ import { sanitizeLogOutput } from "@besterp/shared";
 import { AppModule } from "./app.module.js";
 import type { Request, Response, NextFunction } from "express";
 
+const logger = new Logger("Bootstrap");
+
 function normalizeEnvironment(): void {
   // Normalize NODE_ENV early so all downstream comparisons are case-insensitive.
   // Without this, "Production", "PRODUCTION", or "Production" would silently
@@ -28,18 +30,18 @@ function validateEnvironment(): void {
   const requiredInProduction = ["DATABASE_URL", "DATABASE_ADMIN_URL", "JWT_SECRET"];
   const missing = requiredInProduction.filter((v) => !process.env[v]);
   if (missing.length > 0 && process.env.NODE_ENV === "production") {
-    console.error(`❌ FATAL: Missing required environment variables: ${missing.join(", ")}. Exiting.`);
+    logger.error(`Missing required environment variables: ${missing.join(", ")}. Exiting.`);
     process.exit(1);
   }
   if (!process.env.DATABASE_URL && process.env.NODE_ENV !== "production") {
-    console.warn("⚠️  DATABASE_URL not set — database operations will fail. Set DATABASE_URL before running the API.");
+    logger.warn("DATABASE_URL not set — database operations will fail. Set DATABASE_URL before running the API.");
   }
 
   // Fail if JWT_SECRET is missing in any non-development environment.
   // In development, a random ephemeral secret is generated instead.
   if (!process.env.JWT_SECRET && process.env.NODE_ENV !== "development") {
-    console.error(
-      "❌ FATAL: JWT_SECRET is not set. This is required in non-development environments. " +
+    logger.error(
+      "JWT_SECRET is not set. This is required in non-development environments. " +
       "Set JWT_SECRET before running the API."
     );
     process.exit(1);
@@ -49,8 +51,8 @@ function validateEnvironment(): void {
   if (process.env.JWT_SECRET) {
     const secret = process.env.JWT_SECRET;
     if (secret.length < 32) {
-      console.error(
-        `❌ FATAL: JWT_SECRET is too short (${secret.length} chars). Must be at least 32 characters. ` +
+      logger.error(
+        `JWT_SECRET is too short (${secret.length} chars). Must be at least 32 characters. ` +
         "Generate a secure secret with: openssl rand -hex 32"
       );
       process.exit(1);
@@ -66,8 +68,8 @@ function validateEnvironment(): void {
     ];
     for (const pattern of weakPatterns) {
       if (pattern.test(secret)) {
-        console.warn(
-          "⚠️  JWT_SECRET appears to be a weak or default value. " +
+        logger.warn(
+          "JWT_SECRET appears to be a weak or default value. " +
           "Use a cryptographically random secret in production: openssl rand -hex 32"
         );
         break;
@@ -78,7 +80,7 @@ function validateEnvironment(): void {
   const REDIS_WARN_VARS = ["REDIS_HOST", "REDIS_PORT"];
   const missingRedis = REDIS_WARN_VARS.filter((v) => !process.env[v]);
   if (missingRedis.length > 0 && process.env.NODE_ENV === "production") {
-    console.warn(`⚠️  Missing Redis env vars: ${missingRedis.join(", ")}. Queues and background jobs will fail.`);
+    logger.warn(`Missing Redis env vars: ${missingRedis.join(", ")}. Queues and background jobs will fail.`);
   }
 }
 
@@ -88,12 +90,12 @@ function setupGracefulShutdown(app: INestApplication): void {
 
   async function gracefulShutdown(label: string, detail: unknown): Promise<void> {
     const raw = detail instanceof Error ? detail.stack ?? detail.message : String(detail);
-    console.error(`❌ ${label}:`, sanitizeLogOutput(raw));
+    logger.error(`${label}: ${sanitizeLogOutput(raw)}`);
     if (shuttingDown) process.exit(1);
     shuttingDown = true;
 
     const hardExitTimer = setTimeout(() => {
-      console.error(`❌ Graceful shutdown exceeded ${HARD_EXIT_TIMEOUT_MS}ms — forcing exit.`);
+      logger.error(`Graceful shutdown exceeded ${HARD_EXIT_TIMEOUT_MS}ms — forcing exit.`);
       process.exit(1);
     }, HARD_EXIT_TIMEOUT_MS);
     hardExitTimer.unref();
@@ -104,7 +106,7 @@ function setupGracefulShutdown(app: INestApplication): void {
       process.exit(0);
     } catch (closeErr) {
       const errorDetail = closeErr instanceof Error ? closeErr.stack ?? closeErr.message : String(closeErr);
-      console.error("❌ Error during graceful shutdown:", sanitizeLogOutput(errorDetail));
+      logger.error(`Error during graceful shutdown: ${sanitizeLogOutput(errorDetail)}`);
       clearTimeout(hardExitTimer);
       process.exit(1);
     }
@@ -115,13 +117,13 @@ function setupGracefulShutdown(app: INestApplication): void {
     // Attempting graceful shutdown (app.close()) may hang or corrupt in-flight
     // requests. Log the error and exit immediately — let the process manager
     // (systemd, Docker, PM2) restart a clean instance.
-    console.error("❌ Uncaught exception:", error.stack ?? error.message);
+    logger.error(`Uncaught exception: ${error.stack ?? error.message}`);
     process.exit(1);
   });
 
   process.on("unhandledRejection", (reason) => {
     void gracefulShutdown("Unhandled promise rejection", reason).catch((shutdownErr) => {
-      console.error("Error during shutdown handler:", shutdownErr);
+      logger.error(`Error during shutdown handler: ${shutdownErr}`);
       process.exit(1);
     });
   });
@@ -145,14 +147,14 @@ function configureCors(app: INestApplication): void {
       "http://localhost:5173",
       "http://localhost:5174",
     ];
-    console.warn(
-      "⚠️  CORS_ORIGINS not set — using restrictive localhost origins for development. " +
+    logger.warn(
+      "CORS_ORIGINS not set — using restrictive localhost origins for development. " +
       "Set CORS_ORIGINS for non-standard dev ports."
     );
     app.enableCors({ origin: devOrigins, credentials: false });
   } else if (process.env.NODE_ENV !== "production") {
-    console.warn(
-      "⚠️  CORS is not configured for this environment. " +
+    logger.warn(
+      "CORS is not configured for this environment. " +
       "Set CORS_ORIGINS (comma-separated list) to enable cross-origin requests."
     );
   }
@@ -162,7 +164,7 @@ function parsePort(): number {
   const rawPort = process.env.PORT || "3000";
   const port = Number(rawPort);
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
-    console.error(`❌ FATAL: Invalid PORT "${rawPort}". Must be an integer between 1 and 65535.`);
+    logger.error(`Invalid PORT "${rawPort}". Must be an integer between 1 and 65535.`);
     process.exit(1);
   }
   return port;
@@ -208,10 +210,9 @@ async function bootstrap() {
   const port = parsePort();
   try {
     await app.listen(port);
-    const logger = new Logger("Bootstrap");
     logger.log(`BestERP API running on http://localhost:${port}`);
   } catch (err) {
-    console.error(`❌ FATAL: Failed to listen on port ${port}: ${err instanceof Error ? err.message : err}`);
+    logger.error(`Failed to listen on port ${port}: ${err instanceof Error ? err.message : err}`);
     process.exit(1);
   }
 }

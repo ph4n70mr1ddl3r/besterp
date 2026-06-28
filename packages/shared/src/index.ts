@@ -16,7 +16,22 @@ export {
 
 export { hashInput } from "./crypto.js";
 
-export { UUID_REGEX, EMAIL_REGEX, COUNTRY_CODE_REGEX, ISO_DATE_REGEX, isValidISODate } from "./validation.js";
+export {
+  UUID_REGEX,
+  EMAIL_REGEX,
+  COUNTRY_CODE_REGEX,
+  ISO_DATE_REGEX,
+  isValidISODate,
+} from "./validation.js";
+
+export {
+  validateRequiredString,
+  validateOptionalString,
+  validateUuid,
+  validateIsoDate,
+  validateEmail,
+  validateCountryCode,
+} from "./validation-utils.js";
 
 export { stripHtmlTags, safeFromCodePoint, sanitizeLogOutput, sanitizeForLog } from "./sanitize.js";
 
