@@ -108,8 +108,7 @@ export class PartyService {
     const { tenantId, partyType, name, description, person: personData, organization: orgData } = input;
 
     // Validate tenantId format — defense-in-depth for MCP callers that bypass DTO/Zod
-    this.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "create", "create_party");
-    const trimmedTenantId = tenantId.trim();
+    const trimmedTenantId = this.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "create", "create_party");
 
     // Trim partyType FIRST so validation uses canonical value.
     // Boundary layers (REST @IsEnum, MCP z.enum) reject whitespace-padded
@@ -316,8 +315,7 @@ export class PartyService {
 
   async getParty(tenantId: string, partyId: string): Promise<PartyResult> {
     // Validate tenantId format — defense-in-depth for MCP callers that bypass DTO/Zod
-    this.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "get", "get_party");
-    const trimmedTenantId = tenantId.trim();
+    const trimmedTenantId = this.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "get", "get_party");
 
     // Validate partyId format — MCP tools don't go through the REST controller's
     // requireUuid(), so we need defense-in-depth at the service layer.
@@ -351,8 +349,7 @@ export class PartyService {
     const offset = input.offset ?? MIN_SEARCH_OFFSET;
 
     // Validate tenantId format — defense-in-depth for MCP callers that bypass DTO/Zod
-    this.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "search", "search_parties");
-    const trimmedTenantId = tenantId.trim();
+    const trimmedTenantId = this.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "search", "search_parties");
 
     // Validate pagination parameters
     const validatedLimit = Math.min(Math.max(limit, MIN_SEARCH_LIMIT), MAX_SEARCH_LIMIT); // Clamp between 1-500
@@ -414,8 +411,7 @@ export class PartyService {
     const { tenantId, partyId, roleType, fromDate } = input;
 
     // Validate tenantId format — defense-in-depth for MCP callers that bypass DTO/Zod
-    this.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "add role", "add_party_role");
-    const trimmedTenantId = tenantId.trim();
+    const trimmedTenantId = this.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "add role", "add_party_role");
 
     this.requireUuid(partyId, "partyId");
 
@@ -520,8 +516,7 @@ export class PartyService {
     const { tenantId, partyId, contactMechanismType, postalAddress, telecomNumber, emailAddress } = input;
 
     // Validate tenantId format — defense-in-depth for MCP callers that bypass DTO/Zod
-    this.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "add contact", "add_contact_mechanism");
-    const trimmedTenantId = tenantId.trim();
+    const trimmedTenantId = this.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "add contact", "add_contact_mechanism");
 
     this.requireUuid(partyId, "partyId");
 
@@ -545,8 +540,7 @@ export class PartyService {
   }
 
   private validateContactMechanismType(type: string): string {
-    this.requireStringField(type, "contactMechanismType", MAX_CONTACT_MECHANISM_TYPE_LENGTH, "contact mechanism type", "get_type_table_values");
-    return type.trim();
+    return this.requireStringField(type, "contactMechanismType", MAX_CONTACT_MECHANISM_TYPE_LENGTH, "contact mechanism type", "get_type_table_values");
   }
 
   private validateContactMechanismSubtype(
@@ -733,7 +727,7 @@ export class PartyService {
     maxLength: number,
     parentType: string,
     tool = "create_party",
-  ): void {
+  ): string {
     const trimmed = value?.trim() ?? "";
     if (trimmed.length === 0) {
       throw new InvalidTypeValueError(
@@ -747,6 +741,7 @@ export class PartyService {
         { suggestedTools: [tool], context: { field, length: trimmed.length, maxLength } }
       );
     }
+    return trimmed;
   }
 
   /** Validate that a string does not exceed maxLength.
