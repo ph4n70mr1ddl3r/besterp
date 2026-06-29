@@ -24,8 +24,9 @@ export class QueueModule {
   private static readonly logger = new Logger(QueueModule.name);
 
   private static resolveRedisOptions(options?: Partial<QueueModuleOptions>): { host: string; port: number; password: string | undefined } {
-    const host = options?.redis?.host || process.env.REDIS_HOST || "localhost";
-    if (!host || host.trim().length === 0) {
+    const rawHost = options?.redis?.host || process.env.REDIS_HOST || "localhost";
+    const host = rawHost.trim();
+    if (!host) {
       throw new Error("Redis host is required. Set REDIS_HOST or provide options.redis.host.");
     }
     const port = this.resolvePort(options?.redis?.port);

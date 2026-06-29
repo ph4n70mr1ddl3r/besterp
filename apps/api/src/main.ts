@@ -202,6 +202,18 @@ async function bootstrap() {
   app.use(express.json({ limit: "100kb" }));
   app.use(express.urlencoded({ extended: true, limit: "100kb" }));
 
+  // Catch-all Express error handler — safety net for synchronous throws from
+  // Express middleware that escape NestJS's exception filters. Returns a
+  // sanitized 500 so internal details are never leaked to the client.
+  app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
+    logger.error(`Unhandled Express middleware error: ${sanitizeLogOutput(err.message)}`);
+    const isDev = process.env.NODE_ENV === "development";
+    res.status(500).json({
+      statusCode: 500,
+      message: isDev ? sanitizeLogOutput(err.message) : "Internal server error",
+    });
+  });
+
   app.useGlobalPipes(
     new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true })
   );

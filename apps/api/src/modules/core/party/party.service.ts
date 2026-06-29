@@ -109,6 +109,7 @@ export class PartyService {
 
     // Validate tenantId format — defense-in-depth for MCP callers that bypass DTO/Zod
     this.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "create", "create_party");
+    const trimmedTenantId = tenantId.trim();
 
     // Trim partyType FIRST so validation uses canonical value.
     // Boundary layers (REST @IsEnum, MCP z.enum) reject whitespace-padded
@@ -126,9 +127,9 @@ export class PartyService {
     const { sanitizedPerson, sanitizedOrg, sanitizedName, sanitizedDescription } =
       this.sanitizeCreatePartyInput(trimmedName, trimmedDescription, personData, orgData);
 
-    const db: TenantScopedClient = this.prisma.tenantScoped(tenantId);
+    const db: TenantScopedClient = this.prisma.tenantScoped(trimmedTenantId);
 
-    const party = await this.createPartyTransaction(db, tenantId, trimmedPartyType, sanitizedName, sanitizedDescription, sanitizedPerson, sanitizedOrg);
+    const party = await this.createPartyTransaction(db, trimmedTenantId, trimmedPartyType, sanitizedName, sanitizedDescription, sanitizedPerson, sanitizedOrg);
 
     this.logger.log(`Created ${trimmedPartyType} party: ${sanitizeForLog(trimmedName)} (${party.partyId})`);
     return PartyService.toPartyResult(party);
@@ -316,12 +317,13 @@ export class PartyService {
   async getParty(tenantId: string, partyId: string): Promise<PartyResult> {
     // Validate tenantId format — defense-in-depth for MCP callers that bypass DTO/Zod
     this.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "get", "get_party");
+    const trimmedTenantId = tenantId.trim();
 
     // Validate partyId format — MCP tools don't go through the REST controller's
     // requireUuid(), so we need defense-in-depth at the service layer.
     this.requireUuid(partyId, "partyId");
 
-    const db: TenantScopedClient = this.prisma.tenantScoped(tenantId);
+    const db: TenantScopedClient = this.prisma.tenantScoped(trimmedTenantId);
 
     const party = await db.party.findUnique({
       where: { partyId },
@@ -350,15 +352,16 @@ export class PartyService {
 
     // Validate tenantId format — defense-in-depth for MCP callers that bypass DTO/Zod
     this.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "search", "search_parties");
+    const trimmedTenantId = tenantId.trim();
 
     // Validate pagination parameters
     const validatedLimit = Math.min(Math.max(limit, MIN_SEARCH_LIMIT), MAX_SEARCH_LIMIT); // Clamp between 1-500
     const validatedOffset = Math.min(Math.max(offset, MIN_SEARCH_OFFSET), MAX_SEARCH_OFFSET);
 
-    const db: TenantScopedClient = this.prisma.tenantScoped(tenantId);
+    const db: TenantScopedClient = this.prisma.tenantScoped(trimmedTenantId);
 
     // Build where clause after validation to ensure tenantId is validated first
-    const where: Prisma.PartyWhereInput = { tenantId };
+    const where: Prisma.PartyWhereInput = { tenantId: trimmedTenantId };
     
     const trimmedName = this.requireNonEmptyFilter(name, "name", ["search_parties"]);
     if (trimmedName) {
@@ -412,10 +415,11 @@ export class PartyService {
 
     // Validate tenantId format — defense-in-depth for MCP callers that bypass DTO/Zod
     this.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "add role", "add_party_role");
+    const trimmedTenantId = tenantId.trim();
 
     this.requireUuid(partyId, "partyId");
 
-    const db: TenantScopedClient = this.prisma.tenantScoped(tenantId);
+    const db: TenantScopedClient = this.prisma.tenantScoped(trimmedTenantId);
 
     const trimmedRoleType = this.validateAddPartyRoleInput(roleType);
     const roleFromDate = this.parseFromDate(fromDate);
@@ -428,7 +432,7 @@ export class PartyService {
       );
     }
 
-    const role = await this.addPartyRoleTransaction(db, tenantId, partyId, roleTypeRecord.roleTypeId, trimmedRoleType, roleFromDate);
+    const role = await this.addPartyRoleTransaction(db, trimmedTenantId, partyId, roleTypeRecord.roleTypeId, trimmedRoleType, roleFromDate);
 
     this.logger.log(`Added role '${sanitizeForLog(trimmedRoleType)}' to party ${partyId} (ID: ${role.partyRoleId})`);
     return {
@@ -517,10 +521,11 @@ export class PartyService {
 
     // Validate tenantId format — defense-in-depth for MCP callers that bypass DTO/Zod
     this.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "add contact", "add_contact_mechanism");
+    const trimmedTenantId = tenantId.trim();
 
     this.requireUuid(partyId, "partyId");
 
-    const db: TenantScopedClient = this.prisma.tenantScoped(tenantId);
+    const db: TenantScopedClient = this.prisma.tenantScoped(trimmedTenantId);
 
     const trimmedCmType = this.validateContactMechanismType(contactMechanismType);
     const normalizedEmail = this.validateContactMechanismSubtype(trimmedCmType, postalAddress, telecomNumber, emailAddress);
@@ -533,7 +538,7 @@ export class PartyService {
       );
     }
 
-    const contactMechanism = await this.createContactMechanismTransaction(db, tenantId, partyId, trimmedCmType, cmType.contactMechanismTypeId, postalAddress, telecomNumber, normalizedEmail);
+    const contactMechanism = await this.createContactMechanismTransaction(db, trimmedTenantId, partyId, trimmedCmType, cmType.contactMechanismTypeId, postalAddress, telecomNumber, normalizedEmail);
 
     this.logger.log(`Added ${sanitizeForLog(trimmedCmType)} to party ${partyId} (ID: ${contactMechanism.contactMechanismId})`);
     return PartyService.formatContactResult(contactMechanism, partyId);
