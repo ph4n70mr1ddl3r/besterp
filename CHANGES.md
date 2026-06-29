@@ -2,6 +2,28 @@
 
 ## Changes Applied (2026-06-29) — Review Recommendations
 
+### 🟢 Test Coverage: `@besterp/shared/sanitize.ts` — 49 Unit Tests Added
+
+**Problem:** `stripHtmlTags`, `sanitizeLogOutput`, `sanitizeForLog`, and `safeFromCodePoint` had zero unit test coverage despite handling security-critical input sanitization.
+
+**Fix:**
+- 18 tests for `stripHtmlTags`: empty string, plain text, HTML tag removal, script/style stripping, entity decoding (including double-encoded), HTML comments, null bytes, orphaned tags, deeply nested encoded strings, oversized input, mixed content, C0 controls, and edge cases.
+- 10 tests for `sanitizeLogOutput`: redaction of PostgreSQL, Redis, MongoDB, MySQL, AMQP connection strings; generic `protocol://HOST/` patterns; file path scrubbing; multiple concurrent patterns; and safe message preservation.
+- 8 tests for `sanitizeForLog`: newline, carriage return, tab, and ANSI escape removal; C0 control character replacement; and multi-injection input.
+- 6 tests for `safeFromCodePoint`: valid code points, lone surrogates, negative values, out-of-range values, and NaN.
+
+### 🟢 Cleanup: `EmailAddressDto.email` — Removed Redundant Double Transform
+
+**Problem:** `email` field had both `@sanitizeTransform()` (`stripHtmlTags` + `trim`) and a separate `@Transform` (`trim` + `toLowerCase`), producing a wasteful double trim and a misleading separation of sanitization concerns.
+
+**Fix:** Consolidated into a single `@Transform` that does `stripHtmlTags` + `trim` + `toLowerCase` in one pass. Also fixed the type annotation from `{ value }: { value: string }` to the correct `{ value }: TransformFnParams`.
+
+### 🟢 Cleanup: `PostalAddressDto.country` — Fixed `@Transform` Type Annotation
+
+**Problem:** The inline `@Transform` callback used `{ value }: { value: string }` instead of the proper `TransformFnParams` type that was already imported.
+
+**Fix:** Changed to `{ value }: TransformFnParams` for type consistency with `sanitizeTransform()` and the rest of the codebase.
+
 ### 🟡 Significant: `requireStringField` Now Returns Trimmed Value
 
 **Problem:** `PartyService.requireStringField()` returned `void`. Every call site had a two-line pattern:
