@@ -24,7 +24,7 @@ export {
   isValidISODate,
 } from "./validation.js";
 
-export { stripHtmlTags, safeFromCodePoint, sanitizeLogOutput, sanitizeForLog } from "./sanitize.js";
+export { stripHtmlTags, sanitizeLogOutput, sanitizeForLog } from "./sanitize.js";
 
 export {
   MAX_PARTY_NAME_LENGTH,

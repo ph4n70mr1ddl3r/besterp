@@ -33,4 +33,4 @@ packages/database/prisma/*.db-wal
 packages/database/prisma/*.db-shm
 
 # Spikes & experiments
-spikes/
+**/spikes/

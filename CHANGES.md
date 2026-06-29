@@ -1,6 +1,55 @@
 # BestERP — Security & Architecture Fixes
 
-## Changes Applied (2026-05-11) — Review Recommendations
+## Changes Applied (2026-06-29) — Review Recommendations
+
+### 🟡 Significant: `requireStringField` Now Returns Trimmed Value
+
+**Problem:** `PartyService.requireStringField()` returned `void`. Every call site had a two-line pattern:
+`this.requireStringField(tenantId, ...); const trimmedTenantId = tenantId.trim();` — redundant
+trimming that could drift out of sync.
+
+**Fix:**
+- `requireStringField()` now returns the trimmed value directly
+- Simplified 6 call sites to a single line: `const trimmed = this.requireStringField(...)`
+- Same pattern applied to `validateContactMechanismType`
+
+### 🟡 Significant: `@prisma/client` Moved to Runtime Dependencies
+
+**Problem:** `@prisma/client` was listed as a devDependency in `@besterp/shared/package.json`.
+At runtime, `import { Prisma } from "@prisma/client"` in `errors.ts` would fail because
+devDependencies are not installed in production.
+
+**Fix:**
+- Moved `@prisma/client` from devDependencies to dependencies in `@besterp/shared`
+
+### 🟢 Cleanup: Void Floating Promises Explicitly
+
+**Problem:** `health.controller.ts` `ready()` method had `healthPromise.catch(...)` without
+`void`, triggering `@typescript-eslint/no-floating-promises` error.
+
+**Fix:**
+- Added `void` prefix to the fire-and-forget `.catch()` chain
+
+### 🟢 Cleanup: Removed Dead `validation-utils.ts`
+
+**Problem:** `packages/shared/src/validation-utils.ts` was a stale, 318-line file with
+incompatible exports and dead code, removed in a prior commit but the file persisted.
+
+**Fix:**
+- Deleted `validation-utils.ts`
+- All callers use the consolidated `validation.ts` module
+
+### 🟢 Cleanup: `main.ts` Express Imports & Error Handler
+
+- Changed `express` import from `import express from "express"` to static named import
+  for tree-shaking consistency
+- Added catch-all Express error handler middleware for safety net
+
+### 🟢 Cleanup: PartyService — Trim `tenantId` Before Subtype Check
+
+- Moved `tenantId.trim()` call before `partyType.trim()` in `createParty()` to match
+  the validation order used by all other service methods
+- `QueueModule` — trim `host` before connection validation
 
 ### 🔴 Critical: RLS Proxy `$transaction` Bug Fixed
 

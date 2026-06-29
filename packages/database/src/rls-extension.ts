@@ -65,7 +65,7 @@ export function validateTenantIdEnhanced(tenantId: string): void {
   } catch (e) {
     // Preserve original DomainError with its specific code (e.g. INVALID_TENANT_ID)
     // instead of wrapping it as INVALID_TYPE_VALUE, which loses error specificity.
-    if (e instanceof Error && "code" in e) throw e;
+    if (isDomainError(e)) throw e;
     const message = e instanceof Error ? e.message : String(e);
     throw new InvalidTypeValueError(
       message,
