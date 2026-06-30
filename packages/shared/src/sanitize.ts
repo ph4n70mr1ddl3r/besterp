@@ -82,8 +82,9 @@ export function stripHtmlTags(input: string): string {
     sanitized = sanitized.replace(/<style\b[^>]*\/?>/gi, "");
     // Remove HTML comments
     sanitized = sanitized.replace(/<!--[\s\S]*?-->/g, "");
-    // Remove all remaining HTML tags
-    sanitized = sanitized.replace(/<[^>]*>/g, "");
+    // Remove all remaining HTML tags (must have at least one non-whitespace
+    // char after < to avoid treating plain text like "< >" as a tag)
+    sanitized = sanitized.replace(/<[^\s>][^>]*>/g, "");
     // Strip incomplete/orphaned opening tags (missing closing >)
     sanitized = sanitized.replace(/<[a-zA-Z][^>]*$/g, "");
 
@@ -116,7 +117,7 @@ export function sanitizeLogOutput(message: string): string {
     .replace(/mysql:\/\/[^\s"']+/gi, "[DATABASE_URL]")
     .replace(/amqps?:\/\/[^\s"']+/gi, "[MESSAGE_BROKER_URL]")
     .replace(/((?:https?|redis|mysql|mongodb(?:\+srv)?):\/\/)[^/\s]+\//gi, "$1[HOST]/")
-    .replace(/\bat\b[/\\][^\s"':]+/gi, "[PATH]");
+    .replace(/\bat\b\s*(?:[A-Za-z]:)?[/\\][^\s"':]+/gi, "[PATH]");
 }
 
 /**
@@ -126,8 +127,12 @@ export function sanitizeForLog(s: string): string {
   // Strip newlines, carriage returns, tabs, and ANSI escape sequences to
   // prevent log injection via user-controlled messages. ANSI escapes can
   // manipulate terminal output (e.g., clearing screen, changing colors).
+  //
+  // Order matters: ANSI sequences must be removed BEFORE control character
+  // replacement because the ESC byte (\x1b) that starts ANSI sequences is
+  // itself a control character that would otherwise be replaced first.
   // eslint-disable-next-line no-control-regex
-  return s.replace(/[\r\n\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, "_").replace(/\x1b\[[0-9;]*[a-zA-Z]/g, "");
+  return s.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, "").replace(/[\r\n\t\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, "_");
 }
 
 /**
@@ -139,10 +144,16 @@ export function sanitizeForLog(s: string): string {
  * sanitizer loop continues without crashing.
  */
 export function safeFromCodePoint(codePoint: number): string {
+  // Explicitly check lone surrogates first: String.fromCodePoint() stopped
+  // throwing for these in ES2024, but we must still replace them to prevent
+  // invalid Unicode from reaching the database.
+  if (codePoint >= 0xD800 && codePoint <= 0xDFFF) {
+    return "\uFFFD";
+  }
   try {
     return String.fromCodePoint(codePoint);
   } catch {
-    // Lone surrogate, negative, or out-of-range code point — replace with
+    // Negative, out-of-range (> 0x10FFFF), or NaN — replace with
     // U+FFFD (replacement character) to avoid crashing the sanitizer loop.
     return "\uFFFD";
   }

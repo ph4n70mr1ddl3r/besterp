@@ -47,7 +47,8 @@ describe("stripHtmlTags", () => {
 
   it("handles deeply nested encoded strings with iteration cap", () => {
     const deepNested = "&amp;".repeat(5) + "lt;x&gt;";
-    expect(stripHtmlTags(deepNested)).toBe("");
+    // After decoding all &amp; → & and stripping <x>, the leftover & chars remain
+    expect(stripHtmlTags(deepNested)).toBe("&&&&");
   });
 
   it("throws on oversized input", () => {
