@@ -37,6 +37,12 @@ export class PrismaService
     // The Map.delete() on a non-existent key is a no-op, so this is safe, but
     // we skip the token cleanup if the service is already destroyed.
     if (this._destroyed) return;
+    // Race condition guard: between the old client being GC'd and this callback
+    // firing, a NEW client for the same tenantId may have been created and cached.
+    // Only delete the cache entry if the WeakRef for this tenantId is actually
+    // dead — if a new client exists, its WeakRef would still be alive.
+    const ref = this.tenantClientCache.get(tenantId);
+    if (ref && ref.deref()) return;
     this.tenantClientCache.delete(tenantId);
     this.unregisterTokens.delete(tenantId);
     this.lastAccessed.delete(tenantId);

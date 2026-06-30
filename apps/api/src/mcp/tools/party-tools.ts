@@ -360,8 +360,8 @@ Use this to find customers, suppliers, or any party by name, type, or role.`,
   handler: async (input: SearchPartiesInput_z, context: ToolContext) => {
     const svc = getPartyService(context);
     const result = await svc.searchParties({
-      tenantId: context.tenantId,
       ...input,
+      tenantId: context.tenantId,
     });
     const morePages = result.hasMore
       ? ` Use offset ${result.offset + result.limit} to see more results.`
