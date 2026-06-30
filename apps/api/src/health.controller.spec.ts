@@ -158,7 +158,7 @@ describe("HealthController", () => {
       const readyPromise = controller.ready();
       // Prevent vitest's unhandled rejection detector from flagging the
       // pending promise before vi.runAllTimersAsync triggers the timeout.
-      readyPromise.catch(() => {});
+      void readyPromise.catch(() => {});
 
       // Fire the 5-second timeout and flush all resulting microtasks
       await vi.runAllTimersAsync();

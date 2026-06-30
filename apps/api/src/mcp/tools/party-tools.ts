@@ -261,7 +261,9 @@ Example: Create a customer person named "Jane Doe"
   create_party({ partyType: "PERSON", name: "Jane Doe", person: { firstName: "Jane", lastName: "Doe" } })
 
 Example: Create a supplier organization
-  create_party({ partyType: "ORGANIZATION", name: "Acme Corp", organization: { legalName: "Acme Corporation Ltd." } })`,
+  create_party({ partyType: "ORGANIZATION", name: "Acme Corp", organization: { legalName: "Acme Corporation Ltd." } })
+
+For idempotent writes, pass an idempotencyKey (string, max 500 chars) along with the tool arguments. If the same key is used again, the operation will be safely replayed or deduplicated.`,
 
   inputSchema: createPartySchema,
 
@@ -393,7 +395,9 @@ Roles determine what a party can do in the system (Customer, Supplier, Employee,
 A party can have multiple roles. Use 'get_type_table_values' with typeName "ROLE_TYPE" to see available roles.
 
 Example: Make a party a customer
-  add_party_role({ partyId: "abc-123", roleType: "Customer" })`,
+  add_party_role({ partyId: "abc-123", roleType: "Customer" })
+
+For idempotent writes, pass an idempotencyKey (string, max 500 chars) along with the tool arguments. If the same key is used again, the operation will be safely replayed or deduplicated.`,
 
   inputSchema: addPartyRoleSchema,
 
@@ -445,7 +449,9 @@ const addContactMechanism: ToolDefinition = {
 Use this to add postal addresses, phone numbers, or email addresses to a party.
 A party can have multiple contacts of each type.
 
-Use 'get_type_table_values' with typeName "CONTACT_MECHANISM_TYPE" to see available types.`,
+Use 'get_type_table_values' with typeName "CONTACT_MECHANISM_TYPE" to see available types.
+
+For idempotent writes, pass an idempotencyKey (string, max 500 chars) along with the tool arguments. If the same key is used again, the operation will be safely replayed or deduplicated.`,
 
   inputSchema: addContactMechanismSchema,
 
