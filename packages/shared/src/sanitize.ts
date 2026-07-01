@@ -131,8 +131,20 @@ export function sanitizeForLog(s: string): string {
   // Order matters: ANSI sequences must be removed BEFORE control character
   // replacement because the ESC byte (\x1b) that starts ANSI sequences is
   // itself a control character that would otherwise be replaced first.
-  // eslint-disable-next-line no-control-regex
-  return s.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, "").replace(/[\r\n\t\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, "_");
+  //
+  // Handles three categories of ANSI escape sequences:
+  // 1. CSI (Control Sequence Introducer): ESC [ parameters letter
+  // 2. String-type: OSC (ESC ]), APC (ESC _), SOS (ESC X), PM (ESC ^)
+  //    — terminated by ST (ESC \) or BEL (\x07)
+  //  3. Non-CSI single-character: ESC followed by a final byte (e.g., ESC M = RI,
+  //    ESC 7 = DECSC, ESC D = IND, ESC = DECKPAM, etc.)
+  /* eslint-disable no-control-regex */
+  return s
+    .replace(/\x1b\[[0-9;]*[a-zA-Z]/g, "")
+    .replace(/\x1b[\]_X^][\s\S]*?(?:\x1b\\|\x07)/g, "")
+    .replace(/\x1b[0-9#%()*+\-./:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\]^_`{|}~]/g, "")
+    .replace(/[\r\n\t\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, "_");
+  /* eslint-enable no-control-regex */
 }
 
 /**

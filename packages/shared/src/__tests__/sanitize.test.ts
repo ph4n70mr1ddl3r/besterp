@@ -177,6 +177,45 @@ describe("sanitizeForLog", () => {
     expect(result).toContain("msg");
     expect(result).toContain("and color");
   });
+
+  it("strips OSC sequences (ESC ] ... ST/BEL)", () => {
+    expect(sanitizeForLog("\x1b]0;MyTitle\x07content")).toBe("content");
+    expect(sanitizeForLog("\x1b]2;NewTitle\x1b\\text")).toBe("text");
+  });
+
+  it("strips APC sequences (ESC _ ... ST/BEL)", () => {
+    expect(sanitizeForLog("\x1b_application command\x07data")).toBe("data");
+    expect(sanitizeForLog("\x1b_cmd\x1b\\rest")).toBe("rest");
+  });
+
+  it("strips SOS sequences (ESC X ... ST/BEL)", () => {
+    expect(sanitizeForLog("\x1bXstring start\x07output")).toBe("output");
+    expect(sanitizeForLog("\x1bXdata\x1b\\end")).toBe("end");
+  });
+
+  it("strips PM sequences (ESC ^ ... ST/BEL)", () => {
+    expect(sanitizeForLog("\x1b^privacy\x07message")).toBe("message");
+    expect(sanitizeForLog("\x1b^data\x1b\\final")).toBe("final");
+  });
+
+  it("strips non-CSI escape sequences (ESC + single char)", () => {
+    expect(sanitizeForLog("\x1bMtext")).toBe("text");
+    expect(sanitizeForLog("\x1b7before\x1b8after")).toBe("beforeafter");
+    expect(sanitizeForLog("\x1bDa\x1bEb")).toBe("ab");
+    expect(sanitizeForLog("\x1b=\x1b>")).toBe("");
+    expect(sanitizeForLog("\x1b0\x1b1\x1b2\x1b3\x1b4\x1b5\x1b6\x1b7\x1b8\x1b9")).toBe("");
+    expect(sanitizeForLog("\x1b2before\x1b5after")).toBe("beforeafter");
+  });
+
+  it("strips mixed ANSI sequences correctly", () => {
+    const input = "\x1b[31mred\x1b]0;title\x07\x1bMmid\x1b_apc\x1b\\end";
+    const result = sanitizeForLog(input);
+    expect(result).toBe("redmidend");
+  });
+
+  it("preserves text with no ANSI sequences", () => {
+    expect(sanitizeForLog("normal plain text")).toBe("normal plain text");
+  });
 });
 
 describe("safeFromCodePoint", () => {

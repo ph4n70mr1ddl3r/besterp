@@ -294,7 +294,6 @@ export class TelecomNumberDto {
   @IsOptional()
   @sanitizeTransform()
   @IsString()
-  @MinLength(1)
   @MaxLength(MAX_PHONE_COUNTRY_CODE_LENGTH)
   @Matches(COUNTRY_CODE_REGEX, { message: "countryCode must be an E.164 country code (e.g., '+1', '+44')" })
   countryCode?: string;
