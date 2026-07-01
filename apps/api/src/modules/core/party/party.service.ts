@@ -108,7 +108,7 @@ export class PartyService {
     const { tenantId, partyType, name, description, person: personData, organization: orgData } = input;
 
     // Validate tenantId format — defense-in-depth for MCP callers that bypass DTO/Zod
-    const trimmedTenantId = this.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "create", "create_party");
+    const trimmedTenantId = PartyService.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "create", "create_party");
 
     // Trim partyType FIRST so validation uses canonical value.
     // Boundary layers (REST @IsEnum, MCP z.enum) reject whitespace-padded
@@ -164,14 +164,14 @@ export class PartyService {
     if (trimmedName.length === 0) {
       throw new InvalidTypeValueError("Party name cannot be empty", { suggestedTools: ["create_party"], context: { field: "name", received: name } });
     }
-    this.requireMaxLength(trimmedName, "Party name", MAX_PARTY_NAME_LENGTH);
+    PartyService.requireMaxLength(trimmedName, "Party name", MAX_PARTY_NAME_LENGTH);
 
     const trimmedDescription = description?.trim() ?? null;
     if (trimmedDescription !== null && trimmedDescription.length === 0) {
       throw new InvalidTypeValueError("Description cannot be whitespace-only.", { suggestedTools: ["create_party"], context: { field: "description" } });
     }
     if (trimmedDescription !== null) {
-      this.requireMaxLength(trimmedDescription, "Description", MAX_PARTY_DESCRIPTION_LENGTH);
+      PartyService.requireMaxLength(trimmedDescription, "Description", MAX_PARTY_DESCRIPTION_LENGTH);
     }
     return { trimmedName, trimmedDescription };
   }
@@ -197,15 +197,15 @@ export class PartyService {
     if (!trimmedFirstName) {
       throw new MissingSubtypeDataError("firstName is required for person data", { suggestedTools: ["create_party"], context: { field: "firstName" } });
     }
-    this.requireMaxLength(trimmedFirstName, "First name", MAX_PERSON_NAME_LENGTH);
+    PartyService.requireMaxLength(trimmedFirstName, "First name", MAX_PERSON_NAME_LENGTH);
     const trimmedLastName = personData.lastName?.trim() ?? "";
     if (!trimmedLastName) {
       throw new MissingSubtypeDataError("lastName is required for person data", { suggestedTools: ["create_party"], context: { field: "lastName" } });
     }
-    this.requireMaxLength(trimmedLastName, "Last name", MAX_PERSON_NAME_LENGTH);
-    if (personData.gender != null) this.requireMaxLength(personData.gender.trim(), "Gender", MAX_GENDER_LENGTH);
-    if (personData.middleName != null) this.requireMaxLength(personData.middleName.trim(), "Middle name", MAX_MIDDLE_NAME_LENGTH);
-    if (personData.birthDate != null) this.requireValidDate(personData.birthDate, "birthDate");
+    PartyService.requireMaxLength(trimmedLastName, "Last name", MAX_PERSON_NAME_LENGTH);
+    if (personData.gender != null) PartyService.requireMaxLength(personData.gender.trim(), "Gender", MAX_GENDER_LENGTH);
+    if (personData.middleName != null) PartyService.requireMaxLength(personData.middleName.trim(), "Middle name", MAX_MIDDLE_NAME_LENGTH);
+    if (personData.birthDate != null) PartyService.requireValidDate(personData.birthDate, "birthDate");
   }
 
   private validateOrganizationData(orgData: CreatePartyInput["organization"]): void {
@@ -214,9 +214,9 @@ export class PartyService {
     if (!trimmedLegalName) {
       throw new MissingSubtypeDataError("legalName is required for organization data", { suggestedTools: ["create_party"], context: { field: "legalName" } });
     }
-    this.requireMaxLength(trimmedLegalName, "Legal name", MAX_LEGAL_NAME_LENGTH);
-    if (orgData.registrationDate != null) this.requireValidDate(orgData.registrationDate, "registrationDate");
-    if (orgData.taxId != null) this.requireMaxLength(orgData.taxId.trim(), "Tax ID", MAX_TAX_ID_LENGTH);
+    PartyService.requireMaxLength(trimmedLegalName, "Legal name", MAX_LEGAL_NAME_LENGTH);
+    if (orgData.registrationDate != null) PartyService.requireValidDate(orgData.registrationDate, "registrationDate");
+    if (orgData.taxId != null) PartyService.requireMaxLength(orgData.taxId.trim(), "Tax ID", MAX_TAX_ID_LENGTH);
   }
 
   private sanitizeCreatePartyInput(
@@ -337,11 +337,11 @@ export class PartyService {
 
   async getParty(tenantId: string, partyId: string): Promise<PartyResult> {
     // Validate tenantId format — defense-in-depth for MCP callers that bypass DTO/Zod
-    const trimmedTenantId = this.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "get", "get_party");
+    const trimmedTenantId = PartyService.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "get", "get_party");
 
     // Validate partyId format — MCP tools don't go through the REST controller's
     // requireUuid(), so we need defense-in-depth at the service layer.
-    this.requireUuid(partyId, "partyId");
+    PartyService.requireUuid(partyId, "partyId");
 
     const db: TenantScopedClient = this.prisma.tenantScoped(trimmedTenantId);
 
@@ -371,7 +371,7 @@ export class PartyService {
     const offset = input.offset ?? MIN_SEARCH_OFFSET;
 
     // Validate tenantId format — defense-in-depth for MCP callers that bypass DTO/Zod
-    const trimmedTenantId = this.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "search", "search_parties");
+    const trimmedTenantId = PartyService.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "search", "search_parties");
 
     // Validate pagination parameters
     const validatedLimit = Math.min(Math.max(limit, MIN_SEARCH_LIMIT), MAX_SEARCH_LIMIT); // Clamp between 1-500
@@ -433,9 +433,9 @@ export class PartyService {
     const { tenantId, partyId, roleType, fromDate } = input;
 
     // Validate tenantId format — defense-in-depth for MCP callers that bypass DTO/Zod
-    const trimmedTenantId = this.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "add role", "add_party_role");
+    const trimmedTenantId = PartyService.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "add role", "add_party_role");
 
-    this.requireUuid(partyId, "partyId");
+    PartyService.requireUuid(partyId, "partyId");
 
     const db: TenantScopedClient = this.prisma.tenantScoped(trimmedTenantId);
 
@@ -467,7 +467,7 @@ export class PartyService {
     if (!trimmed) {
       throw new InvalidTypeValueError("roleType cannot be empty", { suggestedTools: ["get_type_table_values"], context: { field: "roleType", received: roleType } });
     }
-    this.requireMaxLength(trimmed, "Role type", MAX_ROLE_TYPE_LENGTH, "get_type_table_values");
+    PartyService.requireMaxLength(trimmed, "Role type", MAX_ROLE_TYPE_LENGTH, "get_type_table_values");
     return trimmed;
   }
 
@@ -538,9 +538,9 @@ export class PartyService {
     const { tenantId, partyId, contactMechanismType, postalAddress, telecomNumber, emailAddress } = input;
 
     // Validate tenantId format — defense-in-depth for MCP callers that bypass DTO/Zod
-    const trimmedTenantId = this.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "add contact", "add_contact_mechanism");
+    const trimmedTenantId = PartyService.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "add contact", "add_contact_mechanism");
 
-    this.requireUuid(partyId, "partyId");
+    PartyService.requireUuid(partyId, "partyId");
 
     const db: TenantScopedClient = this.prisma.tenantScoped(trimmedTenantId);
 
@@ -562,7 +562,7 @@ export class PartyService {
   }
 
   private validateContactMechanismType(type: string): string {
-    return this.requireStringField(type, "contactMechanismType", MAX_CONTACT_MECHANISM_TYPE_LENGTH, "contact mechanism type", "get_type_table_values");
+    return PartyService.requireStringField(type, "contactMechanismType", MAX_CONTACT_MECHANISM_TYPE_LENGTH, "contact mechanism type", "get_type_table_values");
   }
 
   private validateContactMechanismSubtype(
@@ -578,9 +578,9 @@ export class PartyService {
       // to avoid re-trimming downstream. The trimmedCountry is used for the
       // min-length check below; the others are already canonical for
       // sanitizePostalAddress which operates on the raw object.
-      this.requireStringField(postalAddress.addressLine1, "addressLine1", MAX_ADDRESS_LINE_LENGTH, "postal address", "add_contact_mechanism");
-      this.requireStringField(postalAddress.city, "city", MAX_CITY_LENGTH, "postal address", "add_contact_mechanism");
-      const trimmedCountry = this.requireStringField(postalAddress.country, "country", MAX_COUNTRY_CODE_LENGTH, "postal address", "add_contact_mechanism");
+      PartyService.requireStringField(postalAddress.addressLine1, "addressLine1", MAX_ADDRESS_LINE_LENGTH, "postal address", "add_contact_mechanism");
+      PartyService.requireStringField(postalAddress.city, "city", MAX_CITY_LENGTH, "postal address", "add_contact_mechanism");
+      const trimmedCountry = PartyService.requireStringField(postalAddress.country, "country", MAX_COUNTRY_CODE_LENGTH, "postal address", "add_contact_mechanism");
       // Enforce the same minimum as the Zod schema / DTO (ISO 3166-1
       // alpha-2). requireStringField only guards against empty/oversize,
       // so a 1-char value like "U" would otherwise slip past the service
@@ -591,29 +591,29 @@ export class PartyService {
           { suggestedTools: ["add_contact_mechanism"], context: { field: "country", received: trimmedCountry, minLength: MIN_COUNTRY_CODE_LENGTH } }
         );
       }
-      if (postalAddress.addressLine2) this.requireMaxLength(postalAddress.addressLine2, "addressLine2", MAX_ADDRESS_LINE_LENGTH, "add_contact_mechanism");
-      if (postalAddress.stateProvince) this.requireMaxLength(postalAddress.stateProvince, "stateProvince", MAX_STATE_PROVINCE_LENGTH, "add_contact_mechanism");
-      if (postalAddress.postalCode) this.requireMaxLength(postalAddress.postalCode, "postalCode", MAX_POSTAL_CODE_LENGTH, "add_contact_mechanism");
+      if (postalAddress.addressLine2) PartyService.requireMaxLength(postalAddress.addressLine2, "addressLine2", MAX_ADDRESS_LINE_LENGTH, "add_contact_mechanism");
+      if (postalAddress.stateProvince) PartyService.requireMaxLength(postalAddress.stateProvince, "stateProvince", MAX_STATE_PROVINCE_LENGTH, "add_contact_mechanism");
+      if (postalAddress.postalCode) PartyService.requireMaxLength(postalAddress.postalCode, "postalCode", MAX_POSTAL_CODE_LENGTH, "add_contact_mechanism");
       return undefined;
     } else if (type === "TELECOM_NUMBER") {
       if (!telecomNumber) {
         throw new MissingSubtypeDataError("telecomNumber is required when contactMechanismType is TELECOM_NUMBER.", { suggestedTools: ["add_contact_mechanism"], context: { contactMechanismType: type, missingField: "telecomNumber" } });
       }
-      this.requireStringField(telecomNumber.areaCode, "areaCode", MAX_AREA_CODE_LENGTH, "telecom number", "add_contact_mechanism");
-      this.requireStringField(telecomNumber.lineNumber, "lineNumber", MAX_LINE_NUMBER_LENGTH, "telecom number", "add_contact_mechanism");
+      PartyService.requireStringField(telecomNumber.areaCode, "areaCode", MAX_AREA_CODE_LENGTH, "telecom number", "add_contact_mechanism");
+      PartyService.requireStringField(telecomNumber.lineNumber, "lineNumber", MAX_LINE_NUMBER_LENGTH, "telecom number", "add_contact_mechanism");
       if (telecomNumber.countryCode) {
-        this.requireMaxLength(telecomNumber.countryCode, "countryCode", MAX_PHONE_COUNTRY_CODE_LENGTH, "add_contact_mechanism");
+        PartyService.requireMaxLength(telecomNumber.countryCode, "countryCode", MAX_PHONE_COUNTRY_CODE_LENGTH, "add_contact_mechanism");
         if (!COUNTRY_CODE_REGEX.test(telecomNumber.countryCode)) {
           throw new InvalidTypeValueError(`countryCode must be an E.164 country code (e.g., '+1', '+44'). Received: ${telecomNumber.countryCode}.`, { suggestedTools: ["add_contact_mechanism"], context: { field: "countryCode", invalidValue: telecomNumber.countryCode } });
         }
       }
-      if (telecomNumber.extension) this.requireMaxLength(telecomNumber.extension, "extension", MAX_EXTENSION_LENGTH, "add_contact_mechanism");
+      if (telecomNumber.extension) PartyService.requireMaxLength(telecomNumber.extension, "extension", MAX_EXTENSION_LENGTH, "add_contact_mechanism");
       return undefined;
     } else if (type === "EMAIL_ADDRESS") {
       if (!emailAddress) {
         throw new MissingSubtypeDataError("emailAddress is required when contactMechanismType is EMAIL_ADDRESS.", { suggestedTools: ["add_contact_mechanism"], context: { contactMechanismType: type, missingField: "emailAddress" } });
       }
-      this.requireStringField(emailAddress.email, "email", MAX_EMAIL_LENGTH, "email address", "add_contact_mechanism");
+      PartyService.requireStringField(emailAddress.email, "email", MAX_EMAIL_LENGTH, "email address", "add_contact_mechanism");
       // Strip HTML tags for consistency with the MCP path and every other
       // field this service sanitizes. The service is the last line of
       // defense for direct/internal callers that bypass the REST DTO's
@@ -746,7 +746,7 @@ export class PartyService {
 
   /** Validate a required string field: must be non-empty and within maxLength.
    *  Trims before both checks for defense-in-depth. */
-  private requireStringField(
+  private static requireStringField(
     value: string | undefined | null,
     field: string,
     maxLength: number,
@@ -772,7 +772,7 @@ export class PartyService {
   /** Validate that a string does not exceed maxLength.
    *  Used for optional fields where the emptiness check is not needed.
    *  Callers are expected to pass already-trimmed values. */
-  private requireMaxLength(
+  private static requireMaxLength(
     value: string,
     field: string,
     maxLength: number,
@@ -788,7 +788,7 @@ export class PartyService {
 
   /** Validate that a value looks like a UUID. Gives a clear error instead of
    *  an opaque Prisma P2023 error for malformed IDs from MCP tool callers. */
-  private requireUuid(value: string, field: string): void {
+  private static requireUuid(value: string, field: string): void {
     if (!UUID_REGEX.test(value)) {
       throw new InvalidTypeValueError(
         `Invalid '${field}': must be a valid UUID.`,
@@ -806,7 +806,7 @@ export class PartyService {
    *  Also enforces a 30-char max length (matching the Zod schema's
    *  .max(30) on birthDate/registrationDate) so an oversized
    *  string that bypasses Zod still gets caught here. */
-  private requireValidDate(value: string, field: string): void {
+  private static requireValidDate(value: string, field: string): void {
     if (typeof value !== "string" || value.trim().length === 0) {
       throw new InvalidTypeValueError(
         `${field} must be a non-empty ISO 8601 date string.`,

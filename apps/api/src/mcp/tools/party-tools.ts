@@ -164,7 +164,7 @@ function sanitizedString(min: number, max: number) {
 function optionalSanitizedString(max: number) {
   return z.string()
     .optional()
-    .transform(s => s?.trim() || undefined)
+    .transform(s => s?.trim() ? stripHtmlTags(s.trim()) : undefined)
     .pipe(z.string().max(max).optional());
 }
 
@@ -331,7 +331,7 @@ function optionalFilteredString(max: number) {
     .optional()
     .transform(s => s?.trim())
     .pipe(z.string().max(max).optional())
-    .refine(v => v === undefined || v.length > 0, "cannot be whitespace-only");
+    .refine(v => v === undefined || v.length > 0, "cannot be empty or whitespace-only");
 }
 
 const searchPartiesSchema = z.object({
