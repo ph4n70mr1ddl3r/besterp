@@ -116,6 +116,14 @@ export class PartyService {
     // callers. Previously it validated against untrimmed value, letting
     // partyType " PERSON " with BOTH person and organization data bypass
     // the exclusivity check (no DB constraint enforces at-most-one subtype).
+    // Guard against non-string partyType first — only an issue for direct
+    // callers that bypass boundary validation, but defense-in-depth matters.
+    if (typeof partyType !== "string" || !partyType.trim()) {
+      throw new InvalidTypeValueError(
+        "Party type is required and must be a non-empty string.",
+        { suggestedTools: ["create_party"], context: { field: "partyType", received: typeof partyType } }
+      );
+    }
     const trimmedPartyType = partyType.trim();
 
     const { trimmedName, trimmedDescription } = this.validateCreatePartyFields(name, description);
@@ -125,6 +133,17 @@ export class PartyService {
 
     const { sanitizedPerson, sanitizedOrg, sanitizedName, sanitizedDescription } =
       this.sanitizeCreatePartyInput(trimmedName, trimmedDescription, personData, orgData);
+
+    // Reject names that are entirely consumed by stripHtmlTags — the
+    // boundary layers (REST DTO sanitizeTransform, MCP Zod sanitizedString)
+    // both strip HTML before validation, so a raw-HTML-only name is caught
+    // upstream. This is defense-in-depth for direct/internal callers.
+    if (!sanitizedName) {
+      throw new InvalidTypeValueError(
+        "Party name must contain visible characters after HTML sanitization.",
+        { suggestedTools: ["create_party"], context: { field: "name", originalValue: name } }
+      );
+    }
 
     const db: TenantScopedClient = this.prisma.tenantScoped(trimmedTenantId);
 
@@ -208,7 +227,7 @@ export class PartyService {
           middleName: personData.middleName?.trim()
             ? stripHtmlTags(personData.middleName.trim())
             : undefined,
-          gender: personData.gender ? stripHtmlTags(personData.gender.trim()) : undefined,
+          gender: personData.gender?.trim() ? stripHtmlTags(personData.gender.trim()) : undefined,
           // Trim dates so the stored value is canonical. Validation
           // (requireValidDate) accepts whitespace-padded ISO dates to stay
           // consistent with parseFromDate/MCP; trimming here avoids relying
@@ -229,7 +248,7 @@ export class PartyService {
       sanitizedPerson,
       sanitizedOrg,
       sanitizedName: stripHtmlTags(trimmedName),
-      sanitizedDescription: trimmedDescription ? stripHtmlTags(trimmedDescription) : null,
+      sanitizedDescription: trimmedDescription ? (stripHtmlTags(trimmedDescription) || null) : null,
     };
   }
 

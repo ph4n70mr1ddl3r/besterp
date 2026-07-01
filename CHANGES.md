@@ -1,6 +1,38 @@
 # BestERP — Security & Architecture Fixes
 
-## Changes Applied (2026-06-29) — Review Recommendations
+## Changes Applied (2026-07-01) — Code Review Recommendations
+
+### 🟢 Defense-in-Depth: Non-String `partyType` Guard Added
+
+**Problem:** `createParty()` assumed `partyType` was always a string. Direct/internal callers bypassing the DTO/Zod boundary could pass non-string values (e.g., `null`, `undefined`, numbers), causing a cryptic crash at `.trim()`.
+
+**Fix:**
+- Added `typeof partyType !== "string" || !partyType.trim()` guard before trimming
+- Returns `InvalidTypeValueError` with clear message and context
+
+### 🟢 Defense-in-Depth: Name Fully Consumed by HTML Sanitization Check
+
+**Problem:** A name like `"<script>alert(1)</script>"` passes length validation but is entirely consumed by `stripHtmlTags`, resulting in an empty stored name. Boundary layers (REST DTO, MCP Zod) strip HTML before validation, but an internal caller bypassing them could store an empty name.
+
+**Fix:**
+- Added `if (!sanitizedName)` check after `sanitizeCreatePartyInput`
+- Validates the name still has visible characters after HTML stripping
+
+### 🟢 Fix: `gender` Whitespace-Only Input Normalized to `undefined`
+
+**Problem:** `sanitizeCreatePartyInput` used `personData.gender ?` for the truthiness check, which passes for whitespace-only strings like `"   "`, resulting in an empty string being stored.
+
+**Fix:**
+- Changed to `personData.gender?.trim() ?` — consistent with the `middleName` pattern
+
+### 🟢 Fix: Empty Description After HTML Stripping Normalized to `null`
+
+**Problem:** A `description` like `"<script></script>"` validated as non-empty (length > 0 after trim), but `stripHtmlTags` consumed it entirely, storing an empty string.
+
+**Fix:**
+- `sanitizedDescription` now uses `stripHtmlTags(...) || null` to normalize empty results
+
+## Previous Changes (2026-06-29) — Initial Review Recommendations
 
 ### 🟢 Test Coverage: `@besterp/shared/sanitize.ts` — 49 Unit Tests Added
 
