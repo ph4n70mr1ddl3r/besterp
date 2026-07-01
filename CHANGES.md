@@ -1,6 +1,32 @@
 # BestERP — Security & Architecture Fixes
 
-## Changes Applied (2026-07-01) — Code Review Recommendations
+## Changes Applied (2026-07-01) — Code Review Round 3
+
+### 🟢 Cleanup: `validatePersonData` / `validateOrganizationData` — Eliminated Redundant `.trim()` Calls
+
+**Problem:** `firstName`, `lastName`, and `legalName` were trimmed twice — once in the emptiness check and again in the `requireMaxLength` call.
+
+**Fix:**
+- Captured trimmed value once and reused for both checks
+- Same fix applied to all three fields
+
+### 🟢 Cleanup: `validateContactMechanismSubtype` — Captured Trimmed Return Values
+
+**Problem:** `requireStringField()` returns the trimmed value, but the return values for `addressLine1`, `city`, and `country` were discarded in the POSTAL_ADDRESS branch, forcing `sanitizePostalAddress` to re-trim redundantly.
+
+**Fix:**
+- Captured `trimmedCountry` return value and reused for the ISO 3166-1 min-length check
+- Calls for `addressLine1`, `city`, `areaCode`, and `lineNumber` now follow the same capture-or-discard pattern with clear intent
+
+### 🟢 Fix: `DomainExceptionFilter` — Include Error Code in Production Responses
+
+**Problem:** The `error` code field (e.g., `"ENTITY_NOT_FOUND"`, `"DUPLICATE_ENTITY"`) was stripped from production HTTP responses. This forced API consumers to parse the `message` string to distinguish error types programmatically.
+
+**Fix:**
+- `error` code is now always included in the response body, regardless of environment
+- `suggestedTools` and `context` fields remain development-only (they may leak implementation details)
+
+## Previous Changes (2026-07-01) — Code Review Round 2
 
 ### 🟢 Defense-in-Depth: Non-String `partyType` Guard Added
 

@@ -193,14 +193,16 @@ export class PartyService {
 
   private validatePersonData(personData: CreatePartyInput["person"]): void {
     if (!personData) return;
-    if (!personData.firstName || personData.firstName.trim().length === 0) {
+    const trimmedFirstName = personData.firstName?.trim() ?? "";
+    if (!trimmedFirstName) {
       throw new MissingSubtypeDataError("firstName is required for person data", { suggestedTools: ["create_party"], context: { field: "firstName" } });
     }
-    this.requireMaxLength(personData.firstName.trim(), "First name", MAX_PERSON_NAME_LENGTH);
-    if (!personData.lastName || personData.lastName.trim().length === 0) {
+    this.requireMaxLength(trimmedFirstName, "First name", MAX_PERSON_NAME_LENGTH);
+    const trimmedLastName = personData.lastName?.trim() ?? "";
+    if (!trimmedLastName) {
       throw new MissingSubtypeDataError("lastName is required for person data", { suggestedTools: ["create_party"], context: { field: "lastName" } });
     }
-    this.requireMaxLength(personData.lastName.trim(), "Last name", MAX_PERSON_NAME_LENGTH);
+    this.requireMaxLength(trimmedLastName, "Last name", MAX_PERSON_NAME_LENGTH);
     if (personData.gender != null) this.requireMaxLength(personData.gender.trim(), "Gender", MAX_GENDER_LENGTH);
     if (personData.middleName != null) this.requireMaxLength(personData.middleName.trim(), "Middle name", MAX_MIDDLE_NAME_LENGTH);
     if (personData.birthDate != null) this.requireValidDate(personData.birthDate, "birthDate");
@@ -208,10 +210,11 @@ export class PartyService {
 
   private validateOrganizationData(orgData: CreatePartyInput["organization"]): void {
     if (!orgData) return;
-    if (!orgData.legalName || orgData.legalName.trim().length === 0) {
+    const trimmedLegalName = orgData.legalName?.trim() ?? "";
+    if (!trimmedLegalName) {
       throw new MissingSubtypeDataError("legalName is required for organization data", { suggestedTools: ["create_party"], context: { field: "legalName" } });
     }
-    this.requireMaxLength(orgData.legalName.trim(), "Legal name", MAX_LEGAL_NAME_LENGTH);
+    this.requireMaxLength(trimmedLegalName, "Legal name", MAX_LEGAL_NAME_LENGTH);
     if (orgData.registrationDate != null) this.requireValidDate(orgData.registrationDate, "registrationDate");
     if (orgData.taxId != null) this.requireMaxLength(orgData.taxId.trim(), "Tax ID", MAX_TAX_ID_LENGTH);
   }
@@ -571,14 +574,17 @@ export class PartyService {
       if (!postalAddress) {
         throw new MissingSubtypeDataError("postalAddress is required when contactMechanismType is POSTAL_ADDRESS.", { suggestedTools: ["add_contact_mechanism"], context: { contactMechanismType: type, missingField: "postalAddress" } });
       }
+      // requireStringField validates and returns the trimmed value — capture
+      // to avoid re-trimming downstream. The trimmedCountry is used for the
+      // min-length check below; the others are already canonical for
+      // sanitizePostalAddress which operates on the raw object.
       this.requireStringField(postalAddress.addressLine1, "addressLine1", MAX_ADDRESS_LINE_LENGTH, "postal address", "add_contact_mechanism");
       this.requireStringField(postalAddress.city, "city", MAX_CITY_LENGTH, "postal address", "add_contact_mechanism");
-      this.requireStringField(postalAddress.country, "country", MAX_COUNTRY_CODE_LENGTH, "postal address", "add_contact_mechanism");
+      const trimmedCountry = this.requireStringField(postalAddress.country, "country", MAX_COUNTRY_CODE_LENGTH, "postal address", "add_contact_mechanism");
       // Enforce the same minimum as the Zod schema / DTO (ISO 3166-1
       // alpha-2). requireStringField only guards against empty/oversize,
       // so a 1-char value like "U" would otherwise slip past the service
       // layer — the last line of defense for MCP callers that bypass Zod.
-      const trimmedCountry = postalAddress.country.trim();
       if (trimmedCountry.length < MIN_COUNTRY_CODE_LENGTH) {
         throw new InvalidTypeValueError(
           `country must be at least ${MIN_COUNTRY_CODE_LENGTH} characters (ISO 3166-1 alpha-2/3). Received: '${trimmedCountry}'.`,
