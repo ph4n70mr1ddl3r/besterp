@@ -1,5 +1,19 @@
 # BestERP — Security & Architecture Fixes
 
+## Changes Applied (2026-07-01) — Code Review Round 4
+
+### 🟢 Cleanup: `health.service.spec.ts` — Removed Unused `appClient` Mock
+
+**Problem:** `createMockPrisma()` created a mock for `appClient` but `getHealth()` only uses `this.prisma.admin`. The `appClient` mock was dead code.
+
+**Fix:** Removed the unused `appClient` from the mock factory.
+
+### 🟢 Cleanup: `main.ts` — Explicit Import of `tenant-context.ts` for Module Augmentation
+
+**Problem:** `req.requestId` relied on the Express module augmentation (`declare module "express" { interface Request { requestId?: string } }`) being transitively imported via `AppModule → PartyModule → PartyController → tenant-context.ts`. If this import chain changed, `req.requestId` would silently cause a TypeScript error.
+
+**Fix:** Added an explicit `import "./common/tenant-context.js"` in `main.ts` to make the dependency direct and stable.
+
 ## Changes Applied (2026-07-01) — Code Review Round 3
 
 ### 🟢 Cleanup: `validatePersonData` / `validateOrganizationData` — Eliminated Redundant `.trim()` Calls

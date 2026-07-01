@@ -14,6 +14,9 @@ import { randomUUID } from "node:crypto";
 import { sanitizeLogOutput } from "@besterp/shared";
 import { AppModule } from "./app.module.js";
 import express, { type Request, type Response, type NextFunction } from "express";
+// Import tenant-context for the Express module augmentation (req.requestId).
+// This must remain imported so TypeScript recognises requestId on the Request type.
+import "./common/tenant-context.js";
 
 const logger = new Logger("Bootstrap");
 

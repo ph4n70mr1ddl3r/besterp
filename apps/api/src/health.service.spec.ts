@@ -6,9 +6,6 @@ import { HealthService } from "./health.service.js";
 
 function createMockPrisma(queryResult: any = [{ result: 1 }]) {
   return {
-    appClient: {
-      $queryRaw: vi.fn().mockResolvedValue(queryResult),
-    },
     admin: {
       $queryRaw: vi.fn().mockResolvedValue(queryResult),
     },
