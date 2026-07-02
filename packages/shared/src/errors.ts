@@ -18,7 +18,7 @@ export class DomainError extends Error {
     message: string,
     options?: DomainErrorOptions
   ) {
-    super(message, options?.cause ? { cause: options.cause } : undefined);
+    super(message, options?.cause !== undefined ? { cause: options.cause } : undefined);
     // Hardcode name to survive minification (terser/mangle renames classes).
     // Subclasses must override this.name with their own class name.
     this.name = "DomainError";
