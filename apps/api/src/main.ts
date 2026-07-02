@@ -228,6 +228,7 @@ async function bootstrap() {
     logger.log(`BestERP API running on http://localhost:${port}`);
   } catch (err) {
     logger.error(`Failed to listen on port ${port}: ${err instanceof Error ? err.message : err}`);
+    try { await app.close(); } catch { /* ignore */ }
     process.exit(1);
   }
 }

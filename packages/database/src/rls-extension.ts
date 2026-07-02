@@ -159,7 +159,8 @@ function createTransactionWrapper(prisma: PrismaClient, tenantId: string) {
     } else if (Array.isArray(args[0])) {
       throw new Error(
         "Batch $transaction([...promises]) is not supported on a tenant-scoped client. " +
-        "Use an interactive transaction: $transaction(async (tx) => { ... })"
+        "Use an interactive transaction instead: $transaction(async (tx) => { ... }). " +
+        "Interactive transactions support the same batching within a single callback."
       );
     }
 

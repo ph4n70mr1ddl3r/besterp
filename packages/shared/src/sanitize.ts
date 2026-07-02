@@ -35,7 +35,7 @@ export function stripHtmlTags(input: string): string {
   if (input.length === 0) return input;
   if (input.length > MAX_INPUT_LENGTH) {
     throw new Error(
-      `stripHtmlTags: input too long (${input.length} chars, max ${MAX_INPUT_LENGTH}). ` +
+      `stripHtmlTags: input exceeds maximum allowed length. ` +
       `This may indicate a DoS attempt via deeply nested HTML encoding.`
     );
   }

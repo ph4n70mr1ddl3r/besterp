@@ -1135,6 +1135,9 @@ describe("PartyService", () => {
             party: {
               findFirst: vi.fn().mockResolvedValue({ partyId: "12345678-1234-1234-1234-123456789abc" }),
             },
+            telecomNumber: {
+              findFirst: vi.fn().mockResolvedValue(null),
+            },
             contactMechanism: {
               create: vi.fn().mockResolvedValue({
                 contactMechanismId: "contact-telecom-1",
@@ -1183,6 +1186,9 @@ describe("PartyService", () => {
           const tx = {
             party: {
               findFirst: vi.fn().mockResolvedValue({ partyId: "12345678-1234-1234-1234-123456789abc" }),
+            },
+            emailAddress: {
+              findFirst: vi.fn().mockResolvedValue(null),
             },
             contactMechanism: {
               create: vi.fn().mockResolvedValue({
@@ -1244,6 +1250,9 @@ describe("PartyService", () => {
           const tx = {
             party: {
               findFirst: vi.fn().mockResolvedValue({ partyId: "12345678-1234-1234-1234-123456789abc" }),
+            },
+            emailAddress: {
+              findFirst: vi.fn().mockResolvedValue(null),
             },
             contactMechanism: { create: createSpy },
           };
@@ -1486,6 +1495,9 @@ describe("PartyService", () => {
         $transaction: vi.fn().mockImplementation(async (fn) => {
           const tx = {
             party: { findFirst: vi.fn().mockResolvedValue({ partyId: "12345678-1234-1234-1234-123456789abc" }) },
+            telecomNumber: {
+              findFirst: vi.fn().mockResolvedValue(null),
+            },
             contactMechanism: {
               create: vi.fn().mockResolvedValue({
                 contactMechanismId: "contact-telecom-1",

@@ -53,7 +53,7 @@ describe("stripHtmlTags", () => {
 
   it("throws on oversized input", () => {
     const long = "a".repeat(100_001);
-    expect(() => stripHtmlTags(long)).toThrow("input too long");
+    expect(() => stripHtmlTags(long)).toThrow("input exceeds maximum");
   });
 
   it("handles mixed content safely", () => {

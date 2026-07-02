@@ -30,7 +30,7 @@ const SENSITIVE_FIELDS = new Set([
 ]);
 
 /** Regex pattern for catch-all sensitive field detection (password, secret, token, key, etc.). */
-const SENSITIVE_FIELD_PATTERN = /\b(password|secret|token|api[_-]?key|credential|auth)\b/i;
+const SENSITIVE_FIELD_PATTERN = /\b(password|secret|token|api[_-]?key|credential|auth(?:Token|Key|Code)?)\b/i;
 
 /** Maximum depth for recursive sensitive field redaction. */
 const MAX_REDACTION_DEPTH = 10;

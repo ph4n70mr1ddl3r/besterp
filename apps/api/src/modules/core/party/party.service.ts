@@ -655,6 +655,32 @@ export class PartyService {
           throw new EntityNotFoundError(`Party '${partyId}' not found.`, { suggestedTools: ["search_parties", "get_party"], context: { partyId } });
         }
 
+        if (normalizedEmail) {
+          const existingEmail = await tx.emailAddress.findFirst({
+            where: { email: normalizedEmail },
+            include: { contactMechanism: { include: { partyContacts: true } } },
+          });
+          if (existingEmail?.contactMechanism.partyContacts.some((pc) => pc.partyId === partyId)) {
+            throw new DuplicateEntityError(
+              `Email '${normalizedEmail}' is already registered for this party.`,
+              { suggestedTools: ["add_contact_mechanism"], context: { contactMechanismType: "EMAIL_ADDRESS", email: normalizedEmail } }
+            );
+          }
+        }
+
+        if (type === "TELECOM_NUMBER" && telecomNumber) {
+          const existingTel = await tx.telecomNumber.findFirst({
+            where: { areaCode: telecomNumber.areaCode.trim(), lineNumber: telecomNumber.lineNumber.trim() },
+            include: { contactMechanism: { include: { partyContacts: true } } },
+          });
+          if (existingTel?.contactMechanism.partyContacts.some((pc) => pc.partyId === partyId)) {
+            throw new DuplicateEntityError(
+              `Phone number (${telecomNumber.areaCode.trim()}) ${telecomNumber.lineNumber.trim()} is already registered for this party.`,
+              { suggestedTools: ["add_contact_mechanism"], context: { contactMechanismType: "TELECOM_NUMBER" } }
+            );
+          }
+        }
+
         return tx.contactMechanism.create({
           data: {
             contactMechanismTypeId,

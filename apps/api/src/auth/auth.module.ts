@@ -8,7 +8,11 @@
 import { Module } from "@nestjs/common";
 import { JwtModule } from "@nestjs/jwt";
 import { PassportModule } from "@nestjs/passport";
+import type { SignOptions } from "jsonwebtoken";
 import { JwtStrategy, resolveJwtSecret } from "./jwt.strategy.js";
+
+const jwtExpiresIn: SignOptions["expiresIn"] =
+  (process.env.JWT_EXPIRES_IN || "24h") as SignOptions["expiresIn"];
 
 @Module({
   imports: [
@@ -19,7 +23,7 @@ import { JwtStrategy, resolveJwtSecret } from "./jwt.strategy.js";
       // We read the resolved secret here so both JwtModule and JwtStrategy
       // use the same value without duplicating the validation logic.
       secret: resolveJwtSecret(),
-      signOptions: { expiresIn: "24h" },
+      signOptions: { expiresIn: jwtExpiresIn },
     }),
   ],
   providers: [JwtStrategy],
