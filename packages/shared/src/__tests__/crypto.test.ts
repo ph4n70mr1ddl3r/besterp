@@ -3,6 +3,7 @@
 
 import { describe, it, expect } from "vitest";
 import { hashInput } from "../crypto.js";
+import { InvalidTypeValueError } from "../errors.js";
 
 describe("hashInput", () => {
   it("should produce consistent SHA-256 hashes for the same input", () => {
@@ -239,5 +240,51 @@ describe("hashInput", () => {
     expect(hash1).not.toBe(hash2);
     expect(hash1).not.toBe(hash3);
     expect(hash2).not.toBe(hash3);
+  });
+
+  it("should be order-independent for Map keys (canonical [key,value] sorting)", () => {
+    // Maps are converted to sorted [key, value] pairs so insertion order
+    // doesn't affect the hash. This matters for idempotency: two tool calls
+    // whose only difference is Map iteration order must hash identically.
+    const m1 = new Map([
+      ["b", 2],
+      ["a", 1],
+      ["c", 3],
+    ]);
+    const m2 = new Map([
+      ["c", 3],
+      ["a", 1],
+      ["b", 2],
+    ]);
+    expect(hashInput({ m: m1 })).toBe(hashInput({ m: m2 }));
+
+    // Different Map contents must still hash differently.
+    const m3 = new Map([["a", 99]]);
+    expect(hashInput({ m: m1 })).not.toBe(hashInput({ m: m3 }));
+  });
+
+  it("should be order-independent for Set values (sorted before hashing)", () => {
+    // Sets are converted to a sorted array so iteration order doesn't
+    // affect the hash.
+    const s1 = new Set([3, 1, 2]);
+    const s2 = new Set([1, 2, 3]);
+    expect(hashInput({ s: s1 })).toBe(hashInput({ s: s2 }));
+
+    // Different Set contents must still hash differently.
+    const s3 = new Set([1, 2, 4]);
+    expect(hashInput({ s: s1 })).not.toBe(hashInput({ s: s3 }));
+  });
+
+  it("should refuse to hash input nested deeper than MAX_HASH_DEPTH (DoS guard)", () => {
+    // Build nesting ~120 levels deep — beyond the MAX_HASH_DEPTH (100) cap.
+    let deep: Record<string, unknown> = { leaf: 1 };
+    for (let i = 0; i  < 120; i++) {
+      deep = { nested: deep };
+    }
+    expect(() => hashInput(deep)).toThrow(InvalidTypeValueError);
+    expect(() => hashInput(deep)).toThrow(/maximum nesting depth/);
+
+    // Shallow input is unaffected.
+    expect(() => hashInput({ a: { b: { c: 1 } } })).not.toThrow();
   });
 });

@@ -207,6 +207,21 @@ describe("sanitizeForLog", () => {
     expect(sanitizeForLog("\x1b2before\x1b5after")).toBe("beforeafter");
   });
 
+  it("strips non-CSI escapes with LOWERCASE final bytes (ESC c=RIS, ESC n=LS2, ESC o=LS3)", () => {
+    // Lowercase finals are valid two-char ESC sequences. The ESC initiator
+    // is always neutralized by the control-char pass, but without the
+    // lowercase class entry the trailing final byte survived as a stray
+    // character (e.g. "\x1bc" → "_c"). These now strip cleanly to "".
+    expect(sanitizeForLog("\x1bcreset")).toBe("reset");
+    expect(sanitizeForLog("a\x1bnb")).toBe("ab");
+    expect(sanitizeForLog("a\x1bob")).toBe("ab");
+    expect(sanitizeForLog("\x1bc\x1bn\x1bo")).toBe("");
+    // Regression guard: an isolated ESC followed by a lowercase final must
+    // not leave a stray underscore+letter (the old broken behaviour).
+    expect(sanitizeForLog("\x1bc")).toBe("");
+    expect(sanitizeForLog("\x1bc")).not.toBe("_c");
+  });
+
   it("strips mixed ANSI sequences correctly", () => {
     const input = "\x1b[31mred\x1b]0;title\x07\x1bMmid\x1b_apc\x1b\\end";
     const result = sanitizeForLog(input);

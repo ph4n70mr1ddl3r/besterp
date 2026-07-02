@@ -10,13 +10,13 @@ import "reflect-metadata";
 import { NestFactory } from "@nestjs/core";
 import { Logger, ValidationPipe, type INestApplication } from "@nestjs/common";
 import helmet from "helmet";
-import { randomUUID } from "node:crypto";
 import { sanitizeLogOutput } from "@besterp/shared";
 import { AppModule } from "./app.module.js";
 import express, { type Request, type Response, type NextFunction } from "express";
 // Import tenant-context for the Express module augmentation (req.requestId).
 // This must remain imported so TypeScript recognises requestId on the Request type.
 import "./common/tenant-context.js";
+import { resolveRequestId } from "./common/request-id.js";
 
 const logger = new Logger("Bootstrap");
 
@@ -188,12 +188,13 @@ async function bootstrap() {
   app.use(helmet());
 
   // Request ID middleware for correlation across logs, traces, and audit.
-  // Generates a UUID v4 if not provided via x-request-id header.
+  // Derives the ID from the `x-request-id` header when it is a safe printable
+  // token; otherwise generates a UUID v4. The header is untrusted client
+  // input, so resolveRequestId validates it before it is reflected into the
+  // response header and stored on req.requestId (defense-in-depth against
+  // header/log injection).
   app.use((req: Request, res: Response, next: NextFunction) => {
-    const raw = req.headers["x-request-id"];
-    const requestId = (typeof raw === "string" && raw.length > 0)
-      ? raw.slice(0, 128)
-      : randomUUID();
+    const requestId = resolveRequestId(req.headers["x-request-id"]);
     req.requestId = requestId;
     res.setHeader("x-request-id", requestId);
     next();

@@ -138,11 +138,20 @@ export function sanitizeForLog(s: string): string {
   //    — terminated by ST (ESC \) or BEL (\x07)
   //  3. Non-CSI single-character: ESC followed by a final byte (e.g., ESC M = RI,
   //    ESC 7 = DECSC, ESC D = IND, ESC = DECKPAM, etc.)
+  //
+  // The final-byte class below covers the full ECMA-48 range 0x30–0x7E,
+  // INCLUDING lowercase letters (a–z). Lowercase finals are valid
+  // two-character ESC sequences: ESC c = RIS (full terminal reset),
+  // ESC n = LS2, ESC o = LS3, etc. The ESC initiator is always
+  // neutralized by the control-char pass below, so omitting these was not
+  // a security hole — but the trailing final byte survived as a stray
+  // character (e.g. "\x1bc" → "_c" instead of ""), so the sequences are
+  // now stripped cleanly for log readability.
   /* eslint-disable no-control-regex */
   return s
     .replace(/\x1b\[[0-9;]*[a-zA-Z]/g, "")
     .replace(/\x1b[\]_X^][\s\S]*?(?:\x1b\\|\x07)/g, "")
-    .replace(/\x1b[0-9#%()*+\-./:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\]^_`{|}~]/g, "")
+    .replace(/\x1b[0-9#%()*+\-./:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZa-z[\]^_`{|}~]/g, "")
     .replace(/[\r\n\t\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, "_");
   /* eslint-enable no-control-regex */
 }

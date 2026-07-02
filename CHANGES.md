@@ -1,5 +1,25 @@
 # BestERP — Security & Architecture Fixes
 
+## Changes Applied (2026-07-02) — Code Review Round 8
+
+### 🟡 Fix: `sanitize.ts` — non-CSI ANSI escape regex missed lowercase finals
+
+**Problem:** `sanitizeForLog`'s third ANSI branch is documented as "ESC followed by a final byte" but its character class excluded lowercase letters (`a`–`z`, 0x61–0x7A). Real two-character ESC sequences with lowercase finals fell through — `ESC c` (RIS, full terminal reset), `ESC n` (LS2), `ESC o` (LS3). The ESC initiator is always neutralized by the subsequent control-char replacement pass, so this was **not** an active terminal-control security hole; the trailing final byte just survived as a stray character (`"\x1bc"` → `"_c"` instead of `""`), leaving junk in sanitized log lines.
+
+**Fix:** Added `a-z` to the class so the full ECMA-48 final-byte range (0x30–0x7E) is covered. Added a comment explaining the nuance (the ESC byte is always stripped by the control-char pass, so this is a log-completeness fix, not a security fix). Added regression tests for RIS/LS2/LS3, including an explicit guard that the output is not the old `"_c"` shape.
+
+### 🟡 Fix: `main.ts` — untrusted `x-request-id` reflected without charset validation
+
+**Problem:** The request-correlation middleware only ran `raw.slice(0, 128)` on the client-supplied `x-request-id` header before reflecting it via `res.setHeader("x-request-id", …)` and storing it on `req.requestId`. Raw CRLF is already gated by Node's HTTP parser + `setHeader` validation, so this was not an exploitable response-splitting bug — but spaces, tabs, non-ASCII bytes, and multi-valued (array) headers were accepted verbatim and flowed into both the response header and log correlation.
+
+**Fix:** Extracted a pure, tested `resolveRequestId(raw)` helper (`apps/api/src/common/request-id.ts`) that honours the header only when it is a printable-ASCII token (0x21–0x7E, no whitespace/control bytes, ≤128 chars) and falls back to a fresh UUID v4 otherwise. `main.ts` now delegates to it. Covered by 12 unit tests (valid UUID/ULID/traceparent/base64 passthrough, trim, empty/array/non-string → UUID, CRLF/NUL/ESC rejection, non-ASCII rejection, boundary length). Removed the now-unused `randomUUID` import from `main.ts`.
+
+### 🟢 Test: locked in untested `crypto.ts` behavior (Map/Set + depth guard)
+
+**Problem:** The non-trivial `sortKeysDeep` paths for `Map`/`Set` (canonical sorted-key/value conversion) and the `MAX_HASH_DEPTH` DoS guard had no direct coverage, so regressions in idempotency-hash determinism could slip through unnoticed.
+
+**Fix:** Added tests in `crypto.test.ts` for Map key-order independence, Set value-order independence, distinct-content differentiation, and the depth-limit throw (`InvalidTypeValueError` / "maximum nesting depth"). Behavior is unchanged; these are pure coverage locks.
+
 ## Changes Applied (2026-07-02) — Code Review Round 7
 
 ### 🟡 Fix: `truncate.ts` — UTF-8 multibyte split in stored previews
