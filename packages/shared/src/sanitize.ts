@@ -57,7 +57,7 @@ export function stripHtmlTags(input: string): string {
     // e.g. &#60;script&#62; → <script>
     // Runs inside the loop so double-encoded entities (e.g. &amp;#x3c;)
     // are decoded across iterations: &amp;#x3c; → &#x3c; → <
-    sanitized = sanitized.replace(/&#x([0-9a-fA-F]+);/g, (_, hex) =>
+    sanitized = sanitized.replace(/&#[xX]([0-9a-fA-F]+);/g, (_, hex) =>
       safeFromCodePoint(parseInt(hex, 16))
     );
     sanitized = sanitized.replace(/&#(\d+);/g, (_, dec) =>

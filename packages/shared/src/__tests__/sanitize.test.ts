@@ -78,6 +78,15 @@ describe("stripHtmlTags", () => {
   it("removes incomplete HTML only after decoding", () => {
     expect(stripHtmlTags("&#x3C;script&#x3E;bad&#x3C;/script&#x3E;")).toBe("");
   });
+
+  it("decodes uppercase &#X hex entity references (browser-compatible variant)", () => {
+    // HTML5 spec accepts both &#x (lowercase) and &#X (uppercase) for
+    // hex numeric character references. Both must decode to '<' and '>'
+    // before tag stripping, otherwise stored texts like "&#X3C;script&#X3E;"
+    // decode to actual tags when rendered in a browser (stored-XSS vector).
+    expect(stripHtmlTags("&#X3C;script&#X3E;alert(1)&#X3C;/script&#X3E;")).toBe("");
+    expect(stripHtmlTags("text &#X3C;b&#X3E;bold&#X3C;/b&#X3E; end")).toBe("text bold end");
+  });
 });
 
 describe("sanitizeLogOutput", () => {
