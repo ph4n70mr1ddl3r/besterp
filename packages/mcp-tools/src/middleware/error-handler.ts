@@ -27,8 +27,6 @@ const IRREGULAR_PLURALS: Record<string, string> = {
   foot: "feet",
   ox: "oxen",
   datum: "data",
-  analysis: "analyses",
-  crisis: "crises",
 };
 
 function pluralize(entity: string): string {

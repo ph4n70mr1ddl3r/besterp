@@ -127,18 +127,18 @@ export interface AddContactMechanismInput {
 
 export interface PostalAddressOutput {
   addressLine1: string;
-  addressLine2?: string | null;
+  addressLine2?: string;
   city: string;
-  stateProvince?: string | null;
-  postalCode?: string | null;
+  stateProvince?: string;
+  postalCode?: string;
   country: string;
 }
 
 export interface TelecomNumberOutput {
-  countryCode?: string | null;
+  countryCode?: string;
   areaCode: string;
   lineNumber: string;
-  extension?: string | null;
+  extension?: string;
 }
 
 export interface EmailAddressOutput {

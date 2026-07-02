@@ -684,13 +684,20 @@ export class PartyService {
         }
 
         if (type === "TELECOM_NUMBER" && telecomNumber) {
+          // Sanitize the telecom number fields before the duplicate check so that
+          // HTML-laden input like areaCode="<script>123</script>" is compared
+          // against the sanitized value that would be stored. Without this, the
+          // check looks for the raw input while the DB stores the sanitized
+          // version, and a second call with the clean value creates a duplicate.
+          const sanitizedAreaCode = stripHtmlTags(telecomNumber.areaCode.trim());
+          const sanitizedLineNumber = stripHtmlTags(telecomNumber.lineNumber.trim());
           const existingTel = await tx.telecomNumber.findFirst({
-            where: { areaCode: telecomNumber.areaCode.trim(), lineNumber: telecomNumber.lineNumber.trim() },
+            where: { areaCode: sanitizedAreaCode, lineNumber: sanitizedLineNumber },
             include: { contactMechanism: { include: { partyContacts: true } } },
           });
           if (existingTel?.contactMechanism.partyContacts.some((pc) => pc.partyId === partyId)) {
             throw new DuplicateEntityError(
-              `Phone number (${telecomNumber.areaCode.trim()}) ${telecomNumber.lineNumber.trim()} is already registered for this party.`,
+              `Phone number (${sanitizedAreaCode}) ${sanitizedLineNumber} is already registered for this party.`,
               { suggestedTools: ["add_contact_mechanism"], context: { contactMechanismType: "TELECOM_NUMBER" } }
             );
           }
