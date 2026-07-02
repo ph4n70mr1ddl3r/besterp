@@ -75,55 +75,60 @@ export interface DomainErrorOptions {
 
 /** Thrown when required subtype data is missing (e.g., person details for PERSON party type). */
 export class MissingSubtypeDataError extends DomainError {
+  static readonly CODE = "MISSING_SUBTYPE_DATA";
   constructor(
     message: string,
     options?: DomainErrorOptions
   ) {
-    super("MISSING_SUBTYPE_DATA", message, options);
+    super(MissingSubtypeDataError.CODE, message, options);
     this.name = "MissingSubtypeDataError";
   }
 }
 
 /** Thrown when a type table value is invalid or not found. */
 export class InvalidTypeValueError extends DomainError {
+  static readonly CODE = "INVALID_TYPE_VALUE";
   constructor(
     message: string,
     options?: DomainErrorOptions
   ) {
-    super("INVALID_TYPE_VALUE", message, options);
+    super(InvalidTypeValueError.CODE, message, options);
     this.name = "InvalidTypeValueError";
   }
 }
 
 /** Thrown when a duplicate entity already exists. */
 export class DuplicateEntityError extends DomainError {
+  static readonly CODE = "DUPLICATE_ENTITY";
   constructor(
     message: string,
     options?: DomainErrorOptions
   ) {
-    super("DUPLICATE_ENTITY", message, options);
+    super(DuplicateEntityError.CODE, message, options);
     this.name = "DuplicateEntityError";
   }
 }
 
 /** Thrown when a referenced entity is not found. */
 export class EntityNotFoundError extends DomainError {
+  static readonly CODE = "ENTITY_NOT_FOUND";
   constructor(
     message: string,
     options?: DomainErrorOptions
   ) {
-    super("ENTITY_NOT_FOUND", message, options);
+    super(EntityNotFoundError.CODE, message, options);
     this.name = "EntityNotFoundError";
   }
 }
 
 /** Thrown when a concurrency conflict is detected (e.g., stale version, serialization failure). */
 export class ConcurrencyConflictError extends DomainError {
+  static readonly CODE = "CONCURRENCY_CONFLICT";
   constructor(
     message: string,
     options?: DomainErrorOptions
   ) {
-    super("CONCURRENCY_CONFLICT", message, options);
+    super(ConcurrencyConflictError.CODE, message, options);
     this.name = "ConcurrencyConflictError";
   }
 }

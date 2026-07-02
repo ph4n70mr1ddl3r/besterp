@@ -4,11 +4,13 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { PartyService } from "./party.service.js";
 import { CreatePartyInput, SearchPartiesInput, AddContactMechanismInput } from "./party.types.js";
+import { Prisma } from "@prisma/client";
 import {
   MissingSubtypeDataError,
   InvalidTypeValueError,
   DuplicateEntityError,
   EntityNotFoundError,
+  MAX_SEARCH_LIMIT,
 } from "@besterp/shared";
 
 /** Create a mock Prisma return object with all fields toPartyResult needs. */
@@ -952,6 +954,117 @@ describe("PartyService", () => {
     });
   });
 
+  describe("getParty edge cases", () => {
+    it("should throw InvalidTypeValueError for empty tenantId", async () => {
+      await expect(partyService.getParty("", "12345678-1234-1234-1234-123456789abc")).rejects.toThrow(InvalidTypeValueError);
+    });
+
+    it("should throw InvalidTypeValueError for tenantId exceeding max length", async () => {
+      await expect(partyService.getParty("x".repeat(101), "12345678-1234-1234-1234-123456789abc")).rejects.toThrow(InvalidTypeValueError);
+    });
+
+    it("should throw EntityNotFoundError for valid UUID but non-existent party (ensure toPartyResult not called)", async () => {
+      const mockDb = {
+        party: { findUnique: vi.fn().mockResolvedValue(null) },
+      };
+      mockPrismaService.tenantScoped.mockReturnValue(mockDb);
+      await expect(
+        partyService.getParty("tenant-1", "12345678-1234-1234-1234-123456789abc")
+      ).rejects.toThrow(EntityNotFoundError);
+    });
+  });
+
+  describe("searchParties edge cases", () => {
+    it("should reject whitespace-only partyType filter", async () => {
+      const input: SearchPartiesInput = {
+        tenantId: "tenant-1",
+        partyType: "   " as any,
+      };
+      await expect(partyService.searchParties(input)).rejects.toThrow(InvalidTypeValueError);
+    });
+
+    it("should clamp limit to max when over limit", async () => {
+      const mockDb = {
+        $transaction: vi.fn().mockImplementation(async (fn) => {
+          const tx = {
+            party: { count: vi.fn().mockResolvedValue(0), findMany: vi.fn().mockResolvedValue([]) },
+          };
+          return fn(tx);
+        }),
+      };
+      mockPrismaService.tenantScoped.mockReturnValue(mockDb);
+
+      const result = await partyService.searchParties({
+        tenantId: "tenant-1",
+        limit: 1001,
+        offset: 0,
+      });
+      expect(result.limit).toBe(MAX_SEARCH_LIMIT);
+    });
+
+    it("should clamp negative offset to 0", async () => {
+      const mockDb = {
+        $transaction: vi.fn().mockImplementation(async (fn) => {
+          const tx = {
+            party: { count: vi.fn().mockResolvedValue(0), findMany: vi.fn().mockResolvedValue([]) },
+          };
+          return fn(tx);
+        }),
+      };
+      mockPrismaService.tenantScoped.mockReturnValue(mockDb);
+
+      const result = await partyService.searchParties({
+        tenantId: "tenant-1",
+        name: "test",
+        offset: -5,
+      });
+      expect(result.offset).toBe(0);
+    });
+  });
+
+  describe("addPartyRole edge cases", () => {
+    it("should reject fromDate exceeding max length", async () => {
+      const input = {
+        tenantId: "tenant-1",
+        partyId: "12345678-1234-1234-1234-123456789abc",
+        roleType: "Customer",
+        fromDate: "x".repeat(31),
+      };
+      await expect(partyService.addPartyRole(input)).rejects.toThrow(InvalidTypeValueError);
+    });
+
+    it("should default fromDate to now when undefined", async () => {
+      const mockDb = {
+        roleType: { findUnique: vi.fn().mockResolvedValue({ roleTypeId: "rt-customer" }) },
+        $transaction: vi.fn().mockImplementation(async (fn) => {
+          const tx = {
+            party: { findFirst: vi.fn().mockResolvedValue({ partyId: "12345678-1234-1234-1234-123456789abc" }) },
+            partyRole: {
+              findFirst: vi.fn().mockResolvedValue(null),
+              create: vi.fn().mockResolvedValue({
+                partyRoleId: "role-123",
+                partyId: "12345678-1234-1234-1234-123456789abc",
+                roleTypeId: "rt-customer",
+                fromDate: new Date(),
+                thruDate: null,
+                roleType: { name: "Customer", roleTypeId: "rt-customer" },
+              }),
+            },
+          };
+          return fn(tx);
+        }),
+      };
+      mockPrismaService.tenantScoped.mockReturnValue(mockDb);
+
+      const result = await partyService.addPartyRole({
+        tenantId: "tenant-1",
+        partyId: "12345678-1234-1234-1234-123456789abc",
+        roleType: "Customer",
+      });
+      expect(result.roleTypeName).toBe("Customer");
+    });
+  });
+
   describe("addContactMechanism", () => {
     it("should add postal address successfully", async () => {
       const input: AddContactMechanismInput = {
@@ -1526,6 +1639,52 @@ describe("PartyService", () => {
 
       const result = await partyService.addContactMechanism(input);
       expect(result.telecomNumber?.countryCode).toBe("+44");
+    });
+  });
+
+  describe("transaction error handling", () => {
+    it("should map Prisma P2002 (unique constraint) to DuplicateEntityError", async () => {
+      const mockDb = {
+        $transaction: vi.fn().mockRejectedValue(
+          new Prisma.PrismaClientKnownRequestError("Unique constraint", {
+            code: "P2002",
+            clientVersion: "6.8.0",
+            meta: { target: ["name", "tenantId"] },
+          })
+        ),
+      };
+      mockPrismaService.tenantScoped.mockReturnValue(mockDb);
+
+      await expect(
+        partyService.createParty({
+          tenantId: "tenant-1",
+          partyType: "PERSON",
+          name: "John Doe",
+          person: { firstName: "John", lastName: "Doe" },
+        })
+      ).rejects.toThrow(DuplicateEntityError);
+    });
+
+    it("should map Prisma P2003 (FK violation) to InvalidTypeValueError", async () => {
+      const mockDb = {
+        $transaction: vi.fn().mockRejectedValue(
+          new Prisma.PrismaClientKnownRequestError("Foreign key constraint", {
+            code: "P2003",
+            clientVersion: "6.8.0",
+            meta: { field_name: "partyTypeId" },
+          })
+        ),
+      };
+      mockPrismaService.tenantScoped.mockReturnValue(mockDb);
+
+      await expect(
+        partyService.createParty({
+          tenantId: "tenant-1",
+          partyType: "PERSON",
+          name: "John Doe",
+          person: { firstName: "John", lastName: "Doe" },
+        })
+      ).rejects.toThrow(InvalidTypeValueError);
     });
   });
 });

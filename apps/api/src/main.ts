@@ -155,10 +155,13 @@ function configureCors(app: INestApplication): void {
       "Set CORS_ORIGINS for non-standard dev ports."
     );
     app.enableCors({ origin: devOrigins, credentials: false });
-  } else if (process.env.NODE_ENV !== "production") {
-    logger.warn(
-      "CORS is not configured for this environment. " +
-      "Set CORS_ORIGINS (comma-separated list) to enable cross-origin requests."
+  } else {
+    logger.error(
+      "CORS_ORIGINS is not set. In non-development environments, CORS_ORIGINS must be " +
+      "configured as a comma-separated list of allowed origins (e.g., " +
+      "CORS_ORIGINS=https://app.example.com,https://admin.example.com). " +
+      "Without this, cross-origin requests will be blocked by the browser. " +
+      "Set CORS_ORIGINS and restart the application."
     );
   }
 }

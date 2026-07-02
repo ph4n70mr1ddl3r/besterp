@@ -121,9 +121,21 @@ export function sanitizeLogOutput(message: string): string {
 }
 
 /**
- * Strip newlines from strings to prevent log injection via user-controlled messages.
+ * Strip newlines, carriage returns, tabs, and ANSI escape sequences from strings
+ * to prevent log injection via user-controlled messages.
+ *
+ * @deprecated Use `sanitizeLogMessage` instead. This alias exists for backward
+ *             compatibility. The new name better describes the function's purpose
+ *             (cleaning log *messages* of injection vectors), while `sanitizeForLog`
+ *             was unclear about what exactly it sanitizes.
  */
-export function sanitizeForLog(s: string): string {
+export const sanitizeForLog: typeof sanitizeLogMessage = sanitizeLogMessage;
+
+/**
+ * Strip newlines, carriage returns, tabs, and ANSI escape sequences from strings
+ * to prevent log injection via user-controlled messages.
+ */
+export function sanitizeLogMessage(s: string): string {
   // Strip newlines, carriage returns, tabs, and ANSI escape sequences to
   // prevent log injection via user-controlled messages. ANSI escapes can
   // manipulate terminal output (e.g., clearing screen, changing colors).

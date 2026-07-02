@@ -316,19 +316,34 @@ export class PartyService {
     entityName = "record",
   ): never {
     if (err instanceof Prisma.PrismaClientKnownRequestError) {
-      if (err.code === "P2002") {
-        const target = (err.meta?.target as string[] | undefined);
-        const field = Array.isArray(target) && target.length > 0 ? (target[0] as string) : "this record";
-        throw new DuplicateEntityError(
-          `A ${entityName} with the same ${field} already exists in this tenant.`,
-          { suggestedTools: [suggestTool], context: { prismaCode: "P2002", conflictingField: field } }
-        );
-      }
-      if (err.code === "P2034") {
-        throw new ConcurrencyConflictError(
-          `Transaction conflict on ${entityName} — please retry.`,
-          { suggestedTools: [retryTool], context: { prismaCode: "P2034" } }
-        );
+      switch (err.code) {
+        case "P2002": {
+          const target = (err.meta?.target as string[] | undefined);
+          const field = Array.isArray(target) && target.length > 0 ? (target[0] as string) : "this record";
+          throw new DuplicateEntityError(
+            `A ${entityName} with the same ${field} already exists in this tenant.`,
+            { suggestedTools: [suggestTool], context: { prismaCode: "P2002", conflictingField: field } }
+          );
+        }
+        case "P2003": {
+          const target = (err.meta?.field_name as string | undefined) ?? (err.meta?.constraint as string | undefined) ?? "unknown";
+          throw new InvalidTypeValueError(
+            `Referenced ${entityName} does not exist (constraint: ${target}).`,
+            { suggestedTools: [suggestTool], context: { prismaCode: "P2003", constraint: target } }
+          );
+        }
+        case "P2025": {
+          throw new EntityNotFoundError(
+            `${entityName} not found for this operation.`,
+            { suggestedTools: [retryTool, suggestTool], context: { prismaCode: "P2025" } }
+          );
+        }
+        case "P2034": {
+          throw new ConcurrencyConflictError(
+            `Transaction conflict on ${entityName} — please retry.`,
+            { suggestedTools: [retryTool], context: { prismaCode: "P2034" } }
+          );
+        }
       }
     }
     throw err;

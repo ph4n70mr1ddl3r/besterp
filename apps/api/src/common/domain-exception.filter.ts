@@ -12,24 +12,27 @@
 
 import { ExceptionFilter, Catch, ArgumentsHost, Logger, HttpException } from "@nestjs/common";
 import type { Response } from "express";
-import { DomainError, isDomainError, getErrorCode, sanitizeLogOutput } from "@besterp/shared";
+import {
+  DomainError, isDomainError, getErrorCode, sanitizeLogOutput,
+  EntityNotFoundError, DuplicateEntityError, ConcurrencyConflictError,
+  MissingSubtypeDataError, InvalidTypeValueError,
+} from "@besterp/shared";
 
 /**
  * Map a DomainError code to an HTTP status code.
  */
 function domainErrorToStatus(error: DomainError): number {
   switch (error.code) {
-    case "ENTITY_NOT_FOUND":
+    case EntityNotFoundError.CODE:
       return 404;
-    case "DUPLICATE_ENTITY":
+    case DuplicateEntityError.CODE:
+    case ConcurrencyConflictError.CODE:
       return 409;
-    case "CONCURRENCY_CONFLICT":
-      return 409;
-    case "INVALID_TENANT_ID":
-    case "MISSING_SUBTYPE_DATA":
-    case "INVALID_TYPE_VALUE":
+    case "INVALID_TENANT_ID":   // used by withTenant in @besterp/shared
+    case MissingSubtypeDataError.CODE:
+    case InvalidTypeValueError.CODE:
       return 422;
-    case "TENANT_CONTEXT_FAILED":
+    case "TENANT_CONTEXT_FAILED": // used by rls-extension
       return 503;
     default:
       return 500;
