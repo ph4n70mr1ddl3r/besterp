@@ -46,7 +46,7 @@ export class DomainExceptionFilter implements ExceptionFilter {
 
     if (response.headersSent) {
       this.logger.warn(
-        `Headers already sent — cannot write error response. Exception: ${exception instanceof Error ? exception.message : String(exception)}`
+        `Headers already sent — cannot write error response. Exception: ${sanitizeLogOutput(exception instanceof Error ? exception.message : String(exception))}`
       );
       return;
     }
@@ -128,8 +128,8 @@ export class DomainExceptionFilter implements ExceptionFilter {
   private handleUnexpectedError(exception: unknown, response: Response): void {
     const errorCode = getErrorCode(exception);
     this.logger.error(
-      `Unhandled exception${errorCode ? ` [${errorCode}]` : ""}: ${exception instanceof Error ? exception.message : exception}`,
-      exception instanceof Error ? exception.stack : undefined
+      `Unhandled exception${errorCode ? ` [${errorCode}]` : ""}: ${sanitizeLogOutput(exception instanceof Error ? exception.message : String(exception))}`,
+      exception instanceof Error && exception.stack ? sanitizeLogOutput(exception.stack) : undefined
     );
     const isDev = process.env.NODE_ENV === "development";
     // In development, include the (sanitized) error message to aid debugging.

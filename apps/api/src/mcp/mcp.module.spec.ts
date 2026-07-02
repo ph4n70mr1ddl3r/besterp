@@ -475,13 +475,13 @@ describe("McpModule", () => {
         expect(ctx.reasoning).toBe("x".repeat(2000));
       });
     });
+  });
 
-    describe("getRegistry", () => {
-      it("should return a ToolRegistry instance", () => {
-        const registry = mcpModule.getRegistry();
-        expect(registry).toBeDefined();
-        expect(registry.names).toBeDefined();
-      });
+  describe("getRegistry", () => {
+    it("should return a ToolRegistry instance", () => {
+      const registry = mcpModule.getRegistry();
+      expect(registry).toBeDefined();
+      expect(registry.names).toBeDefined();
     });
   });
 });
