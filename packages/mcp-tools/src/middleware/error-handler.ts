@@ -18,7 +18,6 @@ import { ToolMiddleware, ToolResult } from "../schema/tool-definition.js";
  * Error handler middleware — catches all exceptions and returns rich errors.
  */
 const IRREGULAR_PLURALS: Record<string, string> = {
-  person: "people",
   child: "children",
   mouse: "mice",
   goose: "geese",
@@ -30,7 +29,6 @@ const IRREGULAR_PLURALS: Record<string, string> = {
   datum: "data",
   analysis: "analyses",
   crisis: "crises",
-  index: "indices",
 };
 
 function pluralize(entity: string): string {

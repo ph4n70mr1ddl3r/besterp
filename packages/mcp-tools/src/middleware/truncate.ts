@@ -84,7 +84,7 @@ export function capString(value: unknown, maxBytes: number): string {
   const markerEncoded = textEncoder.encode(marker);
   const markerBytes = markerEncoded.byteLength;
   if (effectiveMax <= markerBytes) {
-    return textDecoder.decode(markerEncoded.slice(0, effectiveMax));
+    return safeSliceUtf8(encoded, effectiveMax);
   }
   // Reserve room for the marker suffix, then slice on a character boundary.
   const truncated = safeSliceUtf8(encoded, effectiveMax - markerBytes);
