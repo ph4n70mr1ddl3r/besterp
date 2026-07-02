@@ -26,6 +26,42 @@ const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
 
 /**
+ * Slice a UTF-8 byte array at a byte boundary WITHOUT splitting a multi-byte
+ * character. Walks backwards over continuation bytes (0x80–0xBF, the
+ * `10xxxxxx` pattern) so the returned string never ends with a lone
+ * replacement character (U+FFFD) from a half-decoded trail.
+ *
+ * Both `capString` and the truncation preview must agree on this behaviour —
+ * previously only `capString` walked back, so a preview could end with U+FFFD
+ * whenever the byte limit landed mid-character (CJK, emoji, accented chars).
+ */
+function safeSliceUtf8(encoded: Uint8Array, byteLimit: number): string {
+  let sliceEnd = Math.min(byteLimit, encoded.byteLength);
+  while (sliceEnd > 0) {
+    const byte = encoded[sliceEnd];
+    // `sliceEnd` points at the first EXCLUDED byte. While it is a UTF-8
+    // continuation byte, the corresponding lead byte lies before `sliceEnd`,
+    // so [0, sliceEnd) would still cut the character in half — keep walking.
+    if (byte === undefined || (byte & 0xC0) !== 0x80) break;
+    sliceEnd--;
+  }
+  return textDecoder.decode(encoded.slice(0, sliceEnd));
+}
+
+/** Structured marker stored in place of an oversized payload. */
+function truncationMarker(encoded: Uint8Array): {
+  _truncated: true;
+  _originalSize: number;
+  _preview: string;
+} {
+  return {
+    _truncated: true,
+    _originalSize: encoded.byteLength,
+    _preview: safeSliceUtf8(encoded, PREVIEW_BYTES),
+  };
+}
+
+/**
  * Cap an individual string at `maxBytes` bytes (measured in UTF-8).
  *
  * The idempotency middleware stores soft-failure error messages verbatim
@@ -50,16 +86,8 @@ export function capString(value: unknown, maxBytes: number): string {
   if (effectiveMax <= markerBytes) {
     return textDecoder.decode(markerEncoded.slice(0, effectiveMax));
   }
-  // When slicing at a byte boundary, walk backwards to avoid splitting
-  // a multi-byte UTF-8 character (e.g. CJK, emoji, accented chars).
-  // Continuation bytes follow the 10xxxxxx pattern (0x80–0xBF).
-  let sliceEnd = Math.max(0, effectiveMax - markerBytes);
-  while (sliceEnd > 0) {
-    const byte = encoded[sliceEnd];
-    if (byte === undefined || (byte & 0xC0) !== 0x80) break;
-    sliceEnd--;
-  }
-  const truncated = textDecoder.decode(encoded.slice(0, sliceEnd));
+  // Reserve room for the marker suffix, then slice on a character boundary.
+  const truncated = safeSliceUtf8(encoded, effectiveMax - markerBytes);
   return `${truncated}${marker}`;
 }
 
@@ -79,11 +107,7 @@ export function truncateValue(value: unknown, maxSize: number = MAX_STORED_PAYLO
     const serialized = JSON.stringify(value);
     const encoded = textEncoder.encode(serialized);
     if (encoded.byteLength > effectiveMax) {
-      return {
-        _truncated: true,
-        _originalSize: encoded.byteLength,
-        _preview: textDecoder.decode(encoded.slice(0, PREVIEW_BYTES)),
-      };
+      return truncationMarker(encoded);
     }
     return value;
   }
@@ -94,11 +118,7 @@ export function truncateValue(value: unknown, maxSize: number = MAX_STORED_PAYLO
     const serialized = JSON.stringify(value);
     const encoded = textEncoder.encode(serialized);
     if (encoded.byteLength > effectiveMax) {
-      return {
-        _truncated: true,
-        _originalSize: encoded.byteLength,
-        _preview: textDecoder.decode(encoded.slice(0, PREVIEW_BYTES)),
-      };
+      return truncationMarker(encoded);
     }
     return value;
   }
@@ -106,11 +126,7 @@ export function truncateValue(value: unknown, maxSize: number = MAX_STORED_PAYLO
     const str = value.toString();
     const encoded = textEncoder.encode(str);
     if (encoded.byteLength > effectiveMax) {
-      return {
-        _truncated: true,
-        _originalSize: encoded.byteLength,
-        _preview: textDecoder.decode(encoded.slice(0, PREVIEW_BYTES)),
-      };
+      return truncationMarker(encoded);
     }
     return str;
   }
@@ -125,11 +141,7 @@ export function truncateValue(value: unknown, maxSize: number = MAX_STORED_PAYLO
     const serialized = JSON.stringify(value);
     const encoded = textEncoder.encode(serialized);
     if (encoded.byteLength > effectiveMax) {
-      return {
-        _truncated: true,
-        _originalSize: encoded.byteLength,
-        _preview: textDecoder.decode(encoded.slice(0, PREVIEW_BYTES)),
-      };
+      return truncationMarker(encoded);
     }
     // Roundtrip through JSON.parse to normalise non-plain values
     // (class instances, Maps, Sets, BigInts, etc.) to plain JSON-safe

@@ -1,5 +1,22 @@
 # BestERP — Security & Architecture Fixes
 
+## Changes Applied (2026-07-02) — Code Review Round 7
+
+### 🟡 Fix: `truncate.ts` — UTF-8 multibyte split in stored previews
+
+**Problem:** `truncateValue()` (used by the audit-log and idempotency middlewares to cap JSONB payloads at 64 KB) generated its `_preview` via a naive `textDecoder.decode(encoded.slice(0, PREVIEW_BYTES))`. When the 1 KB preview boundary landed in the middle of a multi-byte UTF-8 character (CJK text, emoji, accented chars), `TextDecoder` emitted a spurious U+FFFD (replacement character) at the end of the stored preview. The sibling `capString()` in the *same file* already walked backwards over continuation bytes to avoid exactly this — so the two functions were inconsistent, and the durable `ai_action_log` / `idempotency_record` previews could silently contain corrupt trailing replacement characters.
+
+**Fix:**
+- Extracted a shared `safeSliceUtf8(encoded, byteLimit)` helper that walks back over UTF-8 continuation bytes (`10xxxxxx`, 0x80–0xBF) so a slice never ends mid-code-point.
+- `capString()` now delegates to it (replacing its inline walk-back loop) and all four `_preview` sites in `truncateValue()` (string/boolean, number, bigint, and general-object branches) use it via a new `truncationMarker(encoded)` builder.
+- Behaviour is otherwise identical; only the previously-broken previews change (they get one code point shorter instead of gaining a U+FFFD).
+
+### 🟢 Test: New `truncate.test.ts` (16 tests)
+
+**Problem:** `truncateValue` / `capString` had no direct unit coverage — they were only exercised indirectly through the middleware integration tests, and none of those covered the multibyte boundary.
+
+**Fix:** Added `packages/mcp-tools/src/__tests__/truncate.test.ts` covering pass-through of primitives/null/undefined, bigint→string, symbol/function markers, oversize truncation markers, circular-reference error markers, and — critically — deterministic multibyte-boundary cases for both the `_preview` path and `capString`. The two preview cases are constructed so the byte cap lands on a known continuation byte; they fail against the old naive slice (verified by temporarily reverting) and pass with `safeSliceUtf8`.
+
 ## Changes Applied (2026-07-02) — Code Review Round 6
 
 ### 🟢 Cleanup: `mcp.module.ts` — Removed Duplicate `validateReasoningField`
