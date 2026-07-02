@@ -104,7 +104,15 @@ export class DomainExceptionFilter implements ExceptionFilter {
       const res = exceptionResponse as Record<string, unknown>;
       // Keep only safe, client-facing fields; drop validation details, stack, etc.
       const safeBody: Record<string, unknown> = { statusCode: status };
-      if (typeof res.message === "string") safeBody.message = res.message;
+      if (typeof res.message === "string") {
+        safeBody.message = res.message;
+      } else {
+        // ValidationPipe (and other) errors carry `message` as an array of
+        // detail strings that can leak internal field names. Replace it with
+        // a generic, status-appropriate message so clients still receive a
+        // usable body instead of a bare { statusCode, error } object.
+        safeBody.message = status === 400 ? "Validation failed" : "Request error";
+      }
       if (typeof res.error === "string") safeBody.error = res.error;
       response.status(status).json(safeBody);
       return;

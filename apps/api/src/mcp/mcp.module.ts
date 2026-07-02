@@ -108,7 +108,9 @@ export class McpModule implements OnModuleInit {
     const idempotencyKey = validateOptionalField("idempotencyKey", overrides.idempotencyKey, MAX_IDEMPOTENCY_KEY_LENGTH);
     const agentId = validateOptionalField("agentId", overrides.agentId, MAX_AGENT_ID_LENGTH);
     const conversationId = validateOptionalField("conversationId", overrides.conversationId, MAX_CONVERSATION_ID_LENGTH);
-    const reasoning = validateReasoningField(overrides.reasoning);
+    // reasoning validates identically to the other optional string fields, so
+    // delegate to validateOptionalField instead of a bespoke duplicate.
+    const reasoning = validateOptionalField("reasoning", overrides.reasoning, MAX_REASONING_LENGTH);
 
     return {
       tenantId,
@@ -148,36 +150,6 @@ export class McpModule implements OnModuleInit {
       exports: ["TOOL_REGISTRY", McpModule],
     };
   }
-}
-
-/**
- * Validate the optional reasoning field — normalises whitespace-only
- * or empty values to undefined, but enforces max length to prevent oversized
- * audit log payloads. Consistent with validateOptionalField for other fields.
- */
-function validateReasoningField(value: string | undefined | null): string | undefined {
-  if (value === undefined || value === null) return undefined;
-  if (typeof value !== "string") {
-    throw new InvalidTypeValueError(
-      `McpModule.buildContext: reasoning must be a string, received ${typeof value}.`,
-      { context: { field: "reasoning", receivedType: typeof value } }
-    );
-  }
-  if (value.length === 0) return undefined;
-  const trimmed = value.trim();
-  if (trimmed.length === 0) {
-    throw new InvalidTypeValueError(
-      "McpModule.buildContext: reasoning cannot be whitespace-only.",
-      { context: { field: "reasoning" } }
-    );
-  }
-  if (trimmed.length > MAX_REASONING_LENGTH) {
-    throw new InvalidTypeValueError(
-      `McpModule.buildContext: reasoning is too long (${trimmed.length} chars, max ${MAX_REASONING_LENGTH}).`,
-      { context: { field: "reasoning", length: trimmed.length, maxLength: MAX_REASONING_LENGTH } }
-    );
-  }
-  return trimmed;
 }
 
 /**

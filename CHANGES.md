@@ -1,5 +1,37 @@
 # BestERP — Security & Architecture Fixes
 
+## Changes Applied (2026-07-02) — Code Review Round 6
+
+### 🟢 Cleanup: `mcp.module.ts` — Removed Duplicate `validateReasoningField`
+
+**Problem:** `validateReasoningField` was byte-for-byte identical to `validateOptionalField` — same type guard, same trim, same whitespace-only rejection, same length cap, and the exact same error strings. The only difference was the hardcoded `"reasoning"` field name, which `validateOptionalField` already accepts as a parameter. ~33 lines of duplicated logic.
+
+**Fix:** Deleted `validateReasoningField` and routed the `reasoning` field through `validateOptionalField("reasoning", overrides.reasoning, MAX_REASONING_LENGTH)`. All existing `mcp.module.spec.ts` assertions (type error, too-long, whitespace-only, trim, null→undefined, max-length) continue to pass unchanged.
+
+### 🟢 Cleanup: `party-tools.ts` — Replaced Magic Numbers with Shared Pagination Constants
+
+**Problem:** The `search_parties` Zod schema hardcoded `.min(1).max(500)` for `limit` and `.min(0)` for `offset`, while the sibling REST DTO (`party.dto.ts`) and the service layer (`party.service.ts`) both use the `MIN_SEARCH_LIMIT` / `MAX_SEARCH_LIMIT` / `MIN_SEARCH_OFFSET` constants from `@besterp/shared`. If the shared constant changes, the MCP schema would silently drift out of sync, accepting input the service then has to reject/clamp.
+
+**Fix:** Imported the three constants and used them in both the validators and the AI-facing `.describe()` strings (`max ${MAX_SEARCH_LIMIT}`, `min ${MIN_SEARCH_OFFSET}`).
+
+### 🟢 Cleanup: `party-tools.ts` — Extracted `uuidParam()` Helper
+
+**Problem:** The `partyId` field `z.string().min(1).max(200).regex(UUID_REGEX, "Must be a valid UUID")` was duplicated verbatim across three tools (`get_party`, `add_party_role`, `add_contact_mechanism`).
+
+**Fix:** Extracted a `uuidParam(description)` helper alongside the existing `sanitizedString` / `optionalIsoDate` builders, centralizing the UUID contract (including the 200-char generous input cap, documented inline) so it can't drift between tools.
+
+### 🟡 Robustness: `domain-exception.filter.ts` — Generic Fallback Message for Scrubbed HttpExceptions
+
+**Problem:** The production branch of `handleHttpException` only kept `res.message` when it was a string. `ValidationPipe` errors carry `message` as an **array** of detail strings, so in production a 400 returned a bare `{ statusCode: 400, error: "Bad Request" }` with no `message` field — useless to API clients trying to understand why their request was rejected.
+
+**Fix:** When `res.message` is not a string, substitute a generic, status-appropriate message (`"Validation failed"` for 400, `"Request error"` otherwise). The security goal is preserved — internal field names from the validation detail array are still stripped — but clients now receive a usable body.
+
+### 🟢 Test: Added `domain-exception.filter.spec.ts` (11 tests)
+
+**Problem:** `DomainExceptionFilter` is a critical globally-registered component (maps every DomainError/HttpException/unexpected error to an HTTP response) yet had **zero** test coverage.
+
+**Fix:** Added a focused spec covering: DomainError→status mapping (404/409/422), unknown-code 500 generic message, production scrubbing of `suggestedTools`/`context`, the new ValidationPipe array-message fallback, string-message pass-through, non-production pass-through, unexpected-error sanitization (verifies connection strings are redacted), and the headers-already-sent guard.
+
 ## Changes Applied (2026-07-02) — Code Review Round 5
 
 ### 🟢 Cleanup: `party-tools.ts` — Removed Duplicate `optionalSanitizedText` Helper

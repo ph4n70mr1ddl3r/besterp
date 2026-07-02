@@ -44,6 +44,9 @@ import {
   MAX_PHONE_COUNTRY_CODE_LENGTH,
   MAX_EMAIL_LENGTH,
   DEFAULT_SEARCH_LIMIT,
+  MIN_SEARCH_LIMIT,
+  MAX_SEARCH_LIMIT,
+  MIN_SEARCH_OFFSET,
   MAX_SEARCH_OFFSET,
 } from "@besterp/shared";
 import type {
@@ -185,6 +188,20 @@ function optionalIsoDate(max: number = MAX_DATE_STRING_LENGTH) {
     );
 }
 
+/**
+ * UUID path parameter. Centralises the repeated id schema so every tool
+ * shares one definition. The 200-char cap is a generous input limit (a
+ * canonical UUID is 36 chars) — UUID_REGEX is the real gatekeeper and is
+ * kept aligned with PartyService.requireUuid by shared.test.ts.
+ */
+function uuidParam(description: string) {
+  return z.string()
+    .min(1)
+    .max(200)
+    .regex(UUID_REGEX, "Must be a valid UUID")
+    .describe(description);
+}
+
 const personSchema = z.object({
   firstName: sanitizedString(1, MAX_PERSON_NAME_LENGTH).describe("First/given name"),
   lastName: sanitizedString(1, MAX_PERSON_NAME_LENGTH).describe("Last/family name"),
@@ -297,7 +314,7 @@ const getParty: ToolDefinition = {
 Returns full party details. Use this to inspect a specific party's information.`,
 
   inputSchema: z.object({
-    partyId: z.string().min(1).max(200).regex(UUID_REGEX, "Must be a valid UUID").describe("The unique UUID of the party"),
+    partyId: uuidParam("The unique UUID of the party"),
   }),
 
   riskLevel: "none",
@@ -333,8 +350,8 @@ const searchPartiesSchema = z.object({
   name: optionalFilteredString(MAX_PARTY_NAME_LENGTH).describe("Filter by name (case-insensitive partial match)"),
   partyType: z.enum(["PERSON", "ORGANIZATION"]).optional().describe("Filter by party type"),
   roleType: optionalFilteredString(MAX_ROLE_TYPE_LENGTH).describe("Filter by role type name (e.g., 'Customer', 'Supplier')"),
-  limit: z.number().int().min(1).max(500).optional().default(DEFAULT_SEARCH_LIMIT).describe("Maximum results to return (max 500)"),
-  offset: z.number().int().min(0).max(MAX_SEARCH_OFFSET).optional().default(0).describe("Number of results to skip (min 0)"),
+  limit: z.number().int().min(MIN_SEARCH_LIMIT).max(MAX_SEARCH_LIMIT).optional().default(DEFAULT_SEARCH_LIMIT).describe(`Maximum results to return (max ${MAX_SEARCH_LIMIT})`),
+  offset: z.number().int().min(MIN_SEARCH_OFFSET).max(MAX_SEARCH_OFFSET).optional().default(0).describe(`Number of results to skip (min ${MIN_SEARCH_OFFSET})`),
 });
 
 type SearchPartiesInput_z = z.infer<typeof searchPartiesSchema>;
@@ -375,7 +392,7 @@ Use this to find customers, suppliers, or any party by name, type, or role.`,
 // ─── Tool: add_party_role ─────────────────────────────────────────
 
 const addPartyRoleSchema = z.object({
-  partyId: z.string().min(1).max(200).regex(UUID_REGEX, "Must be a valid UUID").describe("The UUID of the party to assign the role to"),
+  partyId: uuidParam("The UUID of the party to assign the role to"),
   roleType: sanitizedString(1, MAX_ROLE_TYPE_LENGTH).describe("Role type name (e.g., 'Customer', 'Supplier', 'Employee')"),
   fromDate: optionalIsoDate().describe(`Start date for the role (ISO 8601, max ${MAX_DATE_STRING_LENGTH} chars, default: now)`),
 });
@@ -422,7 +439,7 @@ For idempotent writes, pass an idempotencyKey (string, max 500 chars) along with
 // ─── Tool: add_contact_mechanism ──────────────────────────────────
 
 const addContactMechanismSchema = z.object({
-  partyId: z.string().min(1).max(200).regex(UUID_REGEX, "Must be a valid UUID").describe("The UUID of the party to add the contact to"),
+  partyId: uuidParam("The UUID of the party to add the contact to"),
   contactMechanismType: z.enum(["POSTAL_ADDRESS", "TELECOM_NUMBER", "EMAIL_ADDRESS"])
     .describe("Type of contact mechanism"),
   postalAddress: postalAddressSchema.optional()
