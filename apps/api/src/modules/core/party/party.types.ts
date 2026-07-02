@@ -125,11 +125,31 @@ export interface AddContactMechanismInput {
   emailAddress?: EmailAddressInput;
 }
 
+export interface PostalAddressOutput {
+  addressLine1: string;
+  addressLine2?: string | null;
+  city: string;
+  stateProvince?: string | null;
+  postalCode?: string | null;
+  country: string;
+}
+
+export interface TelecomNumberOutput {
+  countryCode?: string | null;
+  areaCode: string;
+  lineNumber: string;
+  extension?: string | null;
+}
+
+export interface EmailAddressOutput {
+  email: string;
+}
+
 export interface ContactMechanismResult {
   contactMechanismId: string;
   contactMechanismType: string;
   partyId: string;
-  postalAddress: PostalAddressInput | null;
-  telecomNumber: TelecomNumberInput | null;
-  emailAddress: EmailAddressInput | null;
+  postalAddress: PostalAddressOutput | null;
+  telecomNumber: TelecomNumberOutput | null;
+  emailAddress: EmailAddressOutput | null;
 }

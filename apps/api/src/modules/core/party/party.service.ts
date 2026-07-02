@@ -67,6 +67,7 @@ import {
   MAX_SEARCH_OFFSET,
   DEFAULT_SEARCH_LIMIT,
   MAX_TENANT_ID_LENGTH,
+  DEFAULT_PHONE_COUNTRY_CODE,
 } from "@besterp/shared";
 import {
   CreatePartyInput,
@@ -689,7 +690,7 @@ export class PartyService {
     const countryCode = tel.countryCode?.trim();
     const extension = tel.extension?.trim();
     return {
-      countryCode: countryCode ? stripHtmlTags(countryCode) : "+1",
+      countryCode: countryCode ? stripHtmlTags(countryCode) : DEFAULT_PHONE_COUNTRY_CODE,
       areaCode: stripHtmlTags(tel.areaCode.trim()),
       lineNumber: stripHtmlTags(tel.lineNumber.trim()),
       extension: extension ? stripHtmlTags(extension) : null,

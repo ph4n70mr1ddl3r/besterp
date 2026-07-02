@@ -32,9 +32,8 @@ const SENSITIVE_FIELDS = new Set([
 /** Regex pattern for catch-all sensitive field detection (password, secret, token, key, etc.). */
 const SENSITIVE_FIELD_PATTERN = /\b(password|secret|token|api[_-]?key|credential|auth)\b/i;
 
-/** Audit log uses the same 64 KB cap as other stored payloads. */
-const MAX_AUDIT_INPUT_SIZE = MAX_STORED_PAYLOAD_SIZE;
-const MAX_AUDIT_OUTPUT_SIZE = MAX_STORED_PAYLOAD_SIZE;
+/** Maximum depth for recursive sensitive field redaction. */
+const MAX_REDACTION_DEPTH = 10;
 
 /** Maximum concurrent audit log writes to prevent memory pressure under DB slowdown. */
 const MAX_CONCURRENT_AUDIT_WRITES = 100;
@@ -190,7 +189,7 @@ async function logAction(prisma: PrismaClient, entry: AuditLogEntry): Promise<vo
   // backpressure queue, so re-running redactSensitiveFields here would traverse
   // the (potentially large) object graph a second time for no effect. Only
   // toolOutput needs redaction — it is added raw in executeAndLog().
-  const toolInput = truncateValue(entry.toolInput, MAX_AUDIT_INPUT_SIZE);
+  const toolInput = truncateValue(entry.toolInput, MAX_STORED_PAYLOAD_SIZE);
 
   await prisma.aiActionLog.create({
     data: {
@@ -200,7 +199,7 @@ async function logAction(prisma: PrismaClient, entry: AuditLogEntry): Promise<vo
       tenantId: entry.tenantId,
       toolCalled: entry.toolCalled,
       toolInput: toolInput as unknown as Prisma.InputJsonValue,
-      toolOutput: truncateValue(redactSensitiveFields(entry.toolOutput), MAX_AUDIT_OUTPUT_SIZE) as Prisma.InputJsonValue | undefined,
+      toolOutput: truncateValue(redactSensitiveFields(entry.toolOutput), MAX_STORED_PAYLOAD_SIZE) as Prisma.InputJsonValue | undefined,
       reasoning: entry.reasoning ?? null,
     },
   });
@@ -212,7 +211,7 @@ function isSensitiveField(key: string): boolean {
 }
 
 function redactSensitiveFields(value: unknown, depth = 0, seen?: WeakSet<object>): unknown {
-  if (depth > 10 || value === null || value === undefined || typeof value !== "object") return value;
+  if (depth > MAX_REDACTION_DEPTH || value === null || value === undefined || typeof value !== "object") return value;
   if (value instanceof Date || value instanceof RegExp) return value;
   seen = seen ?? new WeakSet();
   if (seen.has(value as object)) return "[Circular]";

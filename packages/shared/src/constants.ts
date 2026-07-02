@@ -59,6 +59,9 @@ export const MAX_EXTENSION_LENGTH = 10;
 /** Maximum length for phone country codes (E.164). */
 export const MAX_PHONE_COUNTRY_CODE_LENGTH = 5;
 
+/** Default E.164 country code for phone numbers when none is provided. */
+export const DEFAULT_PHONE_COUNTRY_CODE = "+1";
+
 /** Maximum length for email addresses (RFC 5321). */
 export const MAX_EMAIL_LENGTH = 254;
 
