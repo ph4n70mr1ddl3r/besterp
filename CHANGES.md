@@ -1,5 +1,28 @@
 # BestERP — Security & Architecture Fixes
 
+## Changes Applied (2026-07-02) — Code Review Round 5
+
+### 🟢 Cleanup: `party-tools.ts` — Removed Duplicate `optionalSanitizedText` Helper
+
+**Problem:** `optionalSanitizedText` was byte-for-byte identical to `optionalSanitizedString`. Its doc comment claimed a behavioral difference ("whitespace-only input becomes undefined"), but both functions already did this via the `s?.trim() ? ... : undefined` transform — so the second function was dead code with a misleading comment.
+
+**Fix:**
+- Removed `optionalSanitizedText` entirely
+- Updated its 4 call sites (`addressLine2`, `stateProvince`, `extension`, `description`) to use `optionalSanitizedString`
+- Folded the (accurate) whitespace-normalization note into `optionalSanitizedString`'s doc comment
+
+### 🟢 Cleanup: `party-tools.ts` — Simplified `optionalIsoDate` Refine Predicate
+
+**Problem:** The refine check `v === undefined || v.length > 0 && isValidISODate(v)` mixed `||` and `&&` without parentheses (a readability trap) and included a redundant `v.length > 0` — the preceding transform already converts empty/whitespace input to `undefined`, so any non-`undefined` `v` reaching the refine is guaranteed non-empty.
+
+**Fix:** Simplified to `v === undefined || isValidISODate(v)` with a comment explaining why the length check is implicit. Behavior is identical.
+
+### 🟢 Cleanup: `audit-log.ts` — Eliminated Double Redaction of `toolInput`
+
+**Problem:** `redactSensitiveFields(entry.toolInput)` ran in `logAction()`, but `toolInput` had *already* been redacted by `createBaseEntry()` before it entered the backpressure queue. The second pass re-traversed the (potentially large) object graph for no effect, doubling redaction cost on every audited tool call.
+
+**Fix:** `logAction()` now trusts the pre-redacted `entry.toolInput` and only runs `redactSensitiveFields` on `toolOutput` (which is added raw in `executeAndLog()`).
+
 ## Changes Applied (2026-07-01) — Code Review Round 4
 
 ### 🟢 Cleanup: `health.service.spec.ts` — Removed Unused `appClient` Mock

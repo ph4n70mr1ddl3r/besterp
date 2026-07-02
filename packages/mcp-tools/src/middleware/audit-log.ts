@@ -186,7 +186,11 @@ interface AuditLogEntry {
 }
 
 async function logAction(prisma: PrismaClient, entry: AuditLogEntry): Promise<void> {
-  const toolInput = truncateValue(redactSensitiveFields(entry.toolInput), MAX_AUDIT_INPUT_SIZE);
+  // toolInput is already redacted by createBaseEntry() before it reaches the
+  // backpressure queue, so re-running redactSensitiveFields here would traverse
+  // the (potentially large) object graph a second time for no effect. Only
+  // toolOutput needs redaction — it is added raw in executeAndLog().
+  const toolInput = truncateValue(entry.toolInput, MAX_AUDIT_INPUT_SIZE);
 
   await prisma.aiActionLog.create({
     data: {

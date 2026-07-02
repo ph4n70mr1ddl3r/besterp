@@ -160,18 +160,10 @@ function sanitizedString(min: number, max: number) {
     .pipe(z.string().min(min).max(max));
 }
 
-/** Optional string: trims, strips HTML, enforces max length. Empty → undefined. */
+/** Optional string: trims, strips HTML, enforces max length.
+ *  Empty or whitespace-only input → undefined (the transform falls through to
+ *  undefined when `s.trim()` is empty, so " " never reaches the pipe). */
 function optionalSanitizedString(max: number) {
-  return z.string()
-    .optional()
-    .transform(s => s?.trim() ? stripHtmlTags(s.trim()) : undefined)
-    .pipe(z.string().max(max).optional());
-}
-
-/** Optional text: trims, strips HTML, enforces max length. Empty → undefined.
- *  Unlike optionalSanitizedString, whitespace-only input becomes undefined
- *  (for description-like fields where " " is not meaningful). */
-function optionalSanitizedText(max: number) {
   return z.string()
     .optional()
     .transform(s => s?.trim() ? stripHtmlTags(s.trim()) : undefined)
@@ -185,7 +177,10 @@ function optionalIsoDate(max: number = MAX_DATE_STRING_LENGTH) {
     .transform(s => s?.trim() || undefined)
     .pipe(z.string().max(max).optional())
     .refine(
-      v => v === undefined || v.length > 0 && isValidISODate(v),
+      // After the transform, `v` is either undefined (empty/whitespace input)
+      // or a non-empty string, so a length check is redundant — just validate
+      // the format. Parentheses make the precedence explicit.
+      v => v === undefined || isValidISODate(v),
       "Invalid date format - must be ISO 8601"
     );
 }
@@ -206,9 +201,9 @@ const organizationSchema = z.object({
 
 const postalAddressSchema = z.object({
   addressLine1: sanitizedString(1, MAX_ADDRESS_LINE_LENGTH).describe("Street address line 1"),
-  addressLine2: optionalSanitizedText(MAX_ADDRESS_LINE_LENGTH).describe("Street address line 2"),
+  addressLine2: optionalSanitizedString(MAX_ADDRESS_LINE_LENGTH).describe("Street address line 2"),
   city: sanitizedString(1, MAX_CITY_LENGTH).describe("City"),
-  stateProvince: optionalSanitizedText(MAX_STATE_PROVINCE_LENGTH).describe("State or province"),
+  stateProvince: optionalSanitizedString(MAX_STATE_PROVINCE_LENGTH).describe("State or province"),
   postalCode: optionalSanitizedString(MAX_POSTAL_CODE_LENGTH).describe("Postal/ZIP code"),
   country: z.string()
     .transform(s => stripHtmlTags(s.trim().toUpperCase()))
@@ -224,7 +219,7 @@ const telecomNumberSchema = z.object({
     .describe("E.164 country code (e.g., '+1', '+44'). Defaults to '+1' if omitted."),
   areaCode: sanitizedString(1, MAX_AREA_CODE_LENGTH).describe("Area code"),
   lineNumber: sanitizedString(1, MAX_LINE_NUMBER_LENGTH).describe("Phone line number"),
-  extension: optionalSanitizedText(MAX_EXTENSION_LENGTH).describe("Extension"),
+  extension: optionalSanitizedString(MAX_EXTENSION_LENGTH).describe("Extension"),
 });
 
 const emailAddressSchema = z.object({
@@ -236,7 +231,7 @@ const emailAddressSchema = z.object({
 const createPartySchema = z.object({
   partyType: z.enum(["PERSON", "ORGANIZATION"]).describe("Type of party to create"),
   name: sanitizedString(1, MAX_PARTY_NAME_LENGTH).describe("Display name for the party (1-500 characters)"),
-  description: optionalSanitizedText(MAX_PARTY_DESCRIPTION_LENGTH).describe("Optional description (max 1000 characters)"),
+  description: optionalSanitizedString(MAX_PARTY_DESCRIPTION_LENGTH).describe("Optional description (max 1000 characters)"),
   person: personSchema.optional().describe("Person details (required when partyType is PERSON)"),
   organization: organizationSchema.optional().describe("Organization details (required when partyType is ORGANIZATION)"),
 }).superRefine((data, ctx) => {
