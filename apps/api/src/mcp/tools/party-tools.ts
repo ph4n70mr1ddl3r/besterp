@@ -164,12 +164,12 @@ function sanitizedString(min: number, max: number) {
 }
 
 /** Optional string: trims, strips HTML, enforces max length.
- *  Empty or whitespace-only input → undefined (the transform falls through to
- *  undefined when `s.trim()` is empty, so " " never reaches the pipe). */
+   *  Empty or whitespace-only input → undefined (the transform captures the
+   *  trimmed value once and checks it, so " " never reaches the pipe). */
 function optionalSanitizedString(max: number) {
   return z.string()
     .optional()
-    .transform(s => s?.trim() ? stripHtmlTags(s.trim()) : undefined)
+    .transform(s => { const t = s?.trim(); return t ? stripHtmlTags(t) : undefined; })
     .pipe(z.string().max(max).optional());
 }
 

@@ -1,5 +1,15 @@
 # BestERP — Security & Architecture Fixes
 
+## Changes Applied (2026-07-03) — Code Review Round 17
+
+### 🟢 Cleanup: `party-tools.ts` — Eliminated Double `trim()` Call in `optionalSanitizedString`
+
+**Problem:** The `optionalSanitizedString` helper called `s.trim()` twice — once in the
+truthiness check (`s?.trim()`) and again in the HTML-strip call (`stripHtmlTags(s.trim())`).
+This was a minor performance waste and set a misleading pattern for future helpers.
+
+**Fix:** Captured the trimmed result in a local variable so `.trim()` runs exactly once.
+
 ## Changes Applied (2026-07-02) — Code Review Round 8
 
 ### 🟡 Fix: `sanitize.ts` — non-CSI ANSI escape regex missed lowercase finals
