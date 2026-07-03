@@ -121,12 +121,6 @@ export function sanitizeLogOutput(message: string): string {
 }
 
 /**
- * Alias for `sanitizeLogMessage`. The longer name is preferred for new code,
- * but this alias remains available for backward compatibility.
- */
-export const sanitizeForLog: typeof sanitizeLogMessage = sanitizeLogMessage;
-
-/**
  * Strip newlines, carriage returns, tabs, and ANSI escape sequences from strings
  * to prevent log injection via user-controlled messages.
  */
@@ -162,6 +156,12 @@ export function sanitizeLogMessage(s: string): string {
     .replace(/[\r\n\t\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, "_");
   /* eslint-enable no-control-regex */
 }
+
+/**
+ * Alias for `sanitizeLogMessage`. The longer name is preferred for new code,
+ * but this alias remains available for backward compatibility.
+ */
+export const sanitizeForLog: typeof sanitizeLogMessage = sanitizeLogMessage;
 
 /**
  * Safely decode a Unicode code point.

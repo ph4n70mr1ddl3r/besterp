@@ -38,9 +38,22 @@ export function idempotencyMiddleware(prisma: PrismaClient): ToolMiddleware {
       return next(input, context);
     }
 
+    // Parse the input through the tool's schema FIRST, then hash the
+    // transformed/normalized data. This ensures semantically identical inputs
+    // (e.g., "name" and " name  " after Zod's .trim() transform) produce
+    // the same hash, preventing false IDEMPOTENCY_KEY_MISMATCH errors on
+    // retries with normalized input.
+    //
+    // This means Zod validation runs twice (here and in the final handler),
+    // but Zod is fast and the cost is negligible compared to the DB round-trips.
+    // The parsed data is intentionally NOT cached between middleware layers to
+    // keep the middleware interface simple (input + context).
+    const parseResult = definition.inputSchema.safeParse(input);
+    const hashedInput = parseResult.success ? parseResult.data : input;
+
     let inputHash: string;
     try {
-      inputHash = hashInput(input);
+      inputHash = hashInput(hashedInput);
     } catch {
       // Circular references or unserializable input — skip idempotency
       // rather than crashing the entire tool pipeline. Log a warning so
