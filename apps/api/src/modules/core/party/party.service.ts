@@ -672,7 +672,7 @@ export class PartyService {
 
         if (normalizedEmail) {
           const existingEmail = await tx.emailAddress.findFirst({
-            where: { email: normalizedEmail },
+            where: { email: normalizedEmail, contactMechanism: { tenantId } },
             include: { contactMechanism: { include: { partyContacts: true } } },
           });
           if (existingEmail?.contactMechanism.partyContacts.some((pc) => pc.partyId === partyId)) {
@@ -692,7 +692,7 @@ export class PartyService {
           const sanitizedAreaCode = stripHtmlTags(telecomNumber.areaCode.trim());
           const sanitizedLineNumber = stripHtmlTags(telecomNumber.lineNumber.trim());
           const existingTel = await tx.telecomNumber.findFirst({
-            where: { areaCode: sanitizedAreaCode, lineNumber: sanitizedLineNumber },
+            where: { areaCode: sanitizedAreaCode, lineNumber: sanitizedLineNumber, contactMechanism: { tenantId } },
             include: { contactMechanism: { include: { partyContacts: true } } },
           });
           if (existingTel?.contactMechanism.partyContacts.some((pc) => pc.partyId === partyId)) {

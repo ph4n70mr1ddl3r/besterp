@@ -208,6 +208,18 @@ async function bootstrap() {
   // disables the built-in body parser.
   app.use(express.json({ limit: "100kb" }));
   app.use(express.urlencoded({ extended: true, limit: "100kb" }));
+  // Handle body-parser errors (413 Payload Too Large) with a clear message.
+  // Express error middleware requires exactly 4 parameters.
+  app.use((err: Error & { type?: string }, _req: Request, res: Response, next: NextFunction) => {
+    if (err.type === "entity.too.large") {
+      res.status(413).json({
+        statusCode: 413,
+        message: "Request body exceeds the 100 KB limit. Reduce payload size and retry.",
+      });
+    } else {
+      next(err);
+    }
+  });
 
   // Catch-all Express error handler — safety net for synchronous throws from
   // Express middleware that escape NestJS's exception filters. Returns a
@@ -215,6 +227,8 @@ async function bootstrap() {
   app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
     logger.error(`Unhandled Express middleware error: ${sanitizeLogOutput(err.message)}`);
     const isDev = process.env.NODE_ENV === "development";
+    const origin = isDev ? "http://localhost:3000" : "*";
+    res.setHeader("Access-Control-Allow-Origin", origin);
     res.status(500).json({
       statusCode: 500,
       message: isDev ? sanitizeLogOutput(err.message) : "Internal server error",

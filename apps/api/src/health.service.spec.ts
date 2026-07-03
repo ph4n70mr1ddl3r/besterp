@@ -80,7 +80,6 @@ describe("HealthService", () => {
       const service = new HealthService(createMockPrisma());
       const result = await service.getVersion();
 
-      expect(result.nodeVersion).toBe(process.version);
       expect(result.environment).toBeTruthy();
       // Package info may or may not be loaded depending on timing,
       // but the shape should be correct

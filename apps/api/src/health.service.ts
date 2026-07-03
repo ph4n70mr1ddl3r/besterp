@@ -29,7 +29,6 @@ export interface HealthStatus {
 export interface VersionInfo {
   version: string;
   name: string;
-  nodeVersion?: string;
   environment: string;
   warning?: string;
   build?: {
@@ -150,7 +149,6 @@ export class HealthService implements OnModuleInit {
     return {
       version: this.packageInfo.version,
       name: this.packageInfo.name,
-      nodeVersion: process.env.NODE_ENV === "production" ? undefined : process.version,
       environment: process.env.NODE_ENV || "development",
       warning: this.packageInfoError ?? undefined,
       build: {

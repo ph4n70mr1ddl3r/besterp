@@ -85,8 +85,8 @@ async function queryTypeTable(
     select: { [idField]: true, name: true, description: true, aiPromptHint: true },
   });
   return rows.map((r) => ({
-    id: String(r[idField] ?? ""),
-    name: String(r.name ?? ""),
+    id: (r[idField] as string | null) ?? "",
+    name: (r.name as string | null) ?? "",
     description: typeof r.description === "string" ? r.description : null,
     aiPromptHint: typeof r.aiPromptHint === "string" ? r.aiPromptHint : null,
   }));

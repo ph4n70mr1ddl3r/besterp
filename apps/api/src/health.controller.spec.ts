@@ -64,7 +64,6 @@ describe("HealthController", () => {
       const expectedResponse: VersionInfo = {
         version: "0.0.1",
         name: "@besterp/api",
-        nodeVersion: process.version,
         environment: "test",
       };
 
@@ -87,7 +86,6 @@ describe("HealthController", () => {
       const expectedResponse: VersionInfo = {
         version: "0.0.1",
         name: "@besterp/api",
-        nodeVersion: process.version,
         environment: "test",
         build: {
           number: "123",
