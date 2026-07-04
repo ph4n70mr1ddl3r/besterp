@@ -207,18 +207,24 @@ async function bootstrap() {
   // Uses the raw express middleware since NestFactory.create({ bodyParser: false })
   // disables the built-in body parser.
   app.use(express.json({ limit: "100kb" }));
-  app.use(express.urlencoded({ extended: true, limit: "100kb" }));
-  // Handle body-parser errors (413 Payload Too Large) with a clear message.
+  app.use(express.urlencoded({ extended: false, limit: "100kb" }));
+  // Handle body-parser errors with clear messages and appropriate status codes.
   // Express error middleware requires exactly 4 parameters.
-  // CORS headers are set here so cross-origin clients can read the 413 error
+  // CORS headers are set here so cross-origin clients can read the error
   // even when the main CORS middleware does not run for short-circuit errors.
   app.use((err: Error & { type?: string }, req: Request, res: Response, next: NextFunction) => {
+    const origin = req.headers.origin;
     if (err.type === "entity.too.large") {
-      const origin = req.headers.origin;
       if (origin) res.setHeader("Access-Control-Allow-Origin", origin);
       res.status(413).json({
         statusCode: 413,
         message: "Request body exceeds the 100 KB limit. Reduce payload size and retry.",
+      });
+    } else if (err.type === "entity.parse.failed") {
+      if (origin) res.setHeader("Access-Control-Allow-Origin", origin);
+      res.status(400).json({
+        statusCode: 400,
+        message: "Request body contains malformed JSON. Check syntax and retry.",
       });
     } else {
       next(err);
