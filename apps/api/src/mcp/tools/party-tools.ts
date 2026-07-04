@@ -164,12 +164,19 @@ function sanitizedString(min: number, max: number) {
 }
 
 /** Optional string: trims, strips HTML, enforces max length.
-   *  Empty or whitespace-only input → undefined (the transform captures the
-   *  trimmed value once and checks it, so " " never reaches the pipe). */
+   *  Empty, whitespace-only, or HTML-only input → undefined (the transform
+   *  captures the trimmed value once and checks it, so " " and "<script>"
+   *  never reach the pipe). */
 function optionalSanitizedString(max: number) {
   return z.string()
     .optional()
-    .transform(s => { const t = s?.trim(); return t ? stripHtmlTags(t) : undefined; })
+    .transform(s => {
+      if (s === undefined) return undefined;
+      const trimmed = s.trim();
+      if (!trimmed) return undefined;
+      const sanitized = stripHtmlTags(trimmed);
+      return sanitized || undefined;
+    })
     .pipe(z.string().max(max).optional());
 }
 
@@ -233,7 +240,7 @@ const telecomNumberSchema = z.object({
     .optional()
     .transform(s => s?.trim() || undefined)
     .pipe(z.string().min(1).max(MAX_PHONE_COUNTRY_CODE_LENGTH).regex(COUNTRY_CODE_REGEX, "Must be an E.164 country code (e.g., '+1', '+44')").optional())
-    .describe("E.164 country code (e.g., '+1', '+44'). Defaults to '+1' if omitted."),
+    .describe("E.164 country code (e.g., '+1', '+44'). The service layer applies a default of '+1' if omitted."),
   areaCode: sanitizedString(1, MAX_AREA_CODE_LENGTH).describe("Area code"),
   lineNumber: sanitizedString(1, MAX_LINE_NUMBER_LENGTH).describe("Phone line number"),
   extension: optionalSanitizedString(MAX_EXTENSION_LENGTH).describe("Extension"),
