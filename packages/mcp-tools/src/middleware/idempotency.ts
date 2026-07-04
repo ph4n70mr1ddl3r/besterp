@@ -112,13 +112,13 @@ async function acquireIdempotencyRecord(
   for (let attempt = 0; attempt < IDEMPOTENCY_MAX_RETRIES; attempt++) {
     try {
       const { existing, created } = await prisma.$transaction(async (tx) => {
-        const record = await tx.idempotencyRecord.findFirst({ where: { idempotencyKey, tenantId } });
+        const record = await tx.idempotencyRecord.findUnique({ where: { idempotencyKey_tenantId: { idempotencyKey, tenantId } } });
 
         if (!record) {
           await tx.idempotencyRecord.create({
             data: {
               idempotencyKey, toolName, tenantId, userId,
-              agentId: agentId || null, conversationId: conversationId || null,
+              agentId: agentId ?? null, conversationId: conversationId ?? null,
               status: "pending", inputHash,
               expiresAt: new Date(Date.now() + IDEMPOTENCY_TTL_MS),
             },

@@ -157,6 +157,9 @@ export function hashInput(input: unknown): string {
   } catch (e) {
     // Circular references and other serialization errors should result in a
     // clear error rather than an opaque crash deep in the hash pipeline.
+    // Re-throw InvalidTypeValueError as-is to preserve the original code
+    // and context; wrap other errors so consumers always get a structured error.
+    if (e instanceof InvalidTypeValueError) throw e;
     throw new InvalidTypeValueError(
       `Failed to hash input: ${e instanceof Error ? e.message : "serialization error"}.`,
       { cause: e instanceof Error ? e : undefined }

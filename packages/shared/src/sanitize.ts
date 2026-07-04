@@ -116,7 +116,7 @@ export function sanitizeLogOutput(message: string): string {
     .replace(/mongodb(\+srv)?:\/\/[^\s"']+/gi, "[DATABASE_URL]")
     .replace(/mysql:\/\/[^\s"']+/gi, "[DATABASE_URL]")
     .replace(/amqps?:\/\/[^\s"']+/gi, "[MESSAGE_BROKER_URL]")
-    .replace(/((?:https?|redis|mysql|mongodb(?:\+srv)?):\/\/)[^/\s]+\//gi, "$1[HOST]/")
+    .replace(/((?:https?|redis|mysql|mongodb(?:\+srv)?):\/\/)[^/\s]+\/?/gi, "$1[HOST]/")
     .replace(/\bat\b\s*(?:[A-Za-z]:)?[/\\][^\s"':]+/gi, "[PATH]");
 }
 
@@ -150,7 +150,7 @@ export function sanitizeLogMessage(s: string): string {
   // now stripped cleanly for log readability.
   /* eslint-disable no-control-regex */
   return s
-    .replace(/\x1b\[[0-9;]*[a-zA-Z]/g, "")
+    .replace(/\x1b\[[0-9;]*[\x40-\x7E]/g, "")
     .replace(/\x1b[\]_X^][\s\S]*?(?:\x1b\\|\x07)/g, "")
     .replace(/\x1b[0-9#%()*+\-./:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZa-z[\]^_`{|}~]/g, "")
     .replace(/[\r\n\t\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, "_");

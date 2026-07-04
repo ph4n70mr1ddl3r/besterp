@@ -112,6 +112,7 @@ model RoleType {
 
   partyRoles PartyRole[]
 
+  @@index([parentTypeId])
   @@map("role_type")
 }
 

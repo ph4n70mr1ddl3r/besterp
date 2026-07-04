@@ -193,8 +193,8 @@ async function logAction(prisma: PrismaClient, entry: AuditLogEntry): Promise<vo
 
   await prisma.aiActionLog.create({
     data: {
-      agentId: entry.agentId || null,
-      conversationId: entry.conversationId || null,
+      agentId: entry.agentId ?? null,
+      conversationId: entry.conversationId ?? null,
       userId: entry.userId,
       tenantId: entry.tenantId,
       toolCalled: entry.toolCalled,

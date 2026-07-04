@@ -181,7 +181,7 @@ function createTransactionWrapper(prisma: PrismaClient, tenantId: string) {
         }
         return fn(tx);
       };
-      return prisma.$transaction(wrappedFn, options ?? undefined);
+      return prisma.$transaction(wrappedFn, options);
     }
 
     throw new Error(

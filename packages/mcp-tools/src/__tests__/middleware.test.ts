@@ -74,7 +74,7 @@ describe("Idempotency Middleware", () => {
     mockPrisma.$transaction.mockImplementation(async (fn: (tx: any) => Promise<any>, _opts?: any) => {
       const tx = {
         idempotencyRecord: {
-          findFirst: vi.fn().mockResolvedValue(record),
+          findUnique: vi.fn().mockResolvedValue(record),
           create: mockPrisma.idempotencyRecord.create,
         },
       };
@@ -233,7 +233,7 @@ describe("Idempotency Middleware", () => {
     const middleware = idempotencyMiddleware(mockPrisma as any);
     const result = await middleware(input, mockContext, mockDefinition, successNext({ success: true, data: "passed through" }));
 
-    expect(mockPrisma.idempotencyRecord.findFirst).not.toHaveBeenCalled();
+    expect(mockPrisma.idempotencyRecord.findUnique).not.toHaveBeenCalled();
     expect(mockPrisma.idempotencyRecord.create).not.toHaveBeenCalled();
     expect(result.success).toBe(true);
     expect(result.data).toBe("passed through");
@@ -263,7 +263,7 @@ describe("Idempotency Middleware", () => {
     mockPrisma.$transaction.mockImplementation(async (fn: (tx: any) => Promise<any>, _opts?: any) => {
       const tx = {
         idempotencyRecord: {
-          findFirst: vi.fn().mockResolvedValue({
+          findUnique: vi.fn().mockResolvedValue({
             idempotencyKey,
             status: "failed",
             inputHash, // Matching hash allows re-execution
@@ -463,7 +463,7 @@ describe("Idempotency Middleware", () => {
     expect(result.data).toBe("passed through");
     // No record should have been created — the middleware bailed out early.
     expect(mockPrisma.idempotencyRecord.create).not.toHaveBeenCalled();
-    expect(mockPrisma.idempotencyRecord.findFirst).not.toHaveBeenCalled();
+    expect(mockPrisma.idempotencyRecord.findUnique).not.toHaveBeenCalled();
   });
 
   it("should pass through when idempotencyKey is not a string (defensive pre-check)", async () => {
