@@ -120,7 +120,7 @@ function setupGracefulShutdown(app: INestApplication): void {
     // Attempting graceful shutdown (app.close()) may hang or corrupt in-flight
     // requests. Log the error and exit immediately — let the process manager
     // (systemd, Docker, PM2) restart a clean instance.
-    logger.error(`Uncaught exception: ${error.stack ?? error.message}`);
+    logger.error(`Uncaught exception: ${sanitizeLogOutput(error.stack ?? error.message)}`);
     process.exit(1);
   });
 
@@ -228,11 +228,11 @@ async function bootstrap() {
   // Catch-all Express error handler — safety net for synchronous throws from
   // Express middleware that escape NestJS's exception filters. Returns a
   // sanitized 500 so internal details are never leaked to the client.
-  app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
+  app.use((err: Error, req: Request, res: Response, _next: NextFunction) => {
     logger.error(`Unhandled Express middleware error: ${sanitizeLogOutput(err.message)}`);
     const isDev = process.env.NODE_ENV === "development";
-    const origin = isDev ? "http://localhost:3000" : "*";
-    res.setHeader("Access-Control-Allow-Origin", origin);
+    const origin = isDev ? "http://localhost:3000" : (req.headers.origin ?? "");
+    if (origin) res.setHeader("Access-Control-Allow-Origin", origin);
     res.status(500).json({
       statusCode: 500,
       message: isDev ? sanitizeLogOutput(err.message) : "Internal server error",

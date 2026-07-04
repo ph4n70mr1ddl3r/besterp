@@ -45,10 +45,8 @@ export class PartyController {
   private getTenantContext(req: Request): TenantContext {
     const ctx = req.tenantContext;
     if (!ctx?.tenantId) {
-      // This should never happen if TenantGuard is properly registered.
-      // Throwing UnauthorizedException returns a 401 instead of a 500.
       throw new UnauthorizedException(
-        "Tenant context not found on request. Ensure TenantGuard is registered."
+        "Invalid authentication context."
       );
     }
     return ctx;
