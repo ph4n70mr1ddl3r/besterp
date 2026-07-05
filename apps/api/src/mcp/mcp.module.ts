@@ -34,6 +34,8 @@ import {
 import { registerPartyTools } from "./tools/party-tools.js";
 import { registerDiscoveryTools } from "./tools/discovery-tools.js";
 
+export const TOOL_REGISTRY = "TOOL_REGISTRY";
+
 @Injectable()
 export class McpModule implements OnModuleInit {
   private readonly logger = new Logger(McpModule.name);
@@ -142,12 +144,12 @@ export class McpModule implements OnModuleInit {
         // exposes the registry for injection elsewhere.
         McpModule,
         {
-          provide: "TOOL_REGISTRY",
+          provide: TOOL_REGISTRY,
           useFactory: (mcpModule: McpModule) => mcpModule.getRegistry(),
           inject: [McpModule],
         },
       ],
-      exports: ["TOOL_REGISTRY", McpModule],
+      exports: [TOOL_REGISTRY, McpModule],
     };
   }
 }

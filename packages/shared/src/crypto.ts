@@ -34,12 +34,11 @@ function sortMap(value: Map<unknown, unknown>, ancestors: Set<object>, depth: nu
   checkCircular(value, ancestors);
   ancestors.add(value);
   // Pre-compute sorted keys to avoid processing each key twice (once in
-  // the comparator, once in the .map()). Each key is stringified once for
-  // comparison and once for the final sorted-key-value output.
+  // the comparator, once in the final output). Each key is stringified once
+  // for comparison and once for the final sorted-key-value output.
   const entries = Array.from(value.entries());
   const sortedEntries = entries
     .map(([k, v]) => ({
-      k,
       v,
       kSorted: sortKeysDeep(k, ancestors, depth + 1),
     }))

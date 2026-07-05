@@ -16,6 +16,8 @@ export {
 
 export { hashInput } from "./crypto.js";
 
+export { pluralize } from "./pluralize.js";
+
 export {
   UUID_REGEX,
   EMAIL_REGEX,

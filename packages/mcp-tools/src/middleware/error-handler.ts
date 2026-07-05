@@ -11,41 +11,9 @@ import {
   DomainError,
   sanitizeForLog,
   sanitizeLogOutput,
+  pluralize,
 } from "@besterp/shared";
 import { ToolMiddleware, ToolResult } from "../schema/tool-definition.js";
-
-/**
- * Error handler middleware — catches all exceptions and returns rich errors.
- */
-const IRREGULAR_PLURALS: Record<string, string> = {
-  child: "children",
-  mouse: "mice",
-  goose: "geese",
-  man: "men",
-  woman: "women",
-  tooth: "teeth",
-  foot: "feet",
-  ox: "oxen",
-  datum: "data",
-};
-
-function pluralize(entity: string): string {
-  const lower = entity.toLowerCase();
-  if (IRREGULAR_PLURALS[lower]) return IRREGULAR_PLURALS[lower];
-  if (lower.endsWith("y") && !lower.endsWith("ay") && !lower.endsWith("ey") && !lower.endsWith("oy") && !lower.endsWith("uy")) {
-    return entity.slice(0, -1) + "ies";
-  }
-  if (lower.endsWith("fe")) {
-    return entity.slice(0, -2) + "ves";
-  }
-  if (lower.endsWith("ves")) {
-    return entity;
-  }
-  if (lower.endsWith("s") || lower.endsWith("x") || lower.endsWith("z") || lower.endsWith("ch") || lower.endsWith("sh")) {
-    return entity + "es";
-  }
-  return entity + "s";
-}
 
 function extractPrismaError(error: unknown): { code: string | undefined; meta: { target?: string | string[] } | undefined } {
   if (error != null && typeof error === "object") {
@@ -143,6 +111,28 @@ function handlePrismaError(prismaCode: string, prismaMeta: { target?: string | s
         code: "REFERENCE_ERROR",
         message: `A referenced entity was not found. Check foreign key values and ensure all referenced records exist.`,
         suggestedTools: [`search_${entityPlural}`, definition.name],
+      },
+    };
+  }
+
+  if (prismaCode === "P2021") {
+    return {
+      success: false,
+      error: {
+        code: "DATABASE_ERROR",
+        message: `A database table is missing. The schema may need to be migrated. Try again after running migrations.`,
+        suggestedTools: ["list_available_tools"],
+      },
+    };
+  }
+
+  if (prismaCode === "P1001" || prismaCode === "P1000") {
+    return {
+      success: false,
+      error: {
+        code: "DATABASE_CONNECTION_ERROR",
+        message: "The database connection failed. The service may be temporarily unavailable. Try again with a new idempotency key.",
+        suggestedTools: ["list_available_tools"],
       },
     };
   }

@@ -28,10 +28,10 @@ async function main() {
   // hard-coded tenant records (tenant-acme, tenant-globex) that should
   // never appear in a real production environment. An accidental
   // `npm run seed` against prod would silently pollute the database.
-  if (process.env.NODE_ENV === "production") {
+  if (process.env.NODE_ENV === "production" || process.env.NODE_ENV === "staging") {
     throw new Error(
-      "Refusing to seed in NODE_ENV=production. " +
-      "Set NODE_ENV to something other than 'production' to run the seed."
+      "Refusing to seed in NODE_ENV=" + process.env.NODE_ENV + ". " +
+      "Set NODE_ENV to something other than 'production' or 'staging' to run the seed."
     );
   }
   if (!process.env.NODE_ENV) {
