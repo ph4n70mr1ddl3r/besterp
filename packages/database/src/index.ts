@@ -5,10 +5,7 @@
 import type { PrismaClient } from "@prisma/client";
 
 export { createTenantClient } from "./rls-extension.js";
-export { 
-  validateTenantIdEnhanced, 
-  validatePrismaClientForRls 
-} from "./rls-extension.js";
+export { validateTenantIdEnhanced } from "./rls-extension.js";
 export type { CreateTenantClientOptions } from "./rls-extension.js";
 
 /** A PrismaClient with automatic RLS tenant context injection.

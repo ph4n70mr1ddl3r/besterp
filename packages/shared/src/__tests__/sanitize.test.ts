@@ -118,6 +118,19 @@ describe("sanitizeLogOutput", () => {
     expect(sanitizeLogOutput("http://10.0.0.1:8080/")).toContain("[HOST]");
   });
 
+  it("redacts path and query string from generic HTTP URLs", () => {
+    const result = sanitizeLogOutput("Error calling https://api.example.com/v1/users?token=secret&key=abc123");
+    expect(result).toContain("[HOST]");
+    expect(result).not.toContain("token=secret");
+    expect(result).not.toContain("api.example.com");
+  });
+
+  it("redacts full URL when path contains sensitive data", () => {
+    const result = sanitizeLogOutput("Failed at https://internal.admin/api/keys/sk-live-abc123");
+    expect(result).toContain("[HOST]");
+    expect(result).not.toContain("sk-live-abc123");
+  });
+
   it("redacts file paths after 'at '", () => {
     expect(sanitizeLogOutput("at /home/user/project/src/file.ts:42")).toContain("[PATH]");
     expect(sanitizeLogOutput("at C:\\Users\\user\\src\\file.ts:1")).toContain("[PATH]");

@@ -220,35 +220,37 @@ export class PartyService {
     if (orgData.taxId != null) PartyService.requireMaxLength(orgData.taxId.trim(), "Tax ID", MAX_TAX_ID_LENGTH);
   }
 
+  private sanitizePerson(personData: CreatePartyInput["person"]): CreatePartyInput["person"] | undefined {
+    if (!personData) return undefined;
+    const trimmedMiddleName = personData.middleName?.trim();
+    const trimmedGender = personData.gender?.trim();
+    const trimmedBirthDate = personData.birthDate?.trim();
+    return {
+      firstName: stripHtmlTags(personData.firstName.trim()),
+      lastName: stripHtmlTags(personData.lastName.trim()),
+      middleName: trimmedMiddleName ? stripHtmlTags(trimmedMiddleName) : undefined,
+      gender: trimmedGender ? stripHtmlTags(trimmedGender) : undefined,
+      birthDate: trimmedBirthDate ?? undefined,
+    };
+  }
+
+  private sanitizeOrganization(orgData: CreatePartyInput["organization"]): CreatePartyInput["organization"] | undefined {
+    if (!orgData) return undefined;
+    const trimmedRegistrationDate = orgData.registrationDate?.trim();
+    return {
+      legalName: stripHtmlTags(orgData.legalName.trim()),
+      taxId: orgData.taxId ? stripHtmlTags(orgData.taxId.trim()) : undefined,
+      registrationDate: trimmedRegistrationDate ?? undefined,
+    };
+  }
+
   private sanitizeCreatePartyInput(
     trimmedName: string, trimmedDescription: string | null,
     personData: CreatePartyInput["person"], orgData: CreatePartyInput["organization"],
   ): { sanitizedPerson: typeof personData; sanitizedOrg: typeof orgData; sanitizedName: string; sanitizedDescription: string | null } {
-    const trimmedMiddleName = personData?.middleName?.trim();
-    const trimmedGender = personData?.gender?.trim();
-    const trimmedBirthDate = personData?.birthDate?.trim();
-    const trimmedRegistrationDate = orgData?.registrationDate?.trim();
-
-    const sanitizedPerson = personData
-      ? {
-          firstName: stripHtmlTags(personData.firstName.trim()),
-          lastName: stripHtmlTags(personData.lastName.trim()),
-          middleName: trimmedMiddleName ? stripHtmlTags(trimmedMiddleName) : undefined,
-          gender: trimmedGender ? stripHtmlTags(trimmedGender) : undefined,
-          birthDate: trimmedBirthDate ?? undefined,
-        }
-      : undefined;
-    const sanitizedOrg = orgData
-      ? {
-          legalName: stripHtmlTags(orgData.legalName.trim()),
-          taxId: orgData.taxId ? stripHtmlTags(orgData.taxId.trim()) : undefined,
-          registrationDate: trimmedRegistrationDate ?? undefined,
-        }
-      : undefined;
-
     return {
-      sanitizedPerson,
-      sanitizedOrg,
+      sanitizedPerson: this.sanitizePerson(personData),
+      sanitizedOrg: this.sanitizeOrganization(orgData),
       sanitizedName: stripHtmlTags(trimmedName),
       sanitizedDescription: trimmedDescription ? (stripHtmlTags(trimmedDescription) || null) : null,
     };
