@@ -56,6 +56,7 @@ import {
   MAX_EMAIL_LENGTH,
   MAX_SEARCH_LIMIT,
   MIN_SEARCH_LIMIT,
+  MIN_SEARCH_OFFSET,
   MAX_SEARCH_OFFSET,
   MAX_DATE_STRING_LENGTH,
   COUNTRY_CODE_REGEX,
@@ -229,7 +230,7 @@ export class SearchPartiesDto {
   @IsOptional()
   @Type(() => Number)
   @IsInt()
-  @Min(0)
+  @Min(MIN_SEARCH_OFFSET)
   @Max(MAX_SEARCH_OFFSET)
   offset?: number;
 }

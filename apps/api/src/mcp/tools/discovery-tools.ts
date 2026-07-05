@@ -42,6 +42,7 @@ Each tool listing includes its risk level and confirmation requirements.`,
     }),
 
     riskLevel: "none",
+    entity: "tool",
     tags: ["discovery", "meta"],
 
     handler: async (input: { entity?: string }, _context: ToolContext) => {
@@ -106,6 +107,7 @@ Type tables are the ERP's vocabulary — they define what classifications are av
     }),
 
     riskLevel: "none",
+    entity: "type_table",
     tags: ["discovery", "type-table"],
 
     handler: async (input: { typeName: TypeName }, _context: ToolContext) => {
