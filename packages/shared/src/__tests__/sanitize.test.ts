@@ -207,6 +207,12 @@ describe("sanitizeForLog", () => {
     expect(sanitizeForLog("\x1b^data\x1b\\final")).toBe("final");
   });
 
+  it("strips DCS sequences (ESC P ... ST/BEL)", () => {
+    expect(sanitizeForLog("\x1bPdevice control\x07output")).toBe("output");
+    expect(sanitizeForLog("\x1bPparams;data\x1b\\rest")).toBe("rest");
+    expect(sanitizeForLog("a\x1bP\x1b\\b")).toBe("ab");
+  });
+
   it("strips non-CSI escape sequences (ESC + single char)", () => {
     expect(sanitizeForLog("\x1bMtext")).toBe("text");
     expect(sanitizeForLog("\x1b7before\x1b8after")).toBe("beforeafter");

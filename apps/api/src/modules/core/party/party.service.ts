@@ -224,27 +224,25 @@ export class PartyService {
     trimmedName: string, trimmedDescription: string | null,
     personData: CreatePartyInput["person"], orgData: CreatePartyInput["organization"],
   ): { sanitizedPerson: typeof personData; sanitizedOrg: typeof orgData; sanitizedName: string; sanitizedDescription: string | null } {
+    const trimmedMiddleName = personData?.middleName?.trim();
+    const trimmedGender = personData?.gender?.trim();
+    const trimmedBirthDate = personData?.birthDate?.trim();
+    const trimmedRegistrationDate = orgData?.registrationDate?.trim();
+
     const sanitizedPerson = personData
       ? {
           firstName: stripHtmlTags(personData.firstName.trim()),
           lastName: stripHtmlTags(personData.lastName.trim()),
-          middleName: personData.middleName?.trim()
-            ? stripHtmlTags(personData.middleName.trim())
-            : undefined,
-          gender: personData.gender?.trim() ? stripHtmlTags(personData.gender.trim()) : undefined,
-          // Trim dates so the stored value is canonical. Validation
-          // (requireValidDate) accepts whitespace-padded ISO dates to stay
-          // consistent with parseFromDate/MCP; trimming here avoids relying
-          // on new Date()'s whitespace tolerance when parsing below.
-          birthDate: personData.birthDate?.trim() || undefined,
+          middleName: trimmedMiddleName ? stripHtmlTags(trimmedMiddleName) : undefined,
+          gender: trimmedGender ? stripHtmlTags(trimmedGender) : undefined,
+          birthDate: trimmedBirthDate ?? undefined,
         }
       : undefined;
     const sanitizedOrg = orgData
       ? {
           legalName: stripHtmlTags(orgData.legalName.trim()),
           taxId: orgData.taxId ? stripHtmlTags(orgData.taxId.trim()) : undefined,
-          // See birthDate above — store the trimmed (canonical) date string.
-          registrationDate: orgData.registrationDate?.trim() || undefined,
+          registrationDate: trimmedRegistrationDate ?? undefined,
         }
       : undefined;
 

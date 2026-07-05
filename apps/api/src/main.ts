@@ -10,7 +10,7 @@ import "reflect-metadata";
 import { NestFactory } from "@nestjs/core";
 import { Logger, ValidationPipe, type INestApplication } from "@nestjs/common";
 import helmet from "helmet";
-import { sanitizeLogOutput } from "@besterp/shared";
+import { sanitizeForLogOutput } from "@besterp/shared";
 import { AppModule } from "./app.module.js";
 import express, { type Request, type Response, type NextFunction } from "express";
 // Import tenant-context for the Express module augmentation (req.requestId).
@@ -93,7 +93,7 @@ function setupGracefulShutdown(app: INestApplication): void {
 
   async function gracefulShutdown(label: string, detail: unknown): Promise<void> {
     const raw = detail instanceof Error ? detail.stack ?? detail.message : String(detail);
-    logger.error(`${label}: ${sanitizeLogOutput(raw)}`);
+    logger.error(`${label}: ${sanitizeForLogOutput(raw)}`);
     if (shuttingDown) process.exit(1);
     shuttingDown = true;
 
@@ -109,7 +109,7 @@ function setupGracefulShutdown(app: INestApplication): void {
       process.exit(0);
     } catch (closeErr) {
       const errorDetail = closeErr instanceof Error ? closeErr.stack ?? closeErr.message : String(closeErr);
-      logger.error(`Error during graceful shutdown: ${sanitizeLogOutput(errorDetail)}`);
+      logger.error(`Error during graceful shutdown: ${sanitizeForLogOutput(errorDetail)}`);
       clearTimeout(hardExitTimer);
       process.exit(1);
     }
@@ -120,13 +120,13 @@ function setupGracefulShutdown(app: INestApplication): void {
     // Attempting graceful shutdown (app.close()) may hang or corrupt in-flight
     // requests. Log the error and exit immediately — let the process manager
     // (systemd, Docker, PM2) restart a clean instance.
-    logger.error(`Uncaught exception: ${sanitizeLogOutput(error.stack ?? error.message)}`);
+    logger.error(`Uncaught exception: ${sanitizeForLogOutput(error.stack ?? error.message)}`);
     process.exit(1);
   });
 
   process.on("unhandledRejection", (reason) => {
     void gracefulShutdown("Unhandled promise rejection", reason).catch((shutdownErr) => {
-      logger.error(`Error during shutdown handler: ${shutdownErr}`);
+      logger.error(`Error during shutdown handler: ${sanitizeForLogOutput(shutdownErr instanceof Error ? shutdownErr.message : String(shutdownErr))}`);
       process.exit(1);
     });
   });
@@ -237,13 +237,13 @@ async function bootstrap() {
   // CORS headers are set mirroring the existing CORS middleware so the error
   // body is visible to cross-origin clients regardless of environment.
   app.use((err: Error, req: Request, res: Response, _next: NextFunction) => {
-    logger.error(`Unhandled Express middleware error: ${sanitizeLogOutput(err.message)}`);
+    logger.error(`Unhandled Express middleware error: ${sanitizeForLogOutput(err.message)}`);
     const origin = req.headers.origin ?? "";
     if (origin) res.setHeader("Access-Control-Allow-Origin", origin);
     const isDev = process.env.NODE_ENV === "development";
     res.status(500).json({
       statusCode: 500,
-      message: isDev ? sanitizeLogOutput(err.message) : "Internal server error",
+      message: isDev ? sanitizeForLogOutput(err.message) : "Internal server error",
     });
   });
 

@@ -135,8 +135,8 @@ export function sanitizeLogMessage(s: string): string {
   //
   // Handles three categories of ANSI escape sequences:
   // 1. CSI (Control Sequence Introducer): ESC [ parameters letter
-  // 2. String-type: OSC (ESC ]), APC (ESC _), SOS (ESC X), PM (ESC ^)
-  //    — terminated by ST (ESC \) or BEL (\x07)
+  // 2. String-type: OSC (ESC ]), APC (ESC _), SOS (ESC X), PM (ESC ^),
+  //    DCS (ESC P) — terminated by ST (ESC \) or BEL (\x07)
   //  3. Non-CSI single-character: ESC followed by a final byte (e.g., ESC M = RI,
   //    ESC 7 = DECSC, ESC D = IND, ESC = DECKPAM, etc.)
   //
@@ -151,7 +151,7 @@ export function sanitizeLogMessage(s: string): string {
   /* eslint-disable no-control-regex */
   return s
     .replace(/\x1b\[[0-9;]*[\x40-\x7E]/g, "")
-    .replace(/\x1b[\]_X^][\s\S]*?(?:\x1b\\|\x07)/g, "")
+    .replace(/\x1b[\]_X^P][\s\S]*?(?:\x1b\\|\x07)/g, "")
     .replace(/\x1b[0-9#%()*+\-./:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\\]^_`a-z{|}~]/g, "")
     .replace(/[\r\n\t\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, "_");
   /* eslint-enable no-control-regex */
@@ -162,6 +162,20 @@ export function sanitizeLogMessage(s: string): string {
  * but this alias remains available for backward compatibility.
  */
 export const sanitizeForLog: typeof sanitizeLogMessage = sanitizeLogMessage;
+
+/**
+ * Compose sanitizeLogMessage (log injection prevention) with sanitizeLogOutput
+ * (sensitive URL/path redaction). Apply log-injection sanitization FIRST so
+ * control characters and ANSI escapes are removed before the URL/path regexes
+ * run against the clean text.
+ *
+ * Use this in error handlers, shutdown routines, and any context where an
+ * unknown or user-controlled message could contain both log-injection payloads
+ * (ANSI escapes, newlines) and sensitive connection strings or paths.
+ */
+export function sanitizeForLogOutput(message: string): string {
+  return sanitizeLogOutput(sanitizeLogMessage(message));
+}
 
 /**
  * Safely decode a Unicode code point.

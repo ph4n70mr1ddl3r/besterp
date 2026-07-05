@@ -13,7 +13,7 @@
 import { ExceptionFilter, Catch, ArgumentsHost, Logger, HttpException } from "@nestjs/common";
 import type { Response } from "express";
 import {
-  DomainError, isDomainError, getErrorCode, sanitizeLogOutput,
+  DomainError, isDomainError, getErrorCode, sanitizeForLogOutput,
   EntityNotFoundError, DuplicateEntityError, ConcurrencyConflictError,
   MissingSubtypeDataError, InvalidTypeValueError,
 } from "@besterp/shared";
@@ -49,7 +49,7 @@ export class DomainExceptionFilter implements ExceptionFilter {
 
     if (response.headersSent) {
       this.logger.warn(
-        `Headers already sent — cannot write error response. Exception: ${sanitizeLogOutput(exception instanceof Error ? exception.message : String(exception))}`
+        `Headers already sent — cannot write error response. Exception: ${sanitizeForLogOutput(exception instanceof Error ? exception.message : String(exception))}`
       );
       return;
     }
@@ -131,14 +131,14 @@ export class DomainExceptionFilter implements ExceptionFilter {
   private handleUnexpectedError(exception: unknown, response: Response): void {
     const errorCode = getErrorCode(exception);
     this.logger.error(
-      `Unhandled exception${errorCode ? ` [${errorCode}]` : ""}: ${sanitizeLogOutput(exception instanceof Error ? exception.message : String(exception))}`,
-      exception instanceof Error && exception.stack ? sanitizeLogOutput(exception.stack) : undefined
+      `Unhandled exception${errorCode ? ` [${errorCode}]` : ""}: ${sanitizeForLogOutput(exception instanceof Error ? exception.message : String(exception))}`,
+      exception instanceof Error && exception.stack ? sanitizeForLogOutput(exception.stack) : undefined
     );
     const isDev = process.env.NODE_ENV === "development";
     // In development, include the (sanitized) error message to aid debugging.
     // In all other environments, return a safe generic message.
     const responseMessage = isDev && exception instanceof Error
-      ? sanitizeLogOutput(exception.message)
+      ? sanitizeForLogOutput(exception.message)
       : "Internal server error";
     response.status(500).json({
       statusCode: 500,
