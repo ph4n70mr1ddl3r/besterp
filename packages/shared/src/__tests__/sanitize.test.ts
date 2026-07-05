@@ -216,6 +216,16 @@ describe("sanitizeForLog", () => {
     expect(sanitizeForLog("\x1b2before\x1b5after")).toBe("beforeafter");
   });
 
+  it("strips non-CSI escapes with BACKSLASH final byte (ESC \\ = ST, String Terminator)", () => {
+    // 0x5C (backslash) is a valid ECMA-48 two-character final byte used as
+    // the String Terminator. Without it in the regex, the trailing \ survives
+    // as a stray character after the ESC byte is replaced by the control-char pass.
+    expect(sanitizeForLog("\x1b\\")).toBe("");
+    expect(sanitizeForLog("\x1b\\")).not.toBe("_\\");
+    expect(sanitizeForLog("a\x1b\\b")).toBe("ab");
+    expect(sanitizeForLog("\x1b\\more")).toBe("more");
+  });
+
   it("strips non-CSI escapes with LOWERCASE final bytes (ESC c=RIS, ESC n=LS2, ESC o=LS3)", () => {
     // Lowercase finals are valid two-char ESC sequences. The ESC initiator
     // is always neutralized by the control-char pass, but without the

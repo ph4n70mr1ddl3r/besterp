@@ -152,7 +152,7 @@ export function sanitizeLogMessage(s: string): string {
   return s
     .replace(/\x1b\[[0-9;]*[\x40-\x7E]/g, "")
     .replace(/\x1b[\]_X^][\s\S]*?(?:\x1b\\|\x07)/g, "")
-    .replace(/\x1b[0-9#%()*+\-./:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZa-z[\]^_`{|}~]/g, "")
+    .replace(/\x1b[0-9#%()*+\-./:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\\]^_`a-z{|}~]/g, "")
     .replace(/[\r\n\t\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, "_");
   /* eslint-enable no-control-regex */
 }

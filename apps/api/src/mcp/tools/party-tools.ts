@@ -175,7 +175,7 @@ function optionalSanitizedString(max: number) {
       const trimmed = s.trim();
       if (!trimmed) return undefined;
       const sanitized = stripHtmlTags(trimmed);
-      const result = sanitized?.trim() ?? "";
+      const result = sanitized.trim();
       if (!result) return undefined;
       return result;
     })
