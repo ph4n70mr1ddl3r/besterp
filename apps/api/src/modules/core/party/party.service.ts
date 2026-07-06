@@ -228,8 +228,8 @@ export class PartyService {
     return {
       firstName: stripHtmlTags(personData.firstName.trim()),
       lastName: stripHtmlTags(personData.lastName.trim()),
-      middleName: trimmedMiddleName ? stripHtmlTags(trimmedMiddleName) : undefined,
-      gender: trimmedGender ? stripHtmlTags(trimmedGender) : undefined,
+      middleName: trimmedMiddleName ? stripHtmlTags(trimmedMiddleName) || undefined : undefined,
+      gender: trimmedGender ? stripHtmlTags(trimmedGender) || undefined : undefined,
       birthDate: trimmedBirthDate ?? undefined,
     };
   }
@@ -239,7 +239,7 @@ export class PartyService {
     const trimmedRegistrationDate = orgData.registrationDate?.trim();
     return {
       legalName: stripHtmlTags(orgData.legalName.trim()),
-      taxId: orgData.taxId ? stripHtmlTags(orgData.taxId.trim()) : undefined,
+      taxId: orgData.taxId ? stripHtmlTags(orgData.taxId.trim()) || undefined : undefined,
       registrationDate: trimmedRegistrationDate ?? undefined,
     };
   }
@@ -319,7 +319,7 @@ export class PartyService {
       switch (err.code) {
         case "P2002": {
           const target = (err.meta?.target as string[] | undefined);
-          const field = Array.isArray(target) && target.length > 0 ? (target[0] as string) : "this record";
+          const field = Array.isArray(target) && target.length > 0 && typeof target[0] === "string" ? target[0] : "this record";
           throw new DuplicateEntityError(
             `A ${entityName} with the same ${field} already exists in this tenant.`,
             { suggestedTools: [suggestTool], context: { prismaCode: "P2002", conflictingField: field } }
@@ -866,10 +866,11 @@ export class PartyService {
     // value (e.g., multi-KB string) is rejected before reaching new Date().
     // The Zod schemas limit birthDate/registrationDate to MAX_DATE_STRING_LENGTH;
     // mirror that here for any call path that bypasses Zod (e.g., REST).
-    if (value.length > MAX_DATE_STRING_LENGTH) {
+    if (value.trim().length > MAX_DATE_STRING_LENGTH) {
+      const trimmedLen = value.trim().length;
       throw new InvalidTypeValueError(
-        `${field} is too long (${value.length} characters, max ${MAX_DATE_STRING_LENGTH}).`,
-        { suggestedTools: ["create_party"], context: { field, length: value.length, maxLength: MAX_DATE_STRING_LENGTH } }
+        `${field} is too long (${trimmedLen} characters, max ${MAX_DATE_STRING_LENGTH}).`,
+        { suggestedTools: ["create_party"], context: { field, length: trimmedLen, maxLength: MAX_DATE_STRING_LENGTH } }
       );
     }
     // Validate the TRIMMED value so a date with surrounding whitespace

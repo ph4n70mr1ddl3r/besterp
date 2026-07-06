@@ -6,7 +6,7 @@
 
 import { Injectable, Logger, OnModuleInit } from "@nestjs/common";
 import { PrismaService } from "./prisma/prisma.service.js";
-import { sanitizeLogOutput } from "@besterp/shared";
+import { sanitizeForLogOutput } from "@besterp/shared";
 import * as fs from "node:fs/promises";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -110,7 +110,7 @@ export class HealthService implements OnModuleInit {
       databaseStatus = "connected";
     } catch (error) {
       this.logger.error(
-        `Database health check failed: ${sanitizeLogOutput(error instanceof Error ? error.message : String(error))}`
+        `Database health check failed: ${sanitizeForLogOutput(error instanceof Error ? error.message : String(error))}`
       );
       databaseStatus = "disconnected";
     }
