@@ -1087,6 +1087,40 @@ describe("PartyService", () => {
       });
       expect(result.roleTypeName).toBe("Customer");
     });
+
+    it("should accept whitespace-padded fromDate after trim", async () => {
+      // Defense-in-depth: the pre-trim length check must not reject a
+      // whitespace-padded date whose trimmed value is within the limit.
+      const mockDb = {
+        roleType: { findUnique: vi.fn().mockResolvedValue({ roleTypeId: "rt-customer" }) },
+        $transaction: vi.fn().mockImplementation(async (fn) => {
+          const tx = {
+            party: { findFirst: vi.fn().mockResolvedValue({ partyId: "12345678-1234-1234-1234-123456789abc" }) },
+            partyRole: {
+              findFirst: vi.fn().mockResolvedValue(null),
+              create: vi.fn().mockResolvedValue({
+                partyRoleId: "role-123",
+                partyId: "12345678-1234-1234-1234-123456789abc",
+                roleTypeId: "rt-customer",
+                fromDate: new Date("2024-06-15"),
+                thruDate: null,
+                roleType: { name: "Customer", roleTypeId: "rt-customer" },
+              }),
+            },
+          };
+          return fn(tx);
+        }),
+      };
+      mockPrismaService.tenantScoped.mockReturnValue(mockDb);
+
+      const result = await partyService.addPartyRole({
+        tenantId: "tenant-1",
+        partyId: "12345678-1234-1234-1234-123456789abc",
+        roleType: "Customer",
+        fromDate: "  2024-06-15T00:00:00.000Z  ",
+      });
+      expect(result.roleTypeName).toBe("Customer");
+    });
   });
 
   describe("addContactMechanism", () => {
@@ -1656,6 +1690,45 @@ describe("PartyService", () => {
         contactMechanismType: "TELECOM_NUMBER",
         telecomNumber: {
           countryCode: "+44",
+          areaCode: "20",
+          lineNumber: "79461234",
+        },
+      };
+
+      const result = await partyService.addContactMechanism(input);
+      expect(result.telecomNumber?.countryCode).toBe("+44");
+    });
+
+    it("should accept whitespace-padded countryCode after trim (defense-in-depth)", async () => {
+      const mockDb = {
+        contactMechanismType: {
+          findUnique: vi.fn().mockResolvedValue({ contactMechanismTypeId: "cmt-telecom" }),
+        },
+        $transaction: vi.fn().mockImplementation(async (fn) => {
+          const tx = {
+            party: { findFirst: vi.fn().mockResolvedValue({ partyId: "12345678-1234-1234-1234-123456789abc" }) },
+            telecomNumber: { findFirst: vi.fn().mockResolvedValue(null) },
+            contactMechanism: {
+              create: vi.fn().mockResolvedValue({
+                contactMechanismId: "contact-telecom-2",
+                contactMechanismType: { name: "TELECOM_NUMBER" },
+                postalAddress: null,
+                telecomNumber: { countryCode: "+44", areaCode: "20", lineNumber: "79461234", extension: null },
+                emailAddress: null,
+              }),
+            },
+          };
+          return fn(tx);
+        }),
+      };
+      mockPrismaService.tenantScoped.mockReturnValue(mockDb);
+
+      const input: AddContactMechanismInput = {
+        tenantId: "tenant-1",
+        partyId: "12345678-1234-1234-1234-123456789abc",
+        contactMechanismType: "TELECOM_NUMBER",
+        telecomNumber: {
+          countryCode: "  +44  ",
           areaCode: "20",
           lineNumber: "79461234",
         },

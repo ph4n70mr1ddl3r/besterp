@@ -495,24 +495,27 @@ export class PartyService {
   }
 
   private parseFromDate(fromDate: string | undefined | null): Date {
-    if (fromDate != null && fromDate.length > MAX_DATE_STRING_LENGTH) {
+    // Trim FIRST so the length check and format validation operate on the
+    // canonical value. Boundary layers (DTO/Zod) trim before this point,
+    // but defense-in-depth matters — a whitespace-padded value should not be
+    // rejected by the pre-trim length check when the trimmed value is valid.
+    const trimmed = fromDate != null ? fromDate.trim() : "";
+    if (trimmed.length > MAX_DATE_STRING_LENGTH) {
       throw new InvalidTypeValueError(
-        `fromDate is too long (${fromDate.length} characters, max ${MAX_DATE_STRING_LENGTH}).`,
-        { suggestedTools: ["add_party_role"], context: { field: "fromDate", length: fromDate.length, maxLength: MAX_DATE_STRING_LENGTH } }
+        `fromDate is too long (${trimmed.length} characters, max ${MAX_DATE_STRING_LENGTH}).`,
+        { suggestedTools: ["add_party_role"], context: { field: "fromDate", length: trimmed.length, maxLength: MAX_DATE_STRING_LENGTH } }
       );
     }
-    // When fromDate is absent or whitespace-only, default to "now". Any
-    // provided value MUST be valid ISO 8601 — mirroring requireValidDate()
+    if (trimmed.length === 0) {
+      return new Date();
+    }
+    // Any provided value MUST be valid ISO 8601 — mirroring requireValidDate()
     // (used for birthDate/registrationDate) so both date entry points enforce
     // the same format. Relying on new Date() alone is too permissive: it
     // accepts many non-ISO strings (e.g. "Jan 1 2024", "2024/01/01") that
     // would slip past the error message below, which promises ISO 8601.
     // isValidISODate() already combines the ISO regex with a Date parse
     // check, so a passing value is guaranteed to construct a valid Date.
-    const trimmed = fromDate != null ? fromDate.trim() : "";
-    if (trimmed.length === 0) {
-      return new Date();
-    }
     if (!isValidISODate(trimmed)) {
       throw new InvalidTypeValueError(
         `Invalid fromDate format: ${fromDate}. Use ISO 8601 format (YYYY-MM-DDTHH:mm:ss.sssZ)`,
@@ -625,9 +628,10 @@ export class PartyService {
       PartyService.requireStringField(telecomNumber.areaCode, "areaCode", MAX_AREA_CODE_LENGTH, "telecom number", "add_contact_mechanism");
       PartyService.requireStringField(telecomNumber.lineNumber, "lineNumber", MAX_LINE_NUMBER_LENGTH, "telecom number", "add_contact_mechanism");
       if (telecomNumber.countryCode) {
-        PartyService.requireMaxLength(telecomNumber.countryCode, "countryCode", MAX_PHONE_COUNTRY_CODE_LENGTH, "add_contact_mechanism");
-        if (!COUNTRY_CODE_REGEX.test(telecomNumber.countryCode)) {
-          throw new InvalidTypeValueError(`countryCode must be an E.164 country code (e.g., '+1', '+44'). Received: ${telecomNumber.countryCode}.`, { suggestedTools: ["add_contact_mechanism"], context: { field: "countryCode", invalidValue: telecomNumber.countryCode } });
+        const trimmedCountryCode = telecomNumber.countryCode.trim();
+        PartyService.requireMaxLength(trimmedCountryCode, "countryCode", MAX_PHONE_COUNTRY_CODE_LENGTH, "add_contact_mechanism");
+        if (!COUNTRY_CODE_REGEX.test(trimmedCountryCode)) {
+          throw new InvalidTypeValueError(`countryCode must be an E.164 country code (e.g., '+1', '+44'). Received: ${trimmedCountryCode}.`, { suggestedTools: ["add_contact_mechanism"], context: { field: "countryCode", invalidValue: trimmedCountryCode } });
         }
       }
       if (telecomNumber.extension) PartyService.requireMaxLength(telecomNumber.extension, "extension", MAX_EXTENSION_LENGTH, "add_contact_mechanism");

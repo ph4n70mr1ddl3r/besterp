@@ -137,22 +137,26 @@ export function sanitizeLogMessage(s: string): string {
   // 1. CSI (Control Sequence Introducer): ESC [ parameters letter
   // 2. String-type: OSC (ESC ]), APC (ESC _), SOS (ESC X), PM (ESC ^),
   //    DCS (ESC P) — terminated by ST (ESC \) or BEL (\x07)
-  //  3. Non-CSI single-character: ESC followed by a final byte (e.g., ESC M = RI,
-  //    ESC 7 = DECSC, ESC D = IND, ESC = DECKPAM, etc.)
+  // 3. Non-CSI single- or multi-character: ESC optionally followed by zero or
+  //    more intermediate bytes (0x20–0x2F, e.g. space, $, (, ), +, /) and
+  //    then a final byte in the ECMA-48 range 0x30–0x7E. Examples:
+  //    - ESC M (RI — reverse index): one final byte, zero intermediates
+  //    - ESC c (RIS — reset): lowercase final byte
+  //    - ESC ( B (select character set): intermediate ( then final B
+  //    - ESC $ ( C (select Korean charset): intermediates $ ( then final C
   //
-  // The final-byte class below covers the full ECMA-48 range 0x30–0x7E,
-  // INCLUDING lowercase letters (a–z). Lowercase finals are valid
-  // two-character ESC sequences: ESC c = RIS (full terminal reset),
-  // ESC n = LS2, ESC o = LS3, etc. The ESC initiator is always
-  // neutralized by the control-char pass below, so omitting these was not
-  // a security hole — but the trailing final byte survived as a stray
-  // character (e.g. "\x1bc" → "_c" instead of ""), so the sequences are
-  // now stripped cleanly for log readability.
+  // The final-byte range covers the full ECMA-48 range 0x30–0x7E, INCLUDING
+  // lowercase letters (a–z). Lowercase finals are valid ESC sequences:
+  // ESC c = RIS (full terminal reset), ESC n = LS2, ESC o = LS3, etc.
+  // The ESC initiator is always neutralized by the control-char pass below,
+  // so omitting intermediate bytes was not a security hole — but trailing
+  // bytes survived as stray characters (e.g. "\x1b(B" → "_(B" instead of ""),
+  // so the sequences are now fully stripped for log readability.
   /* eslint-disable no-control-regex */
   return s
     .replace(/\x1b\[[0-9;]*[\x40-\x7E]/g, "")
     .replace(/\x1b[\]_X^P][\s\S]*?(?:\x1b\\|\x07)/g, "")
-    .replace(/\x1b[0-9#%()*+\-./:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\\]^_`a-z{|}~]/g, "")
+    .replace(/\x1b[\x20-\x2F]*[\x30-\x7E]/g, "")
     .replace(/[\r\n\t\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, "_");
   /* eslint-enable no-control-regex */
 }

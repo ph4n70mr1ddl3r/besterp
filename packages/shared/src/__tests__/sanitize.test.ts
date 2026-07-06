@@ -260,6 +260,25 @@ describe("sanitizeForLog", () => {
     expect(sanitizeForLog("\x1bc")).not.toBe("_c");
   });
 
+  it("strips non-CSI escapes with intermediate bytes (ESC I...I F)", () => {
+    // Sequences like ESC ( B (select character set) have intermediate bytes
+    // between ESC and the final byte. These were only partially stripped by
+    // the two-char regex, leaving stray characters like "_(B".
+    expect(sanitizeForLog("\x1b(Btext")).toBe("text");
+    expect(sanitizeForLog("a\x1b)Bb")).toBe("ab");
+    expect(sanitizeForLog("a\x1b*Bb")).toBe("ab");
+    expect(sanitizeForLog("a\x1b+Bb")).toBe("ab");
+    expect(sanitizeForLog("a\x1b-Bb")).toBe("ab");
+    expect(sanitizeForLog("\x1b(B\x1b)B")).toBe("");
+    // Two intermediate bytes (e.g. ESC $ ( C for Korean charset)
+    expect(sanitizeForLog("\x1b$(Ctext")).toBe("text");
+    // Regression: isolated intermediate byte without final byte should not
+    // cause false match — ESC + single intermediate byte alone is not a
+    // complete sequence and should leave the intermediate byte.
+    expect(sanitizeForLog("\x1b(")).not.toBe("");
+    expect(sanitizeForLog("\x1b(")).toBe("_(");
+  });
+
   it("strips mixed ANSI sequences correctly", () => {
     const input = "\x1b[31mred\x1b]0;title\x07\x1bMmid\x1b_apc\x1b\\end";
     const result = sanitizeForLog(input);
