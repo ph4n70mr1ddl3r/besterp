@@ -312,6 +312,30 @@ describe("PartyService", () => {
       await expect(partyService.createParty(input)).rejects.toThrow(InvalidTypeValueError);
     });
 
+    it("should reject HTML-only person first name (defense-in-depth)", async () => {
+      const input: CreatePartyInput = {
+        tenantId: "tenant-1",
+        partyType: "PERSON",
+        name: "John Doe",
+        person: { firstName: "<script>", lastName: "Doe" },
+      } as any;
+
+      await expect(partyService.createParty(input)).rejects.toThrow(InvalidTypeValueError);
+      await expect(partyService.createParty(input)).rejects.toThrow("HTML");
+    });
+
+    it("should reject HTML-only person last name (defense-in-depth)", async () => {
+      const input: CreatePartyInput = {
+        tenantId: "tenant-1",
+        partyType: "PERSON",
+        name: "John Doe",
+        person: { firstName: "John", lastName: "<script>alert(1)</script>" },
+      } as any;
+
+      await expect(partyService.createParty(input)).rejects.toThrow(InvalidTypeValueError);
+      await expect(partyService.createParty(input)).rejects.toThrow("HTML");
+    });
+
     it("should trim gender and middleName fields", async () => {
       const input: CreatePartyInput = {
         tenantId: "tenant-1",

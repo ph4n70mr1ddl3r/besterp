@@ -135,14 +135,21 @@ export class PartyService {
     const { sanitizedPerson, sanitizedOrg, sanitizedName, sanitizedDescription } =
       this.sanitizeCreatePartyInput(trimmedName, trimmedDescription, personData, orgData);
 
-    // Reject names that are entirely consumed by stripHtmlTags — the
-    // boundary layers (REST DTO sanitizeTransform, MCP Zod sanitizedString)
-    // both strip HTML before validation, so a raw-HTML-only name is caught
-    // upstream. This is defense-in-depth for direct/internal callers.
+    // Reject names and person subtype fields that are entirely consumed by
+    // stripHtmlTags — the boundary layers (REST DTO sanitizeTransform,
+    // MCP Zod sanitizedString) both strip HTML before validation, so a
+    // raw-HTML-only value is caught upstream. This is defense-in-depth
+    // for direct/internal callers.
     if (!sanitizedName) {
       throw new InvalidTypeValueError(
         "Party name must contain visible characters after HTML sanitization.",
         { suggestedTools: ["create_party"], context: { field: "name", originalValue: name } }
+      );
+    }
+    if (sanitizedPerson && (!sanitizedPerson.firstName || !sanitizedPerson.lastName)) {
+      throw new InvalidTypeValueError(
+        "Person first name and last name must contain visible characters after HTML sanitization.",
+        { suggestedTools: ["create_party"], context: { fields: ["firstName", "lastName"] } }
       );
     }
 
@@ -856,7 +863,14 @@ export class PartyService {
    *  .max(30) on birthDate/registrationDate) so an oversized
    *  string that bypasses Zod still gets caught here. */
   private static requireValidDate(value: string, field: string): void {
-    if (typeof value !== "string" || value.trim().length === 0) {
+    if (typeof value !== "string") {
+      throw new InvalidTypeValueError(
+        `${field} must be a non-empty ISO 8601 date string.`,
+        { suggestedTools: ["create_party"], context: { field, received: value } }
+      );
+    }
+    const trimmed = value.trim();
+    if (trimmed.length === 0) {
       throw new InvalidTypeValueError(
         `${field} must be a non-empty ISO 8601 date string.`,
         { suggestedTools: ["create_party"], context: { field, received: value } }
@@ -866,11 +880,10 @@ export class PartyService {
     // value (e.g., multi-KB string) is rejected before reaching new Date().
     // The Zod schemas limit birthDate/registrationDate to MAX_DATE_STRING_LENGTH;
     // mirror that here for any call path that bypasses Zod (e.g., REST).
-    if (value.trim().length > MAX_DATE_STRING_LENGTH) {
-      const trimmedLen = value.trim().length;
+    if (trimmed.length > MAX_DATE_STRING_LENGTH) {
       throw new InvalidTypeValueError(
-        `${field} is too long (${trimmedLen} characters, max ${MAX_DATE_STRING_LENGTH}).`,
-        { suggestedTools: ["create_party"], context: { field, length: trimmedLen, maxLength: MAX_DATE_STRING_LENGTH } }
+        `${field} is too long (${trimmed.length} characters, max ${MAX_DATE_STRING_LENGTH}).`,
+        { suggestedTools: ["create_party"], context: { field, length: trimmed.length, maxLength: MAX_DATE_STRING_LENGTH } }
       );
     }
     // Validate the TRIMMED value so a date with surrounding whitespace
@@ -878,7 +891,6 @@ export class PartyService {
     // and the MCP Zod schemas, which trim via .transform() before any
     // format check. The raw `value` is reported in the error below so the
     // caller sees exactly what they sent.
-    const trimmed = value.trim();
     if (!isValidISODate(trimmed)) {
       throw new InvalidTypeValueError(
         `${field} is not a valid ISO 8601 date. Received: ${value}.`,
