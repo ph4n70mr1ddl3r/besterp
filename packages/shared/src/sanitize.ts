@@ -86,7 +86,7 @@ export function stripHtmlTags(input: string): string {
     // char after < to avoid treating plain text like "< >" as a tag)
     sanitized = sanitized.replace(/<[^\s>][^>]*>/g, "");
     // Strip incomplete/orphaned opening tags (missing closing >)
-    sanitized = sanitized.replace(/<[a-zA-Z][^>]*$/g, "");
+    sanitized = sanitized.replace(/<[a-zA-Z][^>]*$/gm, "");
 
     // Strip null bytes that may have been introduced by entity decoding
     // (e.g. &#x00; → \0).

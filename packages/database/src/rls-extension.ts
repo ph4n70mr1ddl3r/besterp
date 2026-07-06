@@ -17,7 +17,7 @@
 // - Batch `$transaction([...promises])` calls are rejected with an error
 //   because they cannot receive tenant context. Use interactive transactions.
 
-import { PrismaClient, Prisma } from "@prisma/client";
+import type { PrismaClient, Prisma } from "@prisma/client";
 import { validateTenantId, InvalidTypeValueError, isDomainError } from "@besterp/shared";
 
 // ─── LRU Cache ────────────────────────────────────────────────────

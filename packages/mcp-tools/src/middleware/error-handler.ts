@@ -33,6 +33,13 @@ function extractPrismaError(error: unknown): { code: string | undefined; meta: {
   return { code: undefined, meta: undefined };
 }
 
+/** Maximum length for a single error message in the error handler stderr log. */
+const MAX_ERROR_LOG_LINE_LENGTH = 500;
+
+function sanitizeErrorMessage(message: string): string {
+  return sanitizeLogOutput(sanitizeForLog(message)).slice(0, MAX_ERROR_LOG_LINE_LENGTH);
+}
+
 function sanitizeContextValue(value: unknown): unknown {
   if (typeof value === "string") return sanitizeErrorMessage(value);
   if (Array.isArray(value)) return value.map(sanitizeContextValue);
@@ -109,7 +116,7 @@ function handlePrismaError(prismaCode: string, prismaMeta: { target?: string | s
       success: false,
       error: {
         code: "REFERENCE_ERROR",
-        message: `A referenced entity was not found. Check foreign key values and ensure all referenced records exist.`,
+        message: `A referenced entity was not found. Check foreign key values and ensure all referenced ${entityPlural} exist.`,
         suggestedTools: [`search_${entityPlural}`, definition.name],
       },
     };
@@ -138,13 +145,6 @@ function handlePrismaError(prismaCode: string, prismaMeta: { target?: string | s
   }
 
   return null;
-}
-
-/** Maximum length for a single error message in the error handler stderr log. */
-const MAX_ERROR_LOG_LINE_LENGTH = 500;
-
-function sanitizeErrorMessage(message: string): string {
-  return sanitizeLogOutput(sanitizeForLog(message)).slice(0, MAX_ERROR_LOG_LINE_LENGTH);
 }
 
 function handleGenericError(error: unknown, definition: { name: string }, tenantId: string, userId: string): ToolResult {

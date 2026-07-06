@@ -3,13 +3,13 @@
 // Applied globally via APP_GUARD. All endpoints require a valid JWT
 // unless decorated with @Public(). Health endpoints are public.
 
-import { Injectable, ExecutionContext, CanActivate } from "@nestjs/common";
+import { Injectable, ExecutionContext } from "@nestjs/common";
 import { AuthGuard } from "@nestjs/passport";
 import { Reflector } from "@nestjs/core";
 import { IS_PUBLIC_KEY } from "./public.decorator.js";
 
 @Injectable()
-export class JwtAuthGuard extends AuthGuard("jwt") implements CanActivate {
+export class JwtAuthGuard extends AuthGuard("jwt") {
   constructor(private readonly reflector: Reflector) {
     super();
   }

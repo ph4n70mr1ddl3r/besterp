@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { stripHtmlTags, sanitizeLogOutput, sanitizeForLog, safeFromCodePoint } from "../sanitize.js";
+import { stripHtmlTags, sanitizeLogOutput, sanitizeForLog, sanitizeForLogOutput, safeFromCodePoint } from "../sanitize.js";
 
 describe("stripHtmlTags", () => {
   it("returns empty string for empty input", () => {
@@ -268,6 +268,40 @@ describe("sanitizeForLog", () => {
 
   it("preserves text with no ANSI sequences", () => {
     expect(sanitizeForLog("normal plain text")).toBe("normal plain text");
+  });
+});
+
+describe("sanitizeForLogOutput", () => {
+  it("composes sanitizeLogMessage and sanitizeLogOutput", () => {
+    const input = "msg\nwith\r\tansi\x1b[31mcolor\x1b[0m and postgres://user:pass@host/db";
+    const result = sanitizeForLogOutput(input);
+    expect(result).not.toContain("\n");
+    expect(result).not.toContain("\r");
+    expect(result).not.toContain("\t");
+    expect(result).not.toContain("\x1b[31m");
+    expect(result).not.toContain("postgres://");
+    expect(result).toContain("[DATABASE_URL]");
+    expect(result).toContain("msg");
+    expect(result).toContain("and");
+  });
+
+  it("redacts URLs after stripping control chars", () => {
+    const result = sanitizeForLogOutput("error at https://internal.server.com/path?token=secret");
+    expect(result).toContain("[HOST]");
+    expect(result).not.toContain("token=secret");
+    expect(result).not.toContain("\n");
+  });
+
+  it("handles empty string", () => {
+    expect(sanitizeForLogOutput("")).toBe("");
+  });
+
+  it("preserves safe messages", () => {
+    expect(sanitizeForLogOutput("User login successful")).toBe("User login successful");
+  });
+
+  it("handles ANSI-only input", () => {
+    expect(sanitizeForLogOutput("\x1b[31m\x1b[0m")).toBe("");
   });
 });
 

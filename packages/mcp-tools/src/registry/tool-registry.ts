@@ -178,7 +178,7 @@ export class ToolRegistry {
       description: entry.definition.description.split("\n")[0] || entry.definition.description,
       riskLevel: entry.definition.riskLevel,
       entity: entry.definition.entity,
-      tags: entry.definition.tags,
+      tags: entry.definition.tags ? [...entry.definition.tags] : undefined,
     }));
   }
 

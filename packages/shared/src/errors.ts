@@ -11,7 +11,7 @@
 export class DomainError extends Error {
   readonly code: string;
   readonly suggestedTools: string[];
-  readonly context: Record<string, unknown>;
+  readonly context: Record<string, ContextValue>;
 
   constructor(
     code: string,
