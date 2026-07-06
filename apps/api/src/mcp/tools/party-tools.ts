@@ -175,9 +175,8 @@ function optionalSanitizedString(max: number) {
       const trimmed = s.trim();
       if (!trimmed) return undefined;
       const sanitized = stripHtmlTags(trimmed);
-      const result = sanitized.trim();
-      if (!result) return undefined;
-      return result;
+      if (!sanitized) return undefined;
+      return sanitized;
     })
     .pipe(z.string().max(max).optional());
 }
