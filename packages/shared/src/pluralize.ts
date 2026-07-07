@@ -10,6 +10,7 @@ const IRREGULAR_PLURALS: Record<string, string> = {
   foot: "feet",
   ox: "oxen",
   datum: "data",
+  person: "people",
 };
 
 export function pluralize(entity: string): string {

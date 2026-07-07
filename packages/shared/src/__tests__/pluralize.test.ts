@@ -48,6 +48,7 @@ describe("pluralize", () => {
     expect(pluralize("foot")).toBe("feet");
     expect(pluralize("ox")).toBe("oxen");
     expect(pluralize("datum")).toBe("data");
+    expect(pluralize("person")).toBe("people");
   });
 
   it("preserves original casing for the plural suffix", () => {
