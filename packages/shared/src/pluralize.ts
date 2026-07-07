@@ -15,13 +15,23 @@ const IRREGULAR_PLURALS: Record<string, string> = {
   knife: "knives",
   life: "lives",
   wife: "wives",
+  loaf: "loaves",
+  wolf: "wolves",
+  calf: "calves",
+  half: "halves",
+  leaf: "leaves",
+  shelf: "shelves",
+  thief: "thieves",
+  self: "selves",
+  elf: "elves",
+  sheaf: "sheaves",
 };
 
 function preserveCasing(input: string, plural: string): string {
   if (input.length === 0) return plural;
   if (input === input.toUpperCase()) return plural.toUpperCase();
   const first = input.charAt(0);
-  if (first === first.toUpperCase()) {
+  if (first !== first.toLowerCase() && first === first.toUpperCase()) {
     return plural.charAt(0).toUpperCase() + plural.slice(1);
   }
   return plural;
@@ -29,11 +39,11 @@ function preserveCasing(input: string, plural: string): string {
 
 const VOWELS = new Set(["a", "e", "i", "o", "u"]);
 
-function isVowelYEnding(lower: string): boolean {
+function isConsonantYEnding(lower: string): boolean {
   return lower.endsWith("y") && !lower.endsWith("ay") && !lower.endsWith("ey") && !lower.endsWith("oy") && !lower.endsWith("uy");
 }
 
-function needsEsEnding(lower: string): boolean {
+function isSibilantEnding(lower: string): boolean {
   return lower.endsWith("s") || lower.endsWith("x") || lower.endsWith("z") || lower.endsWith("ch") || lower.endsWith("sh");
 }
 
@@ -45,9 +55,9 @@ export function pluralize(entity: string): string {
   const lower = entity.toLowerCase();
   const irregular = IRREGULAR_PLURALS[lower];
   if (irregular) return preserveCasing(entity, irregular);
-  if (isVowelYEnding(lower)) return entity.slice(0, -1) + "ies";
+  if (isConsonantYEnding(lower)) return entity.slice(0, -1) + "ies";
   if (lower.endsWith("ves")) return entity;
-  if (needsEsEnding(lower)) return entity + "es";
+  if (isSibilantEnding(lower)) return entity + "es";
   if (isConsonantOEnding(lower)) return entity + "es";
   return entity + "s";
 }

@@ -54,6 +54,24 @@ describe("pluralize", () => {
     expect(pluralize("person")).toBe("people");
   });
 
+  it("handles -f/-fe to -ves irregulars", () => {
+    expect(pluralize("loaf")).toBe("loaves");
+    expect(pluralize("wolf")).toBe("wolves");
+    expect(pluralize("calf")).toBe("calves");
+    expect(pluralize("half")).toBe("halves");
+    expect(pluralize("leaf")).toBe("leaves");
+    expect(pluralize("shelf")).toBe("shelves");
+    expect(pluralize("thief")).toBe("thieves");
+    expect(pluralize("self")).toBe("selves");
+    expect(pluralize("elf")).toBe("elves");
+    expect(pluralize("sheaf")).toBe("sheaves");
+  });
+
+  it("handles preserves regular -ves words already ending in 'ves'", () => {
+    expect(pluralize("loaves")).toBe("loaves");
+    expect(pluralize("wolves")).toBe("wolves");
+  });
+
   it("preserves original casing for the plural suffix", () => {
     expect(pluralize("Party")).toBe("Parties");
     expect(pluralize("Address")).toBe("Addresses");
@@ -65,5 +83,11 @@ describe("pluralize", () => {
     expect(pluralize("PERSON")).toBe("PEOPLE");
     expect(pluralize("Child")).toBe("Children");
     expect(pluralize("child")).toBe("children");
+  });
+
+  it("handles non-letter first characters in preserveCasing", () => {
+    // Non-letter characters like digits should not be treated as uppercase
+    expect(pluralize("1st")).toBe("1sts");
+    expect(pluralize("_test")).toBe("_tests");
   });
 });

@@ -281,6 +281,16 @@ describe("sanitizeForLog", () => {
     expect(sanitizeForLog("\x1b(")).toBe("_(");
   });
 
+  it("strips C1 control characters (U+0080-U+009F)", () => {
+    // C1 controls like U+009B (CSI) can be used as an alternative to ESC+[
+    // for ANSI escape sequences. These must be stripped to prevent
+    // terminal injection bypassing the ESC-based removal patterns.
+    expect(sanitizeForLog("a\u009Bb")).toBe("a_b");
+    expect(sanitizeForLog("a\u0090b")).toBe("a_b");
+    expect(sanitizeForLog("a\u009Fb")).toBe("a_b");
+    expect(sanitizeForLog("\u0080\u0090\u009Etext")).toBe("___text");
+  });
+
   it("strips mixed ANSI sequences correctly", () => {
     const input = "\x1b[31mred\x1b]0;title\x07\x1bMmid\x1b_apc\x1b\\end";
     const result = sanitizeForLog(input);

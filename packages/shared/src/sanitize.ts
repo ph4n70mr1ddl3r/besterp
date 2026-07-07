@@ -154,12 +154,20 @@ export function sanitizeLogMessage(s: string): string {
   // so omitting intermediate bytes was not a security hole — but trailing
   // bytes survived as stray characters (e.g. "\x1b(B" → "_(B" instead of ""),
   // so the sequences are now fully stripped for log readability.
+  //
+  // C1 control characters (U+0080–U+009F) are also stripped. U+009B (CSI)
+  // is a valid C1 control that many modern terminals accept as an alternative
+  // to ESC+[ for ANSI escape sequences. Without this, an attacker could inject
+  // \u009B31m to set text color without triggering any of the ESC-based
+  // removal patterns above. This is defense-in-depth: real-world terminals
+  // rarely interpret C1 controls over plain socket connections, but stripping
+  // them eliminates the vector entirely.
   /* eslint-disable no-control-regex */
   return s
     .replace(/\x1b\[[0-9;]*[\x40-\x7E]/g, "")
     .replace(/\x1b[\]_X^P][\s\S]*?(?:\x1b\\|\x07)/g, "")
     .replace(/\x1b[\x20-\x2F]*[\x30-\x7E]/g, "")
-    .replace(/[\r\n\t\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, "_");
+    .replace(/[\r\n\t\x00-\x08\x0b\x0c\x0e-\x1f\x7f\x80-\x9f]/g, "_");
   /* eslint-enable no-control-regex */
 }
 
