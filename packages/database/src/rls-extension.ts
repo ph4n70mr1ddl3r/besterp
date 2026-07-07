@@ -88,19 +88,12 @@ export function validatePrismaClientForRls(prisma: PrismaClient): void {
 
 // ─── Data-access methods to wrap with tenant context ──────────────
 
-/** Read-only query methods that RLS-scope via SET LOCAL inside a transaction. */
-const READ_METHODS = new Set([
+const DATA_METHODS = new Set([
   "findMany", "findUnique", "findFirst", "count", "aggregate", "groupBy",
   "findUniqueOrThrow", "findFirstOrThrow",
-]);
-
-/** Write methods that RLS-scope via SET LOCAL inside a transaction. */
-const WRITE_METHODS = new Set([
   "create", "update", "delete", "upsert", "updateMany", "deleteMany",
   "createMany", "createManyAndReturn",
 ]);
-
-const DATA_METHODS = new Set([...READ_METHODS, ...WRITE_METHODS]);
 
 /** Operations that should never be called on a tenant-scoped proxy. */
 const BLOCKED_LIFECYCLE = new Set(["$connect", "$disconnect", "$extends"]);
@@ -221,6 +214,9 @@ function createModelDelegateProxy(
           try {
             await tx.$executeRaw`SELECT set_tenant_context(${tenantId})`;
           } catch (err) {
+            // Re-throw DomainError (from validateTenantIdEnhanced) as-is to
+            // preserve its specific code. Only wrap non-DomainError failures.
+            if (isDomainError(err)) throw err;
             const message = err instanceof Error ? err.message : String(err);
             throw new InvalidTypeValueError(
               `Failed to set tenant context: ${message}. Query aborted to prevent cross-tenant data leak.`,

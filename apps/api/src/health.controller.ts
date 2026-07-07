@@ -4,7 +4,7 @@
 // Delegates to HealthService for actual health checks.
 
 import { Controller, Get, Logger, ServiceUnavailableException } from "@nestjs/common";
-import { sanitizeLogOutput } from "@besterp/shared";
+import { sanitizeForLogOutput } from "@besterp/shared";
 import { Public } from "./auth/public.decorator.js";
 import { HealthService } from "./health.service.js";
 
@@ -88,7 +88,7 @@ export class HealthController {
       const isProd = process.env.NODE_ENV === "production";
       const rawMessage = error instanceof Error ? error.message : "not ready";
       throw new ServiceUnavailableException(
-        isProd ? "not ready" : sanitizeLogOutput(rawMessage)
+        isProd ? "not ready" : sanitizeForLogOutput(rawMessage)
       );
     } finally {
       // Always clear the timer, regardless of which path we took. Without this,

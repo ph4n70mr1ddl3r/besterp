@@ -14,7 +14,7 @@
  * - PartyService.requireUuid()
  * - PartyController.requireUuid()
  */
-export const UUID_REGEX: Readonly<RegExp> =
+export const UUID_REGEX: RegExp =
   /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
 
 /**
@@ -29,7 +29,7 @@ export const UUID_REGEX: Readonly<RegExp> =
  * - Zod schemas in party-tools.ts (via .email() — kept aligned by tests)
  * - DTOs in party.dto.ts (via class-validator's @IsEmail — kept aligned by tests)
  */
-export const EMAIL_REGEX: Readonly<RegExp> = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$/;
+export const EMAIL_REGEX: RegExp = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$/;
 
 /**
  * E.164 country code validation — `+` followed by 1 to 3 digits, first digit
@@ -38,7 +38,7 @@ export const EMAIL_REGEX: Readonly<RegExp> = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@
  *
  * Used by PartyService.addContactMechanism (telecom type).
  */
-export const COUNTRY_CODE_REGEX: Readonly<RegExp> = /^\+[1-9]\d{0,2}$/;
+export const COUNTRY_CODE_REGEX: RegExp = /^\+[1-9]\d{0,2}$/;
 
 /**
  * ISO 8601 date validation regex.
@@ -57,7 +57,7 @@ export const COUNTRY_CODE_REGEX: Readonly<RegExp> = /^\+[1-9]\d{0,2}$/;
  * - Zod schemas in party-tools.ts (birthDate, registrationDate, fromDate)
  * - PartyService.requireValidDate()
  */
-export const ISO_DATE_REGEX: Readonly<RegExp> =
+export const ISO_DATE_REGEX: RegExp =
   /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])(T([01]\d|2[0-3]):[0-5]\d:[0-5]\d(\.\d+)?(Z|[+-](0\d|1[0-3]):[0-5]\d)?)?$/;
 
 /**

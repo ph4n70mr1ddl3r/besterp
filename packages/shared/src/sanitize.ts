@@ -1,3 +1,5 @@
+import { InvalidTypeValueError } from "./errors.js";
+
 // Input sanitization utilities for BestERP.
 //
 // Provides defense-in-depth against XSS by stripping HTML tags and
@@ -34,7 +36,7 @@ export function stripHtmlTags(input: string): string {
   // MAX_PARTY_DESCRIPTION_LENGTH is 1000 chars).
   if (input.length === 0) return input;
   if (input.length > MAX_INPUT_LENGTH) {
-    throw new Error(
+    throw new InvalidTypeValueError(
       `stripHtmlTags: input exceeds maximum allowed length. ` +
       `This may indicate a DoS attempt via deeply nested HTML encoding.`
     );

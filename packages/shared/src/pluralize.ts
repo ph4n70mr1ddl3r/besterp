@@ -1,4 +1,5 @@
 // Simple English pluralization for entity names used in MCP error messages and suggested tool names.
+// Not a full grammar — handles the entity names this codebase uses.
 
 const IRREGULAR_PLURALS: Record<string, string> = {
   child: "children",
@@ -11,22 +12,42 @@ const IRREGULAR_PLURALS: Record<string, string> = {
   ox: "oxen",
   datum: "data",
   person: "people",
+  knife: "knives",
+  life: "lives",
+  wife: "wives",
 };
+
+function preserveCasing(input: string, plural: string): string {
+  if (input.length === 0) return plural;
+  if (input === input.toUpperCase()) return plural.toUpperCase();
+  const first = input.charAt(0);
+  if (first === first.toUpperCase()) {
+    return plural.charAt(0).toUpperCase() + plural.slice(1);
+  }
+  return plural;
+}
+
+const VOWELS = new Set(["a", "e", "i", "o", "u"]);
+
+function isVowelYEnding(lower: string): boolean {
+  return lower.endsWith("y") && !lower.endsWith("ay") && !lower.endsWith("ey") && !lower.endsWith("oy") && !lower.endsWith("uy");
+}
+
+function needsEsEnding(lower: string): boolean {
+  return lower.endsWith("s") || lower.endsWith("x") || lower.endsWith("z") || lower.endsWith("ch") || lower.endsWith("sh");
+}
+
+function isConsonantOEnding(lower: string): boolean {
+  return lower.endsWith("o") && lower.length >= 2 && !VOWELS.has(lower.charAt(lower.length - 2));
+}
 
 export function pluralize(entity: string): string {
   const lower = entity.toLowerCase();
-  if (IRREGULAR_PLURALS[lower]) return IRREGULAR_PLURALS[lower];
-  if (lower.endsWith("y") && !lower.endsWith("ay") && !lower.endsWith("ey") && !lower.endsWith("oy") && !lower.endsWith("uy")) {
-    return entity.slice(0, -1) + "ies";
-  }
-  if (lower.endsWith("fe")) {
-    return entity.slice(0, -2) + "ves";
-  }
-  if (lower.endsWith("ves")) {
-    return entity;
-  }
-  if (lower.endsWith("s") || lower.endsWith("x") || lower.endsWith("z") || lower.endsWith("ch") || lower.endsWith("sh")) {
-    return entity + "es";
-  }
+  const irregular = IRREGULAR_PLURALS[lower];
+  if (irregular) return preserveCasing(entity, irregular);
+  if (isVowelYEnding(lower)) return entity.slice(0, -1) + "ies";
+  if (lower.endsWith("ves")) return entity;
+  if (needsEsEnding(lower)) return entity + "es";
+  if (isConsonantOEnding(lower)) return entity + "es";
   return entity + "s";
 }

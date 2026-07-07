@@ -279,7 +279,7 @@ describeIntegration("Idempotency", () => {
     // Complete it
     await withTenant(app, TENANT_A, async (tx) => {
       return tx.idempotencyRecord.update({
-        where: { idempotencyKey: key },
+        where: { idempotencyKey_tenantId: { idempotencyKey: key, tenantId: TENANT_A } },
         data: {
           status: "completed",
           result: { partyId: "test-123" },
@@ -291,7 +291,7 @@ describeIntegration("Idempotency", () => {
     // Replay: find by key
     const record = await withTenant(app, TENANT_A, async (tx) => {
       return tx.idempotencyRecord.findUnique({
-        where: { idempotencyKey: key },
+        where: { idempotencyKey_tenantId: { idempotencyKey: key, tenantId: TENANT_A } },
       });
     });
 
@@ -319,7 +319,7 @@ describeIntegration("Idempotency", () => {
 
     const record = await withTenant(app, TENANT_A, async (tx) => {
       return tx.idempotencyRecord.findUnique({
-        where: { idempotencyKey: key },
+        where: { idempotencyKey_tenantId: { idempotencyKey: key, tenantId: TENANT_A } },
       });
     });
 

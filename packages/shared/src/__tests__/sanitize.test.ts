@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { stripHtmlTags, sanitizeLogOutput, sanitizeForLog, sanitizeForLogOutput, safeFromCodePoint } from "../sanitize.js";
+import { InvalidTypeValueError } from "../errors.js";
 
 describe("stripHtmlTags", () => {
   it("returns empty string for empty input", () => {
@@ -51,8 +52,9 @@ describe("stripHtmlTags", () => {
     expect(stripHtmlTags(deepNested)).toBe("&&&&");
   });
 
-  it("throws on oversized input", () => {
+  it("throws InvalidTypeValueError on oversized input", () => {
     const long = "a".repeat(100_001);
+    expect(() => stripHtmlTags(long)).toThrow(InvalidTypeValueError);
     expect(() => stripHtmlTags(long)).toThrow("input exceeds maximum");
   });
 
