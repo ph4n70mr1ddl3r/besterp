@@ -122,6 +122,28 @@ function handlePrismaError(prismaCode: string, prismaMeta: { target?: string | s
     };
   }
 
+  if (prismaCode === "P2000") {
+    return {
+      success: false,
+      error: {
+        code: "INVALID_INPUT",
+        message: `A field value is too long for the column. Check field length limits and retry with shorter values.`,
+        suggestedTools: [definition.name],
+      },
+    };
+  }
+
+  if (prismaCode === "P2014") {
+    return {
+      success: false,
+      error: {
+        code: "REFERENCE_ERROR",
+        message: `A required relation is missing or violates a constraint. Check that all required related ${entityPlural} exist and are properly linked.`,
+        suggestedTools: [`search_${entityPlural}`, definition.name],
+      },
+    };
+  }
+
   if (prismaCode === "P2021") {
     return {
       success: false,

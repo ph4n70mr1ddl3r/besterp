@@ -168,7 +168,7 @@ function createTransactionWrapper(prisma: PrismaClient, tenantId: string) {
           if (isDomainError(e)) throw e;
           const message = e instanceof Error ? e.message : String(e);
           throw new InvalidTypeValueError(
-            `Failed to set tenant context: ${message}`,
+            `Failed to set tenant context: ${message}. Query aborted to prevent cross-tenant data leak.`,
             { cause: e instanceof Error ? e : undefined, context: { field: "tenantId" } }
           );
         }

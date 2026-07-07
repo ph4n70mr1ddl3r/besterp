@@ -147,6 +147,14 @@ describe("sanitizeLogOutput", () => {
     expect(sanitizeLogOutput("")).toBe("");
   });
 
+  it("redacts protocol-only URL without trailing content", () => {
+    // The regex requires at least one non-whitespace char after ://
+    // to match. A bare "https://" with nothing after should not crash
+    // or produce a malformed replacement.
+    expect(sanitizeLogOutput("https://")).toContain("[HOST]");
+    expect(sanitizeLogOutput("prefix https:// more")).toContain("[HOST]");
+  });
+
   it("redacts multiple patterns in one message", () => {
     const msg = "DB: postgres://u:p@h/db redis://h and at /path/to/file.ts";
     const result = sanitizeLogOutput(msg);
@@ -299,6 +307,14 @@ describe("sanitizeForLog", () => {
 
   it("preserves text with no ANSI sequences", () => {
     expect(sanitizeForLog("normal plain text")).toBe("normal plain text");
+  });
+
+  it("handles isolated ESC byte at end of string", () => {
+    // A lone \x1b at the end is not a valid ANSI sequence (no final byte).
+    // The non-CSI regex requires at least one intermediate or final byte after
+    // ESC. The \x1b falls through to the control-char replacement pass.
+    expect(sanitizeForLog("end\x1b")).toBe("end_");
+    expect(sanitizeForLog("\x1b")).toBe("_");
   });
 });
 

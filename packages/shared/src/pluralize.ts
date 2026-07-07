@@ -52,6 +52,7 @@ function isConsonantOEnding(lower: string): boolean {
 }
 
 export function pluralize(entity: string): string {
+  if (entity.length === 0) return entity;
   const lower = entity.toLowerCase();
   const irregular = IRREGULAR_PLURALS[lower];
   if (irregular) return preserveCasing(entity, irregular);

@@ -90,4 +90,16 @@ describe("pluralize", () => {
     expect(pluralize("1st")).toBe("1sts");
     expect(pluralize("_test")).toBe("_tests");
   });
+
+  it("returns empty string for empty input", () => {
+    expect(pluralize("")).toBe("");
+  });
+
+  it("handles singluar words ending in -ves without double-pluralizing", () => {
+    // The guard at line 59 prevents "wolveses" by returning the input as-is
+    // when it already ends in "ves" — handles both regular -ves forms and
+    // words that are already pluralized.
+    expect(pluralize("wolves")).toBe("wolves");
+    expect(pluralize("doves")).toBe("doves");
+  });
 });

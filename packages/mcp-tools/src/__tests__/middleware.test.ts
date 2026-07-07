@@ -887,6 +887,61 @@ describe("Error Handler Middleware", () => {
     expect(result.error?.suggestedTools).toContain("get_test");
   });
 
+  it("should handle Prisma referential integrity violations (P2003)", async () => {
+    const prismaError: any = new Error("Foreign key constraint failed");
+    prismaError.code = "P2003";
+
+    const result = await errorHandlerMiddleware({}, mockContext, mockDefinition, throwingNext(prismaError));
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe("REFERENCE_ERROR");
+    expect(result.error?.suggestedTools).toContain("search_tests");
+  });
+
+  it("should handle Prisma value-too-long errors (P2000)", async () => {
+    const prismaError: any = new Error("Value too long for column");
+    prismaError.code = "P2000";
+
+    const result = await errorHandlerMiddleware({}, mockContext, mockDefinition, throwingNext(prismaError));
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe("INVALID_INPUT");
+    expect(result.error?.suggestedTools).toContain("test_tool");
+  });
+
+  it("should handle Prisma required-relation violations (P2014)", async () => {
+    const prismaError: any = new Error("Required relation violation");
+    prismaError.code = "P2014";
+
+    const result = await errorHandlerMiddleware({}, mockContext, mockDefinition, throwingNext(prismaError));
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe("REFERENCE_ERROR");
+    expect(result.error?.suggestedTools).toContain("search_tests");
+  });
+
+  it("should handle Prisma missing-table errors (P2021)", async () => {
+    const prismaError: any = new Error("Table not found");
+    prismaError.code = "P2021";
+
+    const result = await errorHandlerMiddleware({}, mockContext, mockDefinition, throwingNext(prismaError));
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe("DATABASE_ERROR");
+    expect(result.error?.suggestedTools).toContain("list_available_tools");
+  });
+
+  it("should handle Prisma connection errors (P1001/P1000)", async () => {
+    const prismaError: any = new Error("Can't reach database server");
+    prismaError.code = "P1001";
+
+    const result = await errorHandlerMiddleware({}, mockContext, mockDefinition, throwingNext(prismaError));
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe("DATABASE_CONNECTION_ERROR");
+    expect(result.error?.suggestedTools).toContain("list_available_tools");
+  });
+
   it("should handle generic errors with fallback (always returns generic message)", async () => {
     vi.stubEnv("NODE_ENV", "development");
     const genericError = new Error("connection to db at 10.0.0.5:5432 failed");
