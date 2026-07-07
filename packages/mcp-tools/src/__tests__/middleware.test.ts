@@ -300,6 +300,49 @@ describe("Idempotency Middleware", () => {
     expect(result.error?.code).toBe("IDEMPOTENCY_CONTENTION");
   });
 
+  it("should sanitize DB connection strings from the non-retryable acquire warning", async () => {
+    // Regression guard: a non-P2034 acquire failure (e.g. DB connection lost)
+    // is logged to stderr with the raw error message. A driver error embeds
+    // the datasource URL, so it must be scrubbed before reaching operator logs
+    // — matching the audit-log and shutdown sanitization paths.
+    const input = { test: "value" };
+    const idempotencyKey = "test-key";
+    const contextWithKey = { ...mockContext, idempotencyKey };
+
+    mockPrisma.$transaction.mockRejectedValue(
+      new Error("connect failed: postgres://besterp:s3cret-pw@10.0.0.5:5432/besterp")
+    );
+
+    const originalWrite = process.stderr.write.bind(process.stderr);
+    const stderrCalls: unknown[][] = [];
+    const writeSpy = vi.fn((...args: unknown[]) => {
+      stderrCalls.push(args);
+      return true;
+    });
+    process.stderr.write = writeSpy as typeof process.stderr.write;
+
+    let result;
+    try {
+      const middleware = idempotencyMiddleware(mockPrisma as any);
+      result = await middleware(input, contextWithKey, mockDefinition, successNext());
+      // The non-P2034 warning is written synchronously inside acquireIdempotencyRecord
+      // before it returns, so no microtask flush is required.
+    } finally {
+      process.stderr.write = originalWrite;
+    }
+
+    // Non-P2034 → surfaces as IDEMPOTENCY_CONTENTION after logging the warning.
+    expect(result?.success).toBe(false);
+    expect(result?.error?.code).toBe("IDEMPOTENCY_CONTENTION");
+
+    const allArgs = stderrCalls
+      .map((args) => args.map((a) => (typeof a === "string" ? a : "<binary>")).join(" "))
+      .join("\n");
+    expect(allArgs).not.toContain("s3cret-pw");
+    expect(allArgs).not.toContain("postgres://besterp");
+    expect(allArgs).toContain("[DATABASE_URL]");
+  });
+
   it("should record soft-failure results (success:false) as 'failed', not 'completed'", async () => {
     const input = { test: "value" };
     const idempotencyKey = "test-soft-fail";
@@ -663,6 +706,48 @@ describe("Audit Log Middleware", () => {
     expect(storedInput.name).toBe("Jane Doe");
   });
 
+  it("should redact snake_case sensitive fields (auth_token, session_token, client_secret, …)", async () => {
+    // Regression guard: the catch-all regex used `\b` boundaries, and `_` is a
+    // word character under `\w`, so `\btoken\b` could NOT match `session_token`,
+    // `auth_token`, `bearer_token`, `id_token`, or `client_secret` — there is no
+    // word boundary between `_` and the keyword. These standard credential
+    // field names therefore leaked into ai_action_log.tool_input verbatim.
+    // The regex now uses alnum-only lookarounds so `_`/`-` act as separators.
+    const input = {
+      auth_token: "eyJhbGci...",
+      session_token: "sess-xyz",
+      bearer_token: "bearer-abc",
+      id_token: "id-jwt",
+      client_secret: "topsecret",
+      user_token: "u-token",
+      auth_key: "ak",
+      authToken: "camel-secret", // camelCase must still be caught
+      // Unrelated fields carrying the same letters must NOT be redacted.
+      tokenize: "false",
+      name: "Jane Doe",
+    };
+    const toolResult: ToolResult = { success: true, data: "ok" };
+
+    mockPrisma.aiActionLog.create.mockResolvedValue({ id: "log-id" });
+
+    const middleware = auditLogMiddleware(mockPrisma as any);
+    await middleware(input, mockContext, mockDefinition, successNext(toolResult));
+
+    const createCall = mockPrisma.aiActionLog.create.mock.calls[0];
+    const storedInput = createCall[0].data.toolInput;
+    expect(storedInput.auth_token).toBe("[REDACTED]");
+    expect(storedInput.session_token).toBe("[REDACTED]");
+    expect(storedInput.bearer_token).toBe("[REDACTED]");
+    expect(storedInput.id_token).toBe("[REDACTED]");
+    expect(storedInput.client_secret).toBe("[REDACTED]");
+    expect(storedInput.user_token).toBe("[REDACTED]");
+    expect(storedInput.auth_key).toBe("[REDACTED]");
+    expect(storedInput.authToken).toBe("[REDACTED]");
+    // No over-redaction of unrelated fields that merely contain the letters.
+    expect(storedInput.tokenize).toBe("false");
+    expect(storedInput.name).toBe("Jane Doe");
+  });
+
   it("should log tool execution even when handler throws", async () => {
     const input = { test: "value" };
     const error = new Error("Test error");
@@ -771,6 +856,46 @@ describe("Audit Log Middleware", () => {
     expect(storedMessage).not.toContain("s3cret-pw");
     expect(storedMessage).not.toContain("postgres://");
     expect(storedMessage).toContain("[DATABASE_URL]");
+  });
+
+  it("should sanitize DB connection strings from the audit-write failure stderr log", async () => {
+    // Regression guard: when the aiActionLog.create write itself rejects, the
+    // backpressure manager writes the rejection's message to stderr. That
+    // message is a Prisma/driver error that can embed a connection string, so
+    // it must be scrubbed before reaching operator logs — matching the
+    // error-path persistence sanitization above.
+    const input = { test: "value" };
+    const toolResult: ToolResult = { success: true, data: "ok" };
+
+    mockPrisma.aiActionLog.create.mockRejectedValue(
+      new Error("write failed: postgres://besterp:s3cret-pw@10.0.0.5:5432/besterp")
+    );
+
+    const originalWrite = process.stderr.write.bind(process.stderr);
+    const stderrCalls: unknown[][] = [];
+    const writeSpy = vi.fn((...args: unknown[]) => {
+      stderrCalls.push(args);
+      return true;
+    });
+    process.stderr.write = writeSpy as typeof process.stderr.write;
+
+    try {
+      const middleware = auditLogMiddleware(mockPrisma as any);
+      // The middleware must not throw on a write failure — it is fire-and-forget.
+      const result = await middleware(input, mockContext, mockDefinition, successNext(toolResult));
+      expect(result).toEqual(toolResult);
+      // Let the fire-and-forget .catch land in the stderr spy.
+      await new Promise<void>((resolve) => setImmediate(resolve));
+    } finally {
+      process.stderr.write = originalWrite;
+    }
+
+    const allArgs = stderrCalls
+      .map((args) => args.map((a) => (typeof a === "string" ? a : "<binary>")).join(" "))
+      .join("\n");
+    expect(allArgs).not.toContain("s3cret-pw");
+    expect(allArgs).not.toContain("postgres://besterp");
+    expect(allArgs).toContain("[DATABASE_URL]");
   });
 });
 

@@ -151,10 +151,13 @@ async function acquireIdempotencyRecord(
       }
       // Non-P2034 errors (connection failures, auth errors, schema mismatches)
       // are fatal — log them so operators can distinguish infrastructure issues
-      // from normal serialization contention.
+      // from normal serialization contention. Sanitize the message first: a
+      // driver/Prisma error can embed a DB connection string or hostname, and
+      // this path writes the detail verbatim to stderr (the durable
+      // idempotency_record write below already caps + sanitizes via capString).
       if (code !== "P2034") {
         logIdempotencyWarn(
-          `Non-retryable error acquiring idempotency record '${sanitizeForLog(idempotencyKey.slice(0, 32))}' (code=${code ?? "none"}): ${e instanceof Error ? e.message : String(e)}`
+          `Non-retryable error acquiring idempotency record '${sanitizeForLog(idempotencyKey.slice(0, 32))}' (code=${code ?? "none"}): ${sanitizeLogOutput(e instanceof Error ? e.message : String(e))}`
         );
       }
       // Return contention failure instead of throwing so the middleware
@@ -307,7 +310,7 @@ async function updateIdempotencyRecordWithRetry(
         continue;
       }
       const detail = updateErr instanceof Error ? updateErr.message : String(updateErr);
-      logIdempotencyWarn(`Failed to update idempotency record '${sanitizeForLog(idempotencyKey.slice(0, 32))}' after ${IDEMPOTENCY_MAX_RETRIES} attempts: ${detail}`);
+      logIdempotencyWarn(`Failed to update idempotency record '${sanitizeForLog(idempotencyKey.slice(0, 32))}' after ${IDEMPOTENCY_MAX_RETRIES} attempts: ${sanitizeLogOutput(detail)}`);
       throw new InvalidTypeValueError(
         `Idempotency record could not be updated after ${IDEMPOTENCY_MAX_RETRIES} attempts. ` +
         `The operation may have succeeded but subsequent retries will receive REQUEST_IN_PROGRESS. ` +

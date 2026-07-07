@@ -29,8 +29,23 @@ const SENSITIVE_FIELDS = new Set([
   "bank_account", "routing_number", "national_id", "passport",
 ]);
 
-/** Regex pattern for catch-all sensitive field detection (password, secret, token, key, etc.). */
-const SENSITIVE_FIELD_PATTERN = /\b(password|secret|token|api[_-]?key|credential|auth(?:Token|Key|Code)?)\b/i;
+/**
+ * Regex pattern for catch-all sensitive field detection (password, secret,
+ * token, key, etc.).
+ *
+ * Boundary notes: `\b` is NOT used because `_` is a word character under `\w`,
+ * so `\btoken\b` would NOT match `session_token`, `auth_token`, `bearer_token`,
+ * `id_token`, or `client_secret` — there is no word boundary between `_` and
+ * the keyword. We instead delimit the keyword with alnum-only lookarounds
+ * (`(?<![a-z0-9])` / `(?![a-z0-9])`), which treat `_` and `-` as separators.
+ * This catches both snake_case (`auth_token`, `client_secret`) and camelCase
+ * (`authToken`) sensitive names while still rejecting infix matches inside
+ * unrelated words.
+ *
+ * The `auth` subgroup accepts an optional snake/camel `token|key|code` suffix
+ * (`auth_token`, `authKey`, bare `auth`), mirroring the `api[_-]?key` form.
+ */
+const SENSITIVE_FIELD_PATTERN = /(?<![a-z0-9])(password|secret|token|api[_-]?key|credential|auth(?:token|key|code|[_-](?:token|key|code))?)(?![a-z0-9])/i;
 
 /** Maximum depth for recursive sensitive field redaction. */
 const MAX_REDACTION_DEPTH = 10;
@@ -161,7 +176,11 @@ function createBackpressureManager(prisma: PrismaClient): BackpressureManager {
             tool: entry.toolCalled,
             tenant: entry.tenantId,
             user: entry.userId,
-            error: logErr instanceof Error ? logErr.message : String(logErr),
+            // Sanitize: a failed audit write is typically a Prisma/driver error
+            // whose message can embed a connection string or hostname. This
+            // path writes to stderr (operator logs) — strip infra details the
+            // same way the error-handler and shutdown paths do.
+            error: sanitizeLogOutput(logErr instanceof Error ? logErr.message : String(logErr)),
             totalErrors: errorCount,
           };
           process.stderr.write(`[AuditLog] ${JSON.stringify(errorMeta)}\n`);

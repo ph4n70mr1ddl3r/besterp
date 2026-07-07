@@ -11,7 +11,7 @@
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from "@nestjs/common";
 import { PrismaClient } from "@prisma/client";
 import { createTenantClient, validateTenantIdEnhanced, CreateTenantClientOptions } from "@besterp/database";
-import { MAX_TENANT_CACHE_SIZE } from "@besterp/shared";
+import { MAX_TENANT_CACHE_SIZE, sanitizeForLogOutput } from "@besterp/shared";
 
 // Cache configuration constants — exported for testing and override via env
 export const DEFAULT_MAX_METHOD_CACHE_SIZE = 1000;
@@ -121,9 +121,14 @@ export class PrismaService
       }
       this.logger.log("Database connections established (admin + app)");
     } catch (error: unknown) {
+      // Sanitize before logging: Prisma/driver connection errors frequently
+      // embed the datasource URL (credentials + hostname) in their message
+      // and stack. main.ts's shutdown paths and the global error handler both
+      // scrub these via sanitizeForLogOutput — do the same here so the admin
+      // and app client connection failures don't leak secrets to operator logs.
       this.logger.error(
-        `Failed to connect to database: ${error instanceof Error ? error.message : String(error)}`,
-        error instanceof Error ? error.stack : undefined
+        `Failed to connect to database: ${sanitizeForLogOutput(error instanceof Error ? error.message : String(error))}`,
+        error instanceof Error && error.stack ? sanitizeForLogOutput(error.stack) : undefined
       );
       throw error;
     }
@@ -151,7 +156,12 @@ export class PrismaService
     for (let i = 0; i < disconnectResults.length; i++) {
       const result = disconnectResults[i]!;
       if (result.status === "rejected") {
-        this.logger.error(`Error disconnecting ${labels[i]} client: ${result.reason}`);
+        // Sanitize: a disconnect rejection can carry a driver error whose
+        // message includes the datasource URL. `${reason}` stringifies an
+        // Error as `name: message`, so the URL would reach the log verbatim
+        // without this scrub.
+        const reason = result.reason instanceof Error ? result.reason.message : String(result.reason);
+        this.logger.error(`Error disconnecting ${labels[i]} client: ${sanitizeForLogOutput(reason)}`);
       }
     }
   }

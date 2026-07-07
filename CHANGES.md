@@ -1,5 +1,27 @@
 # BestERP — Security & Architecture Fixes
 
+## Changes Applied (2026-07-07) — Code Review Round 39
+
+### 🟡 Security: `audit-log.ts` — snake_case sensitive fields leaked past catch-all redaction regex
+
+**Problem:** `SENSITIVE_FIELD_PATTERN` used `\b` word boundaries: `/\b(password|secret|token|api[_-]?key|credential|auth(?:Token|Key|Code)?)\b/i`. Under JS regex, `_` is a word character (`\w` = `[A-Za-z0-9_]`), so there is **no word boundary** between `_` and an adjacent keyword. Consequently `\btoken\b` could not match `session_token`, `auth_token`, `bearer_token`, `id_token`, `user_token`, or `client_secret`, and the `auth` subgroup could not match `auth_token` / `auth_key` / `auth_code`. The explicit `SENSITIVE_FIELDS` set covered `access_token` / `refresh_token`, but every other `*_token` / `*_secret` / `auth_*` field name leaked into `ai_action_log.tool_input` verbatim. This is a real credential-leak surface: an MCP tool input like `{ auth_token: "eyJ..." }` or `{ client_secret: "..." }` would be persisted to the durable audit table unredacted.
+
+**Fix:** Replaced the `\b` boundaries with alnum-only lookarounds (`(?<![a-z0-9])` / `(?![a-z0-9])`) so `_` and `-` act as separators, and extended the `auth` subgroup to accept a snake/camel `token|key|code` suffix:
+`/(?<![a-z0-9])(password|secret|token|api[_-]?key|credential|auth(?:token|key|code|[_-](?:token|key|code))?)(?![a-z0-9])/i`.
+This catches `auth_token`, `session_token`, `bearer_token`, `id_token`, `client_secret`, `user_token`, `auth_key`, `auth_code`, and `authToken`/`authKey` (camelCase) while still rejecting infix matches inside unrelated words (`tokenize`, `keywords`, …). Verified no over-redaction of the legitimate party/contact field names. Added a regression test asserting each snake_case variant is redacted and that `tokenize`/`name` are left intact.
+
+### 🟡 Log hygiene: `prisma.service.ts` — DB connection errors logged with raw datasource URLs
+
+**Problem:** `onModuleInit` (connect-failure catch) and `onModuleDestroy` (per-client disconnect rejection) wrote Prisma/driver error `message` and `stack` straight to the NestJS logger. Driver connection errors routinely embed the datasource URL (credentials + hostname, e.g. `postgres://besterp:s3cret@10.0.0.5:5432/besterp`), and `${result.reason}` stringifies an `Error` as `name: message`, so the URL reached operator logs verbatim. This was inconsistent with `main.ts` (shutdown paths), the global `DomainExceptionFilter`, and the MCP error-handler middleware, all of which scrub such messages via `sanitizeForLogOutput`.
+
+**Fix:** Wrapped both log sites (message + stack in `onModuleInit`; reason in `onModuleDestroy`) with `sanitizeForLogOutput` so connection strings/hostnames/paths are redacted to `[DATABASE_URL]` / `[HOST]` / `[PATH]`. Added two regression tests that inject a URL-bearing connection error and assert the password and scheme never reach the log while `[DATABASE_URL]` does.
+
+### 🟢 Log hygiene: `idempotency.ts` + `audit-log.ts` — driver errors in stderr warnings scrubbed
+
+**Problem:** Two fire-and-forget stderr warning paths wrote raw driver error messages: (1) `acquireIdempotencyRecord`'s non-P2034 warning included `e.message`, and (2) `updateIdempotencyRecordWithRetry`'s final-attempt warning included raw `detail` (the thrown `InvalidTypeValueError` already sanitized the same detail, but the stderr line did not). Separately, the audit-log backpressure manager's `.catch` on a failed `aiActionLog.create` wrote `logErr.message` to stderr. All three can carry a DB connection string.
+
+**Fix:** Applied `sanitizeLogOutput` to the embedded error message in each of the three warning sites, matching the audit-log error-persistence path (`executeAndLog`'s throw branch) and the error-handler middleware. Added regression tests: the idempotency acquire non-P2034 path and the audit-write failure path now inject a URL-bearing driver error and assert `[DATABASE_URL]` replaces it before it reaches stderr.
+
 ## Changes Applied (2026-07-03) — Code Review Round 17
 
 ### 🟢 Cleanup: `party-tools.ts` — Eliminated Double `trim()` Call in `optionalSanitizedString`
