@@ -219,8 +219,10 @@ function redactSensitiveFields(value: unknown, depth = 0, seen?: WeakSet<object>
   if (Array.isArray(value)) return value.map((item) => redactSensitiveFields(item, depth + 1, seen));
   if (value instanceof Map) {
     return new Map([...value.entries()].map(([k, v]) => {
-      const redactedKey = (typeof k === "string" && isSensitiveField(k)) ? "[REDACTED]" : k;
-      return [redactedKey, redactSensitiveFields(v, depth + 1, seen)];
+      if (typeof k === "string" && isSensitiveField(k)) {
+        return ["[REDACTED]", "[REDACTED]"];
+      }
+      return [k, redactSensitiveFields(v, depth + 1, seen)];
     }));
   }
   if (value instanceof Set) {

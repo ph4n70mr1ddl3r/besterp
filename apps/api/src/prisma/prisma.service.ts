@@ -147,10 +147,10 @@ export class PrismaService
       this.$disconnect(),
       this._appClient.$disconnect(),
     ]);
-    const labels = ["admin", "app"] as const;
+    const labels: ReadonlyArray<string> = ["admin", "app"];
     for (let i = 0; i < disconnectResults.length; i++) {
-      const result = disconnectResults[i];
-      if (result?.status === "rejected") {
+      const result = disconnectResults[i]!;
+      if (result.status === "rejected") {
         this.logger.error(`Error disconnecting ${labels[i]} client: ${result.reason}`);
       }
     }

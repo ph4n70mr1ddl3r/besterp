@@ -149,10 +149,13 @@ describe("sanitizeLogOutput", () => {
 
   it("redacts protocol-only URL without trailing content", () => {
     // The regex requires at least one non-whitespace char after ://
-    // to match. A bare "https://" with nothing after should not crash
-    // or produce a malformed replacement.
-    expect(sanitizeLogOutput("https://")).toContain("[HOST]");
-    expect(sanitizeLogOutput("prefix https:// more")).toContain("[HOST]");
+    // to match. A bare "https://" with nothing after is not a valid
+    // URL (no hostname), and a space after :// also means no hostname.
+    // These should not crash or produce malformed replacements.
+    expect(sanitizeLogOutput("https://")).toBe("https://");
+    expect(sanitizeLogOutput("prefix https:// more")).toBe("prefix https:// more");
+    // Sanity: a proper URL with hostname IS redacted
+    expect(sanitizeLogOutput("https://host")).toContain("[HOST]");
   });
 
   it("redacts multiple patterns in one message", () => {

@@ -143,7 +143,7 @@ export class PartyService {
     if (!sanitizedName) {
       throw new InvalidTypeValueError(
         "Party name must contain visible characters after HTML sanitization.",
-        { suggestedTools: ["create_party"], context: { field: "name", originalValue: name } }
+        { suggestedTools: ["create_party"], context: { field: "name" } }
       );
     }
     if (sanitizedPerson && (!sanitizedPerson.firstName || !sanitizedPerson.lastName)) {
