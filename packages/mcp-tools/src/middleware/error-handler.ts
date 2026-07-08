@@ -87,8 +87,19 @@ function handleDomainError(error: DomainError, definition: { name: string }): To
   };
 }
 
-function handlePrismaError(prismaCode: string, prismaMeta: { target?: string | string[] } | undefined, entityName: string, entityPlural: string, definition: { name: string }) {
-  if (prismaCode === "P2002") {
+interface PrismaErrorResult {
+  success: false;
+  error: {
+    code: string;
+    message: string;
+    suggestedTools: string[];
+    context?: Record<string, unknown>;
+  };
+}
+type ErrorFactory = (entityName: string, entityPlural: string, definition: { name: string }, prismaMeta: { target?: string | string[] } | undefined) => PrismaErrorResult | null;
+
+const PRISMA_ERROR_HANDLERS: Record<string, ErrorFactory> = {
+  P2002(entityName, entityPlural, definition, prismaMeta) {
     const target = Array.isArray(prismaMeta?.target) ? prismaMeta.target.join(", ") : prismaMeta?.target;
     return {
       success: false,
@@ -99,31 +110,28 @@ function handlePrismaError(prismaCode: string, prismaMeta: { target?: string | s
         context: target ? { conflictingFields: target } : undefined,
       },
     };
-  }
-
-  if (prismaCode === "P2025") {
+  },
+  P2025(_entityName, entityPlural) {
     return {
       success: false,
       error: {
         code: "ENTITY_NOT_FOUND",
         message: `The referenced entity was not found. Use 'search_${entityPlural}' to find valid records.`,
-        suggestedTools: [`search_${entityPlural}`, `get_${entityName}`],
+        suggestedTools: [`search_${entityPlural}`, `get_${_entityName}`],
       },
     };
-  }
-
-  if (prismaCode === "P2034") {
+  },
+  P2034(_entityName, _entityPlural, definition) {
     return {
       success: false,
       error: {
         code: "CONCURRENCY_CONFLICT",
         message: `The '${definition.name}' operation conflicted with a concurrent update. Re-fetch the entity and retry with a new idempotency key.`,
-        suggestedTools: [`get_${entityName}`, definition.name],
+        suggestedTools: [`get_${_entityName}`, definition.name],
       },
     };
-  }
-
-  if (prismaCode === "P2003") {
+  },
+  P2003(_entityName, entityPlural, definition) {
     return {
       success: false,
       error: {
@@ -132,9 +140,8 @@ function handlePrismaError(prismaCode: string, prismaMeta: { target?: string | s
         suggestedTools: [`search_${entityPlural}`, definition.name],
       },
     };
-  }
-
-  if (prismaCode === "P2000") {
+  },
+  P2000(_entityName, _entityPlural, definition) {
     return {
       success: false,
       error: {
@@ -143,9 +150,8 @@ function handlePrismaError(prismaCode: string, prismaMeta: { target?: string | s
         suggestedTools: [definition.name],
       },
     };
-  }
-
-  if (prismaCode === "P2014") {
+  },
+  P2014(_entityName, entityPlural, definition) {
     return {
       success: false,
       error: {
@@ -154,9 +160,8 @@ function handlePrismaError(prismaCode: string, prismaMeta: { target?: string | s
         suggestedTools: [`search_${entityPlural}`, definition.name],
       },
     };
-  }
-
-  if (prismaCode === "P2021") {
+  },
+  P2021() {
     return {
       success: false,
       error: {
@@ -165,9 +170,13 @@ function handlePrismaError(prismaCode: string, prismaMeta: { target?: string | s
         suggestedTools: ["list_available_tools"],
       },
     };
-  }
+  },
+};
 
-  if (prismaCode === "P1001" || prismaCode === "P1000") {
+const CONNECTION_ERROR_CODES = new Set(["P1000", "P1001"]);
+
+function handlePrismaError(prismaCode: string, prismaMeta: { target?: string | string[] } | undefined, entityName: string, entityPlural: string, definition: { name: string }) {
+  if (CONNECTION_ERROR_CODES.has(prismaCode)) {
     return {
       success: false,
       error: {
@@ -178,7 +187,8 @@ function handlePrismaError(prismaCode: string, prismaMeta: { target?: string | s
     };
   }
 
-  return null;
+  const factory = PRISMA_ERROR_HANDLERS[prismaCode];
+  return factory ? factory(entityName, entityPlural, definition, prismaMeta) : null;
 }
 
 function handleGenericError(error: unknown, definition: { name: string }, tenantId: string, userId: string): ToolResult {
