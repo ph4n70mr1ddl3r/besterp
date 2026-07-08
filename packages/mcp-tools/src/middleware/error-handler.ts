@@ -43,7 +43,16 @@ function sanitizeErrorMessage(message: string): string {
 function sanitizeContextValue(value: unknown): unknown {
   if (typeof value === "string") return sanitizeErrorMessage(value);
   if (Array.isArray(value)) return value.map(sanitizeContextValue);
-  if (value instanceof Map || value instanceof Set || value instanceof WeakMap || value instanceof WeakSet) {
+  if (value instanceof Map) {
+    // Convert to array of [key, value] pairs: Map is not JSON-native, but
+    // an array of entries survives serialisation and preserves diagnostic info.
+    return [...value.entries()].map(([k, v]) => [sanitizeContextValue(k), sanitizeContextValue(v)]);
+  }
+  if (value instanceof Set) {
+    // Convert to array of values so diagnostic info is not silently lost.
+    return [...value].map((v) => sanitizeContextValue(v));
+  }
+  if (value instanceof WeakMap || value instanceof WeakSet) {
     return "[ITERABLE]";
   }
   if (value != null && typeof value === "object" && !(value instanceof Date || value instanceof RegExp)) {

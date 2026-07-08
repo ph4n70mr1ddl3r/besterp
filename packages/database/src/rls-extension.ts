@@ -144,11 +144,11 @@ export interface CreateTenantClientOptions {
 function createTransactionWrapper(prisma: PrismaClient, tenantId: string) {
   return (...args: unknown[]) => {
     let fn: ((tx: Prisma.TransactionClient) => Promise<unknown>) | undefined;
-    let options: { timeout?: number } | undefined;
+    let options: { timeout?: number; maxWait?: number; isolationLevel?: Prisma.TransactionIsolationLevel } | undefined;
 
     if (typeof args[0] === "function") {
       fn = args[0] as (tx: Prisma.TransactionClient) => Promise<unknown>;
-      options = typeof args[1] === "object" && args[1] !== null ? args[1] as { timeout?: number } : undefined;
+      options = typeof args[1] === "object" && args[1] !== null ? args[1] as { timeout?: number; maxWait?: number; isolationLevel?: Prisma.TransactionIsolationLevel } : undefined;
     } else if (Array.isArray(args[0])) {
       throw new Error(
         "Batch $transaction([...promises]) is not supported on a tenant-scoped client. " +

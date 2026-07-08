@@ -240,15 +240,20 @@ function redactSensitiveFields(value: unknown, depth = 0, seen?: WeakSet<object>
     return "[WeakCollection]";
   }
   if (value instanceof Map) {
-    return new Map([...value.entries()].map(([k, v]) => {
+    // Convert to array of [key, value] pairs: Map is not JSON-native, so
+    // returning a Map would be serialised as {} by JSON.stringify, silently
+    // dropping the data from the audit record. An array of entries survives
+    // serialisation and preserves the iterable semantics.
+    return [...value.entries()].map(([k, v]) => {
       if (typeof k === "string" && isSensitiveField(k)) {
         return ["[REDACTED]", "[REDACTED]"];
       }
       return [k, redactSensitiveFields(v, depth + 1, seen)];
-    }));
+    });
   }
   if (value instanceof Set) {
-    return new Set([...value].map((v) => redactSensitiveFields(v, depth + 1, seen)));
+    // Convert to array: same JSON-serialisation rationale as Map above.
+    return [...value].map((v) => redactSensitiveFields(v, depth + 1, seen));
   }
   const result: Record<string, unknown> = Object.create(null);
   for (const [key, val] of Object.entries(value as Record<string, unknown>)) {
