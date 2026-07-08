@@ -10,7 +10,7 @@ import {
   isDomainError,
   DomainError,
   sanitizeForLog,
-  sanitizeLogOutput,
+  sanitizeForLogOutput,
   pluralize,
 } from "@besterp/shared";
 import { ToolMiddleware, ToolResult } from "../schema/tool-definition.js";
@@ -36,12 +36,8 @@ function extractPrismaError(error: unknown): { code: string | undefined; meta: {
 /** Maximum length for a single error message in the error handler stderr log. */
 const MAX_ERROR_LOG_LINE_LENGTH = 500;
 
-function sanitizeErrorMessage(message: string): string {
-  return sanitizeLogOutput(sanitizeForLog(message)).slice(0, MAX_ERROR_LOG_LINE_LENGTH);
-}
-
 function sanitizeContextValue(value: unknown): unknown {
-  if (typeof value === "string") return sanitizeErrorMessage(value);
+  if (typeof value === "string") return sanitizeForLogOutput(value).slice(0, MAX_ERROR_LOG_LINE_LENGTH);
   if (Array.isArray(value)) return value.map(sanitizeContextValue);
   if (value instanceof Map) {
     // Convert to array of [key, value] pairs: Map is not JSON-native, but
@@ -173,7 +169,7 @@ const PRISMA_ERROR_HANDLERS: Record<string, ErrorFactory> = {
   },
 };
 
-const CONNECTION_ERROR_CODES = new Set(["P1000", "P1001"]);
+const CONNECTION_ERROR_CODES = new Set(["P1000", "P1001", "P1002", "P1003", "P1017"]);
 
 function handlePrismaError(prismaCode: string, prismaMeta: { target?: string | string[] } | undefined, entityName: string, entityPlural: string, definition: { name: string }) {
   if (CONNECTION_ERROR_CODES.has(prismaCode)) {
@@ -193,7 +189,7 @@ function handlePrismaError(prismaCode: string, prismaMeta: { target?: string | s
 
 function handleGenericError(error: unknown, definition: { name: string }, tenantId: string, userId: string): ToolResult {
   const message = error instanceof Error ? error.message : "Unknown error";
-  const safeMessage = sanitizeErrorMessage(message);
+  const safeMessage = sanitizeForLogOutput(message).slice(0, MAX_ERROR_LOG_LINE_LENGTH);
   // Log sanitized details to stderr to prevent leaking sensitive info
   // (DB hostnames, connection strings, stack frames)
   process.stderr.write(

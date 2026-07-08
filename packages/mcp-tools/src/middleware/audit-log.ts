@@ -218,7 +218,7 @@ async function logAction(prisma: PrismaClient, entry: AuditLogEntry): Promise<vo
       tenantId: entry.tenantId,
       toolCalled: entry.toolCalled,
       toolInput: toolInput as unknown as Prisma.InputJsonValue,
-      toolOutput: truncateValue(redactSensitiveFields(entry.toolOutput), MAX_STORED_PAYLOAD_SIZE) as Prisma.InputJsonValue | undefined,
+      toolOutput: truncateValue(redactSensitiveFields(entry.toolOutput), MAX_STORED_PAYLOAD_SIZE) as unknown as Prisma.InputJsonValue | undefined,
       reasoning: entry.reasoning ?? null,
     },
   });

@@ -34,7 +34,7 @@ export function idempotencyMiddleware(prisma: PrismaClient): ToolMiddleware {
 
     const { idempotencyKey, tenantId, userId, agentId, conversationId } = context;
 
-    if (!idempotencyKey || typeof idempotencyKey !== "string" || idempotencyKey.length > MAX_IDEMPOTENCY_KEY_LENGTH) {
+    if (!idempotencyKey || typeof idempotencyKey !== "string" || idempotencyKey.length === 0 || idempotencyKey.length > MAX_IDEMPOTENCY_KEY_LENGTH) {
       return next(input, context);
     }
 
@@ -272,12 +272,24 @@ async function executeAndUpdate(
       success: false,
       error: { code: getErrorCode(error) ?? "EXECUTION_ERROR", message },
     };
-    await updateIdempotencyRecordWithRetry(prisma, idempotencyKey, tenantId, failedResult, true);
+    try {
+      await updateIdempotencyRecordWithRetry(prisma, idempotencyKey, tenantId, failedResult, true);
+    } catch {
+      logIdempotencyWarn(
+        `Failed to persist error result for idempotency key '${sanitizeForLog(idempotencyKey.slice(0, 32))}' — original error will propagate`
+      );
+    }
     throw error;
   }
 
   const isSoftFailure = toolResult.success === false;
-  await updateIdempotencyRecordWithRetry(prisma, idempotencyKey, tenantId, toolResult, isSoftFailure);
+  try {
+    await updateIdempotencyRecordWithRetry(prisma, idempotencyKey, tenantId, toolResult, isSoftFailure);
+  } catch {
+    logIdempotencyWarn(
+      `Failed to persist result for idempotency key '${sanitizeForLog(idempotencyKey.slice(0, 32))}' — result still returned`
+    );
+  }
 
   return toolResult;
 }

@@ -26,7 +26,7 @@
 
 import { Injectable, Logger } from "@nestjs/common";
 import { PrismaService } from "../../../prisma/prisma.service.js";
-import { Prisma, PrismaClient } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import type { TenantScopedClient } from "@besterp/database";
 import {
   MissingSubtypeDataError,
@@ -264,7 +264,7 @@ export class PartyService {
   }
 
   private async createPartyTransaction(
-    db: PrismaClient,
+    db: TenantScopedClient,
     tenantId: string, partyTypeName: string,
     name: string, description: string | null,
     sanitizedPerson: CreatePartyInput["person"] | undefined,
@@ -526,7 +526,7 @@ export class PartyService {
   }
 
   private async addPartyRoleTransaction(
-    db: PrismaClient,
+    db: TenantScopedClient,
     tenantId: string, partyId: string, roleTypeId: string,
     trimmedRoleType: string, roleFromDate: Date,
   ): Promise<Prisma.PartyRoleGetPayload<{ include: { roleType: true } }>> {
@@ -663,7 +663,7 @@ export class PartyService {
   }
 
   private async createContactMechanismTransaction(
-    db: PrismaClient,
+    db: TenantScopedClient,
     tenantId: string, partyId: string, type: string,
     contactMechanismTypeId: string,
     postalAddress: AddContactMechanismInput["postalAddress"],

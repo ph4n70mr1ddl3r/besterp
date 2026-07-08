@@ -11,8 +11,17 @@ import { PassportModule } from "@nestjs/passport";
 import type { SignOptions } from "jsonwebtoken";
 import { JwtStrategy, resolveJwtSecret } from "./jwt.strategy.js";
 
-const jwtExpiresIn: SignOptions["expiresIn"] =
-  (process.env.JWT_EXPIRES_IN || "24h") as SignOptions["expiresIn"];
+function validateJwtExpiresIn(value: string | undefined): SignOptions["expiresIn"] {
+  const raw = value || "24h";
+  if (typeof raw !== "string" || !/^\d+\s*[smhd]$/.test(raw)) {
+    throw new Error(
+      `JWT_EXPIRES_IN "${raw}" is invalid. Must be a duration string like "24h", "60m", "7d".`
+    );
+  }
+  return raw as SignOptions["expiresIn"];
+}
+
+const jwtExpiresIn: SignOptions["expiresIn"] = validateJwtExpiresIn(process.env.JWT_EXPIRES_IN);
 
 @Module({
   imports: [

@@ -22,7 +22,7 @@ const logger = new Logger("Bootstrap");
 
 function normalizeEnvironment(): void {
   // Normalize NODE_ENV early so all downstream comparisons are case-insensitive.
-  // Without this, "Production", "PRODUCTION", or "Production" would silently
+  // Without this, "PRODUCTION", "Production", or "production" would silently
   // bypass production guards and fall back to development behavior.
   if (process.env.NODE_ENV) {
     process.env.NODE_ENV = process.env.NODE_ENV.toLowerCase();
@@ -38,6 +38,14 @@ function validateEnvironment(): void {
   }
   if (!process.env.DATABASE_URL && process.env.NODE_ENV !== "production") {
     logger.warn("DATABASE_URL not set — database operations will fail. Set DATABASE_URL before running the API.");
+  }
+
+  // Validate JWT_EXPIRES_IN format if provided.
+  if (process.env.JWT_EXPIRES_IN && !/^\d+\s*[smhd]$/.test(process.env.JWT_EXPIRES_IN)) {
+    logger.error(
+      `JWT_EXPIRES_IN "${process.env.JWT_EXPIRES_IN}" is invalid. Must be a duration string like "24h", "60m", "7d".`
+    );
+    process.exit(1);
   }
 
   // Fail if JWT_SECRET is missing in any non-development environment.

@@ -96,7 +96,7 @@ const DATA_METHODS = new Set([
 ]);
 
 /** Operations that should never be called on a tenant-scoped proxy. */
-const BLOCKED_LIFECYCLE = new Set(["$connect", "$disconnect", "$extends"]);
+const BLOCKED_CLIENT_METHODS = new Set(["$connect", "$disconnect", "$extends"]);
 
 /** Raw SQL operations that bypass RLS scoping. */
 const BLOCKED_RAW_SQL = new Set([
@@ -153,7 +153,7 @@ function createTransactionWrapper(prisma: PrismaClient, tenantId: string) {
       throw new Error(
         "Batch $transaction([...promises]) is not supported on a tenant-scoped client. " +
         "Use an interactive transaction instead: $transaction(async (tx) => { ... }). " +
-        "Interactive transactions support the same batching within a single callback."
+        "Note: interactive transactions run sequentially, unlike batch which runs concurrently."
       );
     }
 
@@ -162,10 +162,6 @@ function createTransactionWrapper(prisma: PrismaClient, tenantId: string) {
         try {
           await tx.$executeRaw`SELECT set_tenant_context(${tenantId})`;
         } catch (e) {
-          // Re-throw DomainError (from validateTenantIdEnhanced) as-is to
-          // preserve its specific code. Only wrap non-DomainError failures
-          // (e.g. Postgres function missing, permission denied).
-          if (isDomainError(e)) throw e;
           const message = e instanceof Error ? e.message : String(e);
           throw new InvalidTypeValueError(
             `Failed to set tenant context: ${message}. Query aborted to prevent cross-tenant data leak.`,
@@ -214,9 +210,6 @@ function createModelDelegateProxy(
           try {
             await tx.$executeRaw`SELECT set_tenant_context(${tenantId})`;
           } catch (err) {
-            // Re-throw DomainError (from validateTenantIdEnhanced) as-is to
-            // preserve its specific code. Only wrap non-DomainError failures.
-            if (isDomainError(err)) throw err;
             const message = err instanceof Error ? err.message : String(err);
             throw new InvalidTypeValueError(
               `Failed to set tenant context: ${message}. Query aborted to prevent cross-tenant data leak.`,
@@ -254,7 +247,7 @@ function createClientProxy(
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       if (typeof prop !== "string") return (target as any)[prop];
       if (prop === "$transaction") return transactionWrapper;
-      if (BLOCKED_LIFECYCLE.has(prop)) {
+      if (BLOCKED_CLIENT_METHODS.has(prop)) {
         throw new Error(`Cannot call '${prop}' on a tenant-scoped client. Use the base PrismaClient directly.`);
       }
       if (BLOCKED_RAW_SQL.has(prop)) {

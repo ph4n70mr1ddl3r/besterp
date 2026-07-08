@@ -192,14 +192,13 @@ export class ToolRegistry {
     return Array.from(this.tools.keys())
       .filter((existing) => {
         const lower = existing.toLowerCase();
-        // Require minimum 3 chars for substring match to avoid false positives
-        // (e.g., "in" matching "create_invoice", "or" matching "create_order")
-        if (lowerName.length >= 3 && (lower.includes(lowerName) || lowerName.includes(lower))) return true;
+        // Require minimum 2 chars for substring match to reduce false positives
+        if (lowerName.length >= 2 && (lower.includes(lowerName) || lowerName.includes(lower))) return true;
         // Check Levenshtein-like: shared word stems
         const nameParts = lowerName.split(/[_\s]+/).filter(Boolean);
         const existingParts = lower.split(/[_\s]+/).filter(Boolean);
         return nameParts.length > 0 && existingParts.length > 0 &&
-          nameParts.some((p) => p.length >= 3 && existingParts.some((ep) => ep.includes(p) || p.includes(ep)));
+          nameParts.some((p) => p.length >= 2 && existingParts.some((ep) => ep.includes(p) || p.includes(ep)));
       })
       .slice(0, 5);
   }
