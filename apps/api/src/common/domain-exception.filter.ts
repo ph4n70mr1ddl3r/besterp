@@ -142,6 +142,7 @@ export class DomainExceptionFilter implements ExceptionFilter {
       : "Internal server error";
     response.status(500).json({
       statusCode: 500,
+      error: "INTERNAL_ERROR",
       message: responseMessage,
     });
   }
