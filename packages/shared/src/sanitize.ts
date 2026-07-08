@@ -119,6 +119,8 @@ export function sanitizeLogOutput(message: string): string {
     .replace(/mysql:\/\/[^\s"']+/gi, "[DATABASE_URL]")
     .replace(/amqps?:\/\/[^\s"']+/gi, "[MESSAGE_BROKER_URL]")
     .replace(/(https?:\/\/)[^\s"']+/gi, "$1[HOST]/[PATH]")
+    .replace(/(?:ftp|sftp):\/\/[^\s"']+/gi, "[FTP_URL]")
+    .replace(/(?:ws|wss):\/\/[^\s"']+/gi, "[WEBSOCKET_URL]")
     .replace(/\bat\b\s*(?:[A-Za-z]:)?[/\\][^\s"':]+/gi, "[PATH]");
 }
 

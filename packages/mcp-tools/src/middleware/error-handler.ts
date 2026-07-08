@@ -43,6 +43,9 @@ function sanitizeErrorMessage(message: string): string {
 function sanitizeContextValue(value: unknown): unknown {
   if (typeof value === "string") return sanitizeErrorMessage(value);
   if (Array.isArray(value)) return value.map(sanitizeContextValue);
+  if (value instanceof Map || value instanceof Set || value instanceof WeakMap || value instanceof WeakSet) {
+    return "[ITERABLE]";
+  }
   if (value != null && typeof value === "object" && !(value instanceof Date || value instanceof RegExp)) {
     const result: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(value as Record<string, unknown>)) {

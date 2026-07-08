@@ -167,6 +167,16 @@ describe("sanitizeLogOutput", () => {
     expect(result).not.toContain("postgres://");
     expect(result).not.toContain("redis://");
   });
+
+  it("redacts FTP connection strings", () => {
+    expect(sanitizeLogOutput("ftp://user:pass@host:21/path")).toContain("[FTP_URL]");
+    expect(sanitizeLogOutput("sftp://user@host/path")).toContain("[FTP_URL]");
+  });
+
+  it("redacts WebSocket connection strings", () => {
+    expect(sanitizeLogOutput("ws://internal-host:8080/ws")).toContain("[WEBSOCKET_URL]");
+    expect(sanitizeLogOutput("wss://secure-host/path")).toContain("[WEBSOCKET_URL]");
+  });
 });
 
 describe("sanitizeForLog", () => {

@@ -102,8 +102,8 @@ describe("capString", () => {
   });
 
   it("returns the fallback message for non-string input", () => {
-    expect(capString(undefined, 100)).toBe("Tool returned a soft failure");
-    expect(capString(123, 100)).toBe("Tool returned a soft failure");
+    expect(capString(undefined, 100)).toBe("Non-string value in error message (truncated)");
+    expect(capString(123, 100)).toBe("Non-string value in error message (truncated)");
   });
 
   it("caps an oversize ASCII string and appends a truncation marker", () => {

@@ -74,7 +74,7 @@ function truncationMarker(encoded: Uint8Array): {
 export function capString(value: unknown, maxBytes: number): string {
   const effectiveMax = Math.max(1, maxBytes);
   if (typeof value !== "string") {
-    return "Tool returned a soft failure";
+    return "Non-string value in error message (truncated)";
   }
   const encoded = textEncoder.encode(value);
   if (encoded.byteLength <= effectiveMax) {
