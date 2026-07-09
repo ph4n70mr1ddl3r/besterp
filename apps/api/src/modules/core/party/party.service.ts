@@ -152,6 +152,12 @@ export class PartyService {
         { suggestedTools: ["create_party"], context: { fields: ["firstName", "lastName"] } }
       );
     }
+    if (sanitizedOrg && !sanitizedOrg.legalName) {
+      throw new InvalidTypeValueError(
+        "Organization legal name must contain visible characters after HTML sanitization.",
+        { suggestedTools: ["create_party"], context: { fields: ["legalName"] } }
+      );
+    }
 
     const db: TenantScopedClient = this.prisma.tenantScoped(trimmedTenantId);
 

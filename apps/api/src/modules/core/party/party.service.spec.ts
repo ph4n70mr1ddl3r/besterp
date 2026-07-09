@@ -336,6 +336,18 @@ describe("PartyService", () => {
       await expect(partyService.createParty(input)).rejects.toThrow("HTML");
     });
 
+    it("should reject HTML-only organization legalName (defense-in-depth)", async () => {
+      const input: CreatePartyInput = {
+        tenantId: "tenant-1",
+        partyType: "ORGANIZATION",
+        name: "Acme Corp",
+        organization: { legalName: "<script>alert(1)</script>" },
+      } as any;
+
+      await expect(partyService.createParty(input)).rejects.toThrow(InvalidTypeValueError);
+      await expect(partyService.createParty(input)).rejects.toThrow("HTML");
+    });
+
     it("should trim gender and middleName fields", async () => {
       const input: CreatePartyInput = {
         tenantId: "tenant-1",
