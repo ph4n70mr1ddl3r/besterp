@@ -870,7 +870,7 @@ export class PartyService {
     if (typeof value !== "string") {
       throw new InvalidTypeValueError(
         `${field} must be a non-empty ISO 8601 date string.`,
-        { suggestedTools: ["create_party"], context: { field, received: value } }
+        { suggestedTools: ["create_party"], context: { field, received: value, type: typeof value } }
       );
     }
     const trimmed = value.trim();

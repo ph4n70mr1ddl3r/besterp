@@ -237,10 +237,24 @@ function handleExistingRecord(
     // acquireIdempotencyRecord resets the record to "pending" (returning
     // created: true) so this branch is unreachable. The fallback returns
     // INTERNAL_ERROR to surface the anomaly rather than silently dropping it.
-    return { success: false, error: { code: "INTERNAL_ERROR", message: "Unexpected idempotency state: failed record with matching hash was not reset by acquireIdempotencyRecord." } };
+    return {
+      success: false,
+      error: {
+        code: "INTERNAL_ERROR",
+        message: "Unexpected idempotency state: failed record with matching hash was not reset by acquireIdempotencyRecord.",
+        suggestedTools: [toolName],
+      },
+    };
   }
 
-  return { success: false, error: { code: "INTERNAL_ERROR", message: "Unexpected idempotency state" } };
+  return {
+    success: false,
+    error: {
+      code: "INTERNAL_ERROR",
+      message: "Unexpected idempotency state",
+      suggestedTools: [toolName],
+    },
+  };
 }
 
 async function executeAndUpdate(
