@@ -107,23 +107,23 @@ const PRISMA_ERROR_HANDLERS: Record<string, ErrorFactory> = {
       },
     };
   },
-  P2025(_entityName, entityPlural) {
+  P2025(entityName, entityPlural) {
     return {
       success: false,
       error: {
         code: "ENTITY_NOT_FOUND",
         message: `The referenced entity was not found. Use 'search_${entityPlural}' to find valid records.`,
-        suggestedTools: [`search_${entityPlural}`, `get_${_entityName}`],
+        suggestedTools: [`search_${entityPlural}`, `get_${entityName}`],
       },
     };
   },
-  P2034(_entityName, _entityPlural, definition) {
+  P2034(entityName, _entityPlural, definition) {
     return {
       success: false,
       error: {
         code: "CONCURRENCY_CONFLICT",
         message: `The '${definition.name}' operation conflicted with a concurrent update. Re-fetch the entity and retry with a new idempotency key.`,
-        suggestedTools: [`get_${_entityName}`, definition.name],
+        suggestedTools: [`get_${entityName}`, definition.name],
       },
     };
   },
@@ -164,6 +164,16 @@ const PRISMA_ERROR_HANDLERS: Record<string, ErrorFactory> = {
         code: "DATABASE_ERROR",
         message: `A database table is missing. The schema may need to be migrated. Try again after running migrations.`,
         suggestedTools: ["list_available_tools"],
+      },
+    };
+  },
+  P2024(_entityName, _entityPlural, definition) {
+    return {
+      success: false,
+      error: {
+        code: "DATABASE_CONNECTION_ERROR",
+        message: `The '${definition.name}' operation timed out waiting for a database connection from the pool. The service may be under heavy load. Try again with a new idempotency key.`,
+        suggestedTools: [definition.name, "list_available_tools"],
       },
     };
   },

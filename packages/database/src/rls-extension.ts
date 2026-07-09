@@ -18,7 +18,7 @@
 //   because they cannot receive tenant context. Use interactive transactions.
 
 import type { PrismaClient, Prisma } from "@prisma/client";
-import { validateTenantId, InvalidTypeValueError, isDomainError } from "@besterp/shared";
+import { validateTenantId, InvalidTypeValueError, isDomainError, TenantContextFailedError } from "@besterp/shared";
 
 // ─── LRU Cache ────────────────────────────────────────────────────
 
@@ -163,7 +163,7 @@ function createTransactionWrapper(prisma: PrismaClient, tenantId: string) {
           await tx.$executeRaw`SELECT set_tenant_context(${tenantId})`;
         } catch (e) {
           const message = e instanceof Error ? e.message : String(e);
-          throw new InvalidTypeValueError(
+          throw new TenantContextFailedError(
             `Failed to set tenant context: ${message}. Query aborted to prevent cross-tenant data leak.`,
             { cause: e instanceof Error ? e : undefined, context: { field: "tenantId" } }
           );
@@ -211,7 +211,7 @@ function createModelDelegateProxy(
             await tx.$executeRaw`SELECT set_tenant_context(${tenantId})`;
           } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
-            throw new InvalidTypeValueError(
+            throw new TenantContextFailedError(
               `Failed to set tenant context: ${message}. Query aborted to prevent cross-tenant data leak.`,
               { cause: err instanceof Error ? err : undefined, context: { field: "tenantId" } }
             );

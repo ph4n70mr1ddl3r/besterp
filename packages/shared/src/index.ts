@@ -10,6 +10,7 @@ export {
   DuplicateEntityError,
   EntityNotFoundError,
   ConcurrencyConflictError,
+  TenantContextFailedError,
   isDomainError,
   getErrorCode,
 } from "./errors.js";

@@ -16,6 +16,7 @@ import {
   DomainError, isDomainError, getErrorCode, sanitizeForLogOutput,
   EntityNotFoundError, DuplicateEntityError, ConcurrencyConflictError,
   MissingSubtypeDataError, InvalidTypeValueError,
+  TenantContextFailedError,
 } from "@besterp/shared";
 
 /**
@@ -32,7 +33,7 @@ function domainErrorToStatus(error: DomainError): number {
     case MissingSubtypeDataError.CODE:
     case InvalidTypeValueError.CODE:
       return 422;
-    case "TENANT_CONTEXT_FAILED": // used by rls-extension
+    case TenantContextFailedError.CODE: // used by rls-extension
       return 503;
     default:
       return 500;

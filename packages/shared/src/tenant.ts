@@ -11,7 +11,7 @@
 // is retained as defense-in-depth.
 
 import type { PrismaClient, Prisma } from "@prisma/client";
-import { DomainError, isDomainError } from "./errors.js";
+import { DomainError, isDomainError, TenantContextFailedError } from "./errors.js";
 import { MAX_TENANT_ID_LENGTH } from "./constants.js";
 
 /** Prisma's interactive transaction client with all model delegates. */
@@ -106,8 +106,7 @@ export async function withTenant<T>(
       // failures (e.g. Postgres function missing, permission denied) with
       // the TENANT_CONTEXT_FAILED code.
       if (isDomainError(e)) throw e;
-      throw new DomainError(
-        "TENANT_CONTEXT_FAILED",
+      throw new TenantContextFailedError(
         "Failed to set tenant context. Ensure the set_tenant_context() function exists and the database role has correct permissions.",
         { cause: e instanceof Error ? e : new Error(String(e)) }
       );

@@ -134,6 +134,23 @@ export class ConcurrencyConflictError extends DomainError {
 }
 
 /**
+ * Thrown when the set_tenant_context() PostgreSQL function fails, typically
+ * because the function does not exist or the database role lacks permissions.
+ * Used by withTenant() in @besterp/shared/tenant.ts and by createTenantClient()
+ * in @besterp/database/rls-extension.ts.
+ */
+export class TenantContextFailedError extends DomainError {
+  static readonly CODE = "TENANT_CONTEXT_FAILED";
+  constructor(
+    message: string,
+    options?: DomainErrorOptions
+  ) {
+    super(TenantContextFailedError.CODE, message, options);
+    this.name = "TenantContextFailedError";
+  }
+}
+
+/**
  * Type guard — check if an error is a DomainError (or any subclass).
  */
 export function isDomainError(error: unknown): error is DomainError {
