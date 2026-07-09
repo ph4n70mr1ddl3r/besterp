@@ -10,6 +10,7 @@ export {
   DuplicateEntityError,
   EntityNotFoundError,
   ConcurrencyConflictError,
+  InvalidTenantIdError,
   TenantContextFailedError,
   isDomainError,
   getErrorCode,

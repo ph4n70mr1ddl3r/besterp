@@ -404,7 +404,7 @@ export class PartyService {
 
     // Build where clause after validation to ensure tenantId is validated first
     const where: Prisma.PartyWhereInput = { tenantId: trimmedTenantId };
-    
+
     const trimmedName = this.requireNonEmptyFilter(name, "name", ["search_parties"]);
     if (trimmedName) {
       // Use contains for flexible partial matching (case-insensitive).
@@ -518,8 +518,8 @@ export class PartyService {
     // check, so a passing value is guaranteed to construct a valid Date.
     if (!isValidISODate(trimmed)) {
       throw new InvalidTypeValueError(
-        `Invalid fromDate format: ${fromDate}. Use ISO 8601 format (YYYY-MM-DDTHH:mm:ss.sssZ)`,
-        { suggestedTools: ["add_party_role"], context: { field: "fromDate", invalidValue: fromDate ?? "undefined" } }
+        `Invalid fromDate format: ${trimmed}. Use ISO 8601 format (YYYY-MM-DDTHH:mm:ss.sssZ)`,
+        { suggestedTools: ["add_party_role"], context: { field: "fromDate", invalidValue: trimmed } }
       );
     }
     return new Date(trimmed);

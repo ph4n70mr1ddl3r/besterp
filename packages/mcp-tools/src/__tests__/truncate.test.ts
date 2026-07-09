@@ -29,16 +29,12 @@ describe("truncateValue", () => {
     expect(truncateValue(123456789n)).toBe("123456789");
   });
 
-  it("marks symbols and functions with a stable marker", () => {
+  it("marks symbols and functions with an error marker", () => {
     expect(truncateValue(Symbol("x"))).toEqual({
-      _truncated: true,
-      _originalSize: 0,
-      _preview: "[Symbol]",
+      _error: "Cannot serialize Symbol value",
     });
     expect(truncateValue(() => undefined)).toEqual({
-      _truncated: true,
-      _originalSize: 0,
-      _preview: "[Function]",
+      _error: "Cannot serialize Function value",
     });
   });
 

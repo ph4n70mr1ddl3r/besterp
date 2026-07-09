@@ -11,7 +11,7 @@
 // is retained as defense-in-depth.
 
 import type { PrismaClient, Prisma } from "@prisma/client";
-import { DomainError, isDomainError, TenantContextFailedError } from "./errors.js";
+import { isDomainError, TenantContextFailedError, InvalidTenantIdError } from "./errors.js";
 import { MAX_TENANT_ID_LENGTH } from "./constants.js";
 
 /** Prisma's interactive transaction client with all model delegates. */
@@ -28,14 +28,12 @@ const TENANT_ID_PATTERN = /^[a-zA-Z0-9_-]+$/;
  */
 export function validateTenantId(tenantId: string): void {
   if (typeof tenantId !== "string" || tenantId.length === 0) {
-    throw new DomainError(
-      "INVALID_TENANT_ID",
+    throw new InvalidTenantIdError(
       "Tenant ID must be a non-empty string."
     );
   }
   if (tenantId.length > MAX_TENANT_ID_LENGTH) {
-    throw new DomainError(
-      "INVALID_TENANT_ID",
+    throw new InvalidTenantIdError(
       `Tenant ID is too long (max ${MAX_TENANT_ID_LENGTH} characters).`
     );
   }
@@ -43,8 +41,7 @@ export function validateTenantId(tenantId: string): void {
     // Sanitize: show only first 20 chars to prevent log injection and
     // information disclosure from untrusted input.
     const preview = tenantId.length > 20 ? `${tenantId.slice(0, 20)}...` : tenantId;
-    throw new DomainError(
-      "INVALID_TENANT_ID",
+    throw new InvalidTenantIdError(
       `Invalid tenant ID: "${preview}". ` +
         "Tenant IDs may only contain alphanumeric characters, hyphens, and underscores."
     );

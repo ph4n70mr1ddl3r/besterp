@@ -131,10 +131,10 @@ export function truncateValue(value: unknown, maxSize: number = MAX_STORED_PAYLO
     return str;
   }
   if (typeof value === "symbol") {
-    return { _truncated: true, _originalSize: 0, _preview: "[Symbol]" };
+    return { _error: "Cannot serialize Symbol value" };
   }
   if (typeof value === "function") {
-    return { _truncated: true, _originalSize: 0, _preview: "[Function]" };
+    return { _error: "Cannot serialize Function value" };
   }
 
   try {

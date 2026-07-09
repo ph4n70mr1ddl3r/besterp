@@ -15,7 +15,7 @@ import type { Response } from "express";
 import {
   DomainError, isDomainError, getErrorCode, sanitizeForLogOutput,
   EntityNotFoundError, DuplicateEntityError, ConcurrencyConflictError,
-  MissingSubtypeDataError, InvalidTypeValueError,
+  MissingSubtypeDataError, InvalidTypeValueError, InvalidTenantIdError,
   TenantContextFailedError,
 } from "@besterp/shared";
 
@@ -29,7 +29,7 @@ function domainErrorToStatus(error: DomainError): number {
     case DuplicateEntityError.CODE:
     case ConcurrencyConflictError.CODE:
       return 409;
-    case "INVALID_TENANT_ID":   // used by withTenant in @besterp/shared
+    case InvalidTenantIdError.CODE:
     case MissingSubtypeDataError.CODE:
     case InvalidTypeValueError.CODE:
       return 422;

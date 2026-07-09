@@ -133,6 +133,18 @@ export class ConcurrencyConflictError extends DomainError {
   }
 }
 
+/** Thrown when a tenant ID fails format validation (empty, too long, or contains invalid characters). */
+export class InvalidTenantIdError extends DomainError {
+  static readonly CODE = "INVALID_TENANT_ID";
+  constructor(
+    message: string,
+    options?: DomainErrorOptions
+  ) {
+    super(InvalidTenantIdError.CODE, message, options);
+    this.name = "InvalidTenantIdError";
+  }
+}
+
 /**
  * Thrown when the set_tenant_context() PostgreSQL function fails, typically
  * because the function does not exist or the database role lacks permissions.
