@@ -36,25 +36,31 @@ function extractPrismaError(error: unknown): { code: string | undefined; meta: {
 /** Maximum length for a single error message in the error handler stderr log. */
 const MAX_ERROR_LOG_LINE_LENGTH = 500;
 
-function sanitizeContextValue(value: unknown): unknown {
+const MAX_SANITIZE_DEPTH = 10;
+
+function sanitizeContextValue(value: unknown, depth = 0, seen?: WeakSet<object>): unknown {
+  if (depth > MAX_SANITIZE_DEPTH) return "[Too deep]";
   if (typeof value === "string") return sanitizeForLogOutput(value).slice(0, MAX_ERROR_LOG_LINE_LENGTH);
-  if (Array.isArray(value)) return value.map(sanitizeContextValue);
+  if (Array.isArray(value)) return value.map((v) => sanitizeContextValue(v, depth + 1, seen));
   if (value instanceof Map) {
     // Convert to array of [key, value] pairs: Map is not JSON-native, but
     // an array of entries survives serialisation and preserves diagnostic info.
-    return [...value.entries()].map(([k, v]) => [sanitizeContextValue(k), sanitizeContextValue(v)]);
+    return [...value.entries()].map(([k, v]) => [sanitizeContextValue(k, depth + 1, seen), sanitizeContextValue(v, depth + 1, seen)]);
   }
   if (value instanceof Set) {
     // Convert to array of values so diagnostic info is not silently lost.
-    return [...value].map((v) => sanitizeContextValue(v));
+    return [...value].map((v) => sanitizeContextValue(v, depth + 1, seen));
   }
   if (value instanceof WeakMap || value instanceof WeakSet) {
     return "[ITERABLE]";
   }
   if (value != null && typeof value === "object" && !(value instanceof Date || value instanceof RegExp)) {
+    seen = seen ?? new WeakSet();
+    if (seen.has(value as object)) return "[Circular]";
+    seen.add(value as object);
     const result: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-      result[k] = sanitizeContextValue(v);
+      result[k] = sanitizeContextValue(v, depth + 1, seen);
     }
     return result;
   }

@@ -198,7 +198,7 @@ function createModelDelegateProxy(
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const originalFn = (modelTarget as any)[method];
-      if (typeof originalFn !== "function") return originalFn;
+      if (typeof originalFn !== "function") return undefined;
       if (!DATA_METHODS.has(method)) return originalFn;
 
       const cacheKey = `${modelName}.${method}`;

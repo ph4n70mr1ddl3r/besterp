@@ -118,7 +118,12 @@ interface BackpressureManager {
 
 function createBackpressureManager(prisma: PrismaClient): BackpressureManager {
   let activeWrites = 0;
-  const writeQueue: Array<{ resolve: (value: { acquired: boolean }) => void; timer: ReturnType<typeof setTimeout>; settled: boolean }> = [];
+  interface QueueEntry {
+    resolve: (value: { acquired: boolean }) => void;
+    timer: ReturnType<typeof setTimeout>;
+    settled: boolean;
+  }
+  const writeQueue: QueueEntry[] = [];
   let droppedCount = 0;
   let errorCount = 0;
 
@@ -128,17 +133,17 @@ function createBackpressureManager(prisma: PrismaClient): BackpressureManager {
       return Promise.resolve({ acquired: true });
     }
     return new Promise<{ acquired: boolean }>((resolve) => {
-      let settled = false;
-      const timer = setTimeout(() => {
-        if (settled) return;
-        settled = true;
-        const idx = writeQueue.findIndex((entry) => entry.timer === timer);
+      const entry: QueueEntry = { resolve, timer: null!, settled: false };
+      entry.timer = setTimeout(() => {
+        if (entry.settled) return;
+        entry.settled = true;
+        const idx = writeQueue.indexOf(entry);
         if (idx !== -1) writeQueue.splice(idx, 1);
         process.stderr.write(`[AuditLog] Write slot timeout after ${WRITE_QUEUE_TIMEOUT_MS}ms — dropping audit entry\n`);
         resolve({ acquired: false });
       }, WRITE_QUEUE_TIMEOUT_MS);
-      timer.unref();
-      writeQueue.push({ resolve, timer, settled: false });
+      entry.timer.unref();
+      writeQueue.push(entry);
     });
   }
 
@@ -147,7 +152,6 @@ function createBackpressureManager(prisma: PrismaClient): BackpressureManager {
     while (writeQueue.length > 0) {
       const next = writeQueue.shift()!;
       clearTimeout(next.timer);
-      if (next.settled) continue;
       next.settled = true;
       activeWrites++;
       next.resolve({ acquired: true });

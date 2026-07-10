@@ -39,8 +39,8 @@ export class ToolRegistry {
     if (!definition.name || typeof definition.name !== "string") {
       throw new Error("Tool name must be a non-empty string.");
     }
-    // Check reserved prefix FIRST — the snake_case regex would reject `__`
-    // (requires [a-z] as first char), making this check unreachable.
+    // Check reserved prefix FIRST to provide a specific error message — the
+    // snake_case regex below would also reject `__` with a generic error.
     if (definition.name.startsWith("__")) {
       throw new Error(`Tool name '${definition.name}' must not start with '__' (reserved prefix).`);
     }

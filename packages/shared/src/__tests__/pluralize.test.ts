@@ -95,7 +95,7 @@ describe("pluralize", () => {
     expect(pluralize("")).toBe("");
   });
 
-  it("handles singluar words ending in -ves without double-pluralizing", () => {
+  it("handles singular words ending in -ves without double-pluralizing", () => {
     // The guard at line 59 prevents "wolveses" by returning the input as-is
     // when it already ends in "ves" — handles both regular -ves forms and
     // words that are already pluralized.

@@ -56,9 +56,9 @@ export function pluralize(entity: string): string {
   const lower = entity.toLowerCase();
   const irregular = IRREGULAR_PLURALS[lower];
   if (irregular) return preserveCasing(entity, irregular);
-  if (isConsonantYEnding(lower)) return entity.slice(0, -1) + "ies";
+  if (isConsonantYEnding(lower)) return preserveCasing(entity, entity.slice(0, -1) + "ies");
   if (lower.endsWith("ves")) return entity;
-  if (isSibilantEnding(lower)) return entity + "es";
-  if (isConsonantOEnding(lower)) return entity + "es";
-  return entity + "s";
+  if (isSibilantEnding(lower)) return preserveCasing(entity, entity + "es");
+  if (isConsonantOEnding(lower)) return preserveCasing(entity, entity + "es");
+  return preserveCasing(entity, entity + "s");
 }
