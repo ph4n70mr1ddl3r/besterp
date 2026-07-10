@@ -134,15 +134,23 @@ function createBackpressureManager(prisma: PrismaClient): BackpressureManager {
     }
     return new Promise<{ acquired: boolean }>((resolve) => {
       const entry: QueueEntry = { resolve, timer: null!, settled: false };
-      entry.timer = setTimeout(() => {
-        if (entry.settled) return;
-        entry.settled = true;
-        const idx = writeQueue.indexOf(entry);
-        if (idx !== -1) writeQueue.splice(idx, 1);
-        process.stderr.write(`[AuditLog] Write slot timeout after ${WRITE_QUEUE_TIMEOUT_MS}ms — dropping audit entry\n`);
+      try {
+        entry.timer = setTimeout(() => {
+          if (entry.settled) return;
+          entry.settled = true;
+          const idx = writeQueue.indexOf(entry);
+          if (idx !== -1) writeQueue.splice(idx, 1);
+          process.stderr.write(`[AuditLog] Write slot timeout after ${WRITE_QUEUE_TIMEOUT_MS}ms — dropping audit entry\n`);
+          resolve({ acquired: false });
+        }, WRITE_QUEUE_TIMEOUT_MS);
+        entry.timer.unref();
+      } catch {
+        // setTimeout can fail under extreme memory pressure — drop immediately
+        // rather than leaving the entry in the queue without a timer.
+        process.stderr.write(`[AuditLog] Failed to create timeout for write slot — dropping audit entry\n`);
         resolve({ acquired: false });
-      }, WRITE_QUEUE_TIMEOUT_MS);
-      entry.timer.unref();
+        return;
+      }
       writeQueue.push(entry);
     });
   }

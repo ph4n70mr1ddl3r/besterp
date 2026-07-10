@@ -15,6 +15,8 @@ import {
 } from "../schema/tool-definition.js";
 import { MAX_IDEMPOTENCY_KEY_LENGTH } from "@besterp/shared";
 
+const VALID_RISK_LEVELS: readonly RiskLevel[] = ["none", "low", "medium", "high", "critical"];
+
 export class ToolRegistry {
   private readonly tools = new Map<string, RegistryEntry>();
   private readonly globalMiddlewares: ToolMiddleware[] = [];
@@ -72,7 +74,6 @@ export class ToolRegistry {
       );
     }
 
-    const VALID_RISK_LEVELS: readonly RiskLevel[] = ["none", "low", "medium", "high", "critical"];
     if (!definition.riskLevel || !VALID_RISK_LEVELS.includes(definition.riskLevel)) {
       throw new Error(
         `Tool '${definition.name}' has an invalid riskLevel: '${String(definition.riskLevel)}'. ` +
