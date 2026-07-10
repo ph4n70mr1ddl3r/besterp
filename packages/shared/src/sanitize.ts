@@ -166,7 +166,8 @@ export function sanitizeLogMessage(s: string): string {
   // them eliminates the vector entirely.
   /* eslint-disable no-control-regex */
   return s
-    .replace(/\x1b\[[0-9;]*[\x40-\x7E]/g, "")
+    // CSI: ESC [ parameter-bytes (0x30–0x3F) final-byte (0x40–0x7E)
+    .replace(/\x1b\[[\x30-\x3F]*[\x40-\x7E]/g, "")
     .replace(/\x1b[\]_X^P][\s\S]*?(?:\x1b\\|\x07)/g, "")
     .replace(/\x1b[\x20-\x2F]*[\x30-\x7E]/g, "")
     .replace(/[\r\n\t\x00-\x08\x0b\x0c\x0e-\x1f\x7f\x80-\x9f]/g, "_");

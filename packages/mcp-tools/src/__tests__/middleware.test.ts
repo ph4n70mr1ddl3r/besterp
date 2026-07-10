@@ -933,6 +933,35 @@ describe("Error Handler Middleware", () => {
     expect(result.error?.suggestedTools).toEqual(["test_tool", "list_available_tools"]);
   });
 
+  it("should omit context when domain error carries no context", async () => {
+    const domainError = new DomainError(
+      "NO_CONTEXT",
+      "No context provided",
+    );
+
+    const result = await errorHandlerMiddleware({}, mockContext, mockDefinition, throwingNext(domainError));
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe("NO_CONTEXT");
+    expect(result.error?.context).toBeUndefined();
+  });
+
+  it("should include context when domain error carries context", async () => {
+    const domainError = new DomainError(
+      "WITH_CONTEXT",
+      "With context",
+      { context: { field: "name", reason: "too short" } },
+    );
+
+    const result = await errorHandlerMiddleware({}, mockContext, mockDefinition, throwingNext(domainError));
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe("WITH_CONTEXT");
+    expect(result.error?.context).toBeDefined();
+    expect(result.error?.context?.field).toBe("name");
+    expect(result.error?.context?.reason).toBe("too short");
+  });
+
   it("should handle Prisma unique constraint violations", async () => {
     const prismaError: any = new Error("Unique constraint violation");
     prismaError.code = "P2002";

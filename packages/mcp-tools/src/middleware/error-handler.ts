@@ -83,7 +83,9 @@ function sanitizeContextValueForToolResult(value: unknown): Record<string, unkno
   const sanitized = sanitizeContextValue(value);
   if (sanitized === null || sanitized === undefined) return undefined;
   if (typeof sanitized === "object" && sanitized !== null) {
-    return sanitized as Record<string, unknown>;
+    const obj = sanitized as Record<string, unknown>;
+    if (Object.keys(obj).length === 0) return undefined;
+    return obj;
   }
   return undefined;
 }

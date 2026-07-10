@@ -329,6 +329,22 @@ describe("sanitizeForLog", () => {
     expect(sanitizeForLog("end\x1b")).toBe("end_");
     expect(sanitizeForLog("\x1b")).toBe("_");
   });
+
+  it("strips CSI sequences with non-digit parameter bytes (?, <, =, >)", () => {
+    // ECMA-48 allows parameter bytes in the range 0x30–0x3F (digits + : ; < = > ?).
+    // The old regex [0-9;] missed < = > ?, so sequences like ESC [ ? 2 5 h
+    // (show cursor) and ESC [ ? 2 5 l (hide cursor) left stray chars after the
+    // ESC was replaced by the control-char pass. The fixed regex uses \x30-\x3F.
+    expect(sanitizeForLog("\x1b[?25h")).toBe("");
+    expect(sanitizeForLog("\x1b[?25l")).toBe("");
+    expect(sanitizeForLog("\x1b[?1049h")).toBe("");
+    expect(sanitizeForLog("\x1b[?1049l")).toBe("");
+    expect(sanitizeForLog("a\x1b[?25hb")).toBe("ab");
+    // Sequences with '>' (0x3E) parameter prefix (e.g. DEC private set/reset)
+    expect(sanitizeForLog("\x1b[>1;2c")).toBe("");
+    // Non-parameter '<' is a valid private CSI final byte
+    expect(sanitizeForLog("\x1b[<5;10m")).toBe("");
+  });
 });
 
 describe("sanitizeForLogOutput", () => {
