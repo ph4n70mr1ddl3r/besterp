@@ -16,7 +16,7 @@
 // If no idempotency key is provided, the middleware is a no-op pass-through.
 
 import { PrismaClient, Prisma, IdempotencyRecord } from "@prisma/client";
-import { hashInput, getErrorCode, sanitizeForLog, sanitizeLogOutput, InvalidTypeValueError, MAX_SOFT_FAILURE_MESSAGE_SIZE, IDEMPOTENCY_TTL_MS, MAX_IDEMPOTENCY_KEY_LENGTH, IDEMPOTENCY_MAX_RETRIES, IDEMPOTENCY_RETRY_BASE_DELAY_MS } from "@besterp/shared";
+import { hashInput, getErrorCode, sanitizeForLog, sanitizeLogOutput, ConcurrencyConflictError, MAX_SOFT_FAILURE_MESSAGE_SIZE, IDEMPOTENCY_TTL_MS, MAX_IDEMPOTENCY_KEY_LENGTH, IDEMPOTENCY_MAX_RETRIES, IDEMPOTENCY_RETRY_BASE_DELAY_MS } from "@besterp/shared";
 import { ToolMiddleware, ToolResult, ToolContext } from "../schema/tool-definition.js";
 import { truncateValue, MAX_STORED_PAYLOAD_SIZE, capString } from "./truncate.js";
 
@@ -337,7 +337,7 @@ async function updateIdempotencyRecordWithRetry(
       }
       const detail = updateErr instanceof Error ? updateErr.message : String(updateErr);
       logIdempotencyWarn(`Failed to update idempotency record '${sanitizeForLog(idempotencyKey.slice(0, 32))}' after ${IDEMPOTENCY_MAX_RETRIES} attempts: ${sanitizeLogOutput(detail)}`);
-      throw new InvalidTypeValueError(
+      throw new ConcurrencyConflictError(
         `Idempotency record could not be updated after ${IDEMPOTENCY_MAX_RETRIES} attempts. ` +
         `The operation may have succeeded but subsequent retries will receive REQUEST_IN_PROGRESS. ` +
         `Detail: ${sanitizeForLog(detail)}`,

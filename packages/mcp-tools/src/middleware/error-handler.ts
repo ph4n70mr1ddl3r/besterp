@@ -225,10 +225,10 @@ export const errorHandlerMiddleware: ToolMiddleware = async (input, context, def
     }
 
     const { code: prismaCode, meta: prismaMeta } = extractPrismaError(error);
-    const entityName = definition.entity ?? "entity";
-    const entityPlural = pluralize(entityName);
 
-    if (prismaCode) {
+    if (prismaCode && definition.entity) {
+      const entityName = definition.entity;
+      const entityPlural = pluralize(entityName);
       const result = handlePrismaError(prismaCode, prismaMeta, entityName, entityPlural, definition);
       if (result) return result;
     }

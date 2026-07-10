@@ -11,6 +11,7 @@ import {
   ToolResult,
   ToolContext,
   ZodSchemaLike,
+  RiskLevel,
 } from "../schema/tool-definition.js";
 import { MAX_IDEMPOTENCY_KEY_LENGTH } from "@besterp/shared";
 
@@ -68,6 +69,14 @@ export class ToolRegistry {
         `Tool '${definition.name}' has an invalid inputSchema: ` +
         `expected a Zod schema (or anything exposing a .safeParse() method), ` +
         `got ${typeof definition.inputSchema}.`
+      );
+    }
+
+    const VALID_RISK_LEVELS: readonly RiskLevel[] = ["none", "low", "medium", "high", "critical"];
+    if (!definition.riskLevel || !VALID_RISK_LEVELS.includes(definition.riskLevel)) {
+      throw new Error(
+        `Tool '${definition.name}' has an invalid riskLevel: '${String(definition.riskLevel)}'. ` +
+        `Must be one of: ${VALID_RISK_LEVELS.join(", ")}.`
       );
     }
 

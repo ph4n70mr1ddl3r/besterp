@@ -142,14 +142,25 @@ function setupGracefulShutdown(app: INestApplication): void {
   app.enableShutdownHooks();
 }
 
-function configureCors(app: INestApplication): void {
+function parseAllowedOrigins(): string[] {
   const corsOrigins = process.env.CORS_ORIGINS;
   if (corsOrigins) {
     const origins = corsOrigins.split(",").map((o) => o.trim()).filter((o) => o.length > 0);
-    if (origins.length > 0) {
-      app.enableCors({ origin: origins, credentials: true });
-      return;
-    }
+    if (origins.length > 0) return origins;
+  }
+  return [];
+}
+
+function isAllowedOrigin(origin: string | undefined, allowed: string[]): boolean {
+  if (!origin || allowed.length === 0) return false;
+  return allowed.includes(origin);
+}
+
+function configureCors(app: INestApplication): void {
+  const allowedOrigins = parseAllowedOrigins();
+  if (allowedOrigins.length > 0) {
+    app.enableCors({ origin: allowedOrigins, credentials: true });
+    return;
   }
   if (process.env.NODE_ENV === "development") {
     const devOrigins = [
@@ -220,16 +231,17 @@ async function bootstrap() {
   // Express error middleware requires exactly 4 parameters.
   // CORS headers are set here so cross-origin clients can read the error
   // even when the main CORS middleware does not run for short-circuit errors.
+  const allowedOrigins = parseAllowedOrigins();
   app.use((err: Error & { type?: string }, req: Request, res: Response, next: NextFunction) => {
     const origin = req.headers.origin;
     if (err.type === "entity.too.large") {
-      if (origin) res.setHeader("Access-Control-Allow-Origin", origin);
+      if (origin && isAllowedOrigin(origin, allowedOrigins)) res.setHeader("Access-Control-Allow-Origin", origin);
       res.status(413).json({
         statusCode: 413,
         message: "Request body exceeds the 100 KB limit. Reduce payload size and retry.",
       });
     } else if (err.type === "entity.parse.failed") {
-      if (origin) res.setHeader("Access-Control-Allow-Origin", origin);
+      if (origin && isAllowedOrigin(origin, allowedOrigins)) res.setHeader("Access-Control-Allow-Origin", origin);
       res.status(400).json({
         statusCode: 400,
         message: "Request body contains malformed JSON. Check syntax and retry.",
@@ -246,8 +258,8 @@ async function bootstrap() {
   // body is visible to cross-origin clients regardless of environment.
   app.use((err: Error, req: Request, res: Response, _next: NextFunction) => {
     logger.error(`Unhandled Express middleware error: ${sanitizeForLogOutput(err.message)}`);
-    const origin = req.headers.origin ?? "";
-    if (origin) res.setHeader("Access-Control-Allow-Origin", origin);
+    const origin = req.headers.origin;
+    if (origin && isAllowedOrigin(origin, allowedOrigins)) res.setHeader("Access-Control-Allow-Origin", origin);
     const isDev = process.env.NODE_ENV === "development";
     res.status(500).json({
       statusCode: 500,
