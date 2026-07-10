@@ -62,7 +62,11 @@ function isNonPrimitiveObject(value: unknown): value is Record<string, unknown> 
 function sanitizeContextValue(value: unknown, depth = 0, seen?: WeakSet<object>): unknown {
   if (depth > MAX_SANITIZE_DEPTH) return "[Too deep]";
   if (typeof value === "string") return sanitizeForLogOutput(value).slice(0, MAX_ERROR_LOG_LINE_LENGTH);
-  if (Array.isArray(value)) return value.map((v) => sanitizeContextValue(v, depth + 1, seen));
+  if (Array.isArray(value)) {
+    const state = trackSeen(value, seen);
+    if (state.circular) return "[Circular]";
+    return value.map((v) => sanitizeContextValue(v, depth + 1, state.seen));
+  }
   if (value instanceof Map) {
     const state = trackSeen(value, seen);
     if (state.circular) return "[Circular]";
@@ -73,7 +77,7 @@ function sanitizeContextValue(value: unknown, depth = 0, seen?: WeakSet<object>)
     if (state.circular) return "[Circular]";
     return [...value].map((v) => sanitizeContextValue(v, depth + 1, state.seen));
   }
-  if (value instanceof WeakMap || value instanceof WeakSet) return "[ITERABLE]";
+  if (value instanceof WeakMap || value instanceof WeakSet) return "[WeakCollection]";
   if (isNonPrimitiveObject(value)) return sanitizeObject(value, depth, seen);
   if (value === undefined) return null;
   return value;
@@ -222,7 +226,7 @@ function handleGenericError(error: unknown, definition: { name: string }, tenant
   // Log sanitized details to stderr to prevent leaking sensitive info
   // (DB hostnames, connection strings, stack frames)
   process.stderr.write(
-    `[MCP] [${new Date().toISOString()}] Unexpected error in '${sanitizeForLog(definition.name)}' (tenant=${tenantId}, user=${userId}): ${safeMessage}\n`
+    `[MCP] [${new Date().toISOString()}] Unexpected error in '${sanitizeForLog(definition.name)}' (tenant=${sanitizeForLog(tenantId)}, user=${sanitizeForLog(userId)}): ${safeMessage}\n`
   );
   // Always return a generic message to the AI agent to prevent leaking internals
   return {

@@ -1133,4 +1133,54 @@ describe("Error Handler Middleware", () => {
 
     expect(result).toEqual(successResult);
   });
+
+  it("should handle circular arrays in error context without stack overflow", async () => {
+    const ctx: any[] = ["level0"];
+    ctx.push(ctx);
+
+    const domainError = new DomainError(
+      "CIRCULAR_ARRAY",
+      "Circular array in context",
+      { context: { items: ctx } as any },
+    );
+
+    const result = await errorHandlerMiddleware({}, mockContext, mockDefinition, throwingNext(domainError));
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe("CIRCULAR_ARRAY");
+    expect(result.error?.context?.items).toBeDefined();
+    expect(JSON.stringify(result.error?.context?.items)).toContain("[Circular]");
+  });
+
+  it("should handle circular Map in error context without stack overflow", async () => {
+    const m = new Map<string, unknown>([["key", "value"]]);
+    m.set("self", m);
+
+    const domainError = new DomainError(
+      "CIRCULAR_MAP",
+      "Circular Map in context",
+      { context: { mapData: m } as any },
+    );
+
+    const result = await errorHandlerMiddleware({}, mockContext, mockDefinition, throwingNext(domainError));
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe("CIRCULAR_MAP");
+  });
+
+  it("should handle WeakSet in error context as [WeakCollection]", async () => {
+    const ws = new WeakSet<object>();
+
+    const domainError = new DomainError(
+      "WEAK_SET",
+      "WeakSet in context",
+      { context: { weakData: ws } as any },
+    );
+
+    const result = await errorHandlerMiddleware({}, mockContext, mockDefinition, throwingNext(domainError));
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe("WEAK_SET");
+    expect(result.error?.context?.weakData).toBe("[WeakCollection]");
+  });
 });

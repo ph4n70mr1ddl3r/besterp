@@ -131,13 +131,16 @@ export class DomainExceptionFilter implements ExceptionFilter {
 
   private handleUnexpectedError(exception: unknown, response: Response): void {
     const errorCode = getErrorCode(exception);
+    const description = exception instanceof Error
+      ? exception.message
+      : (() => {
+          try { return JSON.stringify(exception); } catch { return String(exception); }
+        })();
     this.logger.error(
-      `Unhandled exception${errorCode ? ` [${errorCode}]` : ""}: ${sanitizeForLogOutput(exception instanceof Error ? exception.message : String(exception))}`,
+      `Unhandled exception${errorCode ? ` [${errorCode}]` : ""}: ${sanitizeForLogOutput(description)}`,
       exception instanceof Error && exception.stack ? sanitizeForLogOutput(exception.stack) : undefined
     );
     const isDev = process.env.NODE_ENV === "development";
-    // In development, include the (sanitized) error message to aid debugging.
-    // In all other environments, return a safe generic message.
     const responseMessage = isDev && exception instanceof Error
       ? sanitizeForLogOutput(exception.message)
       : "Internal server error";

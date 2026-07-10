@@ -41,7 +41,7 @@ function validateEnvironment(): void {
   }
 
   // Validate JWT_EXPIRES_IN format if provided.
-  if (process.env.JWT_EXPIRES_IN && !/^\d+\s*[smhd]$/.test(process.env.JWT_EXPIRES_IN)) {
+  if (process.env.JWT_EXPIRES_IN && !/^\d+[smhd]$/.test(process.env.JWT_EXPIRES_IN)) {
     logger.error(
       `JWT_EXPIRES_IN "${process.env.JWT_EXPIRES_IN}" is invalid. Must be a duration string like "24h", "60m", "7d".`
     );

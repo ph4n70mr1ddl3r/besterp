@@ -735,7 +735,7 @@ describe("PartyService", () => {
         },
         $transaction: vi.fn().mockImplementation(async (fn) => {
           const tx = {
-            party: { findFirst: vi.fn().mockResolvedValue({ partyId: "12345678-1234-1234-1234-123456789abc" }) },
+            party: { findUnique: vi.fn().mockResolvedValue({ partyId: "12345678-1234-1234-1234-123456789abc" }) },
             partyRole: {
               findFirst: vi.fn().mockResolvedValue(null),
               create: vi.fn().mockResolvedValue({
@@ -773,7 +773,7 @@ describe("PartyService", () => {
         },
         $transaction: vi.fn().mockImplementation(async (fn) => {
           const tx = {
-            party: { findFirst: vi.fn().mockResolvedValue({ partyId: "12345678-1234-1234-1234-123456789abc" }) },
+            party: { findUnique: vi.fn().mockResolvedValue({ partyId: "12345678-1234-1234-1234-123456789abc" }) },
             partyRole: {
               findFirst: vi.fn().mockResolvedValue({
                 partyRoleId: "existing-role",
@@ -809,7 +809,7 @@ describe("PartyService", () => {
         },
         $transaction: vi.fn().mockImplementation(async (fn) => {
           const tx = {
-            party: { findFirst: vi.fn().mockResolvedValue({ partyId: "12345678-1234-1234-1234-123456789abc" }) },
+            party: { findUnique: vi.fn().mockResolvedValue({ partyId: "12345678-1234-1234-1234-123456789abc" }) },
             partyRole: {
               findFirst: vi.fn().mockResolvedValue({
                 partyRoleId: "existing-role",
@@ -878,7 +878,7 @@ describe("PartyService", () => {
         },
         $transaction: vi.fn().mockImplementation(async (fn) => {
           const tx = {
-            party: { findFirst: vi.fn().mockResolvedValue(null) },
+            party: { findUnique: vi.fn().mockResolvedValue(null) },
           };
           return fn(tx);
         }),
@@ -961,7 +961,7 @@ describe("PartyService", () => {
         },
         $transaction: vi.fn().mockImplementation(async (fn) => {
           const tx = {
-            party: { findFirst: vi.fn().mockResolvedValue({ partyId: "12345678-1234-1234-1234-123456789abc" }) },
+            party: { findUnique: vi.fn().mockResolvedValue({ partyId: "12345678-1234-1234-1234-123456789abc" }) },
             partyRole: {
               findFirst: vi.fn().mockResolvedValue(null),
               create: vi.fn().mockResolvedValue({
@@ -1074,7 +1074,7 @@ describe("PartyService", () => {
         roleType: { findUnique: vi.fn().mockResolvedValue({ roleTypeId: "rt-customer" }) },
         $transaction: vi.fn().mockImplementation(async (fn) => {
           const tx = {
-            party: { findFirst: vi.fn().mockResolvedValue({ partyId: "12345678-1234-1234-1234-123456789abc" }) },
+            party: { findUnique: vi.fn().mockResolvedValue({ partyId: "12345678-1234-1234-1234-123456789abc" }) },
             partyRole: {
               findFirst: vi.fn().mockResolvedValue(null),
               create: vi.fn().mockResolvedValue({
@@ -1107,7 +1107,7 @@ describe("PartyService", () => {
         roleType: { findUnique: vi.fn().mockResolvedValue({ roleTypeId: "rt-customer" }) },
         $transaction: vi.fn().mockImplementation(async (fn) => {
           const tx = {
-            party: { findFirst: vi.fn().mockResolvedValue({ partyId: "12345678-1234-1234-1234-123456789abc" }) },
+            party: { findUnique: vi.fn().mockResolvedValue({ partyId: "12345678-1234-1234-1234-123456789abc" }) },
             partyRole: {
               findFirst: vi.fn().mockResolvedValue(null),
               create: vi.fn().mockResolvedValue({
@@ -1155,7 +1155,7 @@ describe("PartyService", () => {
         $transaction: vi.fn().mockImplementation(async (fn) => {
           const tx = {
             party: {
-              findFirst: vi.fn().mockResolvedValue({ partyId: "12345678-1234-1234-1234-123456789abc" }),
+              findUnique: vi.fn().mockResolvedValue({ partyId: "12345678-1234-1234-1234-123456789abc" }),
             },
             contactMechanism: {
               create: vi.fn().mockResolvedValue({
@@ -1242,7 +1242,7 @@ describe("PartyService", () => {
         $transaction: vi.fn().mockImplementation(async (fn) => {
           const tx = {
             party: {
-              findFirst: vi.fn().mockResolvedValue(null),
+              findUnique: vi.fn().mockResolvedValue(null),
             },
           };
           return fn(tx);
@@ -1316,7 +1316,7 @@ describe("PartyService", () => {
         $transaction: vi.fn().mockImplementation(async (fn) => {
           const tx = {
             party: {
-              findFirst: vi.fn().mockResolvedValue({ partyId: "12345678-1234-1234-1234-123456789abc" }),
+              findUnique: vi.fn().mockResolvedValue({ partyId: "12345678-1234-1234-1234-123456789abc" }),
             },
             telecomNumber: {
               findFirst: vi.fn().mockResolvedValue(null),
@@ -1368,7 +1368,7 @@ describe("PartyService", () => {
         $transaction: vi.fn().mockImplementation(async (fn) => {
           const tx = {
             party: {
-              findFirst: vi.fn().mockResolvedValue({ partyId: "12345678-1234-1234-1234-123456789abc" }),
+              findUnique: vi.fn().mockResolvedValue({ partyId: "12345678-1234-1234-1234-123456789abc" }),
             },
             emailAddress: {
               findFirst: vi.fn().mockResolvedValue(null),
@@ -1432,7 +1432,7 @@ describe("PartyService", () => {
         $transaction: vi.fn().mockImplementation(async (fn) => {
           const tx = {
             party: {
-              findFirst: vi.fn().mockResolvedValue({ partyId: "12345678-1234-1234-1234-123456789abc" }),
+              findUnique: vi.fn().mockResolvedValue({ partyId: "12345678-1234-1234-1234-123456789abc" }),
             },
             emailAddress: {
               findFirst: vi.fn().mockResolvedValue(null),
@@ -1677,7 +1677,7 @@ describe("PartyService", () => {
         },
         $transaction: vi.fn().mockImplementation(async (fn) => {
           const tx = {
-            party: { findFirst: vi.fn().mockResolvedValue({ partyId: "12345678-1234-1234-1234-123456789abc" }) },
+            party: { findUnique: vi.fn().mockResolvedValue({ partyId: "12345678-1234-1234-1234-123456789abc" }) },
             telecomNumber: {
               findFirst: vi.fn().mockResolvedValue(null),
             },
@@ -1718,7 +1718,7 @@ describe("PartyService", () => {
         },
         $transaction: vi.fn().mockImplementation(async (fn) => {
           const tx = {
-            party: { findFirst: vi.fn().mockResolvedValue({ partyId: "12345678-1234-1234-1234-123456789abc" }) },
+            party: { findUnique: vi.fn().mockResolvedValue({ partyId: "12345678-1234-1234-1234-123456789abc" }) },
             telecomNumber: { findFirst: vi.fn().mockResolvedValue(null) },
             contactMechanism: {
               create: vi.fn().mockResolvedValue({

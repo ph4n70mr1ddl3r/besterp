@@ -246,6 +246,11 @@ describe("isValidISODate", () => {
     expect(isValidISODate("2023-02-29")).toBe(false);
   });
 
+  it("accepts date-only with Z suffix (UTC marker, no time)", () => {
+    expect(isValidISODate("2024-06-15Z")).toBe(true);
+    expect(isValidISODate("2000-02-29Z")).toBe(true);
+  });
+
   it("rejects non-date strings", () => {
     expect(isValidISODate("not-a-date")).toBe(false);
     expect(isValidISODate("")).toBe(false);
