@@ -177,6 +177,44 @@ describe("sanitizeLogOutput", () => {
     expect(sanitizeLogOutput("ws://internal-host:8080/ws")).toContain("[WEBSOCKET_URL]");
     expect(sanitizeLogOutput("wss://secure-host/path")).toContain("[WEBSOCKET_URL]");
   });
+
+  it("redacts credential-bearing URLs with unlisted schemes", () => {
+    // Regression guard: the scheme-specific patterns only cover postgres,
+    // redis, mongodb, mysql, amqp, http(s), ftp/sftp, and ws/wss. A driver or
+    // library error can embed a credential-bearing URL in any other scheme
+    // (ldap, ssh, vault, smtp, or a custom scheme). Without the generic
+    // userinfo catch-all, `ssh://user:pass@host`, `ldap://cn=admin:password@host`,
+    // and `vault://token:s3cret@host` passed through verbatim — leaking
+    // credentials to operator logs.
+    expect(sanitizeLogOutput("ssh://user:pass@host:22/path")).toBe("[REDACTED_URL]");
+    expect(sanitizeLogOutput("ldap://cn=admin:password@ldap.host/dc=x")).toBe("[REDACTED_URL]");
+    expect(sanitizeLogOutput("vault://token:s3cret@vault.svc:8200")).toBe("[REDACTED_URL]");
+    expect(sanitizeLogOutput("ldaps://admin:secret@ldap.example.com")).toBe("[REDACTED_URL]");
+    // Credentials in the middle of a sentence are still redacted.
+    const result = sanitizeLogOutput("failed to connect via ssh://deploy:key@10.0.0.5 to deploy host");
+    expect(result).not.toContain("deploy:key");
+    expect(result).not.toContain("10.0.0.5");
+    expect(result).toContain("[REDACTED_URL]");
+  });
+
+  it("leaves credential-free URLs of arbitrary schemes untouched", () => {
+    // The generic catch-all only fires when a userinfo segment (user:pass@)
+    // is present, so scheme-only URLs without credentials are not false
+    // positives. `file:///etc/passwd` has no userinfo and must survive.
+    expect(sanitizeLogOutput("file:///etc/passwd")).toBe("file:///etc/passwd");
+    expect(sanitizeLogOutput("custom://host/path")).toBe("custom://host/path");
+    // A scheme with just a bare host (no userinfo) is not credential-bearing.
+    expect(sanitizeLogOutput("ssh://host")).toBe("ssh://host");
+  });
+
+  it("preserves labelled output for scheme-specific patterns over the generic catch-all", () => {
+    // The generic pattern runs AFTER the scheme-specific ones, so a postgres
+    // URL keeps its [DATABASE_URL] label rather than the generic
+    // [REDACTED_URL].
+    expect(sanitizeLogOutput("postgres://u:p@h/db")).toBe("[DATABASE_URL]");
+    expect(sanitizeLogOutput("https://api.example.com/path")).toBe("https://[HOST]/[PATH]");
+    expect(sanitizeLogOutput("redis://:password@host:6379")).toBe("[REDIS_URL]");
+  });
 });
 
 describe("sanitizeForLog", () => {

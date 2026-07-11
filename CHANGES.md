@@ -1,5 +1,19 @@
 # BestERP — Security & Architecture Fixes
 
+## Changes Applied (2026-07-11) — Code Review Round 14
+
+### 🟡 Security: `audit-log.ts` — camelCase sensitive fields leaked past catch-all redaction regex (redaction bypass)
+
+**Problem:** `SENSITIVE_FIELD_PATTERN` uses alnum-only lookarounds (`(?<![a-zA-Z0-9])` / `(?![a-zA-Z0-9])`) so `_` and `-` act as separators, but the lowercase→uppercase transition does **not**. The snake_case siblings were redacted (`client_secret`, `bearer_token`, `access_token`) while their camelCase forms — `clientSecret`, `bearerToken`, `accessToken`, `refreshToken`, `userPassword`, `sessionToken` — leaked verbatim into `ai_action_log.tool_input`. Confirmed by probe: `isSensitiveField("clientSecret")` returned `false` while `isSensitiveField("client_secret")` returned `true`. These are common OAuth/credential field names, so the gap was a real redaction bypass on a durable, cross-tenant audit table. The code comment even claimed camelCase was caught, but the implementation only delivered that for `auth`-prefixed names (`authToken`) via the dedicated `auth(?:token|key|code|…)?` branch.
+
+**Fix:** Added a token-based fallback to `isSensitiveField`. `splitFieldTokens()` splits a field name at snake_case, kebab-case, **and** camelCase boundaries (`clientSecret` → `[client, Secret]`), then each token is checked against `SENSITIVE_TOKENS` (`password`, `passwd`, `pwd`, `secret`, `token`, `credential`, `credentials`). `key` is intentionally excluded — it over-redacts benign names like `primaryKey`/`foreignKey`/`sortKey`; key-bearing sensitive fields stay covered by the explicit `SENSITIVE_FIELDS` set and the `api[_-]?key` regex. None of the current party-tool field names (`idempotencyKey`, `lineNumber`, `birthDate`, `partyType`, …) contain a sensitive token, so there is no over-redaction in practice. Added a regression test in `middleware.test.ts` asserting the camelCase forms are redacted, their snake_case siblings stay redacted, and `primaryKey`/`foreignKey`/`idempotencyKey`/`tokenize`/`secrets` are preserved.
+
+### 🟡 Security: `sanitize.ts` — credential-bearing URLs with unlisted schemes leaked to operator logs
+
+**Problem:** `sanitizeLogOutput` had explicit patterns for `postgres(ql)://`, `redis://`, `mongodb://`, `mysql://`, `amqp(s)://`, `http(s)://`, `ftp/sftp://`, and `ws/wss://`, but no catch-all for other schemes. A driver/library error can embed a credential-bearing URL in any scheme — e.g. `ssh://user:pass@host`, `ldap://cn=admin:password@host`, `vault://token:s3cret@host` — and these passed through verbatim, leaking inline credentials to stderr/audit logs. Confirmed by probe: all three were returned unchanged.
+
+**Fix:** Added a generic credential-URL pattern `[a-zA-Z][a-zA-Z0-9+.-]*://[^\s:/@"']+:[^\s/@"']+@[^\s"']+` → `[REDACTED_URL]`, placed **after** the scheme-specific patterns so they keep their labelled output (`[DATABASE_URL]`, `[REDIS_URL]`, …) and this only catches what they miss. The pattern requires a userinfo segment (`user:pass@`), so credential-free URLs of arbitrary schemes (`file:///etc/passwd`, `custom://host`) are not false positives. Added regression tests in `sanitize.test.ts` covering `ssh`/`ldap`/`ldaps`/`vault` schemes, mid-sentence credentials, the no-false-positive case, and labelled-output preservation.
+
 ## Changes Applied (2026-07-11) — Code Review Round 13
 
 ### 🟡 Correctness: `crypto.ts` — `hashInput` silently hashed WeakMap/WeakSet as `{}` (hash collision)

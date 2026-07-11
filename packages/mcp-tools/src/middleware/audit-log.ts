@@ -235,9 +235,51 @@ async function logAction(prisma: PrismaClient, entry: AuditLogEntry): Promise<vo
   });
 }
 
+/**
+ * Token keywords that are unambiguously sensitive wherever they appear as a
+ * distinct token (a camelCase, snake_case, or kebab-case segment). Used by the
+ * token-based fallback in `isSensitiveField` to catch camelCase field names
+ * the SENSITIVE_FIELD_PATTERN regex misses.
+ */
+const SENSITIVE_TOKENS = new Set([
+  "password", "passwd", "pwd", "secret", "token", "credential", "credentials",
+]);
+
+/**
+ * Split a field name into tokens at snake_case, kebab-case, AND camelCase
+ * boundaries. e.g. `clientSecret` → [`client`, `Secret`], `access_token` →
+ * [`access`, `token`], `bearer-token` → [`bearer`, `token`].
+ *
+ * Uses `match` (runs of lowercase/digits, or an uppercase letter optionally
+ * followed by lowercase letters) rather than inserting a separator, so no
+ * control character is needed in the regex (which would trip the
+ * `no-control-regex` lint rule).
+ */
+function splitFieldTokens(key: string): string[] {
+  const matches = key.match(/[a-z0-9]+|[A-Z][a-z]*/g);
+  return matches ? matches.filter((t) => t.length > 0) : [];
+}
+
 /** Returns true if a field name matches a sensitive pattern. */
 function isSensitiveField(key: string): boolean {
-  return SENSITIVE_FIELDS.has(key) || SENSITIVE_FIELD_PATTERN.test(key);
+  if (SENSITIVE_FIELDS.has(key)) return true;
+  if (SENSITIVE_FIELD_PATTERN.test(key)) return true;
+  // Token-based fallback for camelCase field names the regex misses.
+  // SENSITIVE_FIELD_PATTERN uses alnum-only lookarounds so `_` and `-` act
+  // as separators, but the lowercase→uppercase transition does NOT — so
+  // `client_secret`, `bearer_token`, and `access_token` are redacted while
+  // their camelCase siblings (`clientSecret`, `bearerToken`, `accessToken`)
+  // leaked verbatim into ai_action_log.tool_input. These are common
+  // OAuth/credential field names, so the gap is a real redaction bypass.
+  // Splitting on camelCase + snake/kebab boundaries and checking each token
+  // against an unambiguous keyword set catches them without relying on the
+  // regex's boundary semantics.
+  //
+  // `key` is intentionally excluded from the token set: it over-redacts
+  // benign names like `primaryKey`, `foreignKey`, `sortKey`. Key-bearing
+  // sensitive fields are covered by the explicit SENSITIVE_FIELDS set and
+  // the `api[_-]?key` regex branch.
+  return splitFieldTokens(key).some((t) => SENSITIVE_TOKENS.has(t.toLowerCase()));
 }
 
 function redactMap(value: Map<unknown, unknown>, depth: number, seen: WeakSet<object>): unknown {

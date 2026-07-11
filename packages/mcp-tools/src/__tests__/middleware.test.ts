@@ -785,6 +785,62 @@ describe("Audit Log Middleware", () => {
     expect(storedInput.name).toBe("Jane Doe");
   });
 
+  it("should redact camelCase sensitive fields (clientSecret, bearerToken, accessToken, …)", async () => {
+    // Regression guard: SENSITIVE_FIELD_PATTERN uses alnum-only lookarounds
+    // so `_` and `-` act as separators, but the lowercase→uppercase
+    // transition does NOT. The snake_case siblings were redacted
+    // (`client_secret`, `bearer_token`, `access_token`) but the camelCase
+    // forms leaked verbatim into ai_action_log.tool_input. These are common
+    // OAuth/credential field names, so the gap was a real redaction bypass.
+    // A token-based fallback now splits on camelCase + snake/kebab boundaries
+    // and matches each token against an unambiguous keyword set.
+    const input = {
+      clientSecret: "cs-topsecret",
+      bearerToken: "bearer-xyz",
+      accessToken: "access-jwt",
+      refreshToken: "refresh-jwt",
+      userPassword: "hunter2",
+      sessionToken: "sess-abc",
+      // snake_case siblings must still be redacted (unchanged behaviour).
+      client_secret: "snake-cs",
+      access_token: "snake-at",
+      // `key` is intentionally NOT a sensitive token — it over-redacts
+      // benign names like primaryKey/foreignKey. Key-bearing sensitive
+      // fields stay covered by the explicit SENSITIVE_FIELDS set + the
+      // `api[_-]?key` regex.
+      primaryKey: "party-uuid",
+      foreignKey: "role-uuid",
+      idempotencyKey: "idem-1",
+      // Single-token words that merely contain the keyword letters must
+      // still NOT be redacted (no over-redaction).
+      tokenize: "false",
+      secrets: "plural-not-a-secret-value",
+    };
+    const toolResult: ToolResult = { success: true, data: "ok" };
+
+    mockPrisma.aiActionLog.create.mockResolvedValue({ id: "log-id" });
+
+    const middleware = auditLogMiddleware(mockPrisma as any);
+    await middleware(input, mockContext, mockDefinition, successNext(toolResult));
+
+    const storedInput = mockPrisma.aiActionLog.create.mock.calls[0][0].data.toolInput;
+    expect(storedInput.clientSecret).toBe("[REDACTED]");
+    expect(storedInput.bearerToken).toBe("[REDACTED]");
+    expect(storedInput.accessToken).toBe("[REDACTED]");
+    expect(storedInput.refreshToken).toBe("[REDACTED]");
+    expect(storedInput.userPassword).toBe("[REDACTED]");
+    expect(storedInput.sessionToken).toBe("[REDACTED]");
+    expect(storedInput.client_secret).toBe("[REDACTED]");
+    expect(storedInput.access_token).toBe("[REDACTED]");
+    // Benign key-bearing fields are preserved (no over-redaction).
+    expect(storedInput.primaryKey).toBe("party-uuid");
+    expect(storedInput.foreignKey).toBe("role-uuid");
+    expect(storedInput.idempotencyKey).toBe("idem-1");
+    // Single-token words containing the keyword letters are preserved.
+    expect(storedInput.tokenize).toBe("false");
+    expect(storedInput.secrets).toBe("plural-not-a-secret-value");
+  });
+
   it("should not leak sensitive fields nested beyond MAX_REDACTION_DEPTH", async () => {
     // Regression guard: redactSensitiveFields previously returned the RAW
     // (unredacted) value once depth exceeded the cap, because isTerminal

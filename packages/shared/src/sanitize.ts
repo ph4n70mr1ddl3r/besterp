@@ -121,6 +121,19 @@ export function sanitizeLogOutput(message: string): string {
     .replace(/(https?:\/\/)[^\s"')\]}]+/gi, "$1[HOST]/[PATH]")
     .replace(/(?:ftp|sftp):\/\/[^\s"')\]}]+/gi, "[FTP_URL]")
     .replace(/(?:ws|wss):\/\/[^\s"')\]}]+/gi, "[WEBSOCKET_URL]")
+    // Generic catch-all for credential-bearing URLs whose scheme isn't
+    // explicitly listed above (e.g. ldap://, ldaps://, ssh://, vault://,
+    // smtp://, or custom schemes). A driver/library error can embed such a
+    // URL with inline userinfo (user:pass@), and the scheme-specific
+    // patterns above would let it through verbatim — leaking credentials
+    // to operator logs.
+    //
+    // Only matches when a userinfo segment (`user:pass@`) is present, so
+    // credential-free URLs of arbitrary schemes (e.g. `file:///path`,
+    // `custom://host`) are left untouched. Runs AFTER the scheme-specific
+    // patterns so they keep their labelled output ([DATABASE_URL],
+    // [REDIS_URL], …) — this only catches what they miss.
+    .replace(/[a-zA-Z][a-zA-Z0-9+.-]*:\/\/[^\s:/@"']+:[^\s/@"']+@[^\s"']+/g, "[REDACTED_URL]")
     .replace(/\bat\b\s*(?:[A-Za-z]:)?[/\\][^\s"':]+/gi, "[PATH]");
 }
 
