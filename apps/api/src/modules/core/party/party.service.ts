@@ -251,7 +251,7 @@ export class PartyService {
     if (!orgData) return undefined;
     const trimmedRegistrationDate = orgData.registrationDate?.trim();
     return {
-      legalName: stripHtmlTags(orgData.legalName.trim()),
+      legalName: stripHtmlTags((orgData.legalName ?? "").trim()),
       taxId: orgData.taxId ? stripHtmlTags(orgData.taxId.trim()) || undefined : undefined,
       registrationDate: trimmedRegistrationDate ?? undefined,
     };
@@ -351,11 +351,16 @@ export class PartyService {
             { suggestedTools: [retryTool, suggestTool], context: { prismaCode: "P2025" } }
           );
         }
-        case "P2024":
         case "P2028":
         case "P2034": {
           throw new ConcurrencyConflictError(
             `Transaction conflict or timeout on ${entityName} — please retry.`,
+            { suggestedTools: [retryTool], context: { prismaCode: err.code } }
+          );
+        }
+        case "P2024": {
+          throw new ConcurrencyConflictError(
+            `Connection pool timeout on ${entityName} — the service is under heavy load.`,
             { suggestedTools: [retryTool], context: { prismaCode: err.code } }
           );
         }
@@ -758,8 +763,8 @@ export class PartyService {
     const extension = tel.extension?.trim();
     return {
       countryCode: countryCode ? stripHtmlTags(countryCode) : DEFAULT_PHONE_COUNTRY_CODE,
-      areaCode: stripHtmlTags(tel.areaCode.trim()),
-      lineNumber: stripHtmlTags(tel.lineNumber.trim()),
+      areaCode: stripHtmlTags((tel.areaCode ?? "").trim()),
+      lineNumber: stripHtmlTags((tel.lineNumber ?? "").trim()),
       extension: extension ? stripHtmlTags(extension) : null,
     };
   }

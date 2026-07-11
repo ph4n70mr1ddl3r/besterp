@@ -157,13 +157,12 @@ function createBackpressureManager(prisma: PrismaClient): BackpressureManager {
 
   function releaseWriteSlot(): void {
     if (activeWrites > 0) activeWrites--;
-    while (writeQueue.length > 0) {
+    if (writeQueue.length > 0) {
       const next = writeQueue.shift()!;
       clearTimeout(next.timer);
       next.settled = true;
       activeWrites++;
       next.resolve({ acquired: true });
-      return;
     }
   }
 

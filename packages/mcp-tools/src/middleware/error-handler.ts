@@ -190,6 +190,16 @@ const PRISMA_ERROR_HANDLERS: Record<string, ErrorFactory> = {
       },
     };
   },
+  P2028(entityName, _entityPlural, definition) {
+    return {
+      success: false,
+      error: {
+        code: "CONCURRENCY_CONFLICT",
+        message: `The '${definition.name}' operation on ${entityName} timed out. Re-fetch the entity and retry with a new idempotency key.`,
+        suggestedTools: [`get_${entityName}`, definition.name],
+      },
+    };
+  },
   P2024(_entityName, _entityPlural, definition) {
     return {
       success: false,

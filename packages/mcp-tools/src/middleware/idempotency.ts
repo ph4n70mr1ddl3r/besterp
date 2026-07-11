@@ -158,7 +158,7 @@ async function acquireIdempotencyRecord(
             }
             await tx.idempotencyRecord.update({
               where: { idempotencyKey_tenantId: { idempotencyKey, tenantId } },
-              data: { status: "pending", inputHash, expiresAt: new Date(Date.now() + IDEMPOTENCY_TTL_MS) },
+              data: { status: "pending", inputHash, expiresAt: new Date(Date.now() + IDEMPOTENCY_TTL_MS), error: Prisma.DbNull },
             });
             return { existing: null, created: true };
           }
