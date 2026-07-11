@@ -17,45 +17,40 @@ rounds 1–11 are documented in earlier revisions of this file and `CHANGES.md`.
 
 ### Fixed this round
 
-1. **🟡 `main.ts` — JWT_SECRET weak-secret heuristic flagged legitimate
-   high-entropy secrets as weak (false positive).** The pattern
-   `/^(0{32}|[a-f]{32})$/i` was documented as catching "all-same-case hex (no
-   entropy)", but `[a-f]{32}` matches **any** 32-character string composed
-   solely of `a–f` letters — e.g. `"abcdefabcdefabcdefabcdefabcdefab"` (≈82 bits
-   of entropy) — not just a single repeated character. Operators using a random
-   16-byte hex secret that happened to contain no digits received a spurious
-   "appears to be a weak or default value" warning.
+1. **🟡 `crypto.ts` `hashInput` — WeakMap/WeakSet silently hashed as `{}` (hash
+   collision / silent data loss).** `sortKeysDeep` has explicit branches for `Map`
+   and `Set` (converted to sorted arrays) and throws for `function` values, but
+   no branch for `WeakMap`/`WeakSet`. These are non-enumerable, so they fell
+   through `sortObject` → `serializeSpecialObject` → `sortPlainObject`, where
+   `Object.keys()` returns `[]`. Result: `hashInput(new WeakMap())` produced the
+   **same hash as `hashInput({})`** (and every distinct WeakMap collided with
+   every other) — confirmed by probe. Both `audit-log.ts` and `error-handler.ts`
+   already guard Weak collections (`"[WeakCollection]"`); since their entries
+   cannot be enumerated they cannot be deterministically hashed, so the correct
+   behaviour is to throw `InvalidTypeValueError` (mirroring the existing
+   `function` guard), not to silently produce a colliding hash. The guard lives
+   in `serializeSpecialObject` (the non-plain-object dispatch point Weak
+   collections actually reach) so `sortKeysDeep` keeps its prior cyclomatic
+   complexity.
 
-   Fixed by extracting the heuristics into a standalone, unit-tested module
-   `apps/api/src/auth/secret-strength.ts` (`isWeakSecret` /
-   `MIN_JWT_SECRET_LENGTH`) and replacing the buggy pattern with
-   `/^(.)\1{31,}$/`, which matches a single character repeated for the whole
-   string — the correct expression of "zero entropy" (`0`×32, `f`×32, spaces,
-   etc.) without false-positiving on real hex secrets. `main.ts` now imports and
-   delegates to the helper. The previous in-place pattern loop (which could not
-   be unit-tested because the bootstrap calls `process.exit`) is replaced by a
-   function with a dedicated spec covering the regression.
-
-2. **🟢 `auth.module.ts` — `JWT_EXPIRES_IN` warning regex diverged from the
-   authoritative check in `main.ts`.** `auth.module.ts` used
-   `/^\d+\s*[smhd]$/` (allowing optional whitespace) while `main.ts` validates
-   strictly with `/^\d+[smhd]$/` and exits on mismatch. Because ESM
-   module-level code runs before `main.ts`'s `validateEnvironment()`, the
-   module-level warning is the first signal an operator sees — it must agree
-   with the hard gate or it warns about values the app will accept (or stays
-   silent about values the app will reject). Aligned the regexes so the warning
-   is a faithful preview of the startup gate.
-
-3. **🟢 `cleanup-expired-idempotency.ts` — emoji in a structured stderr line.**
-   The failure log emitted `❌ Cleanup failed:` while every other structured
-   log line in the middlewares and this script is plain ASCII JSON-ish text.
-   Removed the emoji for consistency with the rest of the operator-log output
-   (and to avoid glyph/encoding surprises in log shippers that don't expect
-   multi-byte symbols on the error stream).
+2. **🟡 `audit-log.ts` `redactSensitiveFields` — depth-exceeded returned the raw
+   unredacted value (redaction bypass).** `isTerminal` short-circuited to `true`
+   when `depth > MAX_REDACTION_DEPTH`, and `redactSensitiveFields` then
+   `return value` — the raw object. Because the key-name redaction loop runs
+   *inside* `redactSensitiveFields` (after the terminal check), an object
+   sitting deeper than the cap was returned whole with its sensitive keys
+   never inspected: a `password` buried >10 levels deep would be persisted
+   verbatim to `ai_action_log.tool_input`. The sibling `error-handler.ts`
+   `sanitizeContextValue` returns `"[Too deep]"` at its cap; for a *redaction*
+   function, returning unredacted data is the riskier choice. Fixed by returning
+   `"[Too deep]"` at the cap (matching the error-handler) and dropping the
+   now-redundant depth clause from `isTerminal`. Verified as a true regression
+   test: it fails on the old code (raw `"password":"leak-me"` in the stored row)
+   and passes on the fix.
 
 ### Reviewed and considered sound (no change needed)
 
-Carried forward from rounds 1–11 — spot-checked again this round and still
+Carried forward from rounds 1–12 — spot-checked again this round and still
 sound:
 
 - `crypto.ts`: `sortMap`/`sortSet` pre-computed stringified keys (O(n)
@@ -100,8 +95,9 @@ sound:
   subtype-table join policies, partial unique index for active roles.
 
 ## Recommendation
-The 3 fixes above are covered by tests (all quality gates green; +6 new unit
-tests in `secret-strength.spec.ts`). Remaining observations are low-severity and
+The 2 fixes above are covered by tests (all quality gates green; +1 unit test in
+`crypto.test.ts` for the WeakMap/WeakSet guard, +1 in `middleware.test.ts` for
+the depth-redaction guard). Remaining observations are low-severity and
 do not require immediate code changes:
 
 - `hashInput` has no input size limit (mitigated by the 100 KB body-parser cap).

@@ -258,13 +258,22 @@ function redactSet(value: Set<unknown>, depth: number, seen: WeakSet<object>): u
   return [...value].map((v) => redactSensitiveFields(v, depth + 1, seen));
 }
 
-function isTerminal(value: unknown, depth: number): boolean {
-  return depth > MAX_REDACTION_DEPTH || value === null || value === undefined || typeof value !== "object"
+function isTerminal(value: unknown): boolean {
+  return value === null || value === undefined || typeof value !== "object"
     || value instanceof Date || value instanceof RegExp;
 }
 
 function redactSensitiveFields(value: unknown, depth = 0, seen?: WeakSet<object>): unknown {
-  if (isTerminal(value, depth)) return value;
+  // Depth guard: once we exceed MAX_REDACTION_DEPTH, stop descending and
+  // return a placeholder. Returning the raw value here (the previous
+  // behaviour, via the depth clause in isTerminal) would bypass the
+  // key-name redaction loop below — so a sensitive field buried deeper
+  // than the cap (e.g. `password` 11 levels down) would be persisted
+  // verbatim to ai_action_log. That is a defense-in-depth gap in a
+  // security-sensitive redaction path. Mirrors the error-handler's
+  // sanitizeContextValue depth guard ("[Too deep]").
+  if (depth > MAX_REDACTION_DEPTH) return "[Too deep]";
+  if (isTerminal(value)) return value;
   seen = seen ?? new WeakSet();
   if (seen.has(value as object)) return "[Circular]";
   seen.add(value as object);

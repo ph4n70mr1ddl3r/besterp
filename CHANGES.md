@@ -1,5 +1,19 @@
 # BestERP — Security & Architecture Fixes
 
+## Changes Applied (2026-07-11) — Code Review Round 13
+
+### 🟡 Correctness: `crypto.ts` — `hashInput` silently hashed WeakMap/WeakSet as `{}` (hash collision)
+
+**Problem:** `sortKeysDeep` has explicit branches for `Map` and `Set` (converted to sorted arrays) and throws for `function` values, but no branch for `WeakMap`/`WeakSet`. These are non-enumerable, so they fell through `sortObject` → `serializeSpecialObject` → `sortPlainObject`, where `Object.keys()` returns `[]`. Result: `hashInput(new WeakMap())` produced the **same hash as `hashInput({})`** (and every distinct WeakMap collided with every other) — confirmed by probe. That is silent data loss for an idempotency hash: two tool inputs differing only in an unhashable Weak collection would be treated as identical, defeating mismatch detection. Both `audit-log.ts` and `error-handler.ts` already guard Weak collections (`"[WeakCollection]"`), making this an inconsistency.
+
+**Fix:** Added a guard in `serializeSpecialObject` (the non-plain-object dispatch point that Weak collections actually reach — `WeakMap.prototype`/`WeakSet.prototype` are neither `Object.prototype` nor `null`, so they bypass `sortPlainObject`'s direct path) that throws `InvalidTypeValueError`, mirroring the existing `function` guard. The guard lives there rather than in `sortKeysDeep` so the latter keeps its prior cyclomatic complexity (no new lint warning). Added a regression test in `crypto.test.ts` asserting `hashInput` throws for a bare `WeakMap`/`WeakSet`, for one nested inside an object, and that a plain `{}` still hashes successfully.
+
+### 🟡 Security: `audit-log.ts` — `redactSensitiveFields` returned raw unredacted value past depth cap (redaction bypass)
+
+**Problem:** `isTerminal` short-circuited to `true` when `depth > MAX_REDACTION_DEPTH`, and `redactSensitiveFields` then `return value` — the raw object. Because the key-name redaction loop runs *inside* `redactSensitiveFields` (after the terminal check), an object sitting deeper than the cap was returned whole with its sensitive keys never inspected: a `password` buried >10 levels deep would be persisted verbatim to `ai_action_log.tool_input`. The sibling `error-handler.ts` `sanitizeContextValue` returns `"[Too deep]"` at its cap; for a *redaction* function, returning unredacted data is the riskier choice.
+
+**Fix:** Split the depth guard out of `isTerminal`: `redactSensitiveFields` now returns `"[Too deep]"` when `depth > MAX_REDACTION_DEPTH` (matching `sanitizeContextValue`), and `isTerminal` checks only primitive/terminal types. Added a regression test in `middleware.test.ts` that nests `{ password: "leak-me" }` 12 levels deep and asserts the serialized stored `toolInput` neither contains `"leak-me"` nor omits the `"[Too deep]"` placeholder. Verified the test fails on the pre-fix code (raw `"password":"leak-me"` in the stored row) and passes on the fix.
+
 ## Changes Applied (2026-07-11) — Code Review Round 12
 
 ### 🟡 Correctness: `main.ts` — JWT_SECRET weak-secret heuristic flagged legitimate high-entropy secrets (false positive)

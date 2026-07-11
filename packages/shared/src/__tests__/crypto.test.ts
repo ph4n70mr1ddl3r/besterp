@@ -275,6 +275,28 @@ describe("hashInput", () => {
     expect(hashInput({ s: s1 })).not.toBe(hashInput({ s: s3 }));
   });
 
+  it("should reject WeakMap/WeakSet instead of silently hashing them as {}", () => {
+    // Regression guard: WeakMap/WeakSet are non-enumerable, so Object.keys()
+    // returns [] and they previously fell through to sortPlainObject —
+    // producing the SAME hash as an empty object (and as every other Weak
+    // collection). That is silent data loss / a hash collision for an
+    // idempotency hash. They cannot be enumerated, so they cannot be
+    // deterministically hashed — reject them (mirrors the function guard).
+    expect(() => hashInput(new WeakMap())).toThrow(InvalidTypeValueError);
+    expect(() => hashInput(new WeakSet())).toThrow(InvalidTypeValueError);
+    expect(() => hashInput(new WeakMap())).toThrow(/WeakMap\/WeakSet/);
+
+    // A Weak collection nested inside an object must also reject, not silently
+    // hash as `{ w: {} }`.
+    expect(() => hashInput({ w: new WeakMap() })).toThrow(InvalidTypeValueError);
+    expect(() => hashInput({ w: new WeakSet() })).toThrow(InvalidTypeValueError);
+
+    // By contrast, a regular empty object still hashes successfully and must
+    // NOT throw — ensures the guard targets Weak collections only.
+    expect(() => hashInput({})).not.toThrow();
+    expect(hashInput({})).toMatch(/^[a-f0-9]{64}$/);
+  });
+
   it("should refuse to hash input nested deeper than MAX_HASH_DEPTH (DoS guard)", () => {
     // Build nesting ~120 levels deep — beyond the MAX_HASH_DEPTH (100) cap.
     let deep: Record<string, unknown> = { leaf: 1 };

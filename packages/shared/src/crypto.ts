@@ -81,6 +81,18 @@ function sortPlainObject(value: object, ancestors: Set<object>, depth: number): 
 }
 
 function serializeSpecialObject(value: object, ancestors: Set<object>, depth: number): unknown {
+  // WeakMap/WeakSet are non-enumerable: Object.keys() returns [], so they
+  // would otherwise fall through to sortPlainObject and hash as `{}` —
+  // colliding with an empty object and with every other Weak collection
+  // (confirmed by probe). That is silent data loss for an idempotency hash.
+  // audit-log.ts and error-handler.ts both explicitly guard Weak collections;
+  // since their entries cannot be enumerated, they cannot be deterministically
+  // hashed, so reject them (mirroring the function guard in sortKeysDeep).
+  if (value instanceof WeakMap || value instanceof WeakSet) {
+    throw new InvalidTypeValueError(
+      "Cannot hash a WeakMap/WeakSet value. Weak collections are non-enumerable and cannot be serialized for idempotency hashing."
+    );
+  }
   if (value instanceof Date) return value.toISOString();
   if (value instanceof RegExp) return { source: value.source, flags: value.flags };
   if (value instanceof Error) {

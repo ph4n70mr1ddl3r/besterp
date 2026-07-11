@@ -785,6 +785,32 @@ describe("Audit Log Middleware", () => {
     expect(storedInput.name).toBe("Jane Doe");
   });
 
+  it("should not leak sensitive fields nested beyond MAX_REDACTION_DEPTH", async () => {
+    // Regression guard: redactSensitiveFields previously returned the RAW
+    // (unredacted) value once depth exceeded the cap, because isTerminal
+    // short-circuited on the depth check BEFORE the key-name redaction loop
+    // ran. A sensitive field buried deeper than the cap (password 12 levels
+    // down) was therefore persisted verbatim to ai_action_log.tool_input.
+    // The depth guard now returns "[Too deep]" (matching the error-handler)
+    // so descent — and redaction — never silently stops at the cap.
+    let deep: Record<string, unknown> = { password: "leak-me" };
+    for (let i = 0; i < 12; i++) deep = { nested: deep };
+    const input = { root: deep };
+    const toolResult: ToolResult = { success: true, data: "ok" };
+
+    mockPrisma.aiActionLog.create.mockResolvedValue({ id: "log-id" });
+
+    const middleware = auditLogMiddleware(mockPrisma as any);
+    await middleware(input, mockContext, mockDefinition, successNext(toolResult));
+
+    const storedInput = mockPrisma.aiActionLog.create.mock.calls[0][0].data.toolInput;
+    const serialized = JSON.stringify(storedInput);
+    // The raw secret must never reach the audit row, even when deeply nested.
+    expect(serialized).not.toContain("leak-me");
+    // Descent stops at the cap with a placeholder rather than the raw object.
+    expect(serialized).toContain("[Too deep]");
+  });
+
   it("should log tool execution even when handler throws", async () => {
     const input = { test: "value" };
     const error = new Error("Test error");
