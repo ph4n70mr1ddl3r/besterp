@@ -11,6 +11,7 @@ import { NestFactory } from "@nestjs/core";
 import { Logger, ValidationPipe, type INestApplication } from "@nestjs/common";
 import helmet from "helmet";
 import { sanitizeForLogOutput } from "@besterp/shared";
+import { isWeakSecret, MIN_JWT_SECRET_LENGTH } from "./auth/secret-strength.js";
 import { AppModule } from "./app.module.js";
 import express, { type Request, type Response, type NextFunction } from "express";
 // Import tenant-context for the Express module augmentation (req.requestId).
@@ -61,30 +62,21 @@ function validateEnvironment(): void {
   // Validate JWT_SECRET strength if provided.
   if (process.env.JWT_SECRET) {
     const secret = process.env.JWT_SECRET;
-    if (secret.length < 32) {
+    if (secret.length < MIN_JWT_SECRET_LENGTH) {
       logger.error(
-        `JWT_SECRET is too short (${secret.length} chars). Must be at least 32 characters. ` +
+        `JWT_SECRET is too short (${secret.length} chars). Must be at least ${MIN_JWT_SECRET_LENGTH} characters. ` +
         "Generate a secure secret with: openssl rand -hex 32"
       );
       process.exit(1);
     }
-    // Warn if secret looks like a default/test value
-    const weakPatterns = [
-      /^secret$/i,
-      /^changeme$/i,
-      /^test$/i,
-      /^dev$/i,
-      /^development$/i,
-      /^(0{32}|[a-f]{32})$/i, // All zeros or all same-case hex (no entropy); /i flag covers both cases
-    ];
-    for (const pattern of weakPatterns) {
-      if (pattern.test(secret)) {
-        logger.warn(
-          "JWT_SECRET appears to be a weak or default value. " +
-          "Use a cryptographically random secret in production: openssl rand -hex 32"
-        );
-        break;
-      }
+    // Warn if the secret looks like a default/test value or has zero entropy
+    // (a single repeated character padded out to pass the length check).
+    // See ./auth/secret-strength.ts for the heuristics and rationale.
+    if (isWeakSecret(secret)) {
+      logger.warn(
+        "JWT_SECRET appears to be a weak or default value. " +
+        "Use a cryptographically random secret in production: openssl rand -hex 32"
+      );
     }
   }
 

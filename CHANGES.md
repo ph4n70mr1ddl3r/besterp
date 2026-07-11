@@ -1,5 +1,25 @@
 # BestERP — Security & Architecture Fixes
 
+## Changes Applied (2026-07-11) — Code Review Round 12
+
+### 🟡 Correctness: `main.ts` — JWT_SECRET weak-secret heuristic flagged legitimate high-entropy secrets (false positive)
+
+**Problem:** The startup weak-secret check used the pattern `/^(0{32}|[a-f]{32})$/i`, documented as catching "all-same-case hex (no entropy)". But `[a-f]{32}` matches **any** 32-character string composed solely of `a–f` letters — e.g. `"abcdefabcdefabcdefabcdefabcdefab"` (~82 bits of entropy) — not just a single repeated character. An operator using a random 16-byte hex secret that happened to contain no digits received a spurious `JWT_SECRET appears to be a weak or default value` warning. Worse, because this logic lived inline in the bootstrap (which calls `process.exit`), it had no unit tests.
+
+**Fix:** Extracted the heuristics into a standalone, testable module `apps/api/src/auth/secret-strength.ts` exporting `isWeakSecret()` and `MIN_JWT_SECRET_LENGTH`. Replaced the buggy pattern with `/^(.)\1{31,}$/`, which matches a single character repeated for the whole string — the correct expression of zero entropy (`0`×32, `f`×32, spaces, …) — without false-positiving on real hex secrets. `main.ts` now delegates to the helper. Added `secret-strength.spec.ts` with a regression test asserting that `"abcdef..."` (32 a–f letters) and a random 32-char hex are both classified as **not** weak, while all-zero / all-`f` / default literals are.
+
+### 🟢 Consistency: `auth.module.ts` — `JWT_EXPIRES_IN` warning regex aligned with the authoritative startup gate
+
+**Problem:** `auth.module.ts` validated `JWT_EXPIRES_IN` with `/^\d+\s*[smhd]$/` (optional whitespace), while `main.ts`'s `validateEnvironment()` enforces `/^\d+[smhd]$/` strictly and exits on mismatch. Because ESM module-level code evaluates before `main.ts` runs, the module-level warning is the first signal an operator sees; a divergent regex either warns about values the app accepts or stays silent about values the app rejects.
+
+**Fix:** Dropped the `\s*` so the warning regex exactly mirrors the hard gate. The warning remains a best-effort preview (the authoritative exit happens in `main.ts`).
+
+### 🟢 Log hygiene: `cleanup-expired-idempotency.ts` — removed emoji from structured stderr line
+
+**Problem:** The failure log emitted `❌ Cleanup failed:` while every other structured log line across the middlewares and this script is plain ASCII. The leading emoji risked glyph/encoding surprises in log shippers that don't expect multi-byte symbols on the error stream.
+
+**Fix:** Dropped the `❌` for consistency with the rest of the operator-log output.
+
 ## Changes Applied (2026-07-07) — Code Review Round 39
 
 ### 🟡 Security: `audit-log.ts` — snake_case sensitive fields leaked past catch-all redaction regex

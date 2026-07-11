@@ -18,7 +18,7 @@ import { JwtStrategy, resolveJwtSecret } from "./jwt.strategy.js";
 // process.exit(1). jsonwebtoken silently falls back to its own default on invalid
 // values rather than throwing, so we warn here to surface misconfigurations early.
 const rawJwtExpiresIn = process.env.JWT_EXPIRES_IN || "24h";
-if (process.env.JWT_EXPIRES_IN && !/^\d+\s*[smhd]$/.test(process.env.JWT_EXPIRES_IN)) {
+if (process.env.JWT_EXPIRES_IN && !/^\d+[smhd]$/.test(process.env.JWT_EXPIRES_IN)) {
   console.warn(
     `[AuthModule] JWT_EXPIRES_IN "${process.env.JWT_EXPIRES_IN}" is invalid. ` +
     "Must be a duration string like '24h', '60m', '7d'. Falling back to '24h'."
