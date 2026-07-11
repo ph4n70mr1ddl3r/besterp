@@ -239,8 +239,8 @@ export class PartyService {
     const trimmedGender = personData.gender?.trim();
     const trimmedBirthDate = personData.birthDate?.trim();
     return {
-      firstName: stripHtmlTags(personData.firstName.trim()),
-      lastName: stripHtmlTags(personData.lastName.trim()),
+      firstName: stripHtmlTags((personData.firstName ?? "").trim()),
+      lastName: stripHtmlTags((personData.lastName ?? "").trim()),
       middleName: trimmedMiddleName ? stripHtmlTags(trimmedMiddleName) || undefined : undefined,
       gender: trimmedGender ? stripHtmlTags(trimmedGender) || undefined : undefined,
       birthDate: trimmedBirthDate ?? undefined,
@@ -351,10 +351,12 @@ export class PartyService {
             { suggestedTools: [retryTool, suggestTool], context: { prismaCode: "P2025" } }
           );
         }
+        case "P2024":
+        case "P2028":
         case "P2034": {
           throw new ConcurrencyConflictError(
-            `Transaction conflict on ${entityName} — please retry.`,
-            { suggestedTools: [retryTool], context: { prismaCode: "P2034" } }
+            `Transaction conflict or timeout on ${entityName} — please retry.`,
+            { suggestedTools: [retryTool], context: { prismaCode: err.code } }
           );
         }
       }

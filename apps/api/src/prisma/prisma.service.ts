@@ -10,7 +10,7 @@
 
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from "@nestjs/common";
 import { PrismaClient } from "@prisma/client";
-import { createTenantClient, validateTenantIdEnhanced, CreateTenantClientOptions } from "@besterp/database";
+import { createTenantClient, validateTenantIdEnhanced, CreateTenantClientOptions, TenantScopedClient } from "@besterp/database";
 import { MAX_TENANT_CACHE_SIZE, sanitizeForLogOutput } from "@besterp/shared";
 
 // Cache configuration constants — exported for testing and override via env
@@ -26,7 +26,7 @@ export class PrismaService
   private readonly _appClient: PrismaClient;
   private _destroyed = false;
   /** Cache of tenant-scoped Proxy clients to avoid GC pressure from repeated creation. */
-  private readonly tenantClientCache = new Map<string, WeakRef<PrismaClient>>();
+  private readonly tenantClientCache = new Map<string, WeakRef<TenantScopedClient>>();
   // FinalizationRegistry evicts cache entries when GC collects the Proxy.
   // Note: we do NOT try to $disconnect the tenant client because the Proxy
   // blocks $disconnect (tenant clients share the underlying _appClient connection).
@@ -195,7 +195,7 @@ export class PrismaService
    * @param tenantId - The tenant to scope queries to
    * @returns A Proxy-wrapped PrismaClient with automatic RLS scoping
    */
-  tenantScoped(tenantId: string): PrismaClient {
+  tenantScoped(tenantId: string): TenantScopedClient {
     if (this._destroyed) {
       throw new Error(
         "PrismaService is destroyed — cannot create tenant-scoped client. " +

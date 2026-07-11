@@ -21,6 +21,15 @@ import { ToolMiddleware, ToolResult, ToolContext } from "../schema/tool-definiti
 import { truncateValue, MAX_STORED_PAYLOAD_SIZE, capString } from "./truncate.js";
 
 /**
+ * Threshold after which a "pending" idempotency record is considered stale.
+ * If the server crashes after creating a pending record but before completing
+ * it, the record blocks retries for 24h. A 60-second threshold allows
+ * recovery: the stale pending record is atomically reset so the operation
+ * can be retried.
+ */
+const STALE_PENDING_THRESHOLD_MS = 60_000;
+
+/**
  * Create an idempotency middleware backed by PostgreSQL.
  *
  * @param prisma - Admin PrismaClient (superuser, bypasses RLS for idempotency records)
@@ -137,6 +146,22 @@ async function acquireIdempotencyRecord(
             data: { status: "pending", inputHash, expiresAt: new Date(Date.now() + IDEMPOTENCY_TTL_MS), error: Prisma.DbNull },
           });
           return { existing: null, created: true };
+        }
+
+        if (record.status === "pending") {
+          const pendingAge = Date.now() - record.createdAt.getTime();
+          if (pendingAge > STALE_PENDING_THRESHOLD_MS) {
+            // Stale pending record — the previous request likely crashed
+            // before completing. Reset to pending so this request can proceed.
+            if (record.inputHash !== inputHash) {
+              return { existing: record, created: false };
+            }
+            await tx.idempotencyRecord.update({
+              where: { idempotencyKey_tenantId: { idempotencyKey, tenantId } },
+              data: { status: "pending", inputHash, expiresAt: new Date(Date.now() + IDEMPOTENCY_TTL_MS) },
+            });
+            return { existing: null, created: true };
+          }
         }
 
         return { existing: record, created: false };

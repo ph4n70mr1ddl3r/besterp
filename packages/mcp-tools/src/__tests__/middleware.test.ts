@@ -14,7 +14,6 @@ import { Prisma } from "@prisma/client";
 // Mock Prisma client for testing
 const mockPrisma = {
   idempotencyRecord: {
-    findFirst: vi.fn(),
     findUnique: vi.fn(),
     create: vi.fn(),
     update: vi.fn(),
@@ -200,6 +199,7 @@ describe("Idempotency Middleware", () => {
       idempotencyKey,
       status: "pending",
       inputHash,
+      createdAt: new Date(),
     });
 
     const middleware = idempotencyMiddleware(mockPrisma as any);
@@ -218,6 +218,7 @@ describe("Idempotency Middleware", () => {
       idempotencyKey,
       status: "pending",
       inputHash: "sha256:original",
+      createdAt: new Date(),
     });
 
     const middleware = idempotencyMiddleware(mockPrisma as any);
@@ -283,6 +284,42 @@ describe("Idempotency Middleware", () => {
     // The failed record was reset and the tool was re-executed
     expect(result.success).toBe(true);
     expect(result.data).toBe("re-executed");
+  });
+
+  it("should re-execute for stale pending record (crash recovery)", async () => {
+    const input = { test: "value" };
+    const idempotencyKey = "test-stale";
+    const contextWithKey = { ...mockContext, idempotencyKey };
+
+    const { hashInput } = await import("@besterp/shared");
+    const inputHash = hashInput(input);
+
+    // Simulate a stale pending record (created >60s ago) — the previous
+    // request likely crashed before completing. The stale detection should
+    // reset it to pending and allow re-execution.
+    const staleCreatedAt = new Date(Date.now() - 120_000); // 2 minutes ago
+    mockPrisma.$transaction.mockImplementation(async (fn: (tx: any) => Promise<any>, _opts?: any) => {
+      const tx = {
+        idempotencyRecord: {
+          findUnique: vi.fn().mockResolvedValue({
+            idempotencyKey,
+            status: "pending",
+            inputHash,
+            createdAt: staleCreatedAt,
+          }),
+          update: vi.fn().mockResolvedValue({}),
+          create: mockPrisma.idempotencyRecord.create,
+        },
+      };
+      return fn(tx);
+    });
+    mockPrisma.idempotencyRecord.update.mockResolvedValue({});
+
+    const middleware = idempotencyMiddleware(mockPrisma as any);
+    const result = await middleware(input, contextWithKey, mockDefinition, successNext({ success: true, data: "re-executed after stale" }));
+
+    expect(result.success).toBe(true);
+    expect(result.data).toBe("re-executed after stale");
   });
 
   it("should return contention error when all serialization retries fail", async () => {
@@ -452,8 +489,6 @@ describe("Idempotency Middleware", () => {
       idempotencyKey,
       status: "pending",
     });
-    // Top-level findFirst for tenant ownership check in error path
-    mockPrisma.idempotencyRecord.findFirst.mockResolvedValue({ idempotencyKey });
     // First update (the catch-up to 'failed') rejects; subsequent updates ignored.
     mockPrisma.idempotencyRecord.update.mockRejectedValue(new Error("DB down"));
 

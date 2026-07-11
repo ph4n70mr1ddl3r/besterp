@@ -45,7 +45,7 @@ const SENSITIVE_FIELDS = new Set([
  * The `auth` subgroup accepts an optional snake/camel `token|key|code` suffix
  * (`auth_token`, `authKey`, bare `auth`), mirroring the `api[_-]?key` form.
  */
-const SENSITIVE_FIELD_PATTERN = /(?<![a-z0-9])(password|secret|token|api[_-]?key|credential|auth(?:token|key|code|[_-](?:token|key|code))?)(?![a-z0-9])/i;
+const SENSITIVE_FIELD_PATTERN = /(?<![a-zA-Z0-9])(password|secret|token|api[_-]?key|credential|auth(?:token|key|code|[_-](?:token|key|code))?)(?![a-zA-Z0-9])/i;
 
 /** Maximum depth for recursive sensitive field redaction. */
 const MAX_REDACTION_DEPTH = 10;

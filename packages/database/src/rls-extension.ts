@@ -20,6 +20,9 @@
 import type { PrismaClient, Prisma } from "@prisma/client";
 import { validateTenantId, InvalidTypeValueError, isDomainError, TenantContextFailedError } from "@besterp/shared";
 
+/** A PrismaClient-like interface with automatic RLS tenant context injection. */
+export type TenantScopedClient = Omit<PrismaClient, "$connect" | "$disconnect" | "$extends" | "$queryRaw" | "$queryRawTyped" | "$executeRaw" | "$executeRawTyped" | "$queryRawUnsafe" | "$executeRawUnsafe">;
+
 // ─── LRU Cache ────────────────────────────────────────────────────
 
 /** Simple LRU cache implementation using Map (preserves insertion order). */
@@ -78,7 +81,7 @@ export function validateTenantIdEnhanced(tenantId: string): void {
  * Validate that a Prisma client has the required methods for RLS.
  */
 export function validatePrismaClientForRls(prisma: PrismaClient): void {
-  if (!prisma || typeof prisma.$executeRaw !== "function" || typeof prisma.$transaction !== "function") {
+  if (!prisma || typeof prisma.$transaction !== "function") {
     throw new InvalidTypeValueError(
       "Prisma client does not support RLS operations. Make sure it's connected with the correct role.",
       { context: { provided: typeof prisma } }
@@ -274,7 +277,7 @@ function createClientProxy(
   }) as unknown as PrismaClient;
 }
 
-export function createTenantClient(prisma: PrismaClient, tenantId: string, options: CreateTenantClientOptions = {}) {
+export function createTenantClient(prisma: PrismaClient, tenantId: string, options: CreateTenantClientOptions = {}): TenantScopedClient {
   validateTenantIdEnhanced(tenantId);
   validatePrismaClientForRls(prisma);
 
