@@ -110,11 +110,17 @@ export class DomainExceptionFilter implements ExceptionFilter {
       const safeBody: Record<string, unknown> = { statusCode: status };
       if (typeof res.message === "string") {
         safeBody.message = res.message;
+      } else if (Array.isArray(res.message)) {
+        // ValidationPipe errors carry an array of per-field detail strings.
+        // Strip any embedded values that could leak internal state but
+        // preserve the field names so clients can fix their requests.
+        const cleaned: string[] = res.message
+          .map((m) => (typeof m === "string" ? m.replace(/ .*$/, "") : "Validation error"))
+          .filter(Boolean);
+        safeBody.message = cleaned.length > 0
+          ? cleaned
+          : (status === 400 ? "Validation failed" : "Request error");
       } else {
-        // ValidationPipe (and other) errors carry `message` as an array of
-        // detail strings that can leak internal field names. Replace it with
-        // a generic, status-appropriate message so clients still receive a
-        // usable body instead of a bare { statusCode, error } object.
         safeBody.message = status === 400 ? "Validation failed" : "Request error";
       }
       if (typeof res.error === "string") safeBody.error = res.error;

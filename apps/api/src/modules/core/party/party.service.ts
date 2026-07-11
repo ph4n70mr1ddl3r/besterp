@@ -90,6 +90,9 @@ type PartyWithIncludes = Prisma.PartyGetPayload<{
   };
 }>;
 
+/** Timeout for Prisma interactive transactions (ms). */
+const TX_TIMEOUT_MS = 10_000;
+
 @Injectable()
 export class PartyService {
   private readonly logger = new Logger(PartyService.name);
@@ -315,7 +318,7 @@ export class PartyService {
           };
         }
         return tx.party.create({ data, include: PartyService.PARTY_INCLUDE });
-      }, { timeout: 10_000 });
+      }, { timeout: TX_TIMEOUT_MS });
     } catch (err) {
       PartyService.handleTransactionError(err, "create_party", "create_party", "party");
     }
@@ -571,7 +574,7 @@ export class PartyService {
           data: { partyId, roleTypeId, fromDate: roleFromDate },
           include: { roleType: true },
         });
-      }, { timeout: 10_000 });
+      }, { timeout: TX_TIMEOUT_MS });
     } catch (err) {
       PartyService.handleTransactionError(err, "add_party_role", "get_party", "party role");
     }
@@ -744,7 +747,7 @@ export class PartyService {
           },
           include: { postalAddress: true, telecomNumber: true, emailAddress: true, contactMechanismType: true },
         });
-      }, { timeout: 10_000 });
+      }, { timeout: TX_TIMEOUT_MS });
     } catch (err) {
       PartyService.handleTransactionError(err, "add_contact_mechanism", "add_contact_mechanism", "contact mechanism");
     }

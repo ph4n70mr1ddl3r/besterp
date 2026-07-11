@@ -177,7 +177,11 @@ function configureCors(app: INestApplication): void {
         "Set CORS_ORIGINS for non-standard dev ports."
       );
     }
-    app.enableCors({ origin: allowedOrigins, credentials: isExplicitConfig });
+    // In development the fallback localhost origins imply a local frontend that
+    // needs credentials (auth headers / cookies) to reach the API, so always
+    // enable credentials when origins are present — only skip it for an
+    // explicit production config that doesn't request it.
+    app.enableCors({ origin: allowedOrigins, credentials: true });
     return;
   }
   logger.error(

@@ -58,7 +58,7 @@ export const COUNTRY_CODE_REGEX: RegExp = /^\+[1-9]\d{0,2}$/;
  * - PartyService.requireValidDate()
  */
 export const ISO_DATE_REGEX: RegExp =
-  /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])Z?(T([01]\d|2[0-3]):[0-5]\d:[0-5]\d(\.\d+)?(Z|[+](0\d|1[0-3]|14):[0-5]\d|[-](0\d|1[0-2]):[0-5]\d)?)?$/;
+  /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])(Z|T([01]\d|2[0-3]):[0-5]\d:[0-5]\d(\.\d+)?(Z|[+](0\d|1[0-3]|14):[0-5]\d|[-](0\d|1[0-2]):[0-5]\d)?)?$/;
 
 /**
  * Days in each month. Index 0 is unused; month 1 = January.
@@ -77,7 +77,7 @@ export function isValidISODate(value: string): boolean {
   }
   // Reject years outside a reasonable business range.
   const year = parseInt(value.slice(0, 4), 10);
-  if (year < 1900 || year > 2100) return false;
+  if (year < 1700 || year > 2200) return false;
   // Extract month and day from the date portion and validate calendar range.
   const month = parseInt(value.slice(5, 7), 10);
   const day = parseInt(value.slice(8, 10), 10);

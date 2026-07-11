@@ -7,7 +7,7 @@ services:
       - "127.0.0.1:5434:5432"
     environment:
       POSTGRES_USER: besterp
-      POSTGRES_PASSWORD: besterp_dev
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-besterp_dev}
       POSTGRES_DB: besterp
     volumes:
       - pgdata:/var/lib/postgresql/data
@@ -39,7 +39,7 @@ services:
   # MinIO — S3-compatible object storage for file attachments, exports.
   # Not yet wired in application code. Needed for Phase 1+.
   minio:
-    image: minio/minio:RELEASE.2024-06-13T22-53-53Z
+    image: minio/minio:RELEASE.2026-03-12T15-15-27Z
     container_name: besterp-minio
     restart: unless-stopped
     ports:

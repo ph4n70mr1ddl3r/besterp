@@ -82,6 +82,9 @@ async function queryTypeTable(
     );
   }
   const delegate = raw as unknown as PrismaModelDelegate;
+  // Intentionally uses the admin PrismaClient (bypasses RLS) because type
+  // tables (PARTY_TYPE, ROLE_TYPE, etc.) are global reference data, not
+  // tenant-scoped. All tenants share the same vocabulary.
   const rows = await delegate.findMany({
     select: { [idField]: true, name: true, description: true, aiPromptHint: true },
   });

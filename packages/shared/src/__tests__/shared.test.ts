@@ -227,13 +227,13 @@ describe("isValidISODate", () => {
     expect(isValidISODate("2000-02-29")).toBe(true);
   });
 
-  it("rejects dates with years before 1900", () => {
-    expect(isValidISODate("1899-12-31")).toBe(false);
+  it("rejects dates with years before 1700", () => {
+    expect(isValidISODate("1699-12-31")).toBe(false);
     expect(isValidISODate("0001-01-01")).toBe(false);
   });
 
-  it("rejects dates with years after 2100", () => {
-    expect(isValidISODate("2101-01-01")).toBe(false);
+  it("rejects dates with years after 2200", () => {
+    expect(isValidISODate("2201-01-01")).toBe(false);
     expect(isValidISODate("9999-12-31")).toBe(false);
   });
 

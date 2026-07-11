@@ -110,7 +110,7 @@ describe("DomainExceptionFilter", () => {
   });
 
   describe("HttpException handling", () => {
-    it("scrubs array message into a generic 'Validation failed' in production", () => {
+    it("preserves field names but strips values from array message in production", () => {
       process.env.NODE_ENV = "production";
       const ctx = createMockHost();
       // ValidationPipe shapes message as an array of detail strings.
@@ -125,10 +125,10 @@ describe("DomainExceptionFilter", () => {
       expect(ctx.captured.body).toMatchObject({
         statusCode: 400,
         error: "Bad Request",
-        message: "Validation failed",
+        message: ["name", "partyType"],
       });
-      // No validation detail array leaked.
-      expect(Array.isArray((ctx.captured.body as Record<string, unknown>).message)).toBe(false);
+      // The array is still an array (field names preserved, values stripped).
+      expect(Array.isArray((ctx.captured.body as Record<string, unknown>).message)).toBe(true);
     });
 
     it("keeps a string message in production", () => {
