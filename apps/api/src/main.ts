@@ -148,6 +148,17 @@ function parseAllowedOrigins(): string[] {
     const origins = corsOrigins.split(",").map((o) => o.trim()).filter((o) => o.length > 0);
     if (origins.length > 0) return origins;
   }
+  // Fall back to restrictive localhost origins in development so that
+  // error-middleware CORS headers (which bypass the main CORS middleware)
+  // still allow cross-origin error reads from local frontend dev servers.
+  if (process.env.NODE_ENV === "development") {
+    return [
+      "http://localhost:3000",
+      "http://localhost:3001",
+      "http://localhost:5173",
+      "http://localhost:5174",
+    ];
+  }
   return [];
 }
 
@@ -159,30 +170,23 @@ function isAllowedOrigin(origin: string | undefined, allowed: string[]): boolean
 function configureCors(app: INestApplication): void {
   const allowedOrigins = parseAllowedOrigins();
   if (allowedOrigins.length > 0) {
-    app.enableCors({ origin: allowedOrigins, credentials: true });
+    const isExplicitConfig = process.env.CORS_ORIGINS != null;
+    if (!isExplicitConfig && process.env.NODE_ENV === "development") {
+      logger.warn(
+        "CORS_ORIGINS not set — using restrictive localhost origins for development. " +
+        "Set CORS_ORIGINS for non-standard dev ports."
+      );
+    }
+    app.enableCors({ origin: allowedOrigins, credentials: isExplicitConfig });
     return;
   }
-  if (process.env.NODE_ENV === "development") {
-    const devOrigins = [
-      "http://localhost:3000",
-      "http://localhost:3001",
-      "http://localhost:5173",
-      "http://localhost:5174",
-    ];
-    logger.warn(
-      "CORS_ORIGINS not set — using restrictive localhost origins for development. " +
-      "Set CORS_ORIGINS for non-standard dev ports."
-    );
-    app.enableCors({ origin: devOrigins, credentials: false });
-  } else {
-    logger.error(
-      "CORS_ORIGINS is not set. In non-development environments, CORS_ORIGINS must be " +
-      "configured as a comma-separated list of allowed origins (e.g., " +
-      "CORS_ORIGINS=https://app.example.com,https://admin.example.com). " +
-      "Without this, cross-origin requests will be blocked by the browser. " +
-      "Set CORS_ORIGINS and restart the application."
-    );
-  }
+  logger.error(
+    "CORS_ORIGINS is not set. In non-development environments, CORS_ORIGINS must be " +
+    "configured as a comma-separated list of allowed origins (e.g., " +
+    "CORS_ORIGINS=https://app.example.com,https://admin.example.com). " +
+    "Without this, cross-origin requests will be blocked by the browser. " +
+    "Set CORS_ORIGINS and restart the application."
+  );
 }
 
 function parsePort(): number {

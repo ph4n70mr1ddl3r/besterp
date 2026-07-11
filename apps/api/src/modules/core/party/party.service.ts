@@ -499,6 +499,12 @@ export class PartyService {
   }
 
   private validateAddPartyRoleInput(roleType: string): string {
+    if (typeof roleType !== "string") {
+      throw new InvalidTypeValueError(
+        "roleType must be a non-empty string.",
+        { suggestedTools: ["get_type_table_values"], context: { field: "roleType", received: typeof roleType } }
+      );
+    }
     const trimmed = roleType.trim();
     if (!trimmed) {
       throw new InvalidTypeValueError("roleType cannot be empty", { suggestedTools: ["get_type_table_values"], context: { field: "roleType", received: roleType } });

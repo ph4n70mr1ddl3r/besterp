@@ -22,13 +22,13 @@ import {
   Body,
   Param,
   Query,
-  Req,
+  Request,
   Res,
   ParseUUIDPipe,
   UnauthorizedException,
   HttpCode,
 } from "@nestjs/common";
-import type { Request, Response } from "express";
+import type { Request as ExpressRequest, Response } from "express";
 import { TenantContext } from "../../../common/tenant-context.js";
 import { PartyService } from "./party.service.js";
 import {
@@ -42,7 +42,7 @@ import {
 export class PartyController {
   constructor(private readonly partyService: PartyService) {}
 
-  private getTenantContext(req: Request): TenantContext {
+  private getTenantContext(req: ExpressRequest): TenantContext {
     const ctx = req.tenantContext;
     if (!ctx?.tenantId) {
       throw new UnauthorizedException(
@@ -55,7 +55,7 @@ export class PartyController {
   @Post()
   @HttpCode(201)
   async create(
-    @Req() req: Request,
+    @Request() req: ExpressRequest,
     @Body() body: CreatePartyDto
   ) {
     const { tenantId } = this.getTenantContext(req);
@@ -69,7 +69,7 @@ export class PartyController {
 
   @Get()
   async search(
-    @Req() req: Request,
+    @Request() req: ExpressRequest,
     @Res({ passthrough: true }) res: Response,
     @Query() query: SearchPartiesDto
   ) {
@@ -96,7 +96,7 @@ export class PartyController {
 
   @Get(":id")
   async get(
-    @Req() req: Request,
+    @Request() req: ExpressRequest,
     @Param("id", ParseUUIDPipe) partyId: string
   ) {
     const { tenantId } = this.getTenantContext(req);
@@ -106,7 +106,7 @@ export class PartyController {
   @Post(":id/roles")
   @HttpCode(201)
   async addRole(
-    @Req() req: Request,
+    @Request() req: ExpressRequest,
     @Param("id", ParseUUIDPipe) partyId: string,
     @Body() body: AddPartyRoleDto
   ) {
@@ -121,7 +121,7 @@ export class PartyController {
   @Post(":id/contacts")
   @HttpCode(201)
   async addContact(
-    @Req() req: Request,
+    @Request() req: ExpressRequest,
     @Param("id", ParseUUIDPipe) partyId: string,
     @Body() body: AddContactMechanismDto
   ) {

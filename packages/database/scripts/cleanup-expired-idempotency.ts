@@ -9,8 +9,7 @@
 import { PrismaClient } from "@prisma/client";
 
 if (!process.env.DATABASE_ADMIN_URL) {
-  console.error(
-    "❌ DATABASE_ADMIN_URL is required for idempotency cleanup (bypasses RLS). " +
+    console.error("DATABASE_ADMIN_URL is required for idempotency cleanup (bypasses RLS). " +
     "The app role cannot see expired records due to tenant-scoped RLS policies."
   );
   process.exit(1);
@@ -28,8 +27,8 @@ async function main() {
   const ADVISORY_LOCK_KEY = 0x62657374657270; // 'besterp' in ASCII hex bytes
   let lockAcquired = false;
   let totalDeleted = 0;
-  let before: number;
-  let after: number;
+  let before = 0;
+  let after = 0;
 
   // Try to acquire the advisory lock. pg_try_advisory_lock returns false
   // immediately if another process already holds it — the script exits
@@ -40,11 +39,11 @@ async function main() {
     `;
     lockAcquired = lockResult[0]?.pg_try_advisory_lock === true;
     if (!lockAcquired) {
-      console.log("🧹 Another cleanup is already running — exiting without doing work.");
+      console.log("Another cleanup is already running — exiting without doing work.");
       return;
     }
   } catch (e) {
-    console.error("❌ Could not query advisory lock — aborting:", e);
+    console.error("Could not query advisory lock — aborting:", e);
     await prisma.$disconnect().catch(() => {});
     process.exit(1);
   }
@@ -91,12 +90,12 @@ async function main() {
       try {
         await prisma.$queryRaw`SELECT pg_advisory_unlock(${ADVISORY_LOCK_KEY})`;
       } catch (e) {
-        console.warn("⚠️  Could not release advisory lock:", e);
+        console.warn("Could not release advisory lock:", e);
       }
     }
   }
 
-  console.log(`🧹 Idempotency cleanup complete:`);
+  console.log("Idempotency cleanup complete:");
   console.log(`   Records before: ${before}`);
   console.log(`   Records deleted: ${totalDeleted}`);
   console.log(`   Records remaining: ${after}`);

@@ -6,8 +6,6 @@
   },
   "include": ["src"],
   "exclude": [
-    "src/__tests__/**/*",
-    "src/server.ts",
-    "src/test-agent.ts"
+    "src/__tests__/**/*"
   ]
 }

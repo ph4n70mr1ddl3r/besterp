@@ -138,7 +138,17 @@ export function truncateValue(value: unknown, maxSize: number = MAX_STORED_PAYLO
   }
 
   try {
-    const serialized = JSON.stringify(value);
+    // Convert Map/Set to arrays before serialisation — JSON.stringify
+    // silently converts Map/Set to "{}", losing all data. This conversion
+    // mirrors the audit-log middleware's pre-processing but is applied here
+    // so custom middleware authors who call truncateValue directly don't hit
+    // the silent data-loss pitfall.
+    const normalised = value instanceof Map
+      ? Array.from(value.entries())
+      : value instanceof Set
+        ? Array.from(value)
+        : value;
+    const serialized = JSON.stringify(normalised);
     const encoded = textEncoder.encode(serialized);
     if (encoded.byteLength > effectiveMax) {
       return truncationMarker(encoded);

@@ -105,7 +105,7 @@ export function resolveJwtSecret(): string {
     throw new Error("JWT_SECRET must be set in production. Refusing to start with insecure default.");
   }
   _logger.warn(
-    "⚠️  JWT_SECRET not set — generating ephemeral secret for this session. Set JWT_SECRET in production!"
+    "JWT_SECRET not set — generating ephemeral secret for this session. Set JWT_SECRET in production!"
   );
   _jwtSecretCache.value = randomBytes(32).toString("hex");
   return _jwtSecretCache.value;
