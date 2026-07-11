@@ -170,6 +170,11 @@ export function sanitizeLogMessage(s: string): string {
     .replace(/\x1b\[[\x30-\x3F]*[\x40-\x7E]/g, "")
     .replace(/\x1b[\]_X^P][\s\S]*?(?:\x1b\\|\x07)/g, "")
     .replace(/\x1b[\x20-\x2F]*[\x30-\x7E]/g, "")
+    // Unicode bidirectional override/isolate controls and zero-width characters.
+    // These can manipulate terminal display to hide injected log content or
+    // create misleading log entries (e.g., U+202E RIGHT-TO-LEFT OVERRIDE).
+    // eslint-disable-next-line no-misleading-character-class
+    .replace(/[\u200B\u200C\u200D\u2060\u2066-\u2069\u202A-\u202E\uFEFF]/g, "")
     .replace(/[\r\n\t\x00-\x08\x0b\x0c\x0e-\x1f\x7f\x80-\x9f]/g, "_");
   /* eslint-enable no-control-regex */
 }

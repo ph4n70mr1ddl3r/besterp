@@ -41,6 +41,12 @@ export class ToolRegistry {
     if (!definition.name || typeof definition.name !== "string") {
       throw new Error("Tool name must be a non-empty string.");
     }
+    if (!definition.description || typeof definition.description !== "string" || definition.description.trim().length === 0) {
+      throw new Error(
+        `Tool '${definition.name}' must have a non-empty description. ` +
+        `The description helps AI agents understand the tool's purpose.`
+      );
+    }
     // Check reserved prefix FIRST to provide a specific error message — the
     // snake_case regex below would also reject `__` with a generic error.
     if (definition.name.startsWith("__")) {

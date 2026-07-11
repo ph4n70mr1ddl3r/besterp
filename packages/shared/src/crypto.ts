@@ -33,20 +33,22 @@ function sortArray(value: unknown[], ancestors: Set<object>, depth: number): unk
 function sortMap(value: Map<unknown, unknown>, ancestors: Set<object>, depth: number): unknown[] {
   checkCircular(value, ancestors);
   ancestors.add(value);
-  // Pre-compute sorted keys to avoid processing each key twice (once in
-  // the comparator, once in the final output). Each key is stringified once
-  // for comparison and once for the final sorted-key-value output.
+  // Pre-compute sorted keys and their stringified forms to avoid redundant
+  // JSON.stringify calls in the comparator. Without pre-computation, each
+  // comparison re-stringifies both keys — O(n log n) stringifications total.
+  // Pre-computing reduces this to O(n).
   const entries = Array.from(value.entries());
-  const sortedEntries = entries
+  const prepared = entries
     .map(([k, v]) => ({
       v,
       kSorted: sortKeysDeep(k, ancestors, depth + 1),
-    }))
-    .sort((a, b) => {
-      const aStr = JSON.stringify(a.kSorted);
-      const bStr = JSON.stringify(b.kSorted);
-      return aStr < bStr ? -1 : aStr > bStr ? 1 : 0;
-    });
+      kStr: "", // populated below
+    }));
+  for (const entry of prepared) {
+    entry.kStr = JSON.stringify(entry.kSorted);
+  }
+  const sortedEntries = prepared
+    .sort((a, b) => a.kStr < b.kStr ? -1 : a.kStr > b.kStr ? 1 : 0);
   const result = sortedEntries.map(({ v, kSorted }) => [kSorted, sortKeysDeep(v, ancestors, depth + 1)]);
   ancestors.delete(value);
   return result;
@@ -55,11 +57,13 @@ function sortMap(value: Map<unknown, unknown>, ancestors: Set<object>, depth: nu
 function sortSet(value: Set<unknown>, ancestors: Set<object>, depth: number): unknown[] {
   checkCircular(value, ancestors);
   ancestors.add(value);
-  const result = Array.from(value).map((v) => sortKeysDeep(v, ancestors, depth + 1)).sort((a, b) => {
-    const aStr = JSON.stringify(a);
-    const bStr = JSON.stringify(b);
-    return aStr < bStr ? -1 : aStr > bStr ? 1 : 0;
-  });
+  // Pre-compute stringified forms to avoid redundant JSON.stringify calls
+  // in the comparator (same optimization as sortMap).
+  const sorted = Array.from(value).map((v) => sortKeysDeep(v, ancestors, depth + 1));
+  const prepared = sorted.map((v) => ({ v, str: JSON.stringify(v) }));
+  const result = prepared
+    .sort((a, b) => a.str < b.str ? -1 : a.str > b.str ? 1 : 0)
+    .map(({ v }) => v);
   ancestors.delete(value);
   return result;
 }

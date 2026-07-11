@@ -8,8 +8,16 @@
 
 import { PrismaClient } from "@prisma/client";
 
+if (!process.env.DATABASE_ADMIN_URL) {
+  console.error(
+    "❌ DATABASE_ADMIN_URL is required for idempotency cleanup (bypasses RLS). " +
+    "The app role cannot see expired records due to tenant-scoped RLS policies."
+  );
+  process.exit(1);
+}
+
 const prisma = new PrismaClient({
-  datasourceUrl: process.env.DATABASE_ADMIN_URL || process.env.DATABASE_URL,
+  datasourceUrl: process.env.DATABASE_ADMIN_URL,
 });
 
 async function main() {

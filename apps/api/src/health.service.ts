@@ -146,11 +146,14 @@ export class HealthService implements OnModuleInit {
    */
   async getVersion(): Promise<VersionInfo> {
     await this.packageInfoReady;
+    const isProd = process.env.NODE_ENV === "production";
     return {
       version: this.packageInfo.version,
       name: this.packageInfo.name,
       environment: process.env.NODE_ENV || "development",
-      warning: this.packageInfoError ?? undefined,
+      // Suppress filesystem-path errors in production to avoid information
+      // disclosure about the container/server layout.
+      warning: isProd ? undefined : this.packageInfoError ?? undefined,
       build: {
         number: process.env.BUILD_NUMBER,
         date: process.env.BUILD_DATE,

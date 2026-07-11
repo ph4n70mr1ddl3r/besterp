@@ -81,7 +81,7 @@ export function validateTenantIdEnhanced(tenantId: string): void {
  * Validate that a Prisma client has the required methods for RLS.
  */
 export function validatePrismaClientForRls(prisma: PrismaClient): void {
-  if (!prisma || typeof prisma.$transaction !== "function") {
+  if (!prisma || typeof prisma.$transaction !== "function" || typeof prisma.$executeRaw !== "function") {
     throw new InvalidTypeValueError(
       "Prisma client does not support RLS operations. Make sure it's connected with the correct role.",
       { context: { provided: typeof prisma } }

@@ -76,7 +76,7 @@ export class DomainExceptionFilter implements ExceptionFilter {
       );
     } else {
       this.logger.warn(
-        `DomainError [${exception.code}]: ${exception.message}`
+        `DomainError [${exception.code}]: ${sanitizeForLogOutput(exception.message)}`
       );
     }
 

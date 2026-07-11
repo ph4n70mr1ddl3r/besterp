@@ -81,8 +81,10 @@ describe("RLS Extension", () => {
 
     it("should reject Prisma clients without $executeRaw method", () => {
       const mockPrisma = {
+        $transaction: vi.fn(),
         $connect: vi.fn(),
         $disconnect: vi.fn(),
+        // Missing $executeRaw — set_tenant_context requires it
       };
       
       expect(() => validatePrismaClientForRls(mockPrisma as any)).toThrow(InvalidTypeValueError);

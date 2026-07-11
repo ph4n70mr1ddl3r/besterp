@@ -368,9 +368,11 @@ describe("Idempotency Middleware", () => {
       process.stderr.write = originalWrite;
     }
 
-    // Non-P2034 → surfaces as IDEMPOTENCY_CONTENTION after logging the warning.
+    // Non-P2034 → surfaces as SERVICE_UNAVAILABLE after logging the warning.
+    // This distinguishes infrastructure failures (retrying with a new key
+    // won't help) from serialization contention (P2034).
     expect(result?.success).toBe(false);
-    expect(result?.error?.code).toBe("IDEMPOTENCY_CONTENTION");
+    expect(result?.error?.code).toBe("SERVICE_UNAVAILABLE");
 
     const allArgs = stderrCalls
       .map((args) => args.map((a) => (typeof a === "string" ? a : "<binary>")).join(" "))

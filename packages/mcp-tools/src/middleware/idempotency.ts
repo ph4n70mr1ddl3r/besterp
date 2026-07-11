@@ -73,10 +73,23 @@ export function idempotencyMiddleware(prisma: PrismaClient): ToolMiddleware {
       return next(input, context);
     }
 
-    const { existingRecord, recordCreated } = await acquireIdempotencyRecord(prisma, idempotencyKey, tenantId, userId, agentId, conversationId, definition.name, inputHash);
+    const { existingRecord, recordCreated, unavailable } = await acquireIdempotencyRecord(prisma, idempotencyKey, tenantId, userId, agentId, conversationId, definition.name, inputHash);
 
     if (!recordCreated && !existingRecord) {
-      // All retries exhausted due to serialization failures (P2034)
+      if (unavailable) {
+        // Infrastructure failure (connection, auth) — retrying with a new
+        // idempotency key won't help. Surface a distinct error so the AI
+        // agent knows the service is temporarily unavailable.
+        return {
+          success: false,
+          error: {
+            code: "SERVICE_UNAVAILABLE",
+            message: `Idempotency service is temporarily unavailable. The operation cannot be retried at this time — retry the same request later (not with a new key).`,
+            suggestedTools: [definition.name],
+          },
+        };
+      }
+      // Serialization contention (P2034) — suggest a new key.
       const safeKey = sanitizeForLog(idempotencyKey.slice(0, 32));
       return {
         success: false,
@@ -117,7 +130,7 @@ async function acquireIdempotencyRecord(
   prisma: PrismaClient, idempotencyKey: string, tenantId: string, userId: string,
   agentId: string | undefined, conversationId: string | undefined,
   toolName: string, inputHash: string,
-): Promise<{ existingRecord: IdempotencyRecord | null; recordCreated: boolean }> {
+): Promise<{ existingRecord: IdempotencyRecord | null; recordCreated: boolean; unavailable?: boolean }> {
   for (let attempt = 0; attempt < IDEMPOTENCY_MAX_RETRIES; attempt++) {
     try {
       const { existing, created } = await prisma.$transaction(async (tx) => {
@@ -185,8 +198,12 @@ async function acquireIdempotencyRecord(
           `Non-retryable error acquiring idempotency record '${sanitizeForLog(idempotencyKey.slice(0, 32))}' (code=${code ?? "none"}): ${sanitizeLogOutput(e instanceof Error ? e.message : String(e))}`
         );
       }
-      // Return contention failure instead of throwing so the middleware
-      // can produce a structured error response for the AI agent.
+      // Return a distinct error for non-contention failures so the caller
+      // can differentiate infrastructure errors (retrying with a new key
+      // won't help) from actual serialization contention (P2034).
+      if (code !== "P2034") {
+        return { existingRecord: null, recordCreated: false, unavailable: true };
+      }
       return { existingRecord: null, recordCreated: false };
     }
   }
