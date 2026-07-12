@@ -20,6 +20,8 @@ const VALID_RISK_LEVELS: readonly RiskLevel[] = ["none", "low", "medium", "high"
 export class ToolRegistry {
   private readonly tools = new Map<string, RegistryEntry>();
   private readonly globalMiddlewares: ToolMiddleware[] = [];
+  /** Cached compiled pipelines per tool name, invalidated on register/addGlobalMiddleware. */
+  private readonly pipelineCache = new Map<string, (input: unknown, ctx: ToolContext) => Promise<ToolResult>>();
 
   /**
    * Register a global middleware that runs for ALL tools.
@@ -27,6 +29,7 @@ export class ToolRegistry {
    */
   addGlobalMiddleware(middleware: ToolMiddleware): void {
     this.globalMiddlewares.push(middleware);
+    this.pipelineCache.clear();
   }
 
   /**
@@ -91,6 +94,7 @@ export class ToolRegistry {
       definition,
       middlewares,
     });
+    this.pipelineCache.delete(definition.name);
   }
 
   /**
@@ -147,33 +151,38 @@ export class ToolRegistry {
         ? { ...context, idempotencyKey: raw.idempotencyKey }
         : context;
 
-    // Build the pipeline: handler is the innermost function
-    const allMiddlewares = [...this.globalMiddlewares, ...middlewares];
+    // Check pipeline cache — rebuilt only on register() or addGlobalMiddleware()
+    let pipeline = this.pipelineCache.get(name);
+    if (!pipeline) {
+      // Build the pipeline: handler is the innermost function
+      const allMiddlewares = [...this.globalMiddlewares, ...middlewares];
 
-    // Compose middlewares into a single function
-    const pipeline = allMiddlewares.reduceRight<
-      (input: unknown, ctx: ToolContext) => Promise<ToolResult>
-    >(
-      (next, middleware) => {
-        return (input, ctx) => middleware(input, ctx, definition, next);
-      },
-      // Final handler — validates input with Zod, then calls the handler
-      async (input, ctx) => {
-        const parsed = definition.inputSchema.safeParse(input);
-        if (!parsed.success) {
-          return {
-            success: false,
-            error: {
-              code: "INVALID_INPUT",
-              message: `Input validation failed: ${parsed.error.issues.map((i) => `${i.path.map((p) => typeof p === "symbol" ? p.toString() : String(p)).join(".")}: ${i.message}`).join("; ")}`,
-              suggestedTools: [name],
-              context: { issues: parsed.error.issues },
-            },
-          };
+      // Compose middlewares into a single function
+      pipeline = allMiddlewares.reduceRight<
+        (input: unknown, ctx: ToolContext) => Promise<ToolResult>
+      >(
+        (next, middleware) => {
+          return (input, ctx) => middleware(input, ctx, definition, next);
+        },
+        // Final handler — validates input with Zod, then calls the handler
+        async (input, ctx) => {
+          const parsed = definition.inputSchema.safeParse(input);
+          if (!parsed.success) {
+            return {
+              success: false,
+              error: {
+                code: "INVALID_INPUT",
+                message: `Input validation failed: ${parsed.error.issues.map((i) => `${i.path.map((p) => typeof p === "symbol" ? p.toString() : String(p)).join(".")}: ${i.message}`).join("; ")}`,
+                suggestedTools: [name],
+                context: { issues: parsed.error.issues },
+              },
+            };
+          }
+          return definition.handler(parsed.data, ctx);
         }
-        return definition.handler(parsed.data, ctx);
-      }
-    );
+      );
+      this.pipelineCache.set(name, pipeline);
+    }
 
     return pipeline(rawInput, effectiveContext);
   }

@@ -6,12 +6,16 @@
 -- must use a non-superuser role for RLS to be enforced.
 --
 -- Usage: psql -U besterp -d besterp -f create-roles.sql
+--
+-- WARNING: The password below is a DEV-ONLY placeholder. For staging and
+-- production environments, set the role password via:
+--   ALTER ROLE besterp_app WITH PASSWORD '<strong-random-password>';
+-- or pass it through a secrets manager / migration tool.
 
 -- Create the application role
 DO $$
 BEGIN
   IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'besterp_app') THEN
-    -- DEV-ONLY password: must be rotated for any non-local environment
     CREATE ROLE besterp_app WITH LOGIN PASSWORD 'besterp_app_dev' NOINHERIT;
   END IF;
 END
