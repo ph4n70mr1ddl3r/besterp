@@ -92,6 +92,38 @@ export function capString(value: unknown, maxBytes: number): string {
 }
 
 /**
+ * Serialize a non-primitive value to a JSON-safe form, handling Map/Set
+ * conversion. Returns a structured error marker on serialisation failure.
+ * Never throws.
+ */
+function serializeObjectValue(value: unknown): { serialized: string } | { _error: string } {
+  try {
+    // Convert Map/Set to arrays before serialisation — JSON.stringify
+    // silently converts Map/Set to "{}", losing all data. This conversion
+    // mirrors the audit-log middleware's pre-processing but is applied here
+    // so custom middleware authors who call truncateValue directly don't hit
+    // the silent data-loss pitfall.
+    const normalised = value instanceof Map
+      ? Array.from(value.entries())
+      : value instanceof Set
+        ? Array.from(value)
+        : value;
+    const serialized = JSON.stringify(normalised);
+    return { serialized };
+  } catch {
+    return { _error: "Failed to serialize value" };
+  }
+}
+
+/**
+ * Check whether a UTF-8 encoded byte array exceeds `effectiveMax` bytes,
+ * returning a truncation marker if so, or `null` if the value fits.
+ */
+function checkOversized(encoded: Uint8Array, effectiveMax: number): { _truncated: true; _originalSize: number; _preview: string } | null {
+  return encoded.byteLength > effectiveMax ? truncationMarker(encoded) : null;
+}
+
+/**
  * Truncate a JSONB payload to `maxSize` bytes, replacing oversize values
  * with a structured marker. Never throws — returns an error marker on
  * serialisation failure.
@@ -106,10 +138,8 @@ export function truncateValue(value: unknown, maxSize: number = MAX_STORED_PAYLO
   if (typeof value === "string" || typeof value === "boolean") {
     const serialized = JSON.stringify(value);
     const encoded = textEncoder.encode(serialized);
-    if (encoded.byteLength > effectiveMax) {
-      return truncationMarker(encoded);
-    }
-    return value;
+    const marker = checkOversized(encoded, effectiveMax);
+    return marker ?? value;
   }
   if (typeof value === "number") {
     // Use JSON.stringify for numbers — String(1e21) vs JSON.stringify(1e21)
@@ -117,18 +147,14 @@ export function truncateValue(value: unknown, maxSize: number = MAX_STORED_PAYLO
     // The stored value will be serialized via JSON.stringify, so measure that.
     const serialized = JSON.stringify(value);
     const encoded = textEncoder.encode(serialized);
-    if (encoded.byteLength > effectiveMax) {
-      return truncationMarker(encoded);
-    }
-    return value;
+    const marker = checkOversized(encoded, effectiveMax);
+    return marker ?? value;
   }
   if (typeof value === "bigint") {
     const str = value.toString();
     const encoded = textEncoder.encode(str);
-    if (encoded.byteLength > effectiveMax) {
-      return truncationMarker(encoded);
-    }
-    return str;
+    const marker = checkOversized(encoded, effectiveMax);
+    return marker ?? str;
   }
   if (typeof value === "symbol") {
     return { _error: "Cannot serialize Symbol value" };
@@ -137,27 +163,13 @@ export function truncateValue(value: unknown, maxSize: number = MAX_STORED_PAYLO
     return { _error: "Cannot serialize Function value" };
   }
 
-  try {
-    // Convert Map/Set to arrays before serialisation — JSON.stringify
-    // silently converts Map/Set to "{}", losing all data. This conversion
-    // mirrors the audit-log middleware's pre-processing but is applied here
-    // so custom middleware authors who call truncateValue directly don't hit
-    // the silent data-loss pitfall.
-    const normalised = value instanceof Map
-      ? Array.from(value.entries())
-      : value instanceof Set
-        ? Array.from(value)
-        : value;
-    const serialized = JSON.stringify(normalised);
-    const encoded = textEncoder.encode(serialized);
-    if (encoded.byteLength > effectiveMax) {
-      return truncationMarker(encoded);
-    }
-    // Roundtrip through JSON.parse to normalise non-plain values
-    // (class instances, Maps, Sets, BigInts, etc.) to plain JSON-safe
-    // values before storage as JSONB.
-    return JSON.parse(serialized);
-  } catch {
-    return { _error: "Failed to serialize value" };
-  }
+  const result = serializeObjectValue(value);
+  if ("_error" in result) return result;
+  const encoded = textEncoder.encode(result.serialized);
+  const marker = checkOversized(encoded, effectiveMax);
+  if (marker) return marker;
+  // Roundtrip through JSON.parse to normalise non-plain values
+  // (class instances, Maps, Sets, BigInts, etc.) to plain JSON-safe
+  // values before storage as JSONB.
+  return JSON.parse(result.serialized);
 }

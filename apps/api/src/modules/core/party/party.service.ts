@@ -324,6 +324,22 @@ export class PartyService {
     }
   }
 
+  /** Extract the conflicting field name from a P2002 Prisma error's metadata. */
+  private static resolveConflictField(err: Prisma.PrismaClientKnownRequestError): string {
+    const target = err.meta?.target;
+    if (Array.isArray(target) && target.length > 0 && typeof target[0] === "string") {
+      return target[0];
+    }
+    return "this record";
+  }
+
+  /** Extract the constraint name from a P2003 Prisma error's metadata. */
+  private static resolveConstraintName(err: Prisma.PrismaClientKnownRequestError): string {
+    return (err.meta?.field_name as string | undefined)
+      ?? (err.meta?.constraint as string | undefined)
+      ?? "unknown";
+  }
+
   /** Map Prisma transaction errors to DomainErrors. Throws the mapped error. */
   private static handleTransactionError(
     err: unknown,
@@ -334,18 +350,17 @@ export class PartyService {
     if (err instanceof Prisma.PrismaClientKnownRequestError) {
       switch (err.code) {
         case "P2002": {
-          const target = (err.meta?.target as string[] | undefined);
-          const field = Array.isArray(target) && target.length > 0 && typeof target[0] === "string" ? target[0] : "this record";
+          const field = PartyService.resolveConflictField(err);
           throw new DuplicateEntityError(
             `A ${entityName} with the same ${field} already exists in this tenant.`,
             { suggestedTools: [suggestTool], context: { prismaCode: "P2002", conflictingField: field } }
           );
         }
         case "P2003": {
-          const target = (err.meta?.field_name as string | undefined) ?? (err.meta?.constraint as string | undefined) ?? "unknown";
+          const constraint = PartyService.resolveConstraintName(err);
           throw new InvalidTypeValueError(
-            `Referenced ${entityName} does not exist (constraint: ${target}).`,
-            { suggestedTools: [suggestTool], context: { prismaCode: "P2003", constraint: target } }
+            `Referenced ${entityName} does not exist (constraint: ${constraint}).`,
+            { suggestedTools: [suggestTool], context: { prismaCode: "P2003", constraint } }
           );
         }
         case "P2025": {
@@ -692,6 +707,43 @@ export class PartyService {
     }
   }
 
+  /** Throw DuplicateEntityError if the email is already registered for this party. */
+  private static async checkEmailDuplicate(
+    tx: Prisma.TransactionClient, partyId: string, tenantId: string, normalizedEmail: string,
+  ): Promise<void> {
+    const existingEmail = await tx.emailAddress.findFirst({
+      where: { email: normalizedEmail, contactMechanism: { tenantId } },
+      include: { contactMechanism: { include: { partyContacts: true } } },
+    });
+    if (existingEmail?.contactMechanism.partyContacts.some((pc) => pc.partyId === partyId)) {
+      const atIdx = normalizedEmail.indexOf("@");
+      const redactedEmail = atIdx > 0
+        ? `${normalizedEmail.slice(0, 2)}***@${normalizedEmail.slice(atIdx + 1)}`
+        : "***";
+      throw new DuplicateEntityError(
+        `Email '${redactedEmail}' is already registered for this party.`,
+        { suggestedTools: ["add_contact_mechanism"], context: { contactMechanismType: "EMAIL_ADDRESS", email: redactedEmail } }
+      );
+    }
+  }
+
+  /** Throw DuplicateEntityError if the phone number is already registered for this party. */
+  private static async checkTelecomDuplicate(
+    tx: Prisma.TransactionClient, partyId: string, tenantId: string,
+    sanitizedAreaCode: string, sanitizedLineNumber: string,
+  ): Promise<void> {
+    const existingTel = await tx.telecomNumber.findFirst({
+      where: { areaCode: sanitizedAreaCode, lineNumber: sanitizedLineNumber, contactMechanism: { tenantId } },
+      include: { contactMechanism: { include: { partyContacts: true } } },
+    });
+    if (existingTel?.contactMechanism.partyContacts.some((pc) => pc.partyId === partyId)) {
+      throw new DuplicateEntityError(
+        `Phone number (${sanitizedAreaCode}) ${sanitizedLineNumber} is already registered for this party.`,
+        { suggestedTools: ["add_contact_mechanism"], context: { contactMechanismType: "TELECOM_NUMBER" } }
+      );
+    }
+  }
+
   private async createContactMechanismTransaction(
     db: TenantScopedClient,
     tenantId: string, partyId: string, type: string,
@@ -712,20 +764,7 @@ export class PartyService {
         }
 
         if (normalizedEmail) {
-          const existingEmail = await tx.emailAddress.findFirst({
-            where: { email: normalizedEmail, contactMechanism: { tenantId } },
-            include: { contactMechanism: { include: { partyContacts: true } } },
-          });
-          if (existingEmail?.contactMechanism.partyContacts.some((pc) => pc.partyId === partyId)) {
-            const atIdx = normalizedEmail.indexOf("@");
-            const redactedEmail = atIdx > 0
-              ? `${normalizedEmail.slice(0, 2)}***@${normalizedEmail.slice(atIdx + 1)}`
-              : "***";
-            throw new DuplicateEntityError(
-              `Email '${redactedEmail}' is already registered for this party.`,
-              { suggestedTools: ["add_contact_mechanism"], context: { contactMechanismType: "EMAIL_ADDRESS", email: redactedEmail } }
-            );
-          }
+          await PartyService.checkEmailDuplicate(tx, partyId, tenantId, normalizedEmail);
         }
 
         if (type === "TELECOM_NUMBER" && telecomNumber) {
@@ -736,16 +775,7 @@ export class PartyService {
           // version, and a second call with the clean value creates a duplicate.
           const sanitizedAreaCode = stripHtmlTags(telecomNumber.areaCode.trim());
           const sanitizedLineNumber = stripHtmlTags(telecomNumber.lineNumber.trim());
-          const existingTel = await tx.telecomNumber.findFirst({
-            where: { areaCode: sanitizedAreaCode, lineNumber: sanitizedLineNumber, contactMechanism: { tenantId } },
-            include: { contactMechanism: { include: { partyContacts: true } } },
-          });
-          if (existingTel?.contactMechanism.partyContacts.some((pc) => pc.partyId === partyId)) {
-            throw new DuplicateEntityError(
-              `Phone number (${sanitizedAreaCode}) ${sanitizedLineNumber} is already registered for this party.`,
-              { suggestedTools: ["add_contact_mechanism"], context: { contactMechanismType: "TELECOM_NUMBER" } }
-            );
-          }
+          await PartyService.checkTelecomDuplicate(tx, partyId, tenantId, sanitizedAreaCode, sanitizedLineNumber);
         }
 
         return tx.contactMechanism.create({
