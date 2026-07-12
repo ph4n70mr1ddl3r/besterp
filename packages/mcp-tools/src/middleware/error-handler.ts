@@ -14,6 +14,7 @@ import {
   pluralize,
 } from "@besterp/shared";
 import { ToolMiddleware, ToolResult } from "../schema/tool-definition.js";
+import { isSensitiveField } from "./sensitive-fields.js";
 
 function extractPrismaError(error: unknown): { code: string | undefined; meta: { target?: string | string[] } | undefined } {
   if (error != null && typeof error === "object") {
@@ -50,6 +51,23 @@ function sanitizeObject(value: Record<string, unknown>, depth: number, seen?: We
   if (state.circular) return "[Circular]";
   const result: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(value)) {
+    // Defense-in-depth: redact values whose KEY marks them as sensitive
+    // (password, apiKey, clientSecret, …) before the value-level URL/path
+    // scrubbing runs. DomainError.context is application-constructed and
+    // intentionally carries diagnostic fields for the AI agent, so by design
+    // it never holds raw user secrets — but a future DomainError that places
+    // a secret under a sensitive-named key would otherwise surface it to the
+    // agent verbatim (the value scrub below only strips URLs/paths, not
+    // secret values). Mirrors the audit-log middleware's
+    // redactSensitiveFields so both agent-facing surfaces (tool result +
+    // audit row) apply identical key-based redaction. Every existing
+    // DomainError call site uses non-sensitive keys (partyId, field,
+    // conflictingFields, prismaCode, …), so this is behaviour-preserving in
+    // practice — it only closes the future-leak gap.
+    if (isSensitiveField(k)) {
+      result[k] = "[REDACTED]";
+      continue;
+    }
     result[k] = sanitizeContextValue(v, depth + 1, state.seen);
   }
   return result;

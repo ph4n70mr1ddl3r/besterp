@@ -2,16 +2,14 @@
 
 ## Scope
 Fresh full review of the BestERP monorepo (`packages/shared`, `packages/mcp-tools`,
-`packages/database`, `apps/api`) conducted on 2026-07-12. This is review round 20;
-rounds 1–19 are documented in earlier revisions of this file and `CHANGES.md`.
+`packages/database`, `apps/api`) conducted on 2026-07-12. This is review round 21;
+rounds 1–20 are documented in earlier revisions of this file and `CHANGES.md`.
 
 ## Baseline (before this round)
 - `npm run typecheck` — clean across all workspaces
-- `npm run lint` — 0 errors (2 pre-existing cyclomatic-complexity warnings:
-  `truncate.ts::truncateValue` and `party.service.ts::handleTransactionError`,
-  both from legitimate type/code branching and intentionally retained)
-- `npm run test` — all passing: shared 137, mcp-tools 91, database (RLS tests
-  skipped without a live DB), api 237
+- `npm run lint` — 0 errors, 0 warnings
+- `npm run test` — all passing: shared 137, mcp-tools 92, database (RLS tests
+  skipped without a live DB), api 238
 
 ## Findings & Actions
 
@@ -56,6 +54,28 @@ rounds 1–19 are documented in earlier revisions of this file and `CHANGES.md`.
   condition and were at risk of diverging; collapsing them is behaviour-
   preserving and removes a redundant conditional.
 
+### Fixed this round
+
+1. **🟢 `error-handler.ts::sanitizeObject` — `DomainError.context` was not
+   redacted by field name, so a secret placed under a sensitive-named key
+   (`password`, `apiKey`, `clientSecret`, …) would reach the AI agent verbatim
+   even though the audit-log middleware redacted the same value.**
+   `sanitizeContextValue` only scrubbed string *values* (URL/path redaction +
+   control-char stripping); it never inspected *keys*. The audit-log's
+   `redactSensitiveFields` does both, so the two agent-facing surfaces
+   diverged. This was the defense-in-depth gap the round-20 report explicitly
+   flagged as a candidate. Fixed by extracting the sensitive-field detection
+   (`isSensitiveField`, `SENSITIVE_FIELDS`, `SENSITIVE_FIELD_PATTERN`,
+   `SENSITIVE_TOKENS`, `splitFieldTokens`) into a shared
+   `middleware/sensitive-fields.ts` module (behaviour-preserving for the
+   audit-log, which now imports it), and having `sanitizeObject` redact any
+   value whose key `isSensitiveField` flags to `[REDACTED]` before the
+   value-level scrub runs. Probed all 34 field names used across every
+   existing `DomainError` call site — none is flagged sensitive, so the change
+   is behaviour-preserving in practice and only closes the future-leak gap.
+   Added regression tests covering explicit, snake_case, and camelCase
+   sensitive keys, benign-field preservation, and URL/path-scrub composition.
+
 ### Reviewed and considered sound (no change needed)
 
 Carried forward from rounds 1–20 — spot-checked again this round and still
@@ -82,9 +102,12 @@ sound:
 - `audit-log.ts`: backpressure slot accounting + queue timeout/drop counters,
   `SENSITIVE_FIELD_PATTERN` alnum lookarounds for snake/camel-case, double
   redaction avoidance (input redacted in `createBaseEntry`), depth-cap returns
-  `[Too deep]` not raw value (round 13), token-based camelCase fallback (round 14).
+  `[Too deep]` not raw value (round 13), token-based camelCase fallback (round 14);
+  sensitive-field detection now shared with the error-handler via
+  `sensitive-fields.ts` (round 21).
 - `error-handler.ts`: Prisma-code → DomainError mapping table, connection-error
-  set, `sanitizeContextValue` depth + circular guards.
+  set, `sanitizeContextValue` depth + circular guards; `DomainError.context`
+  now redacted by field name via the shared `isSensitiveField` (round 21).
 - `tool-registry.ts`: registration-time validation (name, description,
   `riskLevel`, `safeParse` runtime guard), hallucination `findSimilarNames`.
 - `truncate.ts`: `safeSliceUtf8` continuation-byte walk-back, Map/Set
@@ -107,17 +130,19 @@ sound:
   subtype-table join policies, partial unique index for active roles.
 
 ## Recommendation
-The 2 fixes above are covered by tests (all quality gates green). Remaining
+The fix above is covered by tests (all quality gates green). Remaining
 observations are low-severity and do not require immediate code changes:
 
 - `hashInput` has no input size limit (mitigated by the 100 KB body-parser cap
-  and per-field Zod `.max()` limits, and idempotency hashes post-Zod-parse data).
-- `error-handler.ts` `sanitizeContextValue` does not redact by field name (unlike
-  `audit-log.ts` `redactSensitiveFields`); it sanitizes all string values uniformly
-  via `sanitizeForLogOutput`. This is acceptable because `DomainError.context` is
-  application-constructed (no raw user secrets by design), but a future DomainError
-  that places a secret in `context` would surface it to the AI agent. Defense-in-depth
-  candidate, not an active bug.
+  and per-field Zod `.max()` limits, and idempotency hashes post-Zod-parse
+  data). The `MAX_HASH_DEPTH` recursion cap already bounds stack depth, and the
+  body cap bounds the serialized size in practice.
 - The two retained complexity lint warnings reflect intentional, well-commented
   branching and would require splitting cohesive functions purely to satisfy
   the metric.
+
+## Resolved candidates
+- ~~`error-handler.ts` `sanitizeContextValue` did not redact by field name~~ —
+  addressed in round 21 (`DomainError.context` now applies the same
+  key-based `isSensitiveField` redaction as the audit-log, via the shared
+  `middleware/sensitive-fields.ts` module).

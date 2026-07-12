@@ -12,40 +12,7 @@ import { PrismaClient, Prisma } from "@prisma/client";
 import { getErrorCode, sanitizeForLog, sanitizeForLogOutput, MAX_REASONING_LENGTH } from "@besterp/shared";
 import { ToolMiddleware, ToolContext, ToolResult } from "../schema/tool-definition.js";
 import { truncateValue, MAX_STORED_PAYLOAD_SIZE } from "./truncate.js";
-
-/** Fields whose values must be redacted before persisting in the audit log. */
-const SENSITIVE_FIELDS = new Set([
-  "password", "passwd", "secret", "token", "api_key", "apiKey",
-  "authorization", "creditCard", "credit_card", "ssn", "taxId", "tax_id",
-  "access_token", "refresh_token", "session_id", "sessionId",
-  "private_key", "privateKey", "secret_key", "secretKey",
-  "accessKey", "access_key", "encryption_key", "encryptionKey",
-  // ERP-specific sensitive fields. birthDate/birth_date are the camelCase
-  // field names that actually flow through MCP tool inputs and the Person
-  // subtype — date_of_birth/dob alone miss them, leaking DOB (sensitive PII)
-  // into ai_action_log.tool_input.
-  "pin", "cc_number", "card_number", "date_of_birth", "dob",
-  "birthDate", "birth_date",
-  "bank_account", "routing_number", "national_id", "passport",
-]);
-
-/**
- * Regex pattern for catch-all sensitive field detection (password, secret,
- * token, key, etc.).
- *
- * Boundary notes: `\b` is NOT used because `_` is a word character under `\w`,
- * so `\btoken\b` would NOT match `session_token`, `auth_token`, `bearer_token`,
- * `id_token`, or `client_secret` — there is no word boundary between `_` and
- * the keyword. We instead delimit the keyword with alnum-only lookarounds
- * (`(?<![a-z0-9])` / `(?![a-z0-9])`), which treat `_` and `-` as separators.
- * This catches both snake_case (`auth_token`, `client_secret`) and camelCase
- * (`authToken`) sensitive names while still rejecting infix matches inside
- * unrelated words.
- *
- * The `auth` subgroup accepts an optional snake/camel `token|key|code` suffix
- * (`auth_token`, `authKey`, bare `auth`), mirroring the `api[_-]?key` form.
- */
-const SENSITIVE_FIELD_PATTERN = /(?<![a-zA-Z0-9])(password|secret|token|api[_-]?key|credential|auth(?:token|key|code|[_-](?:token|key|code))?)(?![a-zA-Z0-9])/i;
+import { isSensitiveField } from "./sensitive-fields.js";
 
 /** Maximum depth for recursive sensitive field redaction. */
 const MAX_REDACTION_DEPTH = 10;
@@ -237,53 +204,6 @@ async function logAction(prisma: PrismaClient, entry: AuditLogEntry): Promise<vo
       reasoning: entry.reasoning ?? null,
     },
   });
-}
-
-/**
- * Token keywords that are unambiguously sensitive wherever they appear as a
- * distinct token (a camelCase, snake_case, or kebab-case segment). Used by the
- * token-based fallback in `isSensitiveField` to catch camelCase field names
- * the SENSITIVE_FIELD_PATTERN regex misses.
- */
-const SENSITIVE_TOKENS = new Set([
-  "password", "passwd", "pwd", "secret", "token", "credential", "credentials",
-]);
-
-/**
- * Split a field name into tokens at snake_case, kebab-case, AND camelCase
- * boundaries. e.g. `clientSecret` → [`client`, `Secret`], `access_token` →
- * [`access`, `token`], `bearer-token` → [`bearer`, `token`].
- *
- * Uses `match` (runs of lowercase/digits, or an uppercase letter optionally
- * followed by lowercase letters) rather than inserting a separator, so no
- * control character is needed in the regex (which would trip the
- * `no-control-regex` lint rule).
- */
-function splitFieldTokens(key: string): string[] {
-  const matches = key.match(/[a-z0-9]+|[A-Z][a-z]*/g);
-  return matches ? matches.filter((t) => t.length > 0) : [];
-}
-
-/** Returns true if a field name matches a sensitive pattern. */
-function isSensitiveField(key: string): boolean {
-  if (SENSITIVE_FIELDS.has(key)) return true;
-  if (SENSITIVE_FIELD_PATTERN.test(key)) return true;
-  // Token-based fallback for camelCase field names the regex misses.
-  // SENSITIVE_FIELD_PATTERN uses alnum-only lookarounds so `_` and `-` act
-  // as separators, but the lowercase→uppercase transition does NOT — so
-  // `client_secret`, `bearer_token`, and `access_token` are redacted while
-  // their camelCase siblings (`clientSecret`, `bearerToken`, `accessToken`)
-  // leaked verbatim into ai_action_log.tool_input. These are common
-  // OAuth/credential field names, so the gap is a real redaction bypass.
-  // Splitting on camelCase + snake/kebab boundaries and checking each token
-  // against an unambiguous keyword set catches them without relying on the
-  // regex's boundary semantics.
-  //
-  // `key` is intentionally excluded from the token set: it over-redacts
-  // benign names like `primaryKey`, `foreignKey`, `sortKey`. Key-bearing
-  // sensitive fields are covered by the explicit SENSITIVE_FIELDS set and
-  // the `api[_-]?key` regex branch.
-  return splitFieldTokens(key).some((t) => SENSITIVE_TOKENS.has(t.toLowerCase()));
 }
 
 function redactMap(value: Map<unknown, unknown>, depth: number, seen: WeakSet<object>): unknown {

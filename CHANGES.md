@@ -1,5 +1,13 @@
 # BestERP — Security & Architecture Fixes
 
+## Changes Applied (2026-07-12) — Code Review Round 21
+
+### 🟢 Defense-in-depth: `error-handler.ts` — `DomainError.context` was not redacted by field name (secret-named keys could reach the AI agent)
+
+**Problem:** The error-handler middleware sanitises `DomainError.context` before returning it to the AI agent via `sanitizeContextValue`, but that pass only scrubs string *values* (URL/path redaction + control-char stripping) — it does **not** redact by *field name*. The sibling audit-log middleware (`redactSensitiveFields`) does both. So the two agent-facing surfaces applied different redaction postures: a `password`/`apiKey`/`clientSecret` placed in a `DomainError`'s `context` would be persisted to the audit row as `[REDACTED]` but returned to the agent in the `ToolResult.error.context` verbatim. `DomainError.context` is application-constructed and by design never carries raw user secrets, so this was not an active leak — but it was the exact defense-in-depth gap the round-20 report called out as a candidate ("a future DomainError that places a secret in `context` would surface it to the AI agent").
+
+**Fix:** The sensitive-field detection (`isSensitiveField` + its `SENSITIVE_FIELDS` set, `SENSITIVE_FIELD_PATTERN` regex, and `SENSITIVE_TOKENS`/`splitFieldTokens` camelCase fallback) is now shared between the two middlewares via a new `middleware/sensitive-fields.ts` module — a behaviour-preserving extraction (the audit-log imports it instead of defining it locally). The error-handler's `sanitizeObject` now redacts any value whose key `isSensitiveField` marks sensitive to `[REDACTED]`, before the value-level URL/path scrub runs, so both surfaces apply identical key-based redaction. Verified by probe that **none** of the 34 field names actually used across every existing `DomainError` call site (`partyId`, `field`, `conflictingFields`, `prismaCode`, `email`, `invalidValue`, `originalInputHash`, `requestedTool`, …) is flagged sensitive, so the change is behaviour-preserving in practice — it only closes the future-leak gap. Added regression tests asserting sensitive-named keys (`password`, `apiKey`, `api_key`, `accessToken`, `clientSecret`) are redacted while benign diagnostic fields pass through, that the raw secrets never reach the agent, and that URL/path scrubbing on non-sensitive values still composes correctly.
+
 ## Changes Applied (2026-07-12) — Code Review Round 20
 
 ### 🟡 Correctness: `idempotency.ts` — wasted all retries + backoff latency when the idempotency record expired mid-operation (P2025)

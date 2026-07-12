@@ -1139,6 +1139,74 @@ describe("Error Handler Middleware", () => {
     expect(result.error?.context?.reason).toBe("too short");
   });
 
+  it("should redact sensitive-named context fields before surfacing to the AI agent", async () => {
+    // Defense-in-depth: DomainError.context is application-constructed and
+    // by design never carries raw user secrets, but a future DomainError that
+    // places a secret under a sensitive-named key must not leak it to the AI
+    // agent. The error-handler now reuses the audit-log's isSensitiveField
+    // detection so both agent-facing surfaces (tool result + audit row) apply
+    // the same key-based redaction. Covers explicit names, snake/camel-case
+    // regex hits, and the camelCase token fallback (clientSecret etc.).
+    const domainError = new DomainError(
+      "SENSITIVE_CONTEXT",
+      "Carries a secret",
+      {
+        context: {
+          password: "hunter2",
+          apiKey: "sk-live-abc",
+          api_key: "sk-live-def",
+          accessToken: "jwt-token",
+          clientSecret: "cs-topsecret",
+          // Benign diagnostic fields must pass through untouched.
+          field: "email",
+          conflictingFields: "party_id",
+          partyId: "12345678-1234-1234-1234-123456789abc",
+          // `email` as a KEY is not sensitive (the value here is an
+          // already-redacted preview, mirroring checkEmailDuplicate).
+          email: "ab***@x.com",
+        },
+      },
+    );
+
+    const result = await errorHandlerMiddleware({}, mockContext, mockDefinition, throwingNext(domainError));
+
+    expect(result.success).toBe(false);
+    const ctx = result.error?.context as Record<string, unknown>;
+    expect(ctx).toBeDefined();
+    // Every sensitive-named key is replaced wholesale.
+    expect(ctx.password).toBe("[REDACTED]");
+    expect(ctx.apiKey).toBe("[REDACTED]");
+    expect(ctx.api_key).toBe("[REDACTED]");
+    expect(ctx.accessToken).toBe("[REDACTED]");
+    expect(ctx.clientSecret).toBe("[REDACTED]");
+    // No over-redaction of benign diagnostic fields actually in use.
+    expect(ctx.field).toBe("email");
+    expect(ctx.conflictingFields).toBe("party_id");
+    expect(ctx.partyId).toBe("12345678-1234-1234-1234-123456789abc");
+    expect(ctx.email).toBe("ab***@x.com");
+    // The raw secret values never reach the agent.
+    const serialized = JSON.stringify(ctx);
+    expect(serialized).not.toContain("hunter2");
+    expect(serialized).not.toContain("sk-live");
+    expect(serialized).not.toContain("jwt-token");
+    expect(serialized).not.toContain("cs-topsecret");
+  });
+
+  it("should keep URL/path scrubbing for non-sensitive context values", async () => {
+    // The sensitive-key redaction must compose with (not replace) the existing
+    // value-level URL/path sanitization on non-sensitive keys.
+    const domainError = new DomainError(
+      "URL_IN_CONTEXT",
+      "Has infra detail",
+      { context: { detail: "failed at postgresql://user:pass@db-host:5432/app" } },
+    );
+
+    const result = await errorHandlerMiddleware({}, mockContext, mockDefinition, throwingNext(domainError));
+
+    const ctx = result.error?.context as Record<string, unknown>;
+    expect(ctx.detail).toBe("failed at [DATABASE_URL]");
+  });
+
   it("should handle Prisma unique constraint violations", async () => {
     const prismaError: any = new Error("Unique constraint violation");
     prismaError.code = "P2002";
