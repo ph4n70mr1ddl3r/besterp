@@ -182,6 +182,10 @@ function configureCors(app: INestApplication, allowedOrigins: string[]): void {
     "Without this, cross-origin requests will be blocked by the browser. " +
     "Set CORS_ORIGINS and restart the application."
   );
+  if (process.env.NODE_ENV === "production") {
+    logger.error("CORS_ORIGINS is required in production. Exiting.");
+    process.exit(1);
+  }
 }
 
 function parsePort(): number {

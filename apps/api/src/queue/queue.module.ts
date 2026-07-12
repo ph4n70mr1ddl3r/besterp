@@ -47,7 +47,7 @@ export class QueueModule {
         "Redis password is required in non-development environments. Set REDIS_PASSWORD."
       );
     }
-    return password;
+    return password?.trim();
   }
 
   private static resolvePort(explicitPort?: number): number {

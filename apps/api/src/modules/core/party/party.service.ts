@@ -717,9 +717,13 @@ export class PartyService {
             include: { contactMechanism: { include: { partyContacts: true } } },
           });
           if (existingEmail?.contactMechanism.partyContacts.some((pc) => pc.partyId === partyId)) {
+            const atIdx = normalizedEmail.indexOf("@");
+            const redactedEmail = atIdx > 0
+              ? `${normalizedEmail.slice(0, 2)}***@${normalizedEmail.slice(atIdx + 1)}`
+              : "***";
             throw new DuplicateEntityError(
-              `Email '${normalizedEmail}' is already registered for this party.`,
-              { suggestedTools: ["add_contact_mechanism"], context: { contactMechanismType: "EMAIL_ADDRESS", email: normalizedEmail } }
+              `Email '${redactedEmail}' is already registered for this party.`,
+              { suggestedTools: ["add_contact_mechanism"], context: { contactMechanismType: "EMAIL_ADDRESS", email: redactedEmail } }
             );
           }
         }

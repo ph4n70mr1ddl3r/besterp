@@ -198,14 +198,14 @@ function optionalIsoDate(max: number = MAX_DATE_STRING_LENGTH) {
 
 /**
  * UUID path parameter. Centralises the repeated id schema so every tool
- * shares one definition. The 200-char cap is a generous input limit (a
- * canonical UUID is 36 chars) — UUID_REGEX is the real gatekeeper and is
- * kept aligned with PartyService.requireUuid by shared.test.ts.
+ * shares one definition. The 36-char max matches the canonical UUID format;
+ * UUID_REGEX is the real gatekeeper and is kept aligned with
+ * PartyService.requireUuid by shared.test.ts.
  */
 function uuidParam(description: string) {
   return z.string()
     .min(1)
-    .max(200)
+    .max(36)
     .regex(UUID_REGEX, "Must be a valid UUID")
     .describe(description);
 }

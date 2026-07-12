@@ -156,7 +156,11 @@ function createBackpressureManager(prisma: PrismaClient): BackpressureManager {
   }
 
   function releaseWriteSlot(): void {
-    if (activeWrites > 0) activeWrites--;
+    if (activeWrites <= 0) {
+      process.stderr.write(`[AuditLog] releaseWriteSlot called with activeWrites=${activeWrites} — possible double-release, ignoring\n`);
+      return;
+    }
+    activeWrites--;
     if (writeQueue.length > 0) {
       const next = writeQueue.shift()!;
       clearTimeout(next.timer);

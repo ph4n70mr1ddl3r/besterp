@@ -80,6 +80,7 @@ export class DomainExceptionFilter implements ExceptionFilter {
       );
     }
 
+    const isDev = process.env.NODE_ENV === "development";
     const isProd = process.env.NODE_ENV === "production";
     const body: Record<string, unknown> = {
       statusCode: status,
@@ -88,10 +89,10 @@ export class DomainExceptionFilter implements ExceptionFilter {
         ? { message: "An unexpected error occurred" }
         : { message: exception.message }),
     };
-    if (!isProd && exception.suggestedTools.length > 0) {
+    if (isDev && exception.suggestedTools.length > 0) {
       body.suggestedTools = exception.suggestedTools;
     }
-    if (!isProd && Object.keys(exception.context).length > 0) {
+    if (isDev && Object.keys(exception.context).length > 0) {
       body.context = exception.context;
     }
     response.status(status).json(body);

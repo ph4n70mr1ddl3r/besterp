@@ -244,6 +244,17 @@ function handleExistingRecord(
 
   if (existing.status === "pending") {
     if (existing.inputHash !== inputHash) {
+      const pendingAge = Date.now() - existing.createdAt.getTime();
+      if (pendingAge > STALE_PENDING_THRESHOLD_MS) {
+        return {
+          success: false,
+          error: {
+            code: "STALE_PENDING_RECORD",
+            message: `Idempotency key '${sanitizeForLog(idempotencyKey.slice(0, 32))}' has a stale pending record (${Math.round(pendingAge / 1000)}s old) with different input. The previous request likely crashed. Retry with a new idempotency key.`,
+            suggestedTools: [toolName],
+          },
+        };
+      }
       return {
         success: false,
         error: {
