@@ -9,7 +9,7 @@
 // never break the tool).
 
 import { PrismaClient, Prisma } from "@prisma/client";
-import { getErrorCode, sanitizeForLog, sanitizeLogOutput, MAX_REASONING_LENGTH } from "@besterp/shared";
+import { getErrorCode, sanitizeForLog, sanitizeForLogOutput, sanitizeLogOutput, MAX_REASONING_LENGTH } from "@besterp/shared";
 import { ToolMiddleware, ToolContext, ToolResult } from "../schema/tool-definition.js";
 import { truncateValue, MAX_STORED_PAYLOAD_SIZE } from "./truncate.js";
 
@@ -101,7 +101,7 @@ async function executeAndLog(prisma: PrismaClient, backpressure: BackpressureMan
     // ai_action_log table, so we strip it the same way shutdown/log paths do.
     backpressure.log({
       ...base,
-      toolOutput: { error: { message: sanitizeLogOutput(error instanceof Error ? error.message : String(error)), code: getErrorCode(error) } },
+      toolOutput: { error: { message: sanitizeForLogOutput(error instanceof Error ? error.message : String(error)), code: getErrorCode(error) } },
     });
     throw error;
   }

@@ -159,8 +159,7 @@ function isAllowedOrigin(origin: string | undefined, allowed: string[]): boolean
   return allowed.includes(origin);
 }
 
-function configureCors(app: INestApplication): void {
-  const allowedOrigins = parseAllowedOrigins();
+function configureCors(app: INestApplication, allowedOrigins: string[]): void {
   if (allowedOrigins.length > 0) {
     const isExplicitConfig = process.env.CORS_ORIGINS != null;
     if (!isExplicitConfig && process.env.NODE_ENV === "development") {
@@ -205,7 +204,8 @@ async function bootstrap() {
 
   app.setGlobalPrefix("api");
 
-  configureCors(app);
+  const allowedOrigins = parseAllowedOrigins();
+  configureCors(app, allowedOrigins);
 
   app.use(helmet());
 
@@ -231,7 +231,6 @@ async function bootstrap() {
   // Express error middleware requires exactly 4 parameters.
   // CORS headers are set here so cross-origin clients can read the error
   // even when the main CORS middleware does not run for short-circuit errors.
-  const allowedOrigins = parseAllowedOrigins();
   app.use((err: Error & { type?: string }, req: Request, res: Response, next: NextFunction) => {
     const origin = req.headers.origin;
     if (err.type === "entity.too.large") {

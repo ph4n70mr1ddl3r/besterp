@@ -522,14 +522,16 @@ export class PartyService {
     // but defense-in-depth matters — a whitespace-padded value should not be
     // rejected by the pre-trim length check when the trimmed value is valid.
     const trimmed = fromDate != null ? fromDate.trim() : "";
+    // Empty → default to now. Check before max-length to prioritise the
+    // common path and avoid an unnecessary comparison for the default case.
+    if (trimmed.length === 0) {
+      return new Date();
+    }
     if (trimmed.length > MAX_DATE_STRING_LENGTH) {
       throw new InvalidTypeValueError(
         `fromDate is too long (${trimmed.length} characters, max ${MAX_DATE_STRING_LENGTH}).`,
         { suggestedTools: ["add_party_role"], context: { field: "fromDate", length: trimmed.length, maxLength: MAX_DATE_STRING_LENGTH } }
       );
-    }
-    if (trimmed.length === 0) {
-      return new Date();
     }
     // Any provided value MUST be valid ISO 8601 — mirroring requireValidDate()
     // (used for birthDate/registrationDate) so both date entry points enforce

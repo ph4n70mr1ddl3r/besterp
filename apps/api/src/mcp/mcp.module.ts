@@ -84,13 +84,19 @@ export class McpModule implements OnModuleInit {
     // tenant IDs from forged JWT tokens before any database operations.
     // Trim before validation so whitespace-padded values are validated against
     // their canonical form and stored trimmed.
-    if (typeof overrides.tenantId !== "string" || overrides.tenantId.trim().length === 0) {
+    if (typeof overrides.tenantId !== "string") {
       throw new InvalidTypeValueError(
         "McpModule.buildContext: tenantId is required and must be a non-empty string.",
         { context: { field: "tenantId", receivedType: typeof overrides.tenantId } }
       );
     }
     const tenantId = overrides.tenantId.trim();
+    if (tenantId.length === 0) {
+      throw new InvalidTypeValueError(
+        "McpModule.buildContext: tenantId is required and must be a non-empty string.",
+        { context: { field: "tenantId", receivedType: typeof overrides.tenantId } }
+      );
+    }
     validateTenantIdEnhanced(tenantId);
 
     // Validate userId — prevents null/empty user IDs in audit logs.
