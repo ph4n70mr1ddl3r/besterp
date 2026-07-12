@@ -231,22 +231,23 @@ async function bootstrap() {
   // Express error middleware requires exactly 4 parameters.
   // CORS headers are set here so cross-origin clients can read the error
   // even when the main CORS middleware does not run for short-circuit errors.
+  function setCorsHeaders(res: Response, origin: string | undefined): void {
+    if (origin && isAllowedOrigin(origin, allowedOrigins)) {
+      res.setHeader("Access-Control-Allow-Origin", origin);
+      res.setHeader("Access-Control-Allow-Credentials", "true");
+    }
+  }
+
   app.use((err: Error & { type?: string }, req: Request, res: Response, next: NextFunction) => {
     const origin = req.headers.origin;
     if (err.type === "entity.too.large") {
-      if (origin && isAllowedOrigin(origin, allowedOrigins)) {
-        res.setHeader("Access-Control-Allow-Origin", origin);
-        res.setHeader("Access-Control-Allow-Credentials", "true");
-      }
+      setCorsHeaders(res, origin);
       res.status(413).json({
         statusCode: 413,
         message: "Request body exceeds the 100 KB limit. Reduce payload size and retry.",
       });
     } else if (err.type === "entity.parse.failed") {
-      if (origin && isAllowedOrigin(origin, allowedOrigins)) {
-        res.setHeader("Access-Control-Allow-Origin", origin);
-        res.setHeader("Access-Control-Allow-Credentials", "true");
-      }
+      setCorsHeaders(res, origin);
       res.status(400).json({
         statusCode: 400,
         message: "Request body contains malformed JSON. Check syntax and retry.",
@@ -263,11 +264,7 @@ async function bootstrap() {
   // body is visible to cross-origin clients regardless of environment.
   app.use((err: Error, req: Request, res: Response, _next: NextFunction) => {
     logger.error(`Unhandled Express middleware error: ${sanitizeForLogOutput(err.message)}`);
-    const origin = req.headers.origin;
-    if (origin && isAllowedOrigin(origin, allowedOrigins)) {
-      res.setHeader("Access-Control-Allow-Origin", origin);
-      res.setHeader("Access-Control-Allow-Credentials", "true");
-    }
+    setCorsHeaders(res, req.headers.origin);
     const isDev = process.env.NODE_ENV === "development";
     res.status(500).json({
       statusCode: 500,

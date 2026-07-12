@@ -9,7 +9,7 @@
 // never break the tool).
 
 import { PrismaClient, Prisma } from "@prisma/client";
-import { getErrorCode, sanitizeForLog, sanitizeForLogOutput, sanitizeLogOutput, MAX_REASONING_LENGTH } from "@besterp/shared";
+import { getErrorCode, sanitizeForLog, sanitizeForLogOutput, MAX_REASONING_LENGTH } from "@besterp/shared";
 import { ToolMiddleware, ToolContext, ToolResult } from "../schema/tool-definition.js";
 import { truncateValue, MAX_STORED_PAYLOAD_SIZE } from "./truncate.js";
 
@@ -191,7 +191,7 @@ function createBackpressureManager(prisma: PrismaClient): BackpressureManager {
             // whose message can embed a connection string or hostname. This
             // path writes to stderr (operator logs) — strip infra details the
             // same way the error-handler and shutdown paths do.
-            error: sanitizeLogOutput(logErr instanceof Error ? logErr.message : String(logErr)),
+            error: sanitizeForLogOutput(logErr instanceof Error ? logErr.message : String(logErr)),
             totalErrors: errorCount,
           };
           process.stderr.write(`[AuditLog] ${JSON.stringify(errorMeta)}\n`);

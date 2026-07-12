@@ -86,24 +86,30 @@ export class McpModule implements OnModuleInit {
     // their canonical form and stored trimmed.
     if (typeof overrides.tenantId !== "string") {
       throw new InvalidTypeValueError(
-        "McpModule.buildContext: tenantId is required and must be a non-empty string.",
+        "McpModule.buildContext: tenantId must be a string.",
         { context: { field: "tenantId", receivedType: typeof overrides.tenantId } }
       );
     }
     const tenantId = overrides.tenantId.trim();
     if (tenantId.length === 0) {
       throw new InvalidTypeValueError(
-        "McpModule.buildContext: tenantId is required and must be a non-empty string.",
+        "McpModule.buildContext: tenantId must not be empty or whitespace-only.",
         { context: { field: "tenantId", receivedType: typeof overrides.tenantId } }
       );
     }
     validateTenantIdEnhanced(tenantId);
 
     // Validate userId — prevents null/empty user IDs in audit logs.
-    let userId = overrides.userId;
-    if (!userId || userId.trim().length === 0) {
+    if (typeof overrides.userId !== "string") {
       throw new InvalidTypeValueError(
-        "McpModule.buildContext: userId is required and cannot be empty.",
+        "McpModule.buildContext: userId must be a string.",
+        { context: { field: "userId", receivedType: typeof overrides.userId } }
+      );
+    }
+    let userId = overrides.userId;
+    if (userId.trim().length === 0) {
+      throw new InvalidTypeValueError(
+        "McpModule.buildContext: userId must not be empty or whitespace-only.",
         { context: { field: "userId" } }
       );
     }

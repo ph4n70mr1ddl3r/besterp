@@ -445,17 +445,23 @@ export class PartyService {
     // This is acceptable for search pagination — the worst case is an
     // off-by-one in `hasMore`. Using REPEATABLE READ would prevent this
     // but adds contention overhead that isn't justified for a search endpoint.
-    const [total, items] = await db.$transaction(async (tx: Prisma.TransactionClient) => {
-      const count = await tx.party.count({ where });
-      const rows = await tx.party.findMany({
-        where,
-        include: PartyService.PARTY_INCLUDE,
-        take: validatedLimit,
-        skip: validatedOffset,
-        orderBy: { createdAt: "desc" },
-      });
-      return [count, rows] as const;
-    });
+    let total: number;
+    let items: PartyWithIncludes[];
+    try {
+      [total, items] = await db.$transaction(async (tx: Prisma.TransactionClient) => {
+        const count = await tx.party.count({ where });
+        const rows = await tx.party.findMany({
+          where,
+          include: PartyService.PARTY_INCLUDE,
+          take: validatedLimit,
+          skip: validatedOffset,
+          orderBy: { createdAt: "desc" },
+        });
+        return [count, rows] as const;
+      }, { timeout: TX_TIMEOUT_MS });
+    } catch (err) {
+      PartyService.handleTransactionError(err, "search_parties", "search_parties", "party");
+    }
 
     return {
       items: items.map((p) => PartyService.toPartyResult(p)),
@@ -542,7 +548,7 @@ export class PartyService {
     // check, so a passing value is guaranteed to construct a valid Date.
     if (!isValidISODate(trimmed)) {
       throw new InvalidTypeValueError(
-        `Invalid fromDate format: ${trimmed}. Use ISO 8601 format (YYYY-MM-DDTHH:mm:ss.sssZ)`,
+        `Invalid fromDate format: ${trimmed}. Use ISO 8601 format (YYYY-MM-DD or YYYY-MM-DDTHH:mm:ss.sssZ)`,
         { suggestedTools: ["add_party_role"], context: { field: "fromDate", invalidValue: trimmed } }
       );
     }
