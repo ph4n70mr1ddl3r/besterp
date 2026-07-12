@@ -460,6 +460,64 @@ describe("Idempotency Middleware", () => {
     );
   });
 
+  it("should short-circuit on P2025 (record expired mid-operation) without retrying or throwing", async () => {
+    // Regression guard: when the 24h-TTL cleanup job (or a concurrent reset)
+    // removes the pending idempotency record between acquire and update, the
+    // update throws Prisma P2025 ("record not found"). Previously this was
+    // retried IDEMPOTENCY_MAX_RETRIES times — each retry re-throws P2025 since
+    // the row is gone permanently — burning backoff latency before throwing a
+    // ConcurrencyConflictError that was then swallowed by executeAndUpdate's
+    // try/catch. The only observable effect was wasted latency + a misleading
+    // "could not be updated after N attempts" warning. Now P2025 short-
+    // circuits: a single update attempt, one warning, and the success result
+    // is returned normally (both call sites tolerate a non-throwing return).
+    const input = { test: "value" };
+    const idempotencyKey = "test-p2025-expired";
+    const contextWithKey = { ...mockContext, idempotencyKey };
+
+    mockFindInTransaction(null);
+    mockPrisma.idempotencyRecord.create.mockResolvedValue({
+      idempotencyKey,
+      status: "pending",
+    });
+    // The update fails with P2025 — the record vanished between acquire & update.
+    const p2025 = Object.assign(new Error("Record to update not found."), { code: "P2025" });
+    mockPrisma.idempotencyRecord.update.mockRejectedValue(p2025);
+
+    // Capture stderr so we can assert the (non-misleading) warning is emitted
+    // exactly once, and that it explains the expiry rather than blaming retries.
+    const originalWrite = process.stderr.write.bind(process.stderr);
+    const stderrChunks: string[] = [];
+    process.stderr.write = ((chunk: unknown) => {
+      stderrChunks.push(typeof chunk === "string" ? chunk : String(chunk));
+      return true;
+    }) as typeof process.stderr.write;
+
+    let result: ToolResult | undefined;
+    try {
+      const middleware = idempotencyMiddleware(mockPrisma as any);
+      result = await middleware(
+        input,
+        contextWithKey,
+        mockDefinition,
+        successNext({ success: true, data: "ok" })
+      );
+    } finally {
+      process.stderr.write = originalWrite;
+    }
+
+    // The operation result is returned to the caller regardless.
+    expect(result?.success).toBe(true);
+    expect(result?.data).toBe("ok");
+    // Exactly ONE update attempt — P2025 must not trigger the retry loop.
+    expect(mockPrisma.idempotencyRecord.update).toHaveBeenCalledTimes(1);
+    const combined = stderrChunks.join("");
+    // The warning explains the expiry and does NOT blame "N attempts" (the old
+    // misleading message from the exhausted-retry path).
+    expect(combined).toContain("no longer exists");
+    expect(combined).not.toContain("after 3 attempts");
+  });
+
   it("should not record an error field on successful completions", async () => {
     const input = { test: "value" };
     const idempotencyKey = "test-no-error-field";

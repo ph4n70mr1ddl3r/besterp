@@ -717,8 +717,13 @@ export class PartyService {
     });
     if (existingEmail?.contactMechanism.partyContacts.some((pc) => pc.partyId === partyId)) {
       const atIdx = normalizedEmail.indexOf("@");
+      // Preview at most 2 chars of the local part, clamped to the local-part
+      // length so the "@" never lands inside the preview. A fixed `slice(0, 2)`
+      // would span into the "@" for a single-character local part (e.g.
+      // "a@x.com" → "a@***@x.com"), producing a malformed address in both the
+      // error message and the DomainError context.
       const redactedEmail = atIdx > 0
-        ? `${normalizedEmail.slice(0, 2)}***@${normalizedEmail.slice(atIdx + 1)}`
+        ? `${normalizedEmail.slice(0, Math.min(2, atIdx))}***@${normalizedEmail.slice(atIdx + 1)}`
         : "***";
       throw new DuplicateEntityError(
         `Email '${redactedEmail}' is already registered for this party.`,

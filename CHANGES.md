@@ -1,5 +1,19 @@
 # BestERP — Security & Architecture Fixes
 
+## Changes Applied (2026-07-12) — Code Review Round 20
+
+### 🟡 Correctness: `idempotency.ts` — wasted all retries + backoff latency when the idempotency record expired mid-operation (P2025)
+
+**Problem:** After a tool completes, `updateIdempotencyRecordWithRetry` persists the result by updating the pending record. If the 24h-TTL cleanup job (or a concurrent reset) removed the row between acquire and update, the update throws Prisma `P2025` ("record to update not found"). Because `P2025` was not special-cased, the loop retried it `IDEMPOTENCY_MAX_RETRIES` times — every retry re-throws `P2025` since the row is gone permanently — burning `IDEMPOTENCY_RETRY_BASE_DELAY_MS * (1+2) = 150 ms` of backoff before throwing `ConcurrencyConflictError`. That error was then swallowed by both call sites in `executeAndUpdate` (the success path and the throw path each wrap the call in `try/catch` + `logIdempotencyWarn`), so the only observable effect was wasted latency and a misleading "could not be updated after N attempts" warning that blamed retries for an unrecoverable condition.
+
+**Fix:** `P2025` is now detected on the first attempt and short-circuits — log once (explaining the expiry, not blaming retries) and return, since there is nothing to update and both callers already tolerate a non-throwing return. Other transient errors keep the existing retry-then-throw behaviour. Verified the regression test fails on the pre-fix code (3 update attempts + propagated `ConcurrencyConflictError`) and passes on the fix (1 attempt, result returned). Also merged two adjacent `if (code !== "P2034")` blocks in `acquireIdempotencyRecord`'s catch into one (identical condition, behaviour-preserving).
+
+### 🟡 Correctness: `party.service.ts` — duplicate-email redaction was malformed for short local parts
+
+**Problem:** `checkEmailDuplicate` masks the offending address before putting it in the `DuplicateEntityError` message + `context`. The preview was computed as `${email.slice(0, 2)}***@${domain}` unconditionally. For a valid address with a single-character local part (`a@x.com` — accepted by `EMAIL_REGEX`), the 2-char slice spans into the `@`, producing `a@***@x.com` — a malformed address emitted to the AI agent and stored in the structured error context. Confirmed by probe: `"a@x.com"` → `"a@***@x.com"`. This path was previously untested.
+
+**Fix:** The preview is now clamped to `slice(0, Math.min(2, atIdx))` so the `@` never lands inside it. Behaviour is unchanged for local parts ≥ 2 chars (`ab@x.com` → `ab***@x.com`); the 1-char case is now `a***@x.com`. Added a regression test that exercises `emailAddress.findFirst` returning an existing match and asserts the redacted shape, the absence of the malformed double-`@`, and that the full unmasked address never reaches the error surface. Verified the test fails on the pre-fix code.
+
 ## Changes Applied (2026-07-11) — Code Review Round 14
 
 ### 🟡 Security: `audit-log.ts` — camelCase sensitive fields leaked past catch-all redaction regex (redaction bypass)

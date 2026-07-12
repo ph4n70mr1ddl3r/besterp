@@ -193,15 +193,13 @@ async function acquireIdempotencyRecord(
       // driver/Prisma error can embed a DB connection string or hostname, and
       // this path writes the detail verbatim to stderr (the durable
       // idempotency_record write below already caps + sanitizes via capString).
+      // Return a distinct error so the caller can differentiate infrastructure
+      // errors (retrying with a new key won't help) from serialization
+      // contention (P2034).
       if (code !== "P2034") {
         logIdempotencyWarn(
           `Non-retryable error acquiring idempotency record '${sanitizeForLog(idempotencyKey.slice(0, 32))}' (code=${code ?? "none"}): ${sanitizeForLogOutput(e instanceof Error ? e.message : String(e))}`
         );
-      }
-      // Return a distinct error for non-contention failures so the caller
-      // can differentiate infrastructure errors (retrying with a new key
-      // won't help) from actual serialization contention (P2034).
-      if (code !== "P2034") {
         return { existingRecord: null, recordCreated: false, unavailable: true };
       }
       return { existingRecord: null, recordCreated: false };
@@ -384,6 +382,23 @@ async function updateIdempotencyRecordWithRetry(
       });
       return;
     } catch (updateErr) {
+      const code = getErrorCode(updateErr);
+      // P2025 (record not found): the idempotency record was removed between
+      // acquire and update — typically the 24h-TTL cleanup job expired it, or a
+      // concurrent reset cleared it. Retrying the update is futile: the row is
+      // gone and cannot be recreated without re-acquiring (which would risk a
+      // duplicate execution). The operation already produced its result, and
+      // with no record there is nothing to replay, so log once and return.
+      // Both call sites in executeAndUpdate wrap this in try/catch, so a normal
+      // return here is behaviour-preserving while avoiding
+      // IDEMPOTENCY_MAX_RETRIES wasted attempts + backoff latency.
+      if (code === "P2025") {
+        const p2025Detail = updateErr instanceof Error ? updateErr.message : String(updateErr);
+        logIdempotencyWarn(
+          `Idempotency record '${sanitizeForLog(idempotencyKey.slice(0, 32))}' no longer exists (expired/cleaned up between acquire and update) — result will not be persisted for replay. Detail: ${sanitizeForLogOutput(p2025Detail)}`
+        );
+        return;
+      }
       if (attempt < IDEMPOTENCY_MAX_RETRIES - 1) {
         await delay(IDEMPOTENCY_RETRY_BASE_DELAY_MS * (attempt + 1));
         continue;

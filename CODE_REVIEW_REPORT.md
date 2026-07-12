@@ -2,10 +2,10 @@
 
 ## Scope
 Fresh full review of the BestERP monorepo (`packages/shared`, `packages/mcp-tools`,
-`packages/database`, `apps/api`) conducted on 2026-07-11. This is review round 14;
-rounds 1–13 are documented in earlier revisions of this file and `CHANGES.md`.
+`packages/database`, `apps/api`) conducted on 2026-07-12. This is review round 20;
+rounds 1–19 are documented in earlier revisions of this file and `CHANGES.md`.
 
-## Baseline
+## Baseline (before this round)
 - `npm run typecheck` — clean across all workspaces
 - `npm run lint` — 0 errors (2 pre-existing cyclomatic-complexity warnings:
   `truncate.ts::truncateValue` and `party.service.ts::handleTransactionError`,
@@ -17,45 +17,48 @@ rounds 1–13 are documented in earlier revisions of this file and `CHANGES.md`.
 
 ### Fixed this round
 
-1. **🟡 `audit-log.ts` `isSensitiveField` — camelCase sensitive fields leaked
-   past the catch-all redaction regex (redaction bypass).** `SENSITIVE_FIELD_PATTERN`
-   delimits keywords with alnum-only lookarounds so `_`/`-` act as separators, but
-   the lowercase→uppercase transition does **not**. Consequently the snake_case
-   siblings were redacted (`client_secret`, `bearer_token`, `access_token`) while
-   their camelCase forms — `clientSecret`, `bearerToken`, `accessToken`,
-   `refreshToken`, `userPassword`, `sessionToken` — were persisted verbatim to
-   `ai_action_log.tool_input`. Confirmed by probe. These are common OAuth/credential
-   field names, so this was a real bypass on a durable, cross-tenant audit table.
-   The module comment claimed camelCase was caught, but the implementation only
-   delivered that for `auth`-prefixed names via the dedicated `auth(?:token|key|…)?`
-   branch. Added a token-based fallback: `splitFieldTokens()` splits a field name at
-   snake_case, kebab-case, **and** camelCase boundaries, then checks each token
-   against `SENSITIVE_TOKENS` (`password`, `passwd`, `pwd`, `secret`, `token`,
-   `credential`, `credentials`). `key` is excluded to avoid over-redacting
-   `primaryKey`/`foreignKey`/`sortKey` — key-bearing sensitive fields stay covered
-   by the explicit `SENSITIVE_FIELDS` set and the `api[_-]?key` regex. No current
-   party-tool field name contains a sensitive token, so there is no over-redaction
-   in practice. Verified as a true regression test (fails on the old code, passes
-   on the fix).
+1. **🟡 `party.service.ts::checkEmailDuplicate` — duplicate-email redaction was
+   malformed for short local parts, leaking a structural artifact into the error
+   message + `context`.** The redaction computed
+   `${email.slice(0, 2)}***@${domain}` unconditionally. For a valid address with
+   a single-character local part (`a@x.com` — accepted by `EMAIL_REGEX`), the
+   2-char slice spans into the `@`, producing `a@***@x.com` (a malformed
+   address emitted to the AI agent and stored in the `DuplicateEntityError`
+   context). Confirmed by probe. Fixed by slicing
+   `min(2, atIdx)` so the preview never crosses the `@` boundary. Behaviour is
+   unchanged for local parts ≥ 2 chars (`ab@x.com` → `ab***@x.com`); the 1-char
+   case is now `a***@x.com`. This path was previously untested — added a
+   regression test that exercises `emailAddress.findFirst` returning an existing
+   match and asserts the redacted shape for a short local part.
 
-2. **🟡 `sanitize.ts` `sanitizeLogOutput` — credential-bearing URLs with unlisted
-   schemes leaked to operator logs.** The function had explicit patterns for
-   postgres/redis/mongodb/mysql/amqp/http(s)/ftp/sftp/ws/wss, but no catch-all for
-   other schemes. A driver/library error can embed a credential-bearing URL in any
-   scheme (`ssh://user:pass@host`, `ldap://cn=admin:password@host`,
-   `vault://token:s3cret@host`) and these passed through verbatim — confirmed by
-   probe — leaking inline credentials. Added a generic credential-URL pattern that
-   matches `scheme://user:pass@host` for any scheme, placed **after** the
-   scheme-specific patterns so they keep their labelled output (`[DATABASE_URL]`,
-   `[REDIS_URL]`, …) and the catch-all only fires for what they miss. The pattern
-   requires a userinfo segment, so credential-free URLs of arbitrary schemes
-   (`file:///etc/passwd`, `custom://host`) are not false positives. Verified by
-   regression tests covering ssh/ldap/ldaps/vault, mid-sentence credentials, the
-   no-false-positive case, and labelled-output preservation.
+2. **🟡 `idempotency.ts::updateIdempotencyRecordWithRetry` — wasted all retries
+   (and backoff latency) when the record expired mid-operation (P2025).** After
+   a tool completes, the result is persisted by updating the pending record. If
+   the 24h-TTL cleanup job (or a concurrent reset) removed the row between
+   acquire and update, the update throws Prisma `P2025` ("record not found").
+   Because `P2025` was not special-cased, the loop retried it
+   `IDEMPOTENCY_MAX_RETRIES` times — each retry re-throws `P2025` (the row is
+   gone permanently; it can never succeed) — burning `IDEMPOTENCY_RETRY_BASE_DELAY_MS
+   * (1+2) = 150 ms` of backoff before throwing `ConcurrencyConflictError`. That
+   error was then swallowed by both call sites in `executeAndUpdate` (the success
+   path and the throw path each wrap the call in `try/catch` + `logIdempotencyWarn`),
+   so the only observable effect was the wasted latency and a misleading
+   "could not be updated after N attempts" warning. Now `P2025` is detected on
+   the first attempt and short-circuits: log once (noting the result won't be
+   replayable) and return, since there is nothing to update and both callers
+   already tolerate a non-throwing return. Other transient errors keep the
+   existing retry-then-throw behaviour. Added a regression test asserting a
+   single `update` attempt and no `ConcurrencyConflictError` propagation.
+
+### Minor clarity (same idempotency error-handling area)
+- Merged two adjacent `if (code !== "P2034")` blocks in
+  `acquireIdempotencyRecord`'s catch into one. They shared an identical
+  condition and were at risk of diverging; collapsing them is behaviour-
+  preserving and removes a redundant conditional.
 
 ### Reviewed and considered sound (no change needed)
 
-Carried forward from rounds 1–14 — spot-checked again this round and still
+Carried forward from rounds 1–20 — spot-checked again this round and still
 sound:
 
 - `crypto.ts`: `sortMap`/`sortSet` pre-computed stringified keys (O(n)
@@ -66,7 +69,7 @@ sound:
 - `sanitize.ts`: `stripHtmlTags` decode/strip loop + DoS caps, bidi/zero-width
   stripping + C1 control stripping in `sanitizeLogMessage`, `safeFromCodePoint`
   lone-surrogate replacement, ordering of ANSI/bidi/control passes; generic
-  credential-URL catch-all now closes the unlisted-scheme gap (this round).
+  credential-URL catch-all (round 14).
 - `validation.ts`: `ISO_DATE_REGEX` offset ranges (+14:00 / -12:00 maxima,
   minute precision), `isValidISODate` calendar/leap-year enforcement,
   `EMAIL_REGEX` (length-capped at the schema/DTO layer to bound backtracking).
@@ -74,11 +77,12 @@ sound:
   `getErrorCode` null-safe extraction.
 - `idempotency.ts`: acquire state machine + stale-pending reset,
   non-P2034 → `SERVICE_UNAVAILABLE` differentiation, `delay().unref()`,
-  serializable-transaction race guard.
+  serializable-transaction race guard; P2025 mid-flight expiry now short-circuits
+  (this round).
 - `audit-log.ts`: backpressure slot accounting + queue timeout/drop counters,
   `SENSITIVE_FIELD_PATTERN` alnum lookarounds for snake/camel-case, double
   redaction avoidance (input redacted in `createBaseEntry`), depth-cap returns
-  `[Too deep]` not raw value (round 13), token-based camelCase fallback (this round).
+  `[Too deep]` not raw value (round 13), token-based camelCase fallback (round 14).
 - `error-handler.ts`: Prisma-code → DomainError mapping table, connection-error
   set, `sanitizeContextValue` depth + circular guards.
 - `tool-registry.ts`: registration-time validation (name, description,
@@ -103,15 +107,11 @@ sound:
   subtype-table join policies, partial unique index for active roles.
 
 ## Recommendation
-The 2 fixes above are covered by tests (all quality gates green; +3 unit tests in
-`sanitize.test.ts` for the credential-URL guard, +1 in `middleware.test.ts` for the
-camelCase redaction guard). Remaining observations are low-severity and
-do not require immediate code changes:
+The 2 fixes above are covered by tests (all quality gates green). Remaining
+observations are low-severity and do not require immediate code changes:
 
-- `hashInput` has no input size limit (mitigated by the 100 KB body-parser cap).
-- `updateIdempotencyRecordWithRetry` retries on any error including P2025
-  (record already cleaned up); the resulting `ConcurrencyConflictError` message
-  is slightly imprecise in that edge case but harmless.
+- `hashInput` has no input size limit (mitigated by the 100 KB body-parser cap
+  and per-field Zod `.max()` limits, and idempotency hashes post-Zod-parse data).
 - `error-handler.ts` `sanitizeContextValue` does not redact by field name (unlike
   `audit-log.ts` `redactSensitiveFields`); it sanitizes all string values uniformly
   via `sanitizeForLogOutput`. This is acceptable because `DomainError.context` is

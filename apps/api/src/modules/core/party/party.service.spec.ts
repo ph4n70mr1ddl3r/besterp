@@ -1454,6 +1454,64 @@ describe("PartyService", () => {
       expect(created.email).toBe("jane.doe@example.com");
     });
 
+    it("should redact the local part of a duplicate email without leaking the '@' (short local part)", async () => {
+      // Regression guard: checkEmailDuplicate builds a masked preview of the
+      // offending address for the DuplicateEntityError message + context. A
+      // fixed `slice(0, 2)` preview spanned into the '@' for a single-char
+      // local part ("a@x.com" → "a@***@x.com"), emitting a malformed address.
+      // The preview is now clamped to `min(2, atIdx)` so the '@' is never
+      // included, and the full address never reaches the error surface.
+      const input: AddContactMechanismInput = {
+        tenantId: "tenant-1",
+        partyId: "12345678-1234-1234-1234-123456789abc",
+        contactMechanismType: "EMAIL_ADDRESS",
+        emailAddress: { email: "a@example.com" },
+      };
+
+      // Simulate an existing email already linked to THIS party (the duplicate
+      // condition). partyContacts[0].partyId matches the request partyId.
+      const mockDb = {
+        contactMechanismType: {
+          findUnique: vi.fn().mockResolvedValue({ contactMechanismTypeId: "cmt-email" }),
+        },
+        $transaction: vi.fn().mockImplementation(async (fn) => {
+          const tx = {
+            party: {
+              findUnique: vi.fn().mockResolvedValue({ partyId: "12345678-1234-1234-1234-123456789abc" }),
+            },
+            emailAddress: {
+              findFirst: vi.fn().mockResolvedValue({
+                email: "a@example.com",
+                contactMechanism: {
+                  partyContacts: [{ partyId: "12345678-1234-1234-1234-123456789abc" }],
+                },
+              }),
+            },
+          };
+          return fn(tx);
+        }),
+      };
+
+      mockPrismaService.tenantScoped.mockReturnValue(mockDb);
+
+      let caught: unknown;
+      try {
+        await partyService.addContactMechanism(input);
+      } catch (err) {
+        caught = err;
+      }
+      expect(caught).toBeInstanceOf(DuplicateEntityError);
+      const err = caught as DuplicateEntityError;
+      // The malformed 'a@***@example.com' must never appear — the '@' stays a
+      // single time, separating the masked local part from the domain.
+      expect(err.message).toContain("a***@example.com");
+      expect(err.message).not.toContain("a@***@");
+      // The same redaction is mirrored in the structured error context.
+      expect(err.context.email).toBe("a***@example.com");
+      // The full unmasked local part must never reach the error surface.
+      expect(JSON.stringify(err)).not.toMatch(/a@example\.com/);
+    });
+
     it("should throw InvalidTypeValueError when areaCode is missing for telecom", async () => {
       const input = {
         tenantId: "tenant-1",
