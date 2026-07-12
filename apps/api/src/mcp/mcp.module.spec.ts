@@ -104,7 +104,7 @@ describe("McpModule", () => {
           tenantId: "tenant-1",
           userId: "",
         })
-      ).toThrow("userId is required");
+      ).toThrow("userId must not be empty or whitespace-only");
     });
 
     it("should reject whitespace-only userId", () => {
@@ -119,7 +119,7 @@ describe("McpModule", () => {
           tenantId: "tenant-1",
           userId: "   ",
         })
-      ).toThrow("userId is required");
+      ).toThrow("userId must not be empty or whitespace-only");
     });
 
     it("should reject overly long userId", () => {
