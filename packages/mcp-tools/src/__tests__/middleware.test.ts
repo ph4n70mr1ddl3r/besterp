@@ -604,6 +604,38 @@ describe("Idempotency Middleware", () => {
     expect(mockPrisma.idempotencyRecord.findUnique).not.toHaveBeenCalled();
   });
 
+  it("should skip idempotency entirely when Zod validation fails (avoid false mismatch on retry)", async () => {
+    // When safeParse fails, the middleware must NOT create an idempotency
+    // record. Storing a hash of the raw (un-normalised) invalid input would
+    // cause a false IDEMPOTENCY_KEY_MISMATCH on a subsequent retry with valid
+    // (Zod-normalised) input. The handler receives the raw input and returns
+    // INVALID_INPUT without side effects.
+    const input = { test: 123 }; // wrong type — Zod expects string
+    const idempotencyKey = "test-zod-fail";
+    const contextWithKey = { ...mockContext, idempotencyKey };
+
+    const failingSchemaDefinition: ToolDefinition = {
+      ...mockDefinition,
+      inputSchema: {
+        type: "object",
+        safeParse: (_raw: unknown) => ({
+          success: false,
+          error: { issues: [{ message: "Expected string, received number" }] },
+        }),
+      } as any,
+    };
+
+    const middleware = idempotencyMiddleware(mockPrisma as any);
+    const result = await middleware(input, contextWithKey, failingSchemaDefinition, successNext({ success: true, data: "should not reach" }));
+
+    // Handler was called (middleware passes through on validation failure)
+    expect(result.success).toBe(true);
+    expect(result.data).toBe("should not reach");
+    // No idempotency record was created or queried
+    expect(mockPrisma.idempotencyRecord.create).not.toHaveBeenCalled();
+    expect(mockPrisma.idempotencyRecord.findUnique).not.toHaveBeenCalled();
+  });
+
   it("should pass through when idempotencyKey is not a string (defensive pre-check)", async () => {
     // The key type isn't enforced at the boundary, so a buggy caller could
     // send a number, object, or boolean. Pass through to Zod to reject
@@ -1339,6 +1371,93 @@ describe("Error Handler Middleware", () => {
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe("DATABASE_CONNECTION_ERROR");
     expect(result.error?.suggestedTools).toContain("list_available_tools");
+  });
+
+  it("should handle Prisma transaction timeout (P2028)", async () => {
+    const prismaError: any = new Error("Transaction timed out");
+    prismaError.code = "P2028";
+
+    const result = await errorHandlerMiddleware({}, mockContext, mockDefinition, throwingNext(prismaError));
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe("CONCURRENCY_CONFLICT");
+    expect(result.error?.message).toContain("test_tool");
+    expect(result.error?.suggestedTools).toContain("get_test");
+  });
+
+  it("should handle Prisma connection pool timeout (P2024)", async () => {
+    const prismaError: any = new Error("Connection pool timeout");
+    prismaError.code = "P2024";
+
+    const result = await errorHandlerMiddleware({}, mockContext, mockDefinition, throwingNext(prismaError));
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe("DATABASE_CONNECTION_ERROR");
+    expect(result.error?.message).toContain("test_tool");
+    expect(result.error?.suggestedTools).toContain("test_tool");
+  });
+
+  it("should handle Map with sensitive keys in error context (value-level scrub only)", async () => {
+    // Maps in DomainError.context are converted to [[key, value], ...] arrays.
+    // The error-handler's sanitizeContextValue recursively sanitizes values
+    // (URL/path scrubbing) but does NOT apply isSensitiveField on Map keys —
+    // that is the audit-log's domain. The Map must not crash and must
+    // preserve the data structure.
+    const m = new Map<string, unknown>([
+      ["password", "hunter2"],
+      ["name", "Jane"],
+    ]);
+
+    const domainError = new DomainError(
+      "MAP_SENSITIVE",
+      "Map with sensitive key",
+      { context: { mapData: m } as any },
+    );
+
+    const result = await errorHandlerMiddleware({}, mockContext, mockDefinition, throwingNext(domainError));
+
+    expect(result.success).toBe(false);
+    const ctx = result.error?.context as Record<string, unknown>;
+    // Map is serialized to [[key, value], ...] entries
+    const entries = ctx.mapData as unknown[][];
+    expect(entries).toHaveLength(2);
+    // Keys and values are preserved (error-handler doesn't redact Map keys
+    // by field name — that's the audit-log's responsibility).
+    const passwordEntry = entries.find((e: unknown[]) => Array.isArray(e) && e[0] === "password");
+    expect(passwordEntry).toBeDefined();
+    expect(passwordEntry![1]).toBe("hunter2");
+    const nameEntry = entries.find((e: unknown[]) => Array.isArray(e) && e[0] === "name");
+    expect(nameEntry).toBeDefined();
+    expect(nameEntry![1]).toBe("Jane");
+  });
+
+  it("should handle Set with nested sensitive objects in error context", async () => {
+    const s = new Set<unknown>([{ password: "hunter2" }]);
+
+    const domainError = new DomainError(
+      "SET_SENSITIVE",
+      "Set with sensitive nested object",
+      { context: { setData: s } as any },
+    );
+
+    const result = await errorHandlerMiddleware({}, mockContext, mockDefinition, throwingNext(domainError));
+
+    expect(result.success).toBe(false);
+    const ctx = result.error?.context as Record<string, unknown>;
+    // Set is serialized to [value, ...]
+    const arr = ctx.setData as Record<string, unknown>[];
+    expect(arr).toHaveLength(1);
+    expect(arr[0].password).toBe("[REDACTED]");
+  });
+
+  it("should handle unrecognized Prisma error code (fall through to generic)", async () => {
+    const prismaError: any = new Error("Unknown Prisma error");
+    prismaError.code = "P9999";
+
+    const result = await errorHandlerMiddleware({}, mockContext, mockDefinition, throwingNext(prismaError));
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe("INTERNAL_ERROR");
   });
 
   it("should handle generic errors with fallback (always returns generic message)", async () => {

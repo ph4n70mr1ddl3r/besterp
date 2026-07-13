@@ -1,5 +1,43 @@
 # BestERP — Security & Architecture Fixes
 
+## Changes Applied (2026-07-13) — Code Review Round 22
+
+### 🟡 Security: `sensitive-fields.ts` — OTP/MFA fields missing from redaction lists (redaction bypass)
+
+**Problem:** `SENSITIVE_FIELDS` and `SENSITIVE_TOKENS` did not include OTP/MFA-related field names (`otp`, `mfa`, `otp_code`, `one_time_password`, `mfa_secret`). Bare `otp` is not caught by `SENSITIVE_FIELD_PATTERN` (no matching regex branch), and the token-based fallback splits it to `["otp"]` which wasn't in `SENSITIVE_TOKENS`. An MCP tool input like `{ otp: "123456" }` or `{ mfaToken: "..." }` would be persisted verbatim to `ai_action_log.tool_input`. `mfa_secret` is caught by the regex's `secret` branch, but bare `otp` and `mfa` are not.
+
+**Fix:** Added `"otp"`, `"otp_code"`, `"one_time_password"`, `"mfa"`, `"mfa_secret"` to `SENSITIVE_FIELDS`, and `"otp"`, `"mfa"` to `SENSITIVE_TOKENS`. Also applied `Object.freeze()` to both sets for runtime immutability (previously they were TypeScript-only `ReadonlySet` without runtime enforcement). Added a dedicated `sensitive-fields.test.ts` (16 tests) covering explicit names, OTP/MFA fields, snake/camelCase detection, benign-field non-over-redaction, `splitFieldTokens`, `SENSITIVE_FIELDS`/`SENSITIVE_TOKENS` contents, `SENSITIVE_FIELD_PATTERN` regex matches, and freeze assertions.
+
+### 🟡 Correctness: `idempotency.ts` — hash computed on invalid (un-normalised) input caused false mismatch on retry
+
+**Problem:** When `safeParse` fails (invalid input from a buggy AI agent), the middleware hashed the **raw input**. The handler then returned `INVALID_INPUT` without executing. A subsequent retry with valid (Zod-normalised, e.g. `.trim()`-transformed) input computed a *different* hash because Zod transforms normalise the data. The hash mismatch caused a confusing `IDEMPOTENCY_KEY_MISMATCH` error instead of allowing the retry to proceed.
+
+**Fix:** When `safeParse` fails, skip idempotency entirely — pass through to the handler which returns `INVALID_INPUT`. No idempotency record is created, so a subsequent retry with valid input starts fresh. Added a regression test asserting that a Zod validation failure passes through without creating or querying any idempotency record.
+
+### 🟡 Correctness: `party.service.ts` — belt-and-suspenders guard against `Invalid Date` from `new Date(userInput)`
+
+**Problem:** `createPartyTransaction` calls `new Date(sanitizedPerson.birthDate)` and `new Date(sanitizedOrg.registrationDate)` to convert validated ISO strings to `Date` objects. While `requireValidDate` already rejects non-ISO strings upstream, a future call path that bypasses validation could silently store an `Invalid Date` (Prisma accepts it as a corrupt timestamp with no error). `new Date("not-a-date")` returns an `Invalid Date` object rather than throwing.
+
+**Fix:** Added `isNaN(parsedDate.getTime())` guards after each `new Date()` call that throws `InvalidTypeValueError` with the invalid value in context. This is defence-in-depth — the guard never fires in practice because `requireValidDate` + `isValidISODate` already validate upstream — but closes the silent-corruption gap.
+
+### 🟢 Correctness: `rls-extension.ts` — non-function model properties silently returned `undefined`
+
+**Problem:** `createModelDelegateProxy`'s `get` trap checked `typeof originalFn !== "function"` and returned `undefined`. Any non-function property access on a model delegate (e.g., a hypothetical static property or getter) would silently become `undefined` instead of the actual value.
+
+**Fix:** Changed to `return originalFn` — pass through the original value unchanged. Only DATA_METHODS that are functions get wrapped.
+
+### 🟢 Correctness: `truncate.ts` — `Date` objects silently changed type from `Date` to `string` after JSON roundtrip
+
+**Problem:** `Date` objects fell through to `serializeObjectValue`, which called `JSON.stringify(date)`. `JSON.stringify(new Date())` produces a quoted string (`"\"2024-01-01T00:00:00.000Z\""`), then `JSON.parse` converts it to a plain string — silently changing the type from `Date` to `string`. While this doesn't cause bugs in practice (JSONB stores both as text), it's surprising and inconsistent with explicit handling of other types.
+
+**Fix:** Added an explicit `Date` check in `normalisePrimitive` that converts to ISO string directly without the JSON stringify/parse roundtrip. Also extracted the primitive-handling fast path into a `normalisePrimitive` helper to keep `truncateValue`'s cyclomatic complexity within the lint threshold (was 17, now split across two functions). Added a regression test asserting `truncateValue(new Date("2024-06-15T14:30:00.000Z"))` returns `"2024-06-15T14:30:00.000Z"`.
+
+### 🟢 Clarity: `error-handler.ts` — explicit return type on `handlePrismaError`
+
+**Problem:** `handlePrismaError` had an inferred return type. If `PRISMA_ERROR_HANDLERS` changes shape, the compiler wouldn't catch mismatches at the call site.
+
+**Fix:** Added explicit `PrismaErrorResult | null` return type annotation.
+
 ## Changes Applied (2026-07-12) — Code Review Round 21
 
 ### 🟢 Defense-in-depth: `error-handler.ts` — `DomainError.context` was not redacted by field name (secret-named keys could reach the AI agent)

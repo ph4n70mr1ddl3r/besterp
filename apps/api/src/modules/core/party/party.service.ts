@@ -296,24 +296,42 @@ export class PartyService {
           description,
         };
         if (sanitizedPerson) {
+          const rawBirthDate = sanitizedPerson.birthDate;
+          const parsedBirthDate = rawBirthDate ? new Date(rawBirthDate) : null;
+          // Belt-and-suspenders: requireValidDate already rejects non-ISO
+          // strings, but this guards against any future call path that
+          // bypasses it. Invalid Date propagates as NaN through Prisma
+          // and would store a corrupt timestamp silently.
+          if (parsedBirthDate && isNaN(parsedBirthDate.getTime())) {
+            throw new InvalidTypeValueError(
+              `birthDate produced an invalid Date`,
+              { suggestedTools: ["create_party"], context: { field: "birthDate", invalidValue: rawBirthDate ?? "" } }
+            );
+          }
           data.person = {
             create: {
               firstName: sanitizedPerson.firstName,
               lastName: sanitizedPerson.lastName,
               middleName: sanitizedPerson.middleName ?? null,
-              birthDate: sanitizedPerson.birthDate ? new Date(sanitizedPerson.birthDate) : null,
+              birthDate: parsedBirthDate,
               gender: sanitizedPerson.gender ?? null,
             },
           };
         }
         if (sanitizedOrg) {
+          const rawRegistrationDate = sanitizedOrg.registrationDate;
+          const parsedRegistrationDate = rawRegistrationDate ? new Date(rawRegistrationDate) : null;
+          if (parsedRegistrationDate && isNaN(parsedRegistrationDate.getTime())) {
+            throw new InvalidTypeValueError(
+              `registrationDate produced an invalid Date`,
+              { suggestedTools: ["create_party"], context: { field: "registrationDate", invalidValue: rawRegistrationDate ?? "" } }
+            );
+          }
           data.organization = {
             create: {
               legalName: sanitizedOrg.legalName,
               taxId: sanitizedOrg.taxId ?? null,
-              registrationDate: sanitizedOrg.registrationDate
-                ? new Date(sanitizedOrg.registrationDate)
-                : null,
+              registrationDate: parsedRegistrationDate,
             },
           };
         }

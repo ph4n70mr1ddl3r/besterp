@@ -10,7 +10,7 @@
 // the error-handler now reuses it as defense-in-depth for DomainError.context).
 
 /** Fields whose values must be redacted before persisting in the audit log. */
-export const SENSITIVE_FIELDS: ReadonlySet<string> = new Set([
+export const SENSITIVE_FIELDS: ReadonlySet<string> = Object.freeze(new Set([
   "password", "passwd", "secret", "token", "api_key", "apiKey",
   "authorization", "creditCard", "credit_card", "ssn", "taxId", "tax_id",
   "access_token", "refresh_token", "session_id", "sessionId",
@@ -23,7 +23,11 @@ export const SENSITIVE_FIELDS: ReadonlySet<string> = new Set([
   "pin", "cc_number", "card_number", "date_of_birth", "dob",
   "birthDate", "birth_date",
   "bank_account", "routing_number", "national_id", "passport",
-]);
+  // OTP/MFA fields — common in authentication flows. Bare "otp" is not
+  // caught by the regex or the token fallback (it has no suffix), so it
+  // must be listed explicitly here.
+  "otp", "otp_code", "one_time_password", "mfa", "mfa_secret",
+])) as ReadonlySet<string>;
 
 /**
  * Regex pattern for catch-all sensitive field detection (password, secret,
@@ -50,9 +54,10 @@ export const SENSITIVE_FIELD_PATTERN =
  * token-based fallback in `isSensitiveField` to catch camelCase field names
  * the SENSITIVE_FIELD_PATTERN regex misses.
  */
-export const SENSITIVE_TOKENS: ReadonlySet<string> = new Set([
+export const SENSITIVE_TOKENS: ReadonlySet<string> = Object.freeze(new Set([
   "password", "passwd", "pwd", "secret", "token", "credential", "credentials",
-]);
+  "otp", "mfa",
+])) as ReadonlySet<string>;
 
 /**
  * Split a field name into tokens at snake_case, kebab-case, AND camelCase

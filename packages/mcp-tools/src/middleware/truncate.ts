@@ -124,6 +124,39 @@ function checkOversized(encoded: Uint8Array, effectiveMax: number): { _truncated
 }
 
 /**
+ * Check whether a value should be handled as a terminal primitive
+ * (string, number, boolean, bigint, symbol, function, Date, null, undefined).
+ * Returns the normalised form or undefined if the value is a non-primitive object.
+ */
+function normalisePrimitive(value: unknown, effectiveMax: number): { normalised: unknown; marker: ReturnType<typeof checkOversized> } | undefined {
+  if (value === null) return { normalised: null, marker: null };
+  if (value === undefined) return { normalised: undefined, marker: null };
+  if (typeof value === "string" || typeof value === "boolean") {
+    const serialised = JSON.stringify(value);
+    const encoded = textEncoder.encode(serialised);
+    return { normalised: value, marker: checkOversized(encoded, effectiveMax) };
+  }
+  if (typeof value === "number") {
+    const serialised = JSON.stringify(value);
+    const encoded = textEncoder.encode(serialised);
+    return { normalised: value, marker: checkOversized(encoded, effectiveMax) };
+  }
+  if (typeof value === "bigint") {
+    const str = value.toString();
+    const encoded = textEncoder.encode(str);
+    return { normalised: str, marker: checkOversized(encoded, effectiveMax) };
+  }
+  if (typeof value === "symbol") return { normalised: { _error: "Cannot serialize Symbol value" }, marker: null };
+  if (typeof value === "function") return { normalised: { _error: "Cannot serialize Function value" }, marker: null };
+  if (value instanceof Date) {
+    const iso = value.toISOString();
+    const encoded = textEncoder.encode(JSON.stringify(iso));
+    return { normalised: iso, marker: checkOversized(encoded, effectiveMax) };
+  }
+  return undefined;
+}
+
+/**
  * Truncate a JSONB payload to `maxSize` bytes, replacing oversize values
  * with a structured marker. Never throws — returns an error marker on
  * serialisation failure.
@@ -132,35 +165,9 @@ export function truncateValue(value: unknown, maxSize: number = MAX_STORED_PAYLO
   const effectiveMax = Math.max(1, maxSize);
   if (value === undefined) return undefined;
 
-  // Fast path: null, primitives are always JSON-safe — skip the
-  // stringify+parse roundtrip that class instances, Maps, etc. need.
-  if (value === null) return null;
-  if (typeof value === "string" || typeof value === "boolean") {
-    const serialized = JSON.stringify(value);
-    const encoded = textEncoder.encode(serialized);
-    const marker = checkOversized(encoded, effectiveMax);
-    return marker ?? value;
-  }
-  if (typeof value === "number") {
-    // Use JSON.stringify for numbers — String(1e21) vs JSON.stringify(1e21)
-    // produce different byte lengths ("1e+21" vs "1000000000000000000000").
-    // The stored value will be serialized via JSON.stringify, so measure that.
-    const serialized = JSON.stringify(value);
-    const encoded = textEncoder.encode(serialized);
-    const marker = checkOversized(encoded, effectiveMax);
-    return marker ?? value;
-  }
-  if (typeof value === "bigint") {
-    const str = value.toString();
-    const encoded = textEncoder.encode(str);
-    const marker = checkOversized(encoded, effectiveMax);
-    return marker ?? str;
-  }
-  if (typeof value === "symbol") {
-    return { _error: "Cannot serialize Symbol value" };
-  }
-  if (typeof value === "function") {
-    return { _error: "Cannot serialize Function value" };
+  const primitive = normalisePrimitive(value, effectiveMax);
+  if (primitive) {
+    return primitive.marker ?? primitive.normalised;
   }
 
   const result = serializeObjectValue(value);

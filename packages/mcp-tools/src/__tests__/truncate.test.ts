@@ -38,6 +38,13 @@ describe("truncateValue", () => {
     });
   });
 
+  it("converts Date objects to ISO strings", () => {
+    const date = new Date("2024-06-15T14:30:00.000Z");
+    const result = truncateValue(date);
+    expect(result).toBe("2024-06-15T14:30:00.000Z");
+    expect(typeof result).toBe("string");
+  });
+
   it("truncates an oversize string with a structured marker", () => {
     const huge = "a".repeat(MAX_STORED_PAYLOAD_SIZE + 1000);
     const result = truncateValue(huge) as { _truncated: boolean; _originalSize: number; _preview: string };
