@@ -16,7 +16,7 @@
 // If no idempotency key is provided, the middleware is a no-op pass-through.
 
 import { PrismaClient, Prisma, IdempotencyRecord } from "@prisma/client";
-import { hashInput, getErrorCode, sanitizeForLog, sanitizeForLogOutput, ConcurrencyConflictError, MAX_SOFT_FAILURE_MESSAGE_SIZE, IDEMPOTENCY_TTL_MS, MAX_IDEMPOTENCY_KEY_LENGTH, IDEMPOTENCY_MAX_RETRIES, IDEMPOTENCY_RETRY_BASE_DELAY_MS } from "@besterp/shared";
+import { hashInput, getErrorCode, sanitizeLogMessage, sanitizeForLogOutput, ConcurrencyConflictError, MAX_SOFT_FAILURE_MESSAGE_SIZE, IDEMPOTENCY_TTL_MS, MAX_IDEMPOTENCY_KEY_LENGTH, IDEMPOTENCY_MAX_RETRIES, IDEMPOTENCY_RETRY_BASE_DELAY_MS } from "@besterp/shared";
 import { ToolMiddleware, ToolResult, ToolContext } from "../schema/tool-definition.js";
 import { truncateValue, MAX_STORED_PAYLOAD_SIZE, capString } from "./truncate.js";
 
@@ -95,7 +95,7 @@ export function idempotencyMiddleware(prisma: PrismaClient): ToolMiddleware {
         };
       }
       // Serialization contention (P2034) — suggest a new key.
-      const safeKey = sanitizeForLog(idempotencyKey.slice(0, 32));
+      const safeKey = redactKey(idempotencyKey);
       return {
         success: false,
         error: {
@@ -129,6 +129,11 @@ function delay(ms: number): Promise<void> {
 
 function logIdempotencyWarn(message: string): void {
   process.stderr.write(`[Idempotency] ${JSON.stringify({ timestamp: new Date().toISOString(), message })}\n`);
+}
+
+/** Redact an idempotency key to a safe preview for log messages. */
+function redactKey(key: string): string {
+  return sanitizeLogMessage(key.slice(0, 32));
 }
 
 async function acquireIdempotencyRecord(
@@ -203,7 +208,7 @@ async function acquireIdempotencyRecord(
       // contention (P2034).
       if (code !== "P2034") {
         logIdempotencyWarn(
-          `Non-retryable error acquiring idempotency record '${sanitizeForLog(idempotencyKey.slice(0, 32))}' (code=${code ?? "none"}): ${sanitizeForLogOutput(e instanceof Error ? e.message : String(e))}`
+          `Non-retryable error acquiring idempotency record '${redactKey(idempotencyKey)}' (code=${code ?? "none"}): ${sanitizeForLogOutput(e instanceof Error ? e.message : String(e))}`
         );
         return { existingRecord: null, recordCreated: false, unavailable: true };
       }
@@ -226,7 +231,7 @@ function handleExistingRecord(
         success: false,
         error: {
           code: "IDEMPOTENCY_KEY_MISMATCH",
-          message: `Idempotency key '${sanitizeForLog(idempotencyKey.slice(0, 32))}' was already used with different input. Use a new idempotency key for a different operation.`,
+          message: `Idempotency key '${redactKey(idempotencyKey)}' was already used with different input. Use a new idempotency key for a different operation.`,
           suggestedTools: [toolName],
           context: { originalInputHash: existing.inputHash },
         },
@@ -253,7 +258,7 @@ function handleExistingRecord(
           success: false,
           error: {
             code: "STALE_PENDING_RECORD",
-            message: `Idempotency key '${sanitizeForLog(idempotencyKey.slice(0, 32))}' has a stale pending record (${Math.round(pendingAge / 1000)}s old) with different input. The previous request likely crashed. Retry with a new idempotency key.`,
+            message: `Idempotency key '${redactKey(idempotencyKey)}' has a stale pending record (${Math.round(pendingAge / 1000)}s old) with different input. The previous request likely crashed. Retry with a new idempotency key.`,
             suggestedTools: [toolName],
           },
         };
@@ -262,7 +267,7 @@ function handleExistingRecord(
         success: false,
         error: {
           code: "IDEMPOTENCY_KEY_MISMATCH",
-          message: `Idempotency key '${sanitizeForLog(idempotencyKey.slice(0, 32))}' is in use with different input. Use a new idempotency key.`,
+          message: `Idempotency key '${redactKey(idempotencyKey)}' is in use with different input. Use a new idempotency key.`,
           suggestedTools: [toolName],
         },
       };
@@ -271,7 +276,7 @@ function handleExistingRecord(
       success: false,
       error: {
         code: "REQUEST_IN_PROGRESS",
-        message: `A request with idempotency key '${sanitizeForLog(idempotencyKey.slice(0, 32))}' is already in progress. Wait and retry.`,
+        message: `A request with idempotency key '${redactKey(idempotencyKey)}' is already in progress. Wait and retry.`,
         suggestedTools: [toolName],
       },
     };
@@ -283,7 +288,7 @@ function handleExistingRecord(
         success: false,
         error: {
           code: "IDEMPOTENCY_KEY_MISMATCH",
-          message: `Idempotency key '${sanitizeForLog(idempotencyKey.slice(0, 32))}' was previously used with different input. Use a new idempotency key.`,
+          message: `Idempotency key '${redactKey(idempotencyKey)}' was previously used with different input. Use a new idempotency key.`,
           suggestedTools: [toolName],
           context: { originalInputHash: existing.inputHash },
         },
@@ -346,7 +351,7 @@ async function executeAndUpdate(
       await updateIdempotencyRecordWithRetry(prisma, idempotencyKey, tenantId, failedResult, true);
     } catch {
       logIdempotencyWarn(
-        `Failed to persist error result for idempotency key '${sanitizeForLog(idempotencyKey.slice(0, 32))}' — original error will propagate`
+        `Failed to persist error result for idempotency key '${redactKey(idempotencyKey)}' — original error will propagate`
       );
     }
     throw error;
@@ -357,7 +362,7 @@ async function executeAndUpdate(
     await updateIdempotencyRecordWithRetry(prisma, idempotencyKey, tenantId, toolResult, isSoftFailure);
   } catch {
     logIdempotencyWarn(
-      `Failed to persist result for idempotency key '${sanitizeForLog(idempotencyKey.slice(0, 32))}' — result still returned`
+      `Failed to persist result for idempotency key '${redactKey(idempotencyKey)}' — result still returned`
     );
   }
 
@@ -400,7 +405,7 @@ async function updateIdempotencyRecordWithRetry(
       if (code === "P2025") {
         const p2025Detail = updateErr instanceof Error ? updateErr.message : String(updateErr);
         logIdempotencyWarn(
-          `Idempotency record '${sanitizeForLog(idempotencyKey.slice(0, 32))}' no longer exists (expired/cleaned up between acquire and update) — result will not be persisted for replay. Detail: ${sanitizeForLogOutput(p2025Detail)}`
+          `Idempotency record '${redactKey(idempotencyKey)}' no longer exists (expired/cleaned up between acquire and update) — result will not be persisted for replay. Detail: ${sanitizeForLogOutput(p2025Detail)}`
         );
         return;
       }
@@ -409,7 +414,7 @@ async function updateIdempotencyRecordWithRetry(
         continue;
       }
       const detail = updateErr instanceof Error ? updateErr.message : String(updateErr);
-      logIdempotencyWarn(`Failed to update idempotency record '${sanitizeForLog(idempotencyKey.slice(0, 32))}' after ${IDEMPOTENCY_MAX_RETRIES} attempts: ${sanitizeForLogOutput(detail)}`);
+      logIdempotencyWarn(`Failed to update idempotency record '${redactKey(idempotencyKey)}' after ${IDEMPOTENCY_MAX_RETRIES} attempts: ${sanitizeForLogOutput(detail)}`);
       throw new ConcurrencyConflictError(
         `Idempotency record could not be updated after ${IDEMPOTENCY_MAX_RETRIES} attempts. ` +
         `The operation may have succeeded but subsequent retries will receive REQUEST_IN_PROGRESS. ` +

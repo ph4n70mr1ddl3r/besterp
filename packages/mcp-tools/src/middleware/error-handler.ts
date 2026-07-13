@@ -9,7 +9,7 @@
 import {
   isDomainError,
   DomainError,
-  sanitizeForLog,
+  sanitizeLogMessage,
   sanitizeForLogOutput,
   pluralize,
 } from "@besterp/shared";
@@ -254,7 +254,7 @@ function handleGenericError(error: unknown, definition: { name: string }, tenant
   // Log sanitized details to stderr to prevent leaking sensitive info
   // (DB hostnames, connection strings, stack frames)
   process.stderr.write(
-    `[MCP] [${new Date().toISOString()}] Unexpected error in '${sanitizeForLog(definition.name)}' (tenant=${sanitizeForLog(tenantId)}, user=${sanitizeForLog(userId)}): ${safeMessage}\n`
+    `[MCP] [${new Date().toISOString()}] Unexpected error in '${sanitizeLogMessage(definition.name)}' (tenant=${sanitizeLogMessage(tenantId)}, user=${sanitizeLogMessage(userId)}): ${safeMessage}\n`
   );
   // Always return a generic message to the AI agent to prevent leaking internals
   return {

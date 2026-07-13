@@ -9,7 +9,7 @@
 // never break the tool).
 
 import { PrismaClient, Prisma } from "@prisma/client";
-import { getErrorCode, sanitizeForLog, sanitizeForLogOutput, MAX_REASONING_LENGTH } from "@besterp/shared";
+import { getErrorCode, sanitizeLogMessage, sanitizeForLogOutput, MAX_REASONING_LENGTH } from "@besterp/shared";
 import { ToolMiddleware, ToolContext, ToolResult } from "../schema/tool-definition.js";
 import { truncateValue, MAX_STORED_PAYLOAD_SIZE } from "./truncate.js";
 import { isSensitiveField } from "./sensitive-fields.js";
@@ -141,7 +141,7 @@ function createBackpressureManager(prisma: PrismaClient): BackpressureManager {
     log(entry: AuditLogEntry): void {
       if (writeQueue.length >= MAX_AUDIT_QUEUE_SIZE) {
         droppedCount++;
-        process.stderr.write(`[AuditLog] Queue full (${MAX_AUDIT_QUEUE_SIZE}), dropping audit entry for '${sanitizeForLog(entry.toolCalled)}' (total dropped: ${droppedCount})\n`);
+        process.stderr.write(`[AuditLog] Queue full (${MAX_AUDIT_QUEUE_SIZE}), dropping audit entry for '${sanitizeLogMessage(entry.toolCalled)}' (total dropped: ${droppedCount})\n`);
         return;
       }
       let slotAcquired = false;
