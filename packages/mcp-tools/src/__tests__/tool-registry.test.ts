@@ -215,7 +215,9 @@ describe("ToolRegistry", () => {
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe("UNKNOWN_TOOL");
       // Should suggest at least one similar tool
-      expect(result.error?.suggestedTools!.length).toBeGreaterThan(1); // includes list_available_tools
+      const suggested = result.error?.suggestedTools;
+      expect(suggested).toBeDefined();
+      expect(suggested!.length).toBeGreaterThan(1); // includes list_available_tools
     });
   });
 

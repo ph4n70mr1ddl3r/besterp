@@ -193,8 +193,8 @@ export function sanitizeLogMessage(s: string): string {
 }
 
 /**
- * Alias for `sanitizeLogMessage`. The longer name is preferred for new code,
- * but this alias remains available for backward compatibility.
+ * @deprecated Use `sanitizeLogMessage` instead. This alias is kept for backward
+ * compatibility and will be removed in a future major version.
  */
 export const sanitizeForLog: typeof sanitizeLogMessage = sanitizeLogMessage;
 

@@ -136,3 +136,8 @@ export const MAX_STORED_PAYLOAD_SIZE = 65_536; // 64 KB
 
 /** Maximum size (bytes) for soft-failure error messages. */
 export const MAX_SOFT_FAILURE_MESSAGE_SIZE = 4096;
+
+// ─── Auth Config ──────────────────────────────────────────────
+
+/** Regex for validating JWT_EXPIRES_IN duration format (e.g., "24h", "60m", "7d"). */
+export const JWT_EXPIRES_IN_REGEX = /^\d+[smhd]$/;

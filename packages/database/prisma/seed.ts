@@ -13,7 +13,7 @@ if (process.env.NODE_ENV) {
 // Seed uses admin connection to bypass RLS for creating tenant records
 if (!process.env.DATABASE_ADMIN_URL) {
   console.error(
-    "❌ DATABASE_ADMIN_URL not set. Seed requires admin (superuser) connection to bypass RLS.\n" +
+    "[SEED] DATABASE_ADMIN_URL not set. Seed requires admin (superuser) connection to bypass RLS.\n" +
     "Set DATABASE_ADMIN_URL to a superuser connection string."
   );
   process.exit(1);
@@ -41,7 +41,7 @@ async function main() {
     );
   }
 
-  console.log("🌱 Seeding type tables with AI-facing descriptions...\n");
+  console.log("[SEED] Seeding type tables with AI-facing descriptions...\n");
 
   // ─── Party Types ─────────────────────────────────────────────
   const partyTypes = await Promise.all([
@@ -79,7 +79,7 @@ async function main() {
       },
     }),
   ]);
-  console.log(`  ✅ ${partyTypes.length} party types seeded`);
+  console.log(`  [OK] ${partyTypes.length} party types seeded`);
 
   // ─── Role Types ──────────────────────────────────────────────
   const roleTypes = await Promise.all([
@@ -139,7 +139,7 @@ async function main() {
       },
     }),
   ]);
-  console.log(`  ✅ ${roleTypes.length} role types seeded`);
+  console.log(`  [OK] ${roleTypes.length} role types seeded`);
 
   // ─── Contact Mechanism Types ─────────────────────────────────
   const contactTypes = await Promise.all([
@@ -174,7 +174,7 @@ async function main() {
       },
     }),
   ]);
-  console.log(`  ✅ ${contactTypes.length} contact mechanism types seeded\n`);
+  console.log(`  [OK] ${contactTypes.length} contact mechanism types seeded\n`);
 
   // ─── Seed tenant organizations ───────────────────────────────
   const tenantA = await prisma.party.upsert({
@@ -213,8 +213,8 @@ async function main() {
     },
   });
 
-  console.log(`  ✅ 2 seed tenants created: ${tenantA.name}, ${tenantB.name}\n`);
-  console.log("🌱 Seeding complete!");
+  console.log(`  [OK] 2 seed tenants created: ${tenantA.name}, ${tenantB.name}\n`);
+  console.log("[SEED] Seeding complete!");
 }
 
 main()

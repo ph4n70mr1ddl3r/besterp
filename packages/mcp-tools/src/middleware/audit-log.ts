@@ -100,7 +100,7 @@ function createBackpressureManager(prisma: PrismaClient): BackpressureManager {
       return Promise.resolve({ acquired: true });
     }
     return new Promise<{ acquired: boolean }>((resolve) => {
-      const entry: QueueEntry = { resolve, timer: null!, settled: false };
+      const entry: QueueEntry = { resolve, timer: undefined as unknown as ReturnType<typeof setTimeout>, settled: false };
       try {
         entry.timer = setTimeout(() => {
           if (entry.settled) return;

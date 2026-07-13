@@ -10,7 +10,7 @@ import "reflect-metadata";
 import { NestFactory } from "@nestjs/core";
 import { Logger, ValidationPipe, type INestApplication } from "@nestjs/common";
 import helmet from "helmet";
-import { sanitizeForLogOutput } from "@besterp/shared";
+import { sanitizeForLogOutput, JWT_EXPIRES_IN_REGEX } from "@besterp/shared";
 import { isWeakSecret, MIN_JWT_SECRET_LENGTH } from "./auth/secret-strength.js";
 import { AppModule } from "./app.module.js";
 import express, { type Request, type Response, type NextFunction } from "express";
@@ -42,7 +42,7 @@ function validateEnvironment(): void {
   }
 
   // Validate JWT_EXPIRES_IN format if provided.
-  if (process.env.JWT_EXPIRES_IN && !/^\d+[smhd]$/.test(process.env.JWT_EXPIRES_IN)) {
+  if (process.env.JWT_EXPIRES_IN && !JWT_EXPIRES_IN_REGEX.test(process.env.JWT_EXPIRES_IN)) {
     logger.error(
       `JWT_EXPIRES_IN "${process.env.JWT_EXPIRES_IN}" is invalid. Must be a duration string like "24h", "60m", "7d".`
     );
