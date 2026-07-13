@@ -39,7 +39,7 @@ import {
   COUNTRY_CODE_REGEX,
   isValidISODate,
   stripHtmlTags,
-  sanitizeForLog,
+  sanitizeLogMessage,
   MAX_PARTY_NAME_LENGTH,
   MAX_PARTY_DESCRIPTION_LENGTH,
   MAX_PERSON_NAME_LENGTH,
@@ -166,7 +166,7 @@ export class PartyService {
 
     const party = await this.createPartyTransaction(db, trimmedTenantId, trimmedPartyType, sanitizedName, sanitizedDescription, sanitizedPerson, sanitizedOrg);
 
-    this.logger.log(`Created ${trimmedPartyType} party: ${sanitizeForLog(trimmedName)} (${party.partyId})`);
+    this.logger.log(`Created ${trimmedPartyType} party: ${sanitizeLogMessage(trimmedName)} (${party.partyId})`);
     return PartyService.toPartyResult(party);
   }
 
@@ -530,7 +530,7 @@ export class PartyService {
 
     const role = await this.addPartyRoleTransaction(db, trimmedTenantId, partyId, roleTypeRecord.roleTypeId, trimmedRoleType, roleFromDate);
 
-    this.logger.log(`Added role '${sanitizeForLog(trimmedRoleType)}' to party ${partyId} (ID: ${role.partyRoleId})`);
+    this.logger.log(`Added role '${sanitizeLogMessage(trimmedRoleType)}' to party ${partyId} (ID: ${role.partyRoleId})`);
     return {
       partyRoleId: role.partyRoleId,
       partyId: role.partyId,
@@ -646,7 +646,7 @@ export class PartyService {
 
     const contactMechanism = await this.createContactMechanismTransaction(db, trimmedTenantId, partyId, trimmedCmType, cmType.contactMechanismTypeId, postalAddress, telecomNumber, normalizedEmail);
 
-    this.logger.log(`Added ${sanitizeForLog(trimmedCmType)} to party ${partyId} (ID: ${contactMechanism.contactMechanismId})`);
+    this.logger.log(`Added ${sanitizeLogMessage(trimmedCmType)} to party ${partyId} (ID: ${contactMechanism.contactMechanismId})`);
     return PartyService.formatContactResult(contactMechanism, partyId);
   }
 
