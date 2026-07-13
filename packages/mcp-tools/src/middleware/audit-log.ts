@@ -87,7 +87,7 @@ function createBackpressureManager(prisma: PrismaClient): BackpressureManager {
   let activeWrites = 0;
   interface QueueEntry {
     resolve: (value: { acquired: boolean }) => void;
-    timer: ReturnType<typeof setTimeout>;
+    timer: ReturnType<typeof setTimeout> | undefined;
     settled: boolean;
   }
   const writeQueue: QueueEntry[] = [];
@@ -100,7 +100,7 @@ function createBackpressureManager(prisma: PrismaClient): BackpressureManager {
       return Promise.resolve({ acquired: true });
     }
     return new Promise<{ acquired: boolean }>((resolve) => {
-      const entry: QueueEntry = { resolve, timer: undefined as unknown as ReturnType<typeof setTimeout>, settled: false };
+      const entry: QueueEntry = { resolve, timer: undefined, settled: false };
       try {
         entry.timer = setTimeout(() => {
           if (entry.settled) return;
