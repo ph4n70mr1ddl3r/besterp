@@ -28,6 +28,32 @@ describe("isSensitiveField", () => {
     expect(isSensitiveField("otpToken")).toBe(true);
   });
 
+  it("should catch passcode/passphrase and their camelCase variants", () => {
+    // Bare forms — explicit in SENSITIVE_FIELDS.
+    expect(isSensitiveField("passcode")).toBe(true);
+    expect(isSensitiveField("passphrase")).toBe(true);
+    // camelCase variants — caught via the SENSITIVE_TOKENS token fallback
+    // ("passcode"/"passphrase" tokens), which the regex misses because the
+    // "password" branch requires the full word.
+    expect(isSensitiveField("newPasscode")).toBe(true);
+    expect(isSensitiveField("verifyPassphrase")).toBe(true);
+    expect(isSensitiveField("passcodeVerify")).toBe(true);
+    // snake_case forms — caught via the regex-independent token fallback too.
+    expect(isSensitiveField("passcode_hash")).toBe(true);
+    expect(isSensitiveField("user_passphrase")).toBe(true);
+  });
+
+  it("should catch all date-of-birth variants consistently", () => {
+    // Regression: dateOfBirth (camelCase Date-Of-Noun form) was previously
+    // missed while birthDate/birth_date/date_of_birth/dob were caught —
+    // an inconsistency that leaked DOB under that specific key.
+    expect(isSensitiveField("dateOfBirth")).toBe(true);
+    expect(isSensitiveField("birthDate")).toBe(true);
+    expect(isSensitiveField("birth_date")).toBe(true);
+    expect(isSensitiveField("date_of_birth")).toBe(true);
+    expect(isSensitiveField("dob")).toBe(true);
+  });
+
   it("should catch snake_case sensitive fields via regex", () => {
     expect(isSensitiveField("auth_token")).toBe(true);
     expect(isSensitiveField("session_token")).toBe(true);
@@ -59,6 +85,10 @@ describe("isSensitiveField", () => {
     expect(isSensitiveField("field")).toBe(false);
     expect(isSensitiveField("conflictingFields")).toBe(false);
     expect(isSensitiveField("lineNumber")).toBe(false);
+    // DOB-adjacent fields that share a "birth"/"date" token but are NOT PII
+    // must not be over-redacted by the explicit-set approach.
+    expect(isSensitiveField("birthRate")).toBe(false);
+    expect(isSensitiveField("birthday")).toBe(false);
     expect(isSensitiveField("birthDate")).toBe(true); // explicit in set
   });
 });

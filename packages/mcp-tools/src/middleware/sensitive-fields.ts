@@ -16,17 +16,26 @@ export const SENSITIVE_FIELDS: ReadonlySet<string> = Object.freeze(new Set([
   "access_token", "refresh_token", "session_id", "sessionId",
   "private_key", "privateKey", "secret_key", "secretKey",
   "accessKey", "access_key", "encryption_key", "encryptionKey",
-  // ERP-specific sensitive fields. birthDate/birth_date are the camelCase
+  // ERP-specific sensitive fields. birthDate/birth_date/dateOfBirth are the
   // field names that actually flow through MCP tool inputs and the Person
-  // subtype — date_of_birth/dob alone miss them, leaking DOB (sensitive PII)
-  // into ai_action_log.tool_input.
+  // subtype — date_of_birth/dob alone miss the camelCase variants, leaking
+  // DOB (sensitive PII) into ai_action_log.tool_input. dateOfBirth is the
+  // camelCase Date-Of-Noun form; birthDate is the Noun-Date form. Both are
+  // common, so both are listed explicitly (the token fallback can't help
+  // here — "birth"/"date" alone are too broad and would over-redact benign
+  // fields like birthRate or updatedAt).
   "pin", "cc_number", "card_number", "date_of_birth", "dob",
-  "birthDate", "birth_date",
+  "birthDate", "birth_date", "dateOfBirth",
   "bank_account", "routing_number", "national_id", "passport",
   // OTP/MFA fields — common in authentication flows. Bare "otp" is not
   // caught by the regex or the token fallback (it has no suffix), so it
-  // must be listed explicitly here.
+  // must be listed explicitly here. passcode/passphrase are likewise
+  // auth-secret names with no matching regex branch (the "password" branch
+  // requires the full word, and "passcode"/"passphrase" are distinct words),
+  // so they are listed explicitly and added to SENSITIVE_TOKENS below to
+  // catch camelCase variants like newPasscode/verifyPassphrase.
   "otp", "otp_code", "one_time_password", "mfa", "mfa_secret",
+  "passcode", "passphrase",
 ])) as ReadonlySet<string>;
 
 /**
@@ -56,7 +65,7 @@ export const SENSITIVE_FIELD_PATTERN =
  */
 export const SENSITIVE_TOKENS: ReadonlySet<string> = Object.freeze(new Set([
   "password", "passwd", "pwd", "secret", "token", "credential", "credentials",
-  "otp", "mfa",
+  "otp", "mfa", "passcode", "passphrase",
 ])) as ReadonlySet<string>;
 
 /**

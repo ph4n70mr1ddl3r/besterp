@@ -1,5 +1,23 @@
 # BestERP — Security & Architecture Fixes
 
+## Changes Applied (2026-07-13) — Code Review Round 25
+
+### 🟡 Security: `sensitive-fields.ts` — redaction bypass for `dateOfBirth`, `passcode`, `passphrase`
+
+**Problem:** The sensitive-field detector (`isSensitiveField`, shared by the audit-log and error-handler middlewares) missed three classes of sensitive key names:
+- **`dateOfBirth`** — the camelCase Date-Of-Noun form of date of birth. The sibling forms `birthDate`, `birth_date`, `date_of_birth`, and `dob` were all caught, but this specific camelCase variant was not (it is not in `SENSITIVE_FIELDS`, does not match `SENSITIVE_FIELD_PATTERN`, and its `splitFieldTokens` output `date`/`Of`/`Birth` has no entry in `SENSITIVE_TOKENS`).
+- **`passcode`** and **`passphrase`** — common auth-secret field names with no matching regex branch (the `password` branch requires the full word, and `passcode`/`passphrase` are distinct words), no explicit-set entry, and no token entry.
+
+Confirmed by probe: `isSensitiveField("dateOfBirth")`, `isSensitiveField("passcode")`, and `isSensitiveField("passphrase")` all returned `false`. An MCP tool input like `{ dateOfBirth: "1990-01-01" }` or `{ passcode: "1234" }` would therefore be persisted verbatim to `ai_action_log.tool_input` (audit-log path) and returned to the AI agent in `ToolResult.error.context` (error-handler path).
+
+**Fix:** Added `dateOfBirth`, `passcode`, and `passphrase` to `SENSITIVE_FIELDS`, and added `passcode` and `passphrase` to `SENSITIVE_TOKENS` (the token fallback catches camelCase variants like `newPasscode`, `verifyPassphrase`, `passcodeVerify`, and snake_case `passcode_hash`/`user_passphrase` that the regex misses). The DOB fix deliberately uses the explicit-set approach rather than adding a `birth` token — `birth` is too broad for this ERP domain and would over-redact benign demographic fields like `birthRate`. Added regression tests: a "passcode/passphrase + camelCase variants" block, an "all DOB variants consistency" block, and `birthRate`/`birthday` non-over-redaction assertions. `sensitive-fields.test.ts` now has 18 tests (was 16).
+
+### 🟢 Docs: `cleanup-expired-idempotency.ts` — misleading usage comment referenced the wrong env var
+
+**Problem:** The header usage example read `DATABASE_URL="..." npx tsx ...`, but the script gates on `DATABASE_ADMIN_URL` (`if (!process.env.DATABASE_ADMIN_URL) { ... process.exit(1); }`) because the app role cannot see tenant-scoped expired records through RLS policies. A copy-paste from the comment would exit immediately with `DATABASE_ADMIN_URL is required`.
+
+**Fix:** Updated the comment to reference `DATABASE_ADMIN_URL`, matching the actual guard.
+
 ## Changes Applied (2026-07-13) — Code Review Round 22
 
 ### 🟡 Security: `sensitive-fields.ts` — OTP/MFA fields missing from redaction lists (redaction bypass)

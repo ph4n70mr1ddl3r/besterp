@@ -4,7 +4,7 @@
 // Run as a scheduled job (cron) to prevent unbounded table growth.
 //
 // Usage:
-//   DATABASE_URL="..." npx tsx packages/database/scripts/cleanup-expired-idempotency.ts
+//   DATABASE_ADMIN_URL="..." npx tsx packages/database/scripts/cleanup-expired-idempotency.ts
 
 import { PrismaClient } from "@prisma/client";
 
