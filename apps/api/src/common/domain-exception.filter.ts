@@ -42,21 +42,39 @@ function domainErrorToStatus(error: DomainError): number {
 }
 
 /**
+ * Recursively sanitize a single ContextValue before including it in HTTP
+ * responses. Strips control characters (newlines, tabs, ANSI escapes) from
+ * every string at every nesting depth. Primitives (number, boolean, null)
+ * pass through unchanged.
+ *
+ * ContextValue permits arbitrarily nested objects and arrays, so this walks
+ * the full value tree rather than only the top level — a value reflected
+ * under a nested key (e.g. context.input.field) would otherwise bypass the
+ * top-level sanitization and reach the client verbatim.
+ */
+function sanitizeContextValue(value: ContextValue): ContextValue {
+  if (typeof value === "string") return sanitizeLogMessage(value);
+  if (Array.isArray(value)) return value.map(sanitizeContextValue);
+  if (value !== null && typeof value === "object") {
+    const sanitized: Record<string, ContextValue> = {};
+    for (const [key, child] of Object.entries(value)) {
+      sanitized[key] = sanitizeContextValue(child);
+    }
+    return sanitized;
+  }
+  return value;
+}
+
+/**
  * Sanitize DomainError.context values before including them in HTTP responses.
  * Strips control characters (newlines, tabs, ANSI escapes) from string values
  * to prevent log injection if the response body is ever logged by a monitoring
- * tool or API client. Non-string values pass through unchanged.
+ * tool or API client.
  */
 function sanitizeContext(context: Record<string, ContextValue>): Record<string, ContextValue> {
   const sanitized: Record<string, ContextValue> = {};
   for (const [key, value] of Object.entries(context)) {
-    if (typeof value === "string") {
-      sanitized[key] = sanitizeLogMessage(value);
-    } else if (Array.isArray(value)) {
-      sanitized[key] = value.map((v) => typeof v === "string" ? sanitizeLogMessage(v) : v);
-    } else {
-      sanitized[key] = value;
-    }
+    sanitized[key] = sanitizeContextValue(value);
   }
   return sanitized;
 }
@@ -106,9 +124,19 @@ export class DomainExceptionFilter implements ExceptionFilter {
     const body: Record<string, unknown> = {
       statusCode: status,
       error: exception.code,
+      // DomainError messages frequently embed user-supplied input (invalid
+      // values, received fields, malformed dates), e.g.
+      //   `Invalid fromDate format: ${trimmed}.`
+      //   `${field} is not a valid ISO 8601 date. Received: ${value}.`
+      // Those values are only .trim()'d upstream, so interior control chars
+      // (newlines, tabs, ANSI escapes) survive into the message. Reflecting
+      // the message verbatim into the response body re-opens the same
+      // log/response-injection surface that sanitizeContext() closes for
+      // context values — and unlike context this field is sent in BOTH dev
+      // and production for non-500 DomainErrors. Sanitize it consistently.
       ...(status === 500 && isProd
         ? { message: "An unexpected error occurred" }
-        : { message: exception.message }),
+        : { message: sanitizeLogMessage(exception.message) }),
     };
     if (isDev && exception.suggestedTools.length > 0) {
       body.suggestedTools = exception.suggestedTools;

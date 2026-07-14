@@ -2,8 +2,8 @@
 
 ## Scope
 Fresh full review of the BestERP monorepo (`packages/shared`, `packages/mcp-tools`,
-`packages/database`, `apps/api`) conducted on 2026-07-14. This is review round 26;
-rounds 1–25 are documented in earlier revisions of this file and `CHANGES.md`.
+`packages/database`, `apps/api`) conducted on 2026-07-14. This is review round 27;
+rounds 1–26 are documented in earlier revisions of this file and `CHANGES.md`.
 
 ## Baseline (before this round)
 - `npm run typecheck` — clean across all workspaces
@@ -15,51 +15,54 @@ rounds 1–25 are documented in earlier revisions of this file and `CHANGES.md`.
 
 ### Fixed this round
 
-1. **🔴 `rls-extension.ts` — silent `undefined` return for non-existent model
-   delegates on tenant-scoped proxy.** When accessing a model that doesn't exist
-   in the Prisma schema (e.g., `scoped.nonExistentModel`), the Proxy's `get`
-   trap returned `undefined` silently. The caller would then hit a confusing
-   `TypeError: Cannot read properties of undefined (reading 'findMany')` deep in
-   the call stack. Fixed to throw a clear error naming the missing model and
-   suggesting schema.prisma as the fix target.
+1. **🟡 `domain-exception.filter.ts` — `DomainError.message` reflected into HTTP
+   responses unsanitized.** Round 26 closed the log/response-injection surface on
+   `DomainError.context` values but missed the `message` field. DomainError messages
+   routinely embed user-supplied input that is only `.trim()`'d upstream — e.g.
+   `Invalid fromDate format: ${trimmed}`, `${field} is not a valid ISO 8601 date.
+   Received: ${value}`, `Invalid tenant ID: "${preview}"` — so interior control
+   characters (newlines, tabs, ANSI escapes) survive into the message. The filter
+   sent `exception.message` verbatim into the response body for every non-500
+   DomainError, in **both development and production** (unlike context, which is
+   dev-only). A value like `fromDate: "x\n[INFO] admin logged in"` would be
+   reflected into the response body and, when logged by a monitoring tool/client,
+   inject a forged log line. Fixed by applying `sanitizeLogMessage()` to the
+   message, mirroring the round-26 context treatment.
 
-2. **🟡 `party.service.ts` — missing explicit `throw` after `handleTransactionError`
-   in 4 catch blocks.** `handleTransactionError` is typed `never` (always throws),
-   but the catch blocks in `createPartyTransaction`, `searchParties`,
-   `addPartyRoleTransaction`, and `createContactMechanismTransaction` relied
-   solely on the `never` return type for TypeScript flow analysis. If
-   `handleTransactionError` were ever refactored to not always throw (e.g., for
-   a soft-error logging path), the functions would silently return `undefined`.
-   Added explicit `throw err` after each call as defense-in-depth.
-
-3. **🟡 `domain-exception.filter.ts` — unsanitized `context` values exposed in
-   development HTTP responses.** The `DomainError.context` record carries
-   diagnostic fields (field names, received values, invalid inputs). In
-   development mode, these were included verbatim in the HTTP response body. If
-   a user-supplied value (e.g., a malicious `name` field containing newlines or
-   ANSI escapes) was reflected in `context.received`, it could inject false log
-   entries when the response body is logged by monitoring tools. Fixed by
-   applying `sanitizeLogMessage()` to all string values in the context before
-   including them in the response.
-
-4. **🟢 `idempotency.ts` — redundant `length === 0` check.** The guard
-   `!idempotencyKey || typeof idempotencyKey !== "string" || idempotencyKey.length === 0`
-   already catches empty strings via `!idempotencyKey` (empty string is falsy)
-   and `typeof !== "string"` (catches non-strings). The explicit
-   `length === 0` check was redundant. Removed for clarity.
+2. **🟢 `domain-exception.filter.ts` — `sanitizeContext` did not recurse into nested
+   objects.** The `ContextValue` type permits arbitrarily nested objects and arrays,
+   but `sanitizeContext` only scrubbed top-level strings and the string elements of
+   top-level arrays — a value under a nested key (e.g. `context.input.field`) passed
+   through verbatim. No current DomainError call site nests objects in context (all
+   are flat), so this was latent rather than exploitable today, but it was an
+   incomplete implementation of the stated round-26 goal ("sanitize context values").
+   Refactored to a recursive `sanitizeContextValue()` helper that walks the full
+   value tree (strings sanitized at every depth; arrays/objects recursed; primitives
+   passed through), closing the gap for any future DomainError that nests a
+   user-derived value.
 
 ### Verified clean (no action needed)
 
-- **`sanitize.ts` HTML entity decode order** — `&amp;` decoded last causes
-  `&amp;lt;script&amp;gt;` to survive the first decode pass, but the
-  `do...while` loop (up to 10 iterations) handles it correctly on subsequent
-  passes.
-- **`audit-log.ts` fire-and-forget pattern** — `slotAcquired` flag and
-  `.finally` guard correctly handle both acquired and not-acquired paths.
-- **`rls-extension.ts` for-of closure** — `method` variable is correctly
-  scoped per iteration in modern JS.
-- **`party-tools.ts` Zod `.pipe().optional()` chains** — validated that
-  `undefined` input flows correctly through transforms and optional pipes.
+- **`party.service.ts` `getParty` lacks a `try/catch` + `handleTransactionError`
+  wrapper** — intentional asymmetry. Unlike the four write methods, `getParty` issues
+  a standalone `findUnique` (the tenant-scoped Proxy already wraps it in an RLS
+  transaction). A Prisma error here propagates to the MCP `errorHandlerMiddleware`
+  (which maps P2002/P2003/P2024/P2025/P2034 to agent-facing codes) or the REST filter,
+  so it is handled downstream. `findUnique` realistically only throws connection
+  errors or P2023 (malformed UUID, already rejected by `requireUuid`), so a
+  service-level remap adds little. Left as-is to avoid a redundant double-transaction.
+- **`idempotency.ts` stale-pending / failed / completed state machine** — re-traced
+  all `acquireIdempotencyRecord` → `handleExistingRecord` transitions (pending+stale,
+  pending+recent, completed, failed, hash-match/mismatch); all branches are correct
+  and the narrow failed-record race window is explicitly handled with
+  `REQUEST_IN_PROGRESS`.
+- **`sanitize.ts` decode-then-strip loop** — stable; the `MAX_INPUT_LENGTH` (100 KB)
+  cap and `MAX_SANITIZE_ITERATIONS` (10) bound the DoS surface.
+- **`crypto.ts` `sortKeysDeep`** — circular-reference, depth (100), WeakMap/WeakSet,
+  and function guards all present; prototype-pollution-safe via `Object.create(null)`.
+- **`rls-extension.ts` Proxy traps** — `set`/`deleteProperty` blocked on both client
+  and model delegates; raw SQL and `$`-prefixed methods blocked; non-existent models
+  throw a clear error (round 26).
 
 ## Test Results
 
@@ -67,9 +70,9 @@ rounds 1–25 are documented in earlier revisions of this file and `CHANGES.md`.
 shared:    137 passed (4 files)
 mcp-tools: 119 passed (4 files)
 database:   25 passed, 10 skipped (2 files)
-api:       302 passed (14 files)
+api:       304 passed (14 files)
 ────────────────────────────────────
-Total:     583 passed, 10 skipped
+Total:     585 passed, 10 skipped
 ```
 
 ## Resolved candidates (cumulative)
@@ -84,3 +87,7 @@ Total:     583 passed, 10 skipped
   addressed in round 26
 - ~~`domain-exception.filter.ts` unsanitized context in dev responses~~ —
   addressed in round 26
+- ~~`domain-exception.filter.ts` unsanitized message in responses (dev + prod)~~ —
+  addressed in round 27
+- ~~`domain-exception.filter.ts` sanitizeContext not recursive for nested
+  objects~~ — addressed in round 27

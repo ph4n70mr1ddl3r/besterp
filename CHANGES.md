@@ -1,5 +1,23 @@
 # BestERP — Security & Architecture Fixes
 
+## Changes Applied (2026-07-14) — Code Review Round 27
+
+### 🟡 `domain-exception.filter.ts` — `DomainError.message` reflected into HTTP responses unsanitized
+
+**Problem:** Round 26 closed the log/response-injection surface on `DomainError.context` values but missed the `message` field. DomainError messages routinely embed user-supplied input that is only `.trim()`'d upstream — e.g. `Invalid fromDate format: ${trimmed}` (party.service.ts `parseFromDate`), `${field} is not a valid ISO 8601 date. Received: ${value}` (`requireValidDate`), `Invalid tenant ID: "${preview}"` (shared `validateTenantId`). `.trim()` only strips leading/trailing whitespace, so interior control characters (newlines, tabs, ANSI escapes) survive into the message.
+
+The filter sent `exception.message` verbatim into the response body for every non-500 DomainError — in **both development and production** (unlike context, which is dev-only). A user-controlled value like `fromDate: "x\n[INFO] admin logged in"` was reflected into the HTTP response body and, when that body was logged by a monitoring tool or API client, would inject a forged log line. Confirmed by a failing assertion: a 422 `InvalidTypeValueError` with the payload `Invalid fromDate format: line1\nline2\t\x1b[31mFAKE\x1b[0m` previously returned the raw string in `body.message`.
+
+**Fix:** Applied `sanitizeLogMessage()` to `exception.message` when building the response body, mirroring the round-26 context treatment (same sanitizer, same control-character/newline/ANSI stripping). The generic 500-in-production message is unaffected. `sanitizeLogMessage` is already imported (used by `sanitizeContext`). Added a regression test asserting the reflected message has newlines/tabs → `_` and ANSI CSI escapes stripped, in production mode.
+
+### 🟢 `domain-exception.filter.ts` — `sanitizeContext` did not recurse into nested objects
+
+**Problem:** The `ContextValue` type permits arbitrarily nested objects and arrays (`string | number | boolean | null | ContextValue[] | { [key: string]: ContextValue }`), but `sanitizeContext` only scrubbed top-level strings and the string elements of top-level arrays — a value under a nested key (e.g. `context.input.field`) passed through verbatim. No current DomainError call site nests objects in context (all are flat — verified by grepping every `context: {` in the codebase), so this was latent rather than exploitable today, but it was an incomplete implementation of the round-26 goal of sanitizing context values.
+
+**Fix:** Extracted a recursive `sanitizeContextValue()` helper that walks the full value tree — strings are `sanitizeLogMessage`'d at every depth; arrays and plain objects are recursed; primitives (number, boolean, null) pass through unchanged. `sanitizeContext` now delegates to it. Added a regression test asserting a nested `context.nested.malicious` string and `context.list[]` elements are sanitized while `context.count` (number) is preserved.
+
+---
+
 ## Changes Applied (2026-07-14) — Code Review Round 26
 
 ### 🔴 `rls-extension.ts` — silent `undefined` return for non-existent model delegates

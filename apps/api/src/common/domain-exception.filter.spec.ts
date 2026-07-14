@@ -107,6 +107,48 @@ describe("DomainExceptionFilter", () => {
       expect(ctx.captured.body).not.toHaveProperty("suggestedTools");
       expect(ctx.captured.body).not.toHaveProperty("context");
     });
+
+    it("sanitizes control characters embedded in the DomainError message", () => {
+      // DomainError messages embed user input (invalidValue, received, etc.)
+      // which is only .trim()'d upstream — interior newlines/tabs/ANSI survive.
+      // The reflected response-body message must be sanitized to avoid
+      // log/response injection, in both dev and production (non-500).
+      process.env.NODE_ENV = "production";
+      const ctx = createMockHost();
+      const error = new InvalidTypeValueError(
+        `Invalid fromDate format: line1\nline2\t\x1b[31mFAKE\x1b[0m`
+      );
+
+      filter.catch(error, ctx.host);
+
+      const body = ctx.captured.body as Record<string, unknown>;
+      // newlines/tabs → "_", ANSI CSI escapes stripped.
+      expect(body.message).toBe("Invalid fromDate format: line1_line2_FAKE");
+      expect(JSON.stringify(body.message)).not.toContain("\\n");
+      expect(JSON.stringify(body.message)).not.toContain("\\x1b");
+    });
+
+    it("recursively sanitizes string values inside nested context objects", () => {
+      process.env.NODE_ENV = "development";
+      const ctx = createMockHost();
+      const error = new InvalidTypeValueError("bad", {
+        context: {
+          nested: { malicious: "a\nb\t\x1b[31mFAKE\x1b[0m" },
+          list: ["ok", "x\ry"],
+          count: 3,
+        },
+      });
+
+      filter.catch(error, ctx.host);
+
+      const body = ctx.captured.body as Record<string, unknown>;
+      const context = body.context as Record<string, unknown>;
+      const nested = context.nested as Record<string, unknown>;
+      expect(nested.malicious).toBe("a_b_FAKE");
+      expect(context.list).toEqual(["ok", "x_y"]);
+      // primitives pass through unchanged.
+      expect(context.count).toBe(3);
+    });
   });
 
   describe("HttpException handling", () => {
