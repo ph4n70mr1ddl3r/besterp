@@ -1,5 +1,33 @@
 # BestERP — Security & Architecture Fixes
 
+## Changes Applied (2026-07-14) — Code Review Round 26
+
+### 🔴 `rls-extension.ts` — silent `undefined` return for non-existent model delegates
+
+**Problem:** When accessing a model that doesn't exist in the Prisma schema (e.g., `scoped.nonExistentModel`), the tenant-scoped Proxy's `get` trap fell through to `const delegate = (target as any)[prop]; if (!delegate || typeof delegate !== "object") return delegate;`, returning `undefined`. The caller would then hit a confusing `TypeError: Cannot read properties of undefined (reading 'findMany')` deep in the call stack, with no indication of which model name was wrong.
+
+**Fix:** Changed the fallthrough to throw a clear `Error` naming the missing model and suggesting `schema.prisma` as the fix target: `Model '${prop}' does not exist on the Prisma schema. Check the model name and ensure it is included in schema.prisma.` Non-function, non-object delegates (the only realistic case is `undefined` for a non-existent model) now fail fast with an actionable message.
+
+### 🟡 `party.service.ts` — missing explicit `throw` after `handleTransactionError` in catch blocks
+
+**Problem:** `handleTransactionError` is typed `never` (always throws), but the catch blocks in `createPartyTransaction`, `searchParties`, `addPartyRoleTransaction`, and `createContactMechanismTransaction` relied solely on the `never` return type for TypeScript flow analysis. If `handleTransactionError` were ever refactored to not always throw (e.g., for a soft-error logging path), the functions would silently return `undefined`, causing downstream `TypeError: Cannot read properties of undefined` errors.
+
+**Fix:** Added explicit `throw err; // Unreachable — handleTransactionError always throws. Defense-in-depth for future refactors.` after each `handleTransactionError` call in the four catch blocks.
+
+### 🟡 `domain-exception.filter.ts` — unsanitized `context` values in development HTTP responses
+
+**Problem:** `DomainError.context` carries diagnostic fields (field names, received values, invalid inputs). In development mode, these were included verbatim in the HTTP response body. A user-supplied value containing newlines, ANSI escapes, or other control characters could inject false log entries when the response body is logged by monitoring tools or API clients (`log injection`).
+
+**Fix:** Added `sanitizeContext()` helper that applies `sanitizeLogMessage()` to all string values in the context before including them in the development-mode HTTP response. Non-string values (numbers, booleans, null) pass through unchanged. Added import of `sanitizeLogMessage` and `ContextValue` type from `@besterp/shared`.
+
+### 🟢 `idempotency.ts` — redundant `length === 0` check
+
+**Problem:** The guard `!idempotencyKey || typeof idempotencyKey !== "string" || idempotencyKey.length === 0 || idempotencyKey.length > MAX_IDEMPOTENCY_KEY_LENGTH` contained a redundant `length === 0` check — empty strings are already caught by `!idempotencyKey` (empty string is falsy).
+
+**Fix:** Removed the redundant `idempotencyKey.length === 0` check.
+
+---
+
 ## Changes Applied (2026-07-13) — Code Review Round 25
 
 ### 🟡 Security: `sensitive-fields.ts` — redaction bypass for `dateOfBirth`, `passcode`, `passphrase`

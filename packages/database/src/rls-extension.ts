@@ -268,7 +268,13 @@ function createClientProxy(
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const delegate = (target as any)[prop];
-      if (!delegate || typeof delegate !== "object") return delegate;
+      if (!delegate || typeof delegate !== "object") {
+        if (typeof delegate === "function") return delegate;
+        throw new Error(
+          `Model '${prop}' does not exist on the Prisma schema. ` +
+          `Check the model name and ensure it is included in schema.prisma.`
+        );
+      }
 
       const proxy = createModelDelegateProxy(delegate, prop, methodCache, prisma, tenantId);
       delegateCache.set(prop, proxy);

@@ -13,10 +13,11 @@
 import { ExceptionFilter, Catch, ArgumentsHost, Logger, HttpException } from "@nestjs/common";
 import type { Response } from "express";
 import {
-  DomainError, isDomainError, getErrorCode, sanitizeForLogOutput,
+  DomainError, isDomainError, getErrorCode, sanitizeForLogOutput, sanitizeLogMessage,
   EntityNotFoundError, DuplicateEntityError, ConcurrencyConflictError,
   MissingSubtypeDataError, InvalidTypeValueError, InvalidTenantIdError,
   TenantContextFailedError,
+  type ContextValue,
 } from "@besterp/shared";
 
 /**
@@ -38,6 +39,26 @@ function domainErrorToStatus(error: DomainError): number {
     default:
       return 500;
   }
+}
+
+/**
+ * Sanitize DomainError.context values before including them in HTTP responses.
+ * Strips control characters (newlines, tabs, ANSI escapes) from string values
+ * to prevent log injection if the response body is ever logged by a monitoring
+ * tool or API client. Non-string values pass through unchanged.
+ */
+function sanitizeContext(context: Record<string, ContextValue>): Record<string, ContextValue> {
+  const sanitized: Record<string, ContextValue> = {};
+  for (const [key, value] of Object.entries(context)) {
+    if (typeof value === "string") {
+      sanitized[key] = sanitizeLogMessage(value);
+    } else if (Array.isArray(value)) {
+      sanitized[key] = value.map((v) => typeof v === "string" ? sanitizeLogMessage(v) : v);
+    } else {
+      sanitized[key] = value;
+    }
+  }
+  return sanitized;
 }
 
 @Catch()
@@ -93,7 +114,7 @@ export class DomainExceptionFilter implements ExceptionFilter {
       body.suggestedTools = exception.suggestedTools;
     }
     if (isDev && Object.keys(exception.context).length > 0) {
-      body.context = exception.context;
+      body.context = sanitizeContext(exception.context);
     }
     response.status(status).json(body);
   }
