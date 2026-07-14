@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { stripHtmlTags, sanitizeLogOutput, sanitizeForLog, sanitizeForLogOutput, safeFromCodePoint } from "../sanitize.js";
+import { stripHtmlTags, sanitizeLogOutput, sanitizeLogMessage, sanitizeForLogOutput, safeFromCodePoint } from "../sanitize.js";
 import { InvalidTypeValueError } from "../errors.js";
 
 describe("stripHtmlTags", () => {
@@ -217,42 +217,42 @@ describe("sanitizeLogOutput", () => {
   });
 });
 
-describe("sanitizeForLog", () => {
+describe("sanitizeLogMessage", () => {
   it("replaces newlines with underscores", () => {
-    expect(sanitizeForLog("line1\nline2")).toBe("line1_line2");
-    expect(sanitizeForLog("line1\r\nline2")).toBe("line1__line2");
+    expect(sanitizeLogMessage("line1\nline2")).toBe("line1_line2");
+    expect(sanitizeLogMessage("line1\r\nline2")).toBe("line1__line2");
   });
 
   it("replaces carriage returns with underscores", () => {
-    expect(sanitizeForLog("line1\rline2")).toBe("line1_line2");
+    expect(sanitizeLogMessage("line1\rline2")).toBe("line1_line2");
   });
 
   it("replaces tabs with underscores", () => {
-    expect(sanitizeForLog("col1\tcol2")).toBe("col1_col2");
+    expect(sanitizeLogMessage("col1\tcol2")).toBe("col1_col2");
   });
 
   it("removes ANSI escape sequences", () => {
-    expect(sanitizeForLog("\x1b[31mred\x1b[0m")).toBe("red");
-    expect(sanitizeForLog("\x1b[1mbold\x1b[22m")).toBe("bold");
+    expect(sanitizeLogMessage("\x1b[31mred\x1b[0m")).toBe("red");
+    expect(sanitizeLogMessage("\x1b[1mbold\x1b[22m")).toBe("bold");
   });
 
   it("replaces C0 control characters with underscores", () => {
-    expect(sanitizeForLog("a\x00b\x01c")).toBe("a_b_c");
-    expect(sanitizeForLog("hello\x7fworld")).toBe("hello_world");
+    expect(sanitizeLogMessage("a\x00b\x01c")).toBe("a_b_c");
+    expect(sanitizeLogMessage("hello\x7fworld")).toBe("hello_world");
   });
 
   it("preserves normal text", () => {
-    expect(sanitizeForLog("hello world")).toBe("hello world");
-    expect(sanitizeForLog("normal text with 123 numbers")).toBe("normal text with 123 numbers");
+    expect(sanitizeLogMessage("hello world")).toBe("hello world");
+    expect(sanitizeLogMessage("normal text with 123 numbers")).toBe("normal text with 123 numbers");
   });
 
   it("handles empty string", () => {
-    expect(sanitizeForLog("")).toBe("");
+    expect(sanitizeLogMessage("")).toBe("");
   });
 
   it("strips multiple types of injection in one string", () => {
     const input = "msg\nwith\r\ttabs\x1b[33mand color";
-    const result = sanitizeForLog(input);
+    const result = sanitizeLogMessage(input);
     expect(result).not.toContain("\n");
     expect(result).not.toContain("\r");
     expect(result).not.toContain("\t");
@@ -262,48 +262,48 @@ describe("sanitizeForLog", () => {
   });
 
   it("strips OSC sequences (ESC ] ... ST/BEL)", () => {
-    expect(sanitizeForLog("\x1b]0;MyTitle\x07content")).toBe("content");
-    expect(sanitizeForLog("\x1b]2;NewTitle\x1b\\text")).toBe("text");
+    expect(sanitizeLogMessage("\x1b]0;MyTitle\x07content")).toBe("content");
+    expect(sanitizeLogMessage("\x1b]2;NewTitle\x1b\\text")).toBe("text");
   });
 
   it("strips APC sequences (ESC _ ... ST/BEL)", () => {
-    expect(sanitizeForLog("\x1b_application command\x07data")).toBe("data");
-    expect(sanitizeForLog("\x1b_cmd\x1b\\rest")).toBe("rest");
+    expect(sanitizeLogMessage("\x1b_application command\x07data")).toBe("data");
+    expect(sanitizeLogMessage("\x1b_cmd\x1b\\rest")).toBe("rest");
   });
 
   it("strips SOS sequences (ESC X ... ST/BEL)", () => {
-    expect(sanitizeForLog("\x1bXstring start\x07output")).toBe("output");
-    expect(sanitizeForLog("\x1bXdata\x1b\\end")).toBe("end");
+    expect(sanitizeLogMessage("\x1bXstring start\x07output")).toBe("output");
+    expect(sanitizeLogMessage("\x1bXdata\x1b\\end")).toBe("end");
   });
 
   it("strips PM sequences (ESC ^ ... ST/BEL)", () => {
-    expect(sanitizeForLog("\x1b^privacy\x07message")).toBe("message");
-    expect(sanitizeForLog("\x1b^data\x1b\\final")).toBe("final");
+    expect(sanitizeLogMessage("\x1b^privacy\x07message")).toBe("message");
+    expect(sanitizeLogMessage("\x1b^data\x1b\\final")).toBe("final");
   });
 
   it("strips DCS sequences (ESC P ... ST/BEL)", () => {
-    expect(sanitizeForLog("\x1bPdevice control\x07output")).toBe("output");
-    expect(sanitizeForLog("\x1bPparams;data\x1b\\rest")).toBe("rest");
-    expect(sanitizeForLog("a\x1bP\x1b\\b")).toBe("ab");
+    expect(sanitizeLogMessage("\x1bPdevice control\x07output")).toBe("output");
+    expect(sanitizeLogMessage("\x1bPparams;data\x1b\\rest")).toBe("rest");
+    expect(sanitizeLogMessage("a\x1bP\x1b\\b")).toBe("ab");
   });
 
   it("strips non-CSI escape sequences (ESC + single char)", () => {
-    expect(sanitizeForLog("\x1bMtext")).toBe("text");
-    expect(sanitizeForLog("\x1b7before\x1b8after")).toBe("beforeafter");
-    expect(sanitizeForLog("\x1bDa\x1bEb")).toBe("ab");
-    expect(sanitizeForLog("\x1b=\x1b>")).toBe("");
-    expect(sanitizeForLog("\x1b0\x1b1\x1b2\x1b3\x1b4\x1b5\x1b6\x1b7\x1b8\x1b9")).toBe("");
-    expect(sanitizeForLog("\x1b2before\x1b5after")).toBe("beforeafter");
+    expect(sanitizeLogMessage("\x1bMtext")).toBe("text");
+    expect(sanitizeLogMessage("\x1b7before\x1b8after")).toBe("beforeafter");
+    expect(sanitizeLogMessage("\x1bDa\x1bEb")).toBe("ab");
+    expect(sanitizeLogMessage("\x1b=\x1b>")).toBe("");
+    expect(sanitizeLogMessage("\x1b0\x1b1\x1b2\x1b3\x1b4\x1b5\x1b6\x1b7\x1b8\x1b9")).toBe("");
+    expect(sanitizeLogMessage("\x1b2before\x1b5after")).toBe("beforeafter");
   });
 
   it("strips non-CSI escapes with BACKSLASH final byte (ESC \\ = ST, String Terminator)", () => {
     // 0x5C (backslash) is a valid ECMA-48 two-character final byte used as
     // the String Terminator. Without it in the regex, the trailing \ survives
     // as a stray character after the ESC byte is replaced by the control-char pass.
-    expect(sanitizeForLog("\x1b\\")).toBe("");
-    expect(sanitizeForLog("\x1b\\")).not.toBe("_\\");
-    expect(sanitizeForLog("a\x1b\\b")).toBe("ab");
-    expect(sanitizeForLog("\x1b\\more")).toBe("more");
+    expect(sanitizeLogMessage("\x1b\\")).toBe("");
+    expect(sanitizeLogMessage("\x1b\\")).not.toBe("_\\");
+    expect(sanitizeLogMessage("a\x1b\\b")).toBe("ab");
+    expect(sanitizeLogMessage("\x1b\\more")).toBe("more");
   });
 
   it("strips non-CSI escapes with LOWERCASE final bytes (ESC c=RIS, ESC n=LS2, ESC o=LS3)", () => {
@@ -311,61 +311,61 @@ describe("sanitizeForLog", () => {
     // is always neutralized by the control-char pass, but without the
     // lowercase class entry the trailing final byte survived as a stray
     // character (e.g. "\x1bc" → "_c"). These now strip cleanly to "".
-    expect(sanitizeForLog("\x1bcreset")).toBe("reset");
-    expect(sanitizeForLog("a\x1bnb")).toBe("ab");
-    expect(sanitizeForLog("a\x1bob")).toBe("ab");
-    expect(sanitizeForLog("\x1bc\x1bn\x1bo")).toBe("");
+    expect(sanitizeLogMessage("\x1bcreset")).toBe("reset");
+    expect(sanitizeLogMessage("a\x1bnb")).toBe("ab");
+    expect(sanitizeLogMessage("a\x1bob")).toBe("ab");
+    expect(sanitizeLogMessage("\x1bc\x1bn\x1bo")).toBe("");
     // Regression guard: an isolated ESC followed by a lowercase final must
     // not leave a stray underscore+letter (the old broken behaviour).
-    expect(sanitizeForLog("\x1bc")).toBe("");
-    expect(sanitizeForLog("\x1bc")).not.toBe("_c");
+    expect(sanitizeLogMessage("\x1bc")).toBe("");
+    expect(sanitizeLogMessage("\x1bc")).not.toBe("_c");
   });
 
   it("strips non-CSI escapes with intermediate bytes (ESC I...I F)", () => {
     // Sequences like ESC ( B (select character set) have intermediate bytes
     // between ESC and the final byte. These were only partially stripped by
     // the two-char regex, leaving stray characters like "_(B".
-    expect(sanitizeForLog("\x1b(Btext")).toBe("text");
-    expect(sanitizeForLog("a\x1b)Bb")).toBe("ab");
-    expect(sanitizeForLog("a\x1b*Bb")).toBe("ab");
-    expect(sanitizeForLog("a\x1b+Bb")).toBe("ab");
-    expect(sanitizeForLog("a\x1b-Bb")).toBe("ab");
-    expect(sanitizeForLog("\x1b(B\x1b)B")).toBe("");
+    expect(sanitizeLogMessage("\x1b(Btext")).toBe("text");
+    expect(sanitizeLogMessage("a\x1b)Bb")).toBe("ab");
+    expect(sanitizeLogMessage("a\x1b*Bb")).toBe("ab");
+    expect(sanitizeLogMessage("a\x1b+Bb")).toBe("ab");
+    expect(sanitizeLogMessage("a\x1b-Bb")).toBe("ab");
+    expect(sanitizeLogMessage("\x1b(B\x1b)B")).toBe("");
     // Two intermediate bytes (e.g. ESC $ ( C for Korean charset)
-    expect(sanitizeForLog("\x1b$(Ctext")).toBe("text");
+    expect(sanitizeLogMessage("\x1b$(Ctext")).toBe("text");
     // Regression: isolated intermediate byte without final byte should not
     // cause false match — ESC + single intermediate byte alone is not a
     // complete sequence and should leave the intermediate byte.
-    expect(sanitizeForLog("\x1b(")).not.toBe("");
-    expect(sanitizeForLog("\x1b(")).toBe("_(");
+    expect(sanitizeLogMessage("\x1b(")).not.toBe("");
+    expect(sanitizeLogMessage("\x1b(")).toBe("_(");
   });
 
   it("strips C1 control characters (U+0080-U+009F)", () => {
     // C1 controls like U+009B (CSI) can be used as an alternative to ESC+[
     // for ANSI escape sequences. These must be stripped to prevent
     // terminal injection bypassing the ESC-based removal patterns.
-    expect(sanitizeForLog("a\u009Bb")).toBe("a_b");
-    expect(sanitizeForLog("a\u0090b")).toBe("a_b");
-    expect(sanitizeForLog("a\u009Fb")).toBe("a_b");
-    expect(sanitizeForLog("\u0080\u0090\u009Etext")).toBe("___text");
+    expect(sanitizeLogMessage("a\u009Bb")).toBe("a_b");
+    expect(sanitizeLogMessage("a\u0090b")).toBe("a_b");
+    expect(sanitizeLogMessage("a\u009Fb")).toBe("a_b");
+    expect(sanitizeLogMessage("\u0080\u0090\u009Etext")).toBe("___text");
   });
 
   it("strips mixed ANSI sequences correctly", () => {
     const input = "\x1b[31mred\x1b]0;title\x07\x1bMmid\x1b_apc\x1b\\end";
-    const result = sanitizeForLog(input);
+    const result = sanitizeLogMessage(input);
     expect(result).toBe("redmidend");
   });
 
   it("preserves text with no ANSI sequences", () => {
-    expect(sanitizeForLog("normal plain text")).toBe("normal plain text");
+    expect(sanitizeLogMessage("normal plain text")).toBe("normal plain text");
   });
 
   it("handles isolated ESC byte at end of string", () => {
     // A lone \x1b at the end is not a valid ANSI sequence (no final byte).
     // The non-CSI regex requires at least one intermediate or final byte after
     // ESC. The \x1b falls through to the control-char replacement pass.
-    expect(sanitizeForLog("end\x1b")).toBe("end_");
-    expect(sanitizeForLog("\x1b")).toBe("_");
+    expect(sanitizeLogMessage("end\x1b")).toBe("end_");
+    expect(sanitizeLogMessage("\x1b")).toBe("_");
   });
 
   it("strips CSI sequences with non-digit parameter bytes (?, <, =, >)", () => {
@@ -373,15 +373,15 @@ describe("sanitizeForLog", () => {
     // The old regex [0-9;] missed < = > ?, so sequences like ESC [ ? 2 5 h
     // (show cursor) and ESC [ ? 2 5 l (hide cursor) left stray chars after the
     // ESC was replaced by the control-char pass. The fixed regex uses \x30-\x3F.
-    expect(sanitizeForLog("\x1b[?25h")).toBe("");
-    expect(sanitizeForLog("\x1b[?25l")).toBe("");
-    expect(sanitizeForLog("\x1b[?1049h")).toBe("");
-    expect(sanitizeForLog("\x1b[?1049l")).toBe("");
-    expect(sanitizeForLog("a\x1b[?25hb")).toBe("ab");
+    expect(sanitizeLogMessage("\x1b[?25h")).toBe("");
+    expect(sanitizeLogMessage("\x1b[?25l")).toBe("");
+    expect(sanitizeLogMessage("\x1b[?1049h")).toBe("");
+    expect(sanitizeLogMessage("\x1b[?1049l")).toBe("");
+    expect(sanitizeLogMessage("a\x1b[?25hb")).toBe("ab");
     // Sequences with '>' (0x3E) parameter prefix (e.g. DEC private set/reset)
-    expect(sanitizeForLog("\x1b[>1;2c")).toBe("");
+    expect(sanitizeLogMessage("\x1b[>1;2c")).toBe("");
     // Non-parameter '<' is a valid private CSI final byte
-    expect(sanitizeForLog("\x1b[<5;10m")).toBe("");
+    expect(sanitizeLogMessage("\x1b[<5;10m")).toBe("");
   });
 });
 

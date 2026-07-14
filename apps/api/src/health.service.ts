@@ -100,13 +100,13 @@ export class HealthService implements OnModuleInit {
     const uptime = Math.round(process.uptime() * 1000); // ms since process started
     const environment = process.env.NODE_ENV || "development";
     
-    // Check database connectivity — use the admin client (bypasses RLS) for
-    // health checks. The app client requires a tenant context via set_tenant_context(),
-    // which is not set during health checks. The admin client verifies the database
-    // connection is alive without depending on RLS configuration.
+    // Check database connectivity — use the app client (RLS-enforced path).
+    // `SELECT 1` does not access any tenant-scoped table, so RLS policies
+    // do not interfere. Using the app client avoids exercising the admin
+    // (superuser) connection for a non-admin purpose.
     let databaseStatus: "connected" | "disconnected";
     try {
-      await this.prisma.admin.$queryRaw`SELECT 1`;
+      await this.prisma.appClient.$queryRaw`SELECT 1`;
       databaseStatus = "connected";
     } catch (error) {
       this.logger.error(

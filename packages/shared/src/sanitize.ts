@@ -193,12 +193,6 @@ export function sanitizeLogMessage(s: string): string {
 }
 
 /**
- * @deprecated Use `sanitizeLogMessage` instead. This alias is kept for backward
- * compatibility and will be removed in a future major version.
- */
-export const sanitizeForLog: typeof sanitizeLogMessage = sanitizeLogMessage;
-
-/**
  * Compose sanitizeLogMessage (log injection prevention) with sanitizeLogOutput
  * (sensitive URL/path redaction). Apply log-injection sanitization FIRST so
  * control characters and ANSI escapes are removed before the URL/path regexes

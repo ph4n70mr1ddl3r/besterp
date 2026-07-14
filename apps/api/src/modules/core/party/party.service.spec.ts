@@ -620,15 +620,10 @@ describe("PartyService", () => {
       };
 
       const mockDb = {
-        $transaction: vi.fn().mockImplementation(async (fn) => {
-          const tx = {
-            party: {
-              count: vi.fn().mockResolvedValue(0),
-              findMany: vi.fn().mockResolvedValue([]),
-            },
-          };
-          return fn(tx);
-        }),
+        party: {
+          count: vi.fn().mockResolvedValue(0),
+          findMany: vi.fn().mockResolvedValue([]),
+        },
       };
 
       mockPrismaService.tenantScoped.mockReturnValue(mockDb);
@@ -649,15 +644,10 @@ describe("PartyService", () => {
       };
 
       const mockDb = {
-        $transaction: vi.fn().mockImplementation(async (fn) => {
-          const tx = {
-            party: {
-              count: vi.fn().mockResolvedValue(1),
-              findMany: vi.fn().mockResolvedValue([]),
-            },
-          };
-          return fn(tx);
-        }),
+        party: {
+          count: vi.fn().mockResolvedValue(1),
+          findMany: vi.fn().mockResolvedValue([]),
+        },
       };
 
       mockPrismaService.tenantScoped.mockReturnValue(mockDb);
@@ -675,25 +665,18 @@ describe("PartyService", () => {
       };
 
       const mockDb = {
-        $transaction: vi.fn().mockImplementation(async (fn) => {
-          const tx = {
-            party: {
-              count: vi.fn().mockResolvedValue(0),
-              findMany: vi.fn().mockResolvedValue([]),
-            },
-          };
-          return fn(tx);
-        }),
+        party: {
+          count: vi.fn().mockResolvedValue(0),
+          findMany: vi.fn().mockResolvedValue([]),
+        },
       };
 
       mockPrismaService.tenantScoped.mockReturnValue(mockDb);
 
       await partyService.searchParties(input);
 
-      // The transaction callback receives the tx — we verify by checking the where clause
-      // was constructed with trimmed value. Since we mock $transaction, we just confirm
-      // it was called and didn't throw.
-      expect(mockDb.$transaction).toHaveBeenCalled();
+      expect(mockDb.party.count).toHaveBeenCalled();
+      expect(mockDb.party.findMany).toHaveBeenCalled();
     });
 
     it("should reject whitespace-only name filter (don't silently widen to all parties)", async () => {
@@ -1021,12 +1004,7 @@ describe("PartyService", () => {
 
     it("should clamp limit to max when over limit", async () => {
       const mockDb = {
-        $transaction: vi.fn().mockImplementation(async (fn) => {
-          const tx = {
-            party: { count: vi.fn().mockResolvedValue(0), findMany: vi.fn().mockResolvedValue([]) },
-          };
-          return fn(tx);
-        }),
+        party: { count: vi.fn().mockResolvedValue(0), findMany: vi.fn().mockResolvedValue([]) },
       };
       mockPrismaService.tenantScoped.mockReturnValue(mockDb);
 
@@ -1040,12 +1018,7 @@ describe("PartyService", () => {
 
     it("should clamp negative offset to 0", async () => {
       const mockDb = {
-        $transaction: vi.fn().mockImplementation(async (fn) => {
-          const tx = {
-            party: { count: vi.fn().mockResolvedValue(0), findMany: vi.fn().mockResolvedValue([]) },
-          };
-          return fn(tx);
-        }),
+        party: { count: vi.fn().mockResolvedValue(0), findMany: vi.fn().mockResolvedValue([]) },
       };
       mockPrismaService.tenantScoped.mockReturnValue(mockDb);
 

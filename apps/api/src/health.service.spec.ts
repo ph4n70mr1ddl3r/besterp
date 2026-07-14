@@ -6,7 +6,7 @@ import { HealthService } from "./health.service.js";
 
 function createMockPrisma(queryResult: any = [{ result: 1 }]) {
   return {
-    admin: {
+    appClient: {
       $queryRaw: vi.fn().mockResolvedValue(queryResult),
     },
     tenantScoped: vi.fn(),
@@ -41,7 +41,7 @@ describe("HealthService", () => {
 
     it("should return error status when database query fails", async () => {
       const mockPrisma = createMockPrisma();
-      mockPrisma.admin.$queryRaw.mockRejectedValue(new Error("Connection refused"));
+      mockPrisma.appClient.$queryRaw.mockRejectedValue(new Error("Connection refused"));
       const service = new HealthService(mockPrisma);
       const result = await service.getHealth();
 

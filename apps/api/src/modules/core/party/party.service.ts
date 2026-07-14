@@ -342,8 +342,8 @@ export class PartyService {
     }
   }
 
-  /** Extract the conflicting field name from a P2002 Prisma error's metadata. */
-  private static resolveConflictField(err: Prisma.PrismaClientKnownRequestError): string {
+  /** Extract the conflicting field name from a Prisma error's metadata. */
+  private static resolveConflictField(err: { meta?: Record<string, unknown> }): string {
     const target = err.meta?.target;
     if (Array.isArray(target) && target.length > 0 && typeof target[0] === "string") {
       return target[0];
@@ -351,8 +351,8 @@ export class PartyService {
     return "this record";
   }
 
-  /** Extract the constraint name from a P2003 Prisma error's metadata. */
-  private static resolveConstraintName(err: Prisma.PrismaClientKnownRequestError): string {
+  /** Extract the constraint name from a Prisma error's metadata. */
+  private static resolveConstraintName(err: { meta?: Record<string, unknown> }): string {
     return (err.meta?.field_name as string | undefined)
       ?? (err.meta?.constraint as string | undefined)
       ?? "unknown";
@@ -365,17 +365,23 @@ export class PartyService {
     suggestTool: string,
     entityName = "record",
   ): never {
-    if (err instanceof Prisma.PrismaClientKnownRequestError) {
-      switch (err.code) {
+    // Use duck-typing instead of `instanceof` to detect Prisma errors.
+    // Tenant-scoped clients are created via Proxy wrapping (rls-extension.ts),
+    // which can break `instanceof` checks for classes that rely on
+    // `[Symbol.hasInstance]`. Checking for the `code` property is sufficient
+    // to identify PrismaClientKnownRequestError instances.
+    if (err && typeof err === "object" && "code" in err && typeof (err as { code: unknown }).code === "string") {
+      const prismaErr = err as { code: string; meta?: Record<string, unknown> };
+      switch (prismaErr.code) {
         case "P2002": {
-          const field = PartyService.resolveConflictField(err);
+          const field = PartyService.resolveConflictField(prismaErr);
           throw new DuplicateEntityError(
             `A ${entityName} with the same ${field} already exists in this tenant.`,
             { suggestedTools: [suggestTool], context: { prismaCode: "P2002", conflictingField: field } }
           );
         }
         case "P2003": {
-          const constraint = PartyService.resolveConstraintName(err);
+          const constraint = PartyService.resolveConstraintName(prismaErr);
           throw new InvalidTypeValueError(
             `Referenced ${entityName} does not exist (constraint: ${constraint}).`,
             { suggestedTools: [suggestTool], context: { prismaCode: "P2003", constraint } }
@@ -391,13 +397,13 @@ export class PartyService {
         case "P2034": {
           throw new ConcurrencyConflictError(
             `Transaction conflict or timeout on ${entityName} — please retry.`,
-            { suggestedTools: [retryTool], context: { prismaCode: err.code } }
+            { suggestedTools: [retryTool], context: { prismaCode: prismaErr.code } }
           );
         }
         case "P2024": {
           throw new ConcurrencyConflictError(
             `Connection pool timeout on ${entityName} — the service is under heavy load.`,
-            { suggestedTools: [retryTool], context: { prismaCode: err.code } }
+            { suggestedTools: [retryTool], context: { prismaCode: prismaErr.code } }
           );
         }
       }
@@ -472,26 +478,25 @@ export class PartyService {
       where.roles = { some: { roleType: { name: { equals: trimmedRoleType, mode: "insensitive" } } } };
     }
 
-    // NOTE: Under PostgreSQL READ COMMITTED, each statement inside the
-    // transaction gets a fresh snapshot, so a concurrent INSERT between
-    // count and findMany can cause `total` and `items.length` to disagree.
-    // This is acceptable for search pagination — the worst case is an
-    // off-by-one in `hasMore`. Using REPEATABLE READ would prevent this
-    // but adds contention overhead that isn't justified for a search endpoint.
+    // Run count and findMany in parallel — both use the same tenant-scoped
+    // client and the same WHERE clause. Under READ COMMITTED, concurrent
+    // INSERTs between count and findMany can cause `total` and `items.length`
+    // to disagree, but this is acceptable for search pagination (worst case:
+    // off-by-one in `hasMore`). Parallelizing removes a needless serialization
+    // and halves the latency of this endpoint.
     let total: number;
     let items: PartyWithIncludes[];
     try {
-      [total, items] = await db.$transaction(async (tx: Prisma.TransactionClient) => {
-        const count = await tx.party.count({ where });
-        const rows = await tx.party.findMany({
+      [total, items] = await Promise.all([
+        db.party.count({ where }),
+        db.party.findMany({
           where,
           include: PartyService.PARTY_INCLUDE,
           take: validatedLimit,
           skip: validatedOffset,
           orderBy: { createdAt: "desc" },
-        });
-        return [count, rows] as const;
-      }, { timeout: TX_TIMEOUT_MS });
+        }),
+      ]);
     } catch (err) {
       PartyService.handleTransactionError(err, "search_parties", "search_parties", "party");
     }
