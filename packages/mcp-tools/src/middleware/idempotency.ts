@@ -296,13 +296,18 @@ function handleExistingRecord(
     }
     // Input matches a previously failed attempt. Under normal operation,
     // acquireIdempotencyRecord resets the record to "pending" (returning
-    // created: true) so this branch is unreachable. The fallback returns
-    // INTERNAL_ERROR to surface the anomaly rather than silently dropping it.
+    // created: true) so this branch is typically unreachable. However, a
+    // narrow race window can cause the acquire to return the stale record
+    // directly (e.g., concurrent cleanup between the findUnique and
+    // update). Rather than returning INTERNAL_ERROR (which forces the
+    // caller to use a new key), allow retry by returning
+    // REQUEST_IN_PROGRESS — the caller can wait and retry, and the next
+    // acquireIdempotencyRecord call will reset the record properly.
     return {
       success: false,
       error: {
-        code: "INTERNAL_ERROR",
-        message: "Unexpected idempotency state: failed record with matching hash was not reset by acquireIdempotencyRecord.",
+        code: "REQUEST_IN_PROGRESS",
+        message: `Idempotency key '${redactKey(idempotencyKey)}' has a failed record that is being reset. Wait and retry.`,
         suggestedTools: [toolName],
       },
     };

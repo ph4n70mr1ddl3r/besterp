@@ -167,7 +167,7 @@ function createTransactionWrapper(prisma: PrismaClient, tenantId: string) {
         } catch (e) {
           const message = e instanceof Error ? e.message : String(e);
           throw new TenantContextFailedError(
-            `Failed to set tenant context: ${message}. Query aborted to prevent cross-tenant data leak.`,
+            `Failed to set tenant context: ${message}. Operation blocked to prevent cross-tenant data leak.`,
             { cause: e instanceof Error ? e : undefined, context: { field: "tenantId" } }
           );
         }
@@ -215,7 +215,7 @@ function createModelDelegateProxy(
           } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
             throw new TenantContextFailedError(
-              `Failed to set tenant context: ${message}. Query aborted to prevent cross-tenant data leak.`,
+              `Failed to set tenant context: ${message}. Operation blocked to prevent cross-tenant data leak.`,
               { cause: err instanceof Error ? err : undefined, context: { field: "tenantId" } }
             );
           }
