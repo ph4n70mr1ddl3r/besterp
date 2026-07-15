@@ -121,6 +121,7 @@ export class PrismaService
         }
       }
       this.logger.log("Database connections established (admin + app)");
+      await this.verifyAppClientRole();
     } catch (error: unknown) {
       // Sanitize before logging: Prisma/driver connection errors frequently
       // embed the datasource URL (credentials + hostname) in their message
@@ -164,6 +165,37 @@ export class PrismaService
         const reason = result.reason instanceof Error ? result.reason.message : String(result.reason);
         this.logger.error(`Error disconnecting ${labels[i]} client: ${sanitizeForLogOutput(reason)}`);
       }
+    }
+  }
+
+  /**
+   * Verify the app client connects as a non-superuser role.
+   * PostgreSQL superusers bypass all RLS policies, which would silently
+   * disable tenant isolation. This catches a common misconfiguration where
+   * DATABASE_URL is set to the admin/superuser connection string.
+   */
+  private async verifyAppClientRole(): Promise<void> {
+    try {
+      const [roleResult] = await this._appClient.$queryRaw<[{ role: string }]>`SELECT current_user AS role`;
+      const role = roleResult.role;
+      if (role === "besterp" || role === "postgres") {
+        const msg =
+          `App client connected as superuser role '${role}' — RLS will be BYPASSSED. ` +
+          `Set DATABASE_URL to the besterp_app role connection string.`;
+        this.logger.error(msg);
+        if (process.env.NODE_ENV === "production") {
+          throw new Error(msg);
+        }
+      } else {
+        this.logger.debug(`App client connected as role '${role}' (RLS enforced)`);
+      }
+    } catch (roleErr) {
+      if (roleErr instanceof Error && roleErr.message.includes("RLS will be BYPASSSED")) {
+        throw roleErr;
+      }
+      this.logger.warn(
+        `Could not verify app client database role: ${sanitizeForLogOutput(roleErr instanceof Error ? roleErr.message : String(roleErr))}`
+      );
     }
   }
 

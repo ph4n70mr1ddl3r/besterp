@@ -166,7 +166,7 @@ export class PartyService {
 
     const party = await this.createPartyTransaction(db, trimmedTenantId, trimmedPartyType, sanitizedName, sanitizedDescription, sanitizedPerson, sanitizedOrg);
 
-    this.logger.log(`Created ${trimmedPartyType} party: ${sanitizeLogMessage(trimmedName)} (${party.partyId})`);
+    this.logger.log(`Created ${trimmedPartyType} party: ${sanitizeLogMessage(sanitizedName)} (${party.partyId})`);
     return PartyService.toPartyResult(party);
   }
 

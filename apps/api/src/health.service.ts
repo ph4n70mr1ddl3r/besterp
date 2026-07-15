@@ -154,7 +154,7 @@ export class HealthService implements OnModuleInit {
       // Suppress filesystem-path errors in production to avoid information
       // disclosure about the container/server layout.
       warning: isProd ? undefined : this.packageInfoError ?? undefined,
-      build: {
+      build: isProd ? undefined : {
         number: process.env.BUILD_NUMBER,
         date: process.env.BUILD_DATE,
       },

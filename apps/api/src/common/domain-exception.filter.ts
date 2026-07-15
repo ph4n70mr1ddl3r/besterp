@@ -53,7 +53,7 @@ function domainErrorToStatus(error: DomainError): number {
  * top-level sanitization and reach the client verbatim.
  */
 function sanitizeContextValue(value: ContextValue): ContextValue {
-  if (typeof value === "string") return sanitizeLogMessage(value);
+  if (typeof value === "string") return sanitizeForLogOutput(value);
   if (Array.isArray(value)) return value.map(sanitizeContextValue);
   if (value !== null && typeof value === "object") {
     const sanitized: Record<string, ContextValue> = {};
