@@ -43,22 +43,27 @@ export class DomainError extends Error {
       message: this.message,
       suggestedTools: this.suggestedTools,
       context: this.context,
-      cause: (() => {
-        try {
-          if (this.cause === undefined || this.cause === null) return this.cause;
-          if (!(this.cause instanceof Error)) return String(this.cause);
-          // Only serialize the immediate cause's message, not its own cause chain,
-          // to prevent leaking internal error chains (e.g., Prisma errors with
-          // SQL/connection details) into audit logs or idempotency records.
-          // NOTE: `stack` is deliberately omitted from the top-level serialization
-          // to prevent leaking internal stack frames (Prisma, database drivers,
-          // Node internals) into audit logs and error responses.
-          return this.cause.message;
-        } catch {
-          return "[Error serializing cause]";
-        }
-      })(),
+      cause: serializeCause(this.cause),
     };
+  }
+}
+
+/**
+ * Serialize a DomainError's cause for JSON output. Extracted from
+ * DomainError.toJSON to avoid allocating an IIFE on every call.
+ *
+ * Only serializes the immediate cause's message — not its own cause chain —
+ * to prevent leaking internal error chains (e.g., Prisma errors with
+ * SQL/connection details) into audit logs or idempotency records.
+ * `stack` is deliberately omitted to prevent leaking internal stack frames.
+ */
+function serializeCause(cause: unknown): unknown {
+  try {
+    if (cause === undefined || cause === null) return cause;
+    if (!(cause instanceof Error)) return String(cause);
+    return cause.message;
+  } catch {
+    return "[Error serializing cause]";
   }
 }
 

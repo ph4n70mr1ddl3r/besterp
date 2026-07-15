@@ -81,6 +81,7 @@ async function executeAndLog(prisma: PrismaClient, backpressure: BackpressureMan
 
 interface BackpressureManager {
   log(entry: AuditLogEntry): void;
+  getStats(): { activeWrites: number; queueLength: number; droppedCount: number; errorCount: number };
 }
 
 function createBackpressureManager(prisma: PrismaClient): BackpressureManager {
@@ -170,6 +171,9 @@ function createBackpressureManager(prisma: PrismaClient): BackpressureManager {
         .finally(() => {
           if (slotAcquired) releaseWriteSlot();
         });
+    },
+    getStats() {
+      return { activeWrites, queueLength: writeQueue.length, droppedCount, errorCount };
     },
   };
 }

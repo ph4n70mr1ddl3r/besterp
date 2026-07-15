@@ -1,5 +1,57 @@
 # BestERP — Security & Architecture Fixes
 
+## Changes Applied (2026-07-15) — Code Review Round 28
+
+### 🔴 `main.ts` — catch-all Express error handler leaks `err.message` in development
+
+**Problem:** The catch-all Express error handler (safety net for errors escaping NestJS exception filters) returned `sanitizeForLogOutput(err.message)` to the client in development mode. While `sanitizeForLogOutput` strips connection strings, paths, and control characters, it was designed for log output, not client responses. Internal error messages from body-parser, middleware, or unhandled throws can contain stack traces, internal hostnames, or implementation details that shouldn't reach the client even in dev.
+
+**Fix:** Always returns a generic `"Internal server error"` message to the client in all environments. The full sanitized error is still logged server-side via `logger.error()` for debugging. This is the same pattern used by the `DomainExceptionFilter` for 500 errors in production.
+
+### 🟡 `domain-exception.filter.ts` — production validation message stripping too aggressive
+
+**Problem:** In production, validation error arrays from `ValidationPipe` had every message stripped to just the field name via `.replace(/ .*$/, "")`. A message like `"name must be shorter than or equal to 500 characters"` became just `"name"` — the client knew which field failed but not why. This hurt API usability with no meaningful security gain, since NestJS validation messages don't contain user-supplied values.
+
+**Fix:** Replaced with targeted regex that only strips user-supplied values: `"received: ..."` suffixes, trailing quoted values, and trailing punctuation. Constraint descriptions (field name + rule) are preserved. Messages with no user values pass through unchanged.
+
+### 🟡 `crypto.ts` — `hashInput` has no input size limit (DoS risk)
+
+**Problem:** `hashInput` had `MAX_HASH_DEPTH` (100) to prevent deep nesting, but no limit on the total number of keys. A flat object with millions of keys would cause `JSON.stringify` to allocate a massive string and the SHA-256 computation to block the event loop.
+
+**Fix:** Added `MAX_HASH_KEYS` (10,000) limit with a recursive `countKeys()` helper. Inputs exceeding the key count are rejected with a clear `InvalidTypeValueError` before serialization.
+
+### 🟢 `tenant.ts` — DRY `setTenantContext` extracted from 3 call sites
+
+**Problem:** The `set_tenant_context()` parameterized call with its DomainError-preserving error handling was copy-pasted in three places: `withTenant()`, `createTransactionWrapper()`, and `createModelDelegateProxy()`. The `tenant.ts` version preserved `DomainError` codes, but the two `rls-extension.ts` versions always wrapped as `TenantContextFailedError`, losing the original error code.
+
+**Fix:** Extracted `setTenantContext(tx, tenantId)` in `tenant.ts` as a shared helper. All three call sites now use it, ensuring consistent DomainError preservation. Exported from `@besterp/shared`.
+
+### 🟢 `tenant.ts` — `withTenant` now supports `isolationLevel` option
+
+**Problem:** `withTenant()` only accepted `{ timeout }` in its options, but `$transaction` also supports `isolationLevel`. The idempotency middleware needed `Serializable` isolation and was forced to call `prisma.$transaction` directly, bypassing the shared utility.
+
+**Fix:** Added `isolationLevel?: Prisma.TransactionIsolationLevel` to the options type.
+
+### 🟢 `errors.ts` — `DomainError.toJSON` allocates an IIFE per call
+
+**Problem:** The `cause` serialization in `toJSON()` used an inline arrow function `(() => { ... })()`, allocating a new function scope on every call. In hot paths with many error serializations, this creates unnecessary GC pressure.
+
+**Fix:** Extracted `serializeCause()` as a named module-level function.
+
+### 🟢 `mcp.module.ts` — pre-trim empty check order was misleading
+
+**Problem:** `validateOptionalField` checked `value.length === 0` before calling `value.trim()`. This only caught truly empty strings, not whitespace-only strings, making the code misleading — the whitespace-only case was actually caught by the subsequent `trimmed.length === 0` check.
+
+**Fix:** Moved the empty-string normalization to after `trim()`, distinguishing truly empty strings (return `undefined`) from whitespace-only strings (throw `InvalidTypeValueError`) in a single branch.
+
+### 🟢 `audit-log.ts` — BackpressureManager exposes `getStats()` for observability
+
+**Problem:** `activeWrites`, `writeQueue.length`, `droppedCount`, and `errorCount` were closure-local with no getter. Operators couldn't monitor backpressure health.
+
+**Fix:** Added `getStats()` method to the `BackpressureManager` interface returning `{ activeWrites, queueLength, droppedCount, errorCount }`.
+
+---
+
 ## Changes Applied (2026-07-14) — Code Review Round 27
 
 ### 🟡 `domain-exception.filter.ts` — `DomainError.message` reflected into HTTP responses unsanitized

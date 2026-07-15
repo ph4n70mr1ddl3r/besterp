@@ -160,12 +160,22 @@ export class DomainExceptionFilter implements ExceptionFilter {
       const safeBody: Record<string, unknown> = { statusCode: status };
       if (typeof res.message === "string") {
         safeBody.message = res.message;
-      } else if (Array.isArray(res.message)) {
-        // ValidationPipe errors carry an array of per-field detail strings.
-        // Strip any embedded values that could leak internal state but
-        // preserve the field names so clients can fix their requests.
+      } else       if (Array.isArray(res.message)) {
+        // ValidationPipe errors carry an array of per-field detail strings
+        // like "field must be shorter than or equal to 500 characters" or
+        // "field must be an enum value". Strip user-supplied values (the
+        // last quoted token or trailing received value) while preserving the
+        // field name and constraint description so clients know which field
+        // failed and why.
         const cleaned: string[] = res.message
-          .map((m) => (typeof m === "string" ? m.replace(/ .*$/, "") : "Validation error"))
+          .map((m) => {
+            if (typeof m !== "string") return "Validation error";
+            return m
+              .replace(/\s*received\s*:\s*"[^"]*"\s*$/i, "")
+              .replace(/\s*"[^"]*"\s*$/, "")
+              .replace(/[.,;:]\s*$/, "")
+              .trim() || m.split(" ")[0] || "Validation error";
+          })
           .filter(Boolean);
         safeBody.message = cleaned.length > 0
           ? cleaned

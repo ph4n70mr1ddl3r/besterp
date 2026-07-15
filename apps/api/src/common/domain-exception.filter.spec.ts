@@ -152,25 +152,33 @@ describe("DomainExceptionFilter", () => {
   });
 
   describe("HttpException handling", () => {
-    it("preserves field names but strips values from array message in production", () => {
+    it("preserves field names and constraint descriptions but strips user values from array message in production", () => {
       process.env.NODE_ENV = "production";
       const ctx = createMockHost();
-      // ValidationPipe shapes message as an array of detail strings.
+      // ValidationPipe shapes message as an array of per-field detail strings.
+      // The filter strips user-supplied values (quoted strings, "received:" suffixes)
+      // while preserving the field name and constraint description.
       const error = new HttpException(
-        { statusCode: 400, error: "Bad Request", message: ["name must be a string", "partyType must be an enum"] },
+        { statusCode: 400, error: "Bad Request", message: [
+          "name must be shorter than or equal to 500 characters",
+          "partyType must be one of the following values: PERSON, ORGANIZATION",
+          "email must be an email. Received: \"not-an-email\"",
+        ] },
         HttpStatus.BAD_REQUEST,
       );
 
       filter.catch(error, ctx.host);
 
       expect(ctx.captured.sentStatus).toBe(400);
-      expect(ctx.captured.body).toMatchObject({
-        statusCode: 400,
-        error: "Bad Request",
-        message: ["name", "partyType"],
-      });
-      // The array is still an array (field names preserved, values stripped).
-      expect(Array.isArray((ctx.captured.body as Record<string, unknown>).message)).toBe(true);
+      const body = ctx.captured.body as Record<string, unknown>;
+      expect(body.error).toBe("Bad Request");
+      const messages = body.message as string[];
+      // Constraint descriptions are preserved (no user values to strip).
+      expect(messages[0]).toBe("name must be shorter than or equal to 500 characters");
+      expect(messages[1]).toBe("partyType must be one of the following values: PERSON, ORGANIZATION");
+      // "Received: ..." suffix is stripped.
+      expect(messages[2]).toBe("email must be an email");
+      expect(Array.isArray(messages)).toBe(true);
     });
 
     it("keeps a string message in production", () => {

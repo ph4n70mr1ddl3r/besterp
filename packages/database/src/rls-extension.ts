@@ -18,7 +18,7 @@
 //   because they cannot receive tenant context. Use interactive transactions.
 
 import type { PrismaClient, Prisma } from "@prisma/client";
-import { validateTenantId, InvalidTypeValueError, isDomainError, TenantContextFailedError } from "@besterp/shared";
+import { validateTenantId, InvalidTypeValueError, isDomainError, setTenantContext } from "@besterp/shared";
 
 /** A PrismaClient-like interface with automatic RLS tenant context injection. */
 export type TenantScopedClient = Omit<PrismaClient, "$connect" | "$disconnect" | "$extends" | "$queryRaw" | "$queryRawTyped" | "$executeRaw" | "$executeRawTyped" | "$queryRawUnsafe" | "$executeRawUnsafe">;
@@ -162,15 +162,7 @@ function createTransactionWrapper(prisma: PrismaClient, tenantId: string) {
 
     if (fn) {
       const wrappedFn = async (tx: Prisma.TransactionClient) => {
-        try {
-          await tx.$executeRaw`SELECT set_tenant_context(${tenantId})`;
-        } catch (e) {
-          const message = e instanceof Error ? e.message : String(e);
-          throw new TenantContextFailedError(
-            `Failed to set tenant context: ${message}. Operation blocked to prevent cross-tenant data leak.`,
-            { cause: e instanceof Error ? e : undefined, context: { field: "tenantId" } }
-          );
-        }
+        await setTenantContext(tx, tenantId);
         return fn(tx);
       };
       return prisma.$transaction(wrappedFn, options);
@@ -210,15 +202,7 @@ function createModelDelegateProxy(
 
       const wrapped = async function (this: unknown, ...args: unknown[]) {
         return prisma.$transaction(async (tx) => {
-          try {
-            await tx.$executeRaw`SELECT set_tenant_context(${tenantId})`;
-          } catch (err) {
-            const message = err instanceof Error ? err.message : String(err);
-            throw new TenantContextFailedError(
-              `Failed to set tenant context: ${message}. Operation blocked to prevent cross-tenant data leak.`,
-              { cause: err instanceof Error ? err : undefined, context: { field: "tenantId" } }
-            );
-          }
+          await setTenantContext(tx, tenantId);
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const txDelegate = (tx as any)[modelName];
           if (!txDelegate) throw new Error(`Model "${modelName}" not found on transaction client`);

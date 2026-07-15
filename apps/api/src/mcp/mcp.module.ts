@@ -206,15 +206,19 @@ function validateOptionalField(
       { context: { field: fieldName, receivedType: typeof value } }
     );
   }
-  if (value.length === 0) {
-    return undefined;
-  }
   const trimmed = value.trim();
   if (trimmed.length === 0) {
-    throw new InvalidTypeValueError(
-      `McpModule.buildContext: ${fieldName} cannot be whitespace-only.`,
-      { context: { field: fieldName } }
-    );
+    // Empty string (or whitespace-only) → normalise to undefined for
+    // consistency. Distinguish truly empty from whitespace-only so callers
+    // can reject intentional padding (e.g. "   ") while accepting omitted
+    // values (e.g. "").
+    if (value.length > 0) {
+      throw new InvalidTypeValueError(
+        `McpModule.buildContext: ${fieldName} cannot be whitespace-only.`,
+        { context: { field: fieldName } }
+      );
+    }
+    return undefined;
   }
   if (trimmed.length > maxLength) {
     throw new InvalidTypeValueError(

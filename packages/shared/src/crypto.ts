@@ -126,6 +126,9 @@ function sortObject(value: object, ancestors: Set<object>, depth: number): unkno
 /** Maximum recursion depth to prevent stack overflow on deeply nested inputs. */
 const MAX_HASH_DEPTH = 100;
 
+/** Maximum number of keys in the canonical form to prevent DoS via wide/shallow objects. */
+const MAX_HASH_KEYS = 10_000;
+
 function sortKeysDeep(value: unknown, ancestors?: Set<object>, depth = 0): unknown {
   if (depth > MAX_HASH_DEPTH) {
     throw new InvalidTypeValueError(
@@ -161,9 +164,38 @@ function sortKeysDeep(value: unknown, ancestors?: Set<object>, depth = 0): unkno
  * Handles problematic types like BigInt, Symbol, undefined values,
  * Maps, and Sets.
  */
+function countKeys(value: unknown): number {
+  if (value === null || value === undefined || typeof value !== "object") return 0;
+  if (Array.isArray(value)) {
+    let count = value.length;
+    for (const item of value) count += countKeys(item);
+    return count;
+  }
+  if (value instanceof Map) {
+    let count = value.size;
+    for (const v of value.values()) count += countKeys(v);
+    return count;
+  }
+  if (value instanceof Set) {
+    let count = value.size;
+    for (const v of value) count += countKeys(v);
+    return count;
+  }
+  const entries = Object.entries(value as Record<string, unknown>);
+  let count = entries.length;
+  for (const [, v] of entries) count += countKeys(v);
+  return count;
+}
+
 export function hashInput(input: unknown): string {
   try {
     const canonical = sortKeysDeep(input);
+    const keyCount = countKeys(canonical);
+    if (keyCount > MAX_HASH_KEYS) {
+      throw new InvalidTypeValueError(
+        `Input has too many keys (${keyCount}, max ${MAX_HASH_KEYS}). Refusing to hash to prevent DoS.`
+      );
+    }
     const serialized = JSON.stringify(canonical);
     return crypto
       .createHash("sha256")

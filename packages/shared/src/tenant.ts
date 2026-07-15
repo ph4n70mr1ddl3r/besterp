@@ -48,6 +48,33 @@ export function validateTenantId(tenantId: string): void {
   }
 }
 
+/**
+ * Set the tenant context on a Prisma transaction client via the
+ * `set_tenant_context()` PostgreSQL function.
+ *
+ * Used by both `withTenant` and the RLS extension to avoid duplicating the
+ * parameterized call + error handling. Preserves DomainError as-is (e.g.,
+ * INVALID_TENANT_ID) and wraps non-DomainError failures with
+ * TENANT_CONTEXT_FAILED.
+ *
+ * @param tx       - Prisma transaction client
+ * @param tenantId - validated tenant ID
+ */
+export async function setTenantContext(
+  tx: { $executeRaw: PrismaClient["$executeRaw"] },
+  tenantId: string,
+): Promise<void> {
+  try {
+    await tx.$executeRaw`SELECT set_tenant_context(${tenantId})`;
+  } catch (e) {
+    if (isDomainError(e)) throw e;
+    throw new TenantContextFailedError(
+      "Failed to set tenant context. Ensure the set_tenant_context() function exists and the database role has correct permissions.",
+      { cause: e instanceof Error ? e : new Error(String(e)) }
+    );
+  }
+}
+
 /** Default transaction timeout in milliseconds (30 seconds). */
 const DEFAULT_TRANSACTION_TIMEOUT_MS = 30_000;
 
@@ -79,7 +106,7 @@ export async function withTenant<T>(
   prisma: PrismaClient,
   tenantId: string,
   fn: (tx: PrismaTransactionClient) => Promise<T>,
-  options?: { timeout?: number }
+  options?: { timeout?: number; isolationLevel?: Prisma.TransactionIsolationLevel }
 ): Promise<T> {
   if (!prisma || typeof prisma.$transaction !== "function") {
     throw new Error(
@@ -93,21 +120,10 @@ export async function withTenant<T>(
   }
   validateTenantId(tenantId);
   return prisma.$transaction(async (tx) => {
-    // Parameterized query via tagged template — tenant ID is sent as $1,
-    // not interpolated into the SQL string. No string-concat injection risk.
-    try {
-      await tx.$executeRaw`SELECT set_tenant_context(${tenantId})`;
-    } catch (e) {
-      // Re-throw DomainError as-is to preserve its specific code (e.g.
-      // INVALID_TENANT_ID from validateTenantId). Only wrap non-DomainError
-      // failures (e.g. Postgres function missing, permission denied) with
-      // the TENANT_CONTEXT_FAILED code.
-      if (isDomainError(e)) throw e;
-      throw new TenantContextFailedError(
-        "Failed to set tenant context. Ensure the set_tenant_context() function exists and the database role has correct permissions.",
-        { cause: e instanceof Error ? e : new Error(String(e)) }
-      );
-    }
+    await setTenantContext(tx, tenantId);
     return fn(tx);
-  }, { timeout: options?.timeout ?? DEFAULT_TRANSACTION_TIMEOUT_MS });
+  }, {
+    timeout: options?.timeout ?? DEFAULT_TRANSACTION_TIMEOUT_MS,
+    ...(options?.isolationLevel ? { isolationLevel: options.isolationLevel } : {}),
+  });
 }

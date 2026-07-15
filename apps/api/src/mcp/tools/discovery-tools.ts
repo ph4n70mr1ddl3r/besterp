@@ -71,10 +71,11 @@ async function queryTypeTable(
   delegateKey: string,
   idField: string,
 ): Promise<TypeTableRow[]> {
-  // PrismaClient exposes model delegates as dynamic properties.
-  // We access via bracket notation and validate the shape at runtime.
-  const delegateMap = prisma as unknown as Record<string, unknown>;
-  const raw = delegateMap[delegateKey];
+  // Access Prisma model delegates via dynamic property access. The Zod
+  // inputSchema on the tool already restricts typeName to known values
+  // (compile-time safety), and the runtime check below catches any
+  // misspelled or missing delegate.
+  const raw = (prisma as unknown as Record<string, unknown>)[delegateKey];
   if (!raw || typeof raw !== "object" || typeof (raw as Record<string, unknown>).findMany !== "function") {
     throw new InvalidTypeValueError(
       `Prisma delegate '${delegateKey}' not found. Ensure the model exists in the schema.`,

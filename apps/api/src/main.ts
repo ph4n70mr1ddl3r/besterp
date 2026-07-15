@@ -262,17 +262,18 @@ async function bootstrap() {
   });
 
   // Catch-all Express error handler — safety net for synchronous throws from
-  // Express middleware that escape NestJS's exception filters. Returns a
-  // sanitized 500 so internal details are never leaked to the client.
+  // Express middleware that escape NestJS's exception filters. Always returns
+  // a generic 500 so internal details (stack traces, DB connection strings,
+  // middleware internals) are never leaked to the client, even in development.
+  // The full sanitized error is logged server-side for debugging.
   // CORS headers are set mirroring the existing CORS middleware so the error
   // body is visible to cross-origin clients regardless of environment.
   app.use((err: Error, req: Request, res: Response, _next: NextFunction) => {
     logger.error(`Unhandled Express middleware error: ${sanitizeForLogOutput(err.message)}`);
     setCorsHeaders(res, req.headers.origin);
-    const isDev = process.env.NODE_ENV === "development";
     res.status(500).json({
       statusCode: 500,
-      message: isDev ? sanitizeForLogOutput(err.message) : "Internal server error",
+      message: "Internal server error",
     });
   });
 
