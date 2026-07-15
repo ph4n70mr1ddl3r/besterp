@@ -246,11 +246,19 @@ describe("Party MCP Tools", () => {
       );
     });
 
-    it("should reject whitespace-only name", async () => {
+    it("should normalize whitespace-only name to no filter", async () => {
+      // Whitespace-only input is normalized to undefined (no filter) by
+      // optionalFilteredString's transform. The service layer's
+      // requireNonEmptyFilter rejects explicit whitespace-only strings,
+      // but at the MCP schema layer, "   " → undefined is the correct
+      // normalization (same as not providing the filter at all).
+      mockPartyService.searchParties.mockResolvedValueOnce({ items: [], total: 0, limit: 50, offset: 0, hasMore: false });
       const result = await registry.execute("search_parties", { name: "   " }, createContext({ partyService: mockPartyService }));
 
-      expect(result.success).toBe(false);
-      expect(result.error?.code).toBe("INVALID_INPUT");
+      expect(result.success).toBe(true);
+      expect(mockPartyService.searchParties).toHaveBeenCalledWith(
+        expect.not.objectContaining({ name: expect.anything() })
+      );
     });
 
     it("should reject limit below minimum", async () => {

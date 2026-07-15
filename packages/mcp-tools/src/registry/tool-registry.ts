@@ -17,6 +17,13 @@ import { MAX_IDEMPOTENCY_KEY_LENGTH } from "@besterp/shared";
 
 const VALID_RISK_LEVELS: readonly RiskLevel[] = ["none", "low", "medium", "high", "critical"];
 
+/**
+ * Regex for safe idempotency keys — printable ASCII only (0x21–0x7E).
+ * Mirrors the pattern in idempotency.ts to reject control characters,
+ * newlines, and non-ASCII bytes at the earliest possible point.
+ */
+const SAFE_IDEMPOTENCY_KEY = /^[!-~]+$/;
+
 export class ToolRegistry {
   private readonly tools = new Map<string, RegistryEntry>();
   private readonly globalMiddlewares: ToolMiddleware[] = [];
@@ -147,7 +154,7 @@ export class ToolRegistry {
       ? rawInput as Record<string, unknown>
       : null;
     const effectiveContext: ToolContext =
-      raw?.idempotencyKey && typeof raw.idempotencyKey === "string" && raw.idempotencyKey.length <= MAX_IDEMPOTENCY_KEY_LENGTH && !context.idempotencyKey
+      raw?.idempotencyKey && typeof raw.idempotencyKey === "string" && raw.idempotencyKey.length <= MAX_IDEMPOTENCY_KEY_LENGTH && SAFE_IDEMPOTENCY_KEY.test(raw.idempotencyKey) && !context.idempotencyKey
         ? { ...context, idempotencyKey: raw.idempotencyKey }
         : context;
 

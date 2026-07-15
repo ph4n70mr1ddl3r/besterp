@@ -21,6 +21,14 @@ import { ToolMiddleware, ToolResult, ToolContext } from "../schema/tool-definiti
 import { truncateValue, MAX_STORED_PAYLOAD_SIZE, capString } from "./truncate.js";
 
 /**
+ * Regex for safe idempotency keys — printable ASCII only (0x21–0x7E).
+ * Rejects control characters, newlines, tabs, and non-ASCII bytes that
+ * could corrupt log output or database storage. Mirrors the
+ * `SAFE_REQUEST_ID` pattern in request-id.ts for consistency.
+ */
+const SAFE_IDEMPOTENCY_KEY = /^[!-~]+$/;
+
+/**
  * Threshold after which a "pending" idempotency record is considered stale.
  * If the server crashes after creating a pending record but before completing
  * it, the record blocks retries for 24h. A 60-second threshold allows
@@ -44,6 +52,15 @@ export function idempotencyMiddleware(prisma: PrismaClient): ToolMiddleware {
     const { idempotencyKey, tenantId, userId, agentId, conversationId } = context;
 
     if (!idempotencyKey || typeof idempotencyKey !== "string" || idempotencyKey.length > MAX_IDEMPOTENCY_KEY_LENGTH) {
+      return next(input, context);
+    }
+
+    // Defense-in-depth: reject keys containing control characters, newlines,
+    // or non-ASCII bytes. Such keys could corrupt log output (log injection)
+    // or database storage. Keys are typically UUIDs, ULIDs, or hashes — all
+    // printable-ASCII tokens. A key that fails this check is almost certainly
+    // a bug in the caller, not a legitimate idempotency attempt.
+    if (!SAFE_IDEMPOTENCY_KEY.test(idempotencyKey)) {
       return next(input, context);
     }
 

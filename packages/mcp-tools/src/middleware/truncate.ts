@@ -127,31 +127,34 @@ function checkOversized(encoded: Uint8Array, effectiveMax: number): { _truncated
  * Check whether a value should be handled as a terminal primitive
  * (string, number, boolean, bigint, symbol, function, Date, null, undefined).
  * Returns the normalised form or undefined if the value is a non-primitive object.
+ *
+ * For strings, encodes directly via TextEncoder to avoid the intermediate
+ * JSON.stringify round-trip (strings are JSON-safe by definition, so the
+ * double encoding is pure waste). For other JSON-safe primitives (number,
+ * boolean), the round-trip is kept because it canonicalises edge cases
+ * (e.g. `NaN` → `"null"`, `Infinity` → `"null"`) and gives the correct
+ * UTF-8 byte length for the size check.
  */
 function normalisePrimitive(value: unknown, effectiveMax: number): { normalised: unknown; marker: ReturnType<typeof checkOversized> } | undefined {
   if (value === null) return { normalised: null, marker: null };
   if (value === undefined) return { normalised: undefined, marker: null };
-  if (typeof value === "string" || typeof value === "boolean") {
-    const serialised = JSON.stringify(value);
-    const encoded = textEncoder.encode(serialised);
-    return { normalised: value, marker: checkOversized(encoded, effectiveMax) };
+  if (typeof value === "string") {
+    // Strings are JSON-safe — encode directly to check byte length without
+    // the intermediate JSON.stringify("string") → "\"string\"" expansion.
+    return { normalised: value, marker: checkOversized(textEncoder.encode(value), effectiveMax) };
   }
-  if (typeof value === "number") {
+  if (typeof value === "boolean" || typeof value === "number") {
     const serialised = JSON.stringify(value);
-    const encoded = textEncoder.encode(serialised);
-    return { normalised: value, marker: checkOversized(encoded, effectiveMax) };
+    return { normalised: value, marker: checkOversized(textEncoder.encode(serialised), effectiveMax) };
   }
   if (typeof value === "bigint") {
-    const str = value.toString();
-    const encoded = textEncoder.encode(str);
-    return { normalised: str, marker: checkOversized(encoded, effectiveMax) };
+    return { normalised: value.toString(), marker: checkOversized(textEncoder.encode(value.toString()), effectiveMax) };
   }
   if (typeof value === "symbol") return { normalised: { _error: "Cannot serialize Symbol value" }, marker: null };
   if (typeof value === "function") return { normalised: { _error: "Cannot serialize Function value" }, marker: null };
   if (value instanceof Date) {
     const iso = value.toISOString();
-    const encoded = textEncoder.encode(JSON.stringify(iso));
-    return { normalised: iso, marker: checkOversized(encoded, effectiveMax) };
+    return { normalised: iso, marker: checkOversized(textEncoder.encode(JSON.stringify(iso)), effectiveMax) };
   }
   return undefined;
 }

@@ -51,14 +51,27 @@ function domainErrorToStatus(error: DomainError): number {
  * the full value tree rather than only the top level — a value reflected
  * under a nested key (e.g. context.input.field) would otherwise bypass the
  * top-level sanitization and reach the client verbatim.
+ *
+ * Includes circular reference protection via a WeakSet — mirrors the
+ * error-handler middleware's `sanitizeContextValue` to prevent stack
+ * overflow on pathological DomainError.context objects.
  */
-function sanitizeContextValue(value: ContextValue): ContextValue {
+function sanitizeContextValue(value: ContextValue, seen?: WeakSet<object>): ContextValue {
   if (typeof value === "string") return sanitizeForLogOutput(value);
-  if (Array.isArray(value)) return value.map(sanitizeContextValue);
+  if (Array.isArray(value)) {
+    // Arrays are reference types — track them to detect cycles.
+    const s = seen ?? new WeakSet();
+    if (s.has(value as object)) return "[Circular]" as unknown as ContextValue;
+    s.add(value as object);
+    return value.map((v) => sanitizeContextValue(v, s));
+  }
   if (value !== null && typeof value === "object") {
+    const s = seen ?? new WeakSet();
+    if (s.has(value as object)) return "[Circular]" as unknown as ContextValue;
+    s.add(value as object);
     const sanitized: Record<string, ContextValue> = {};
     for (const [key, child] of Object.entries(value)) {
-      sanitized[key] = sanitizeContextValue(child);
+      sanitized[key] = sanitizeContextValue(child, s);
     }
     return sanitized;
   }
@@ -72,9 +85,10 @@ function sanitizeContextValue(value: ContextValue): ContextValue {
  * tool or API client.
  */
 function sanitizeContext(context: Record<string, ContextValue>): Record<string, ContextValue> {
+  const seen = new WeakSet<object>();
   const sanitized: Record<string, ContextValue> = {};
   for (const [key, value] of Object.entries(context)) {
-    sanitized[key] = sanitizeContextValue(value);
+    sanitized[key] = sanitizeContextValue(value, seen);
   }
   return sanitized;
 }

@@ -66,9 +66,10 @@ describe("truncateValue", () => {
   });
 
   it("preview avoids splitting a multibyte char at the 1 KB boundary", () => {
-    // truncateValue JSON-serializes strings, so the bytes are '"' + body + '"'.
-    // quote(1) + 1022 'a' = 1023 bytes, then '🌍' (4 bytes) occupies bytes
-    // 1023–1026 — byte 1024 is its 2nd (continuation) byte. A naive slice
+    // truncateValue encodes strings directly via TextEncoder (no JSON.stringify
+    // wrapper), so the bytes are the raw UTF-8 of the string value.
+    // 1022 'a' = 1022 bytes, then '🌍' (4 bytes) occupies bytes
+    // 1022–1025 — byte 1024 is its 2nd (continuation) byte. A naive slice
     // at the 1 KB preview cap would decode a trailing U+FFFD; the safe
     // slice must back up past the lead byte so the whole code point is
     // excluded. (Deterministic: without the fix this preview contains U+FFFD.)
@@ -78,24 +79,24 @@ describe("truncateValue", () => {
     expect(result._truncated).toBe(true);
     expect(result._preview).not.toContain("\uFFFD");
     // The emoji straddled the boundary and was excluded whole; the preview
-    // ends inside the ASCII head (after the leading JSON quote).
+    // ends inside the ASCII head.
     expect(result._preview.includes("🌍")).toBe(false);
     expect(result._preview.endsWith("a")).toBe(true);
   });
 
   it("preview of a multibyte-heavy payload stays whole-character aligned", () => {
     // CJK chars are 3 UTF-8 bytes each. With a 100-char ASCII head, the
-    // serialized bytes are '"' + 100 ascii, so byte 1024 lands mid-CJK
+    // encoded bytes are 100 ASCII, so byte 1024 lands mid-CJK
     // (a continuation byte). The preview must retain only complete chars.
     const head = "a".repeat(100);
     const value = head + "日".repeat(50_000); // ~150 KB — far over the cap
     const result = truncateValue(value) as { _truncated: boolean; _preview: string };
     expect(result._truncated).toBe(true);
     expect(result._preview).not.toContain("\uFFFD");
-    // The ASCII head (after the leading JSON quote) is retained intact,
-    // proving the boundary handling didn't corrupt earlier content.
-    expect(result._preview.charAt(0)).toBe('"');
-    expect(result._preview.slice(1, 101)).toBe("a".repeat(100));
+    // The ASCII head is retained intact, proving the boundary handling
+    // didn't corrupt earlier content.
+    expect(result._preview.charAt(0)).toBe("a");
+    expect(result._preview.slice(0, 100)).toBe("a".repeat(100));
   });
 });
 
