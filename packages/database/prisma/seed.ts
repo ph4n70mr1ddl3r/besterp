@@ -23,21 +23,27 @@ const prisma = new PrismaClient({
 });
 
 async function main() {
-  // Refuse to run in production. Seed is for local/dev/staging only.
-  // The seed is mostly idempotent (uses upsert), but it also inserts
-  // hard-coded tenant records (tenant-acme, tenant-globex) that should
-  // never appear in a real production environment. An accidental
-  // `npm run seed` against prod would silently pollute the database.
+  // Refuse to run in production or staging. Seed is for local/dev only and
+  // inserts hard-coded test tenants (tenant-acme, tenant-globex) that must
+  // never appear in a real environment.
+  //
+  // The NODE_ENV check alone is bypassable: an operator pointing
+  // DATABASE_ADMIN_URL at a production database while leaving NODE_ENV unset
+  // or set to "development" (a common container-env reuse mistake) would
+  // silently seed test tenants into prod. So seeding additionally requires an
+  // explicit opt-in via ALLOW_SEED=1 — there is no safe default that permits
+  // the destructive insert without a deliberate signal.
   if (process.env.NODE_ENV === "production" || process.env.NODE_ENV === "staging") {
     throw new Error(
       "Refusing to seed in NODE_ENV=" + process.env.NODE_ENV + ". " +
       "Set NODE_ENV to something other than 'production' or 'staging' to run the seed."
     );
   }
-  if (!process.env.NODE_ENV) {
+  if (!process.env.ALLOW_SEED || process.env.ALLOW_SEED !== "1") {
     throw new Error(
-      "NODE_ENV is not set. Refusing to seed to prevent accidental data loss. " +
-      "Set NODE_ENV=development explicitly."
+      "Refusing to seed: ALLOW_SEED is not set to '1'. " +
+      "Seeding inserts hard-coded test tenants and must be explicitly enabled. " +
+      "Run with ALLOW_SEED=1 to seed local/dev databases only."
     );
   }
 

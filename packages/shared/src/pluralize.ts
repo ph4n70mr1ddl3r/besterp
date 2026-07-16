@@ -30,7 +30,13 @@ const IRREGULAR_PLURALS: Record<string, string> = {
 
 function preserveCasing(input: string, plural: string): string {
   if (input.length === 0) return plural;
-  if (input === input.toUpperCase()) return plural.toUpperCase();
+  // All-caps input (e.g. "PARTY") → all-caps plural. A single-character input
+  // is excluded from this branch: "Y".toUpperCase() === "Y", so a lone
+  // uppercase letter would otherwise be forced to all-caps and lose its
+  // Title-case leading capital (e.g. "Y" → "IES" instead of "Yies"). The
+  // single-character case falls through to the leading-capital rule below.
+  if (input.length > 1 && input === input.toUpperCase()) return plural.toUpperCase();
+  // First-letter-capitalized input (e.g. "Party", "Y") → Title-case plural.
   const first = input.charAt(0);
   if (first !== first.toLowerCase() && first === first.toUpperCase()) {
     return plural.charAt(0).toUpperCase() + plural.slice(1);

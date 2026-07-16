@@ -70,7 +70,7 @@ export class HealthController {
       if (result === "timeout") {
         // Prevent unhandled rejection from the in-flight health check.
         void healthPromise.catch((err) => {
-          this.logger.debug(`Health check query failed after timeout: ${err instanceof Error ? err.message : err}`);
+          this.logger.debug(`Health check query failed after timeout: ${sanitizeForLogOutput(err instanceof Error ? err.message : String(err))}`);
         });
         throw new ServiceUnavailableException("health check timed out");
       }

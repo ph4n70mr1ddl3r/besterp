@@ -1,5 +1,37 @@
 # BestERP — Security & Architecture Fixes
 
+## Changes Applied (2026-07-16) — Code Review Round 33
+
+### 🟡 `seed.ts` — seed guard bypassable by non-prod `NODE_ENV` pointing at prod DB
+
+**Problem:** The seed refused `production`/`staging` only. An operator whose `DATABASE_ADMIN_URL` points at a production database while leaving `NODE_ENV` unset or set to `development` (a common container-env reuse mistake) would silently insert the hard-coded `tenant-acme` / `tenant-globex` test tenants into prod. The file's own comment acknowledged this exact risk.
+
+**Fix:** Seeding now requires an explicit opt-in (`ALLOW_SEED=1`) in addition to the `NODE_ENV` refusal. There is no safe default that permits the destructive insert without a deliberate signal. Added the guard before any DB write.
+
+### 🟢 `health.controller.ts` — unsanitized `debug` log (log-injection inconsistency)
+
+**Problem:** The readiness race handler interpolated the raw DB error `message` into a `logger.debug` call, inconsistent with the rest of the codebase which wraps infra-derived messages in `sanitizeForLogOutput(...)`.
+
+**Fix:** Wrapped the message in `sanitizeForLogOutput(...)` so a crafted/compromised driver error cannot inject ANSI escapes or CRLF into logs.
+
+### 🟢 `cleanup-expired-idempotency.ts` — destructive prod script lacked opt-in
+
+**Problem:** The cron script runs as superuser (bypasses RLS) and deletes rows. A misconfigured `DATABASE_ADMIN_URL` pointing at prod could wipe expired idempotency records unattended.
+
+**Fix:** Normalized `NODE_ENV` and refuse to run in `production` unless `ALLOW_CLEANUP_PRODUCTION=1` is explicitly set.
+
+### 🟢 `pluralize.ts` — single-letter input force-uppercased (cosmetic casing bug)
+
+**Problem:** `preserveCasing` checked the all-caps branch first, so a single uppercase letter like `"Y"` produced an all-caps plural (`"IES"`) instead of preserving the single leading capital. Cosmetic — affects MCP error messages / suggested tool names only.
+
+**Fix:** Excluded length-1 inputs from the all-caps branch so they fall through to the leading-capital rule. Added a regression test in `pluralize.test.ts`.
+
+### 🟢 `spike-rls.ts` — hardcoded-looking DB credential in a committed spike
+
+**Problem:** The dev spike embedded a real-looking connection string (`besterp_app:besterp_app_dev@localhost:5434`). It is excluded from the published build and only runs via `npm run spike:rls`, but it trips secret scanners.
+
+**Fix:** Replaced with a `<user>:<pass>@<host>:<port>` placeholder.
+
 ## Changes Applied (2026-07-16) — Code Review Round 31
 
 ### 🟡 `party.service.ts` — duplicate email/phone check not scoped to the party (false negative)

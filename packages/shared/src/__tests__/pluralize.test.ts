@@ -85,6 +85,15 @@ describe("pluralize", () => {
     expect(pluralize("child")).toBe("children");
   });
 
+  it("preserves casing for single-letter input", () => {
+    // Single uppercase letter must NOT be force-uppercased to all-caps.
+    // "Y" is a consonant-y ending → "ies" suffix; the fix ensures it is not
+    // expanded to "IES" (the previous all-caps branch behaviour). A lowercase
+    // single letter remains unchanged in case.
+    expect(pluralize("Y")).toBe("Ies");
+    expect(pluralize("y")).toBe("ies");
+  });
+
   it("handles non-letter first characters in preserveCasing", () => {
     // Non-letter characters like digits should not be treated as uppercase
     expect(pluralize("1st")).toBe("1sts");

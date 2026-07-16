@@ -2,14 +2,71 @@
 
 ## Scope
 Fresh full review of the BestERP monorepo (`packages/shared`, `packages/mcp-tools`,
-`packages/database`, `apps/api`) conducted on 2026-07-16. This is review round 32;
-rounds 1–31 are documented in earlier revisions of this file and `CHANGES.md`.
+`packages/database`, `apps/api`) conducted on 2026-07-16. This is review round 33;
+rounds 1–32 are documented in earlier revisions of this file and `CHANGES.md`.
 
 ## Baseline (before this round)
 - `npm run typecheck` — clean across all workspaces
 - `npm run lint` — 0 errors, 0 warnings
-- `npm run test` — all passing: shared 137, mcp-tools 119, database 25 (10 RLS isolation
+- `npm run test` — all passing: shared 138, mcp-tools 119, database 25 (10 RLS isolation
   tests skipped without a live DB), api 305
+
+## Findings & Actions (round 33)
+
+### Fixed this round
+
+1. **🟡 `seed.ts:31` — seed guard bypassable by any non-`production`/`staging` `NODE_ENV`.**
+   The guard refused `production`/`staging` only. An operator pointing `DATABASE_ADMIN_URL`
+   at a production database while leaving `NODE_ENV` unset (or `development`, a common
+   container-env reuse mistake) would silently insert the hard-coded `tenant-acme` /
+   `tenant-globex` test tenants into prod. Seeding now additionally requires an explicit
+   opt-in: `ALLOW_SEED=1`. There is no safe default that permits the destructive insert
+   without a deliberate signal. The `NODE_ENV` refusal is retained as a backstop.
+
+2. **🟢 `health.controller.ts:73` — unsanitized `debug` log (log-injection
+   inconsistency).** The readiness race handler interpolated the raw DB error `message`
+   directly into a `logger.debug` call, inconsistent with every other error log in the
+   codebase which wraps infra-derived messages in `sanitizeForLogOutput(...)` /
+   `sanitizeLogMessage(...)`. Wrapped the message so a crafted/compromised driver error
+   cannot inject ANSI escapes or CRLF into logs. `sanitizeForLogOutput` was already imported.
+
+3. **🟢 `cleanup-expired-idempotency.ts` — destructive prod script lacks an opt-in.**
+   The cron script runs as superuser (bypasses RLS) and deletes rows. A misconfigured
+   `DATABASE_ADMIN_URL` pointing at prod could wipe expired idempotency records
+   unattended. Normalized `NODE_ENV` and refuse to run in `production` unless
+   `ALLOW_CLEANUP_PRODUCTION=1` is set explicitly.
+
+4. **🟢 `pluralize.ts:33` — single-letter input force-uppercased (cosmetic casing bug).**
+   `preserveCasing` checked the all-caps branch (`input === input.toUpperCase()`) first, so
+   a single uppercase letter like `"Y"` returned an all-caps plural (`"IES"`) instead of
+   preserving the single leading capital. Excluded length-1 inputs from the all-caps branch
+   so they fall through to the leading-capital rule. (Cosmetic — affects MCP error messages
+   / suggested tool names only.) Added a regression test.
+
+5. **🟢 `spike-rls.ts:11` — hardcoded-looking DB credential in a committed spike.**
+   The dev spike embedded a real-looking connection string
+   (`besterp_app:besterp_app_dev@localhost:5434`). It is excluded from the published build
+   (`tsconfig` `include: ["src"]`) and only runs via `npm run spike:rls`, but it trips
+   secret scanners. Replaced with a `<user>:<pass>@<host>:<port>` placeholder.
+
+### Verified clean (no action needed)
+- **`discovery-tools.ts`** — `get_type_table_values` restricts `typeName` to a `z.enum`
+  compile-time allowlist and validates the resolved delegate at runtime; type tables are
+  intentionally global (admin client, RLS bypass) shared vocabulary. No injection surface.
+- **`party.dto.ts` / `party.controller.ts`** — `tenantId` is taken solely from the
+  JWT-derived `req.tenantContext` and spread after the body (so client-supplied `tenantId`
+  is discarded); the handler/service never trusts a request body tenant. `forbidNonWhitelisted`
+  is on. No tenant-isolation leak.
+- **`auth.module.ts` / `jwt-auth.guard.ts` / `tenant.guard.ts`** — global guards registered
+  in the correct order; both honor `@Public()` via Reflector; `TenantGuard` defensively
+  re-validates/trims `tenantId`/`userId`. No authz gaps.
+- **`mcp.module.ts`** — `buildContext` validates `tenantId` format, type- and length-checks
+  `userId` and all optional fields. Consistent with the hardened boundary pattern.
+- **`queue.module.ts`** — Redis password required in non-dev, port validated 1–65535, retry
+  capped. No issues.
+- **`seed.ts` / `cleanup-expired-idempotency.ts`** — SQL uses Prisma parameterized operations
+  and tagged-template `pg_try_advisory_lock`; batching + composite-key delete are precise.
+- **`shared/index.ts`, `mcp-tools/index.ts`, `database/index.ts`** — barrel exports only.
 
 ## Findings & Actions (round 32)
 

@@ -15,6 +15,25 @@ if (!process.env.DATABASE_ADMIN_URL) {
   process.exit(1);
 }
 
+// Normalize NODE_ENV early (case-insensitive) so "Production"/"PRODUCTION"
+// cannot bypass the guard below. This script runs as a standalone process
+// that does NOT go through main.ts's normalizeEnvironment().
+if (process.env.NODE_ENV) {
+  process.env.NODE_ENV = process.env.NODE_ENV.toLowerCase();
+}
+
+// Destructive admin operation that bypasses RLS. Refuse to run against
+// production unless explicitly opted in via ALLOW_CLEANUP_PRODUCTION=1 — a
+// cron misconfiguration pointing DATABASE_ADMIN_URL at prod must not wipe
+// expired idempotency records unattended.
+if (process.env.NODE_ENV === "production" && process.env.ALLOW_CLEANUP_PRODUCTION !== "1") {
+  console.error(
+    "Refusing to run idempotency cleanup in production without opt-in. " +
+    "Set ALLOW_CLEANUP_PRODUCTION=1 to run against a production database."
+  );
+  process.exit(1);
+}
+
 const prisma = new PrismaClient({
   datasourceUrl: process.env.DATABASE_ADMIN_URL,
 });
