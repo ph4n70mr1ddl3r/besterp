@@ -180,7 +180,7 @@ export class PrismaService
       const role = roleResult.role;
       if (role === "besterp" || role === "postgres") {
         const msg =
-          `App client connected as superuser role '${role}' — RLS will be BYPASSSED. ` +
+          `App client connected as superuser role '${role}' — RLS will be BYPASSED. ` +
           `Set DATABASE_URL to the besterp_app role connection string.`;
         this.logger.error(msg);
         if (process.env.NODE_ENV === "production") {
@@ -190,7 +190,7 @@ export class PrismaService
         this.logger.debug(`App client connected as role '${role}' (RLS enforced)`);
       }
     } catch (roleErr) {
-      if (roleErr instanceof Error && roleErr.message.includes("RLS will be BYPASSSED")) {
+      if (roleErr instanceof Error && roleErr.message.includes("RLS will be BYPASSED")) {
         throw roleErr;
       }
       this.logger.warn(

@@ -25,47 +25,53 @@ function checkCircular(value: object, ancestors: Set<object>): void {
 function sortArray(value: unknown[], ancestors: Set<object>, depth: number): unknown[] {
   checkCircular(value, ancestors);
   ancestors.add(value);
-  const result = value.map((v) => sortKeysDeep(v, ancestors, depth + 1));
-  ancestors.delete(value);
-  return result;
+  try {
+    return value.map((v) => sortKeysDeep(v, ancestors, depth + 1));
+  } finally {
+    ancestors.delete(value);
+  }
 }
 
 function sortMap(value: Map<unknown, unknown>, ancestors: Set<object>, depth: number): unknown[] {
   checkCircular(value, ancestors);
   ancestors.add(value);
-  // Pre-compute sorted keys and their stringified forms to avoid redundant
-  // JSON.stringify calls in the comparator. Without pre-computation, each
-  // comparison re-stringifies both keys — O(n log n) stringifications total.
-  // Pre-computing reduces this to O(n).
-  const entries = Array.from(value.entries());
-  const prepared = entries
-    .map(([k, v]) => ({
-      v,
-      kSorted: sortKeysDeep(k, ancestors, depth + 1),
-      kStr: "", // populated below
-    }));
-  for (const entry of prepared) {
-    entry.kStr = JSON.stringify(entry.kSorted);
+  try {
+    // Pre-compute sorted keys and their stringified forms to avoid redundant
+    // JSON.stringify calls in the comparator. Without pre-computation, each
+    // comparison re-stringifies both keys — O(n log n) stringifications total.
+    // Pre-computing reduces this to O(n).
+    const entries = Array.from(value.entries());
+    const prepared = entries
+      .map(([k, v]) => ({
+        v,
+        kSorted: sortKeysDeep(k, ancestors, depth + 1),
+        kStr: "", // populated below
+      }));
+    for (const entry of prepared) {
+      entry.kStr = JSON.stringify(entry.kSorted);
+    }
+    const sortedEntries = prepared
+      .sort((a, b) => a.kStr < b.kStr ? -1 : a.kStr > b.kStr ? 1 : 0);
+    return sortedEntries.map(({ v, kSorted }) => [kSorted, sortKeysDeep(v, ancestors, depth + 1)]);
+  } finally {
+    ancestors.delete(value);
   }
-  const sortedEntries = prepared
-    .sort((a, b) => a.kStr < b.kStr ? -1 : a.kStr > b.kStr ? 1 : 0);
-  const result = sortedEntries.map(({ v, kSorted }) => [kSorted, sortKeysDeep(v, ancestors, depth + 1)]);
-  ancestors.delete(value);
-  return result;
 }
 
 function sortSet(value: Set<unknown>, ancestors: Set<object>, depth: number): unknown[] {
   checkCircular(value, ancestors);
   ancestors.add(value);
-  // Pre-compute stringified forms to avoid redundant JSON.stringify calls
-  // in the comparator (same optimization as sortMap).
-  const sorted = Array.from(value).map((v) => sortKeysDeep(v, ancestors, depth + 1));
-  const prepared = sorted.map((v) => ({ v, str: JSON.stringify(v) }));
-  const result = prepared
-    .sort((a, b) => a.str < b.str ? -1 : a.str > b.str ? 1 : 0)
-    .map(({ v }) => v);
-  ancestors.delete(value);
-  return result;
+  try {
+    // Pre-compute stringified forms to avoid redundant JSON.stringify calls
+    // in the comparator (same optimization as sortMap).
+    const sorted = Array.from(value).map((v) => sortKeysDeep(v, ancestors, depth + 1));
+    const prepared = sorted.map((v) => ({ v, str: JSON.stringify(v) }));
+    return prepared
+      .sort((a, b) => a.str < b.str ? -1 : a.str > b.str ? 1 : 0)
+      .map(({ v }) => v);
+  } finally {
+    ancestors.delete(value);
+  }
 }
 
 function sortPlainObject(value: object, ancestors: Set<object>, depth: number): Record<string, unknown> {
@@ -110,17 +116,15 @@ function serializeSpecialObject(value: object, ancestors: Set<object>, depth: nu
 function sortObject(value: object, ancestors: Set<object>, depth: number): unknown {
   checkCircular(value, ancestors);
   ancestors.add(value);
-
-  const proto = Object.getPrototypeOf(value);
-  let result: unknown;
-  if (proto === Object.prototype || proto === null) {
-    result = sortPlainObject(value, ancestors, depth);
-  } else {
-    result = serializeSpecialObject(value, ancestors, depth);
+  try {
+    const proto = Object.getPrototypeOf(value);
+    if (proto === Object.prototype || proto === null) {
+      return sortPlainObject(value, ancestors, depth);
+    }
+    return serializeSpecialObject(value, ancestors, depth);
+  } finally {
+    ancestors.delete(value);
   }
-
-  ancestors.delete(value);
-  return result;
 }
 
 /** Maximum recursion depth to prevent stack overflow on deeply nested inputs. */

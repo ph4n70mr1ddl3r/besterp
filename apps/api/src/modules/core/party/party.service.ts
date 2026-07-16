@@ -737,11 +737,18 @@ export class PartyService {
   private static async checkEmailDuplicate(
     tx: Prisma.TransactionClient, partyId: string, tenantId: string, normalizedEmail: string,
   ): Promise<void> {
+    // Scope the query to the current party via the partyContacts relation.
+    // Without this, findFirst returns an indeterminate match across all
+    // parties in the tenant, and the in-memory some() check on the wrong
+    // result would miss the duplicate (e.g., party B's email is found but
+    // the check looks for party A → false negative → duplicate allowed).
     const existingEmail = await tx.emailAddress.findFirst({
-      where: { email: normalizedEmail, contactMechanism: { tenantId } },
-      include: { contactMechanism: { include: { partyContacts: true } } },
+      where: {
+        email: normalizedEmail,
+        contactMechanism: { tenantId, partyContacts: { some: { partyId } } },
+      },
     });
-    if (existingEmail?.contactMechanism.partyContacts.some((pc) => pc.partyId === partyId)) {
+    if (existingEmail) {
       const atIdx = normalizedEmail.indexOf("@");
       // Preview at most 2 chars of the local part, clamped to the local-part
       // length so the "@" never lands inside the preview. A fixed `slice(0, 2)`
@@ -764,10 +771,13 @@ export class PartyService {
     sanitizedAreaCode: string, sanitizedLineNumber: string,
   ): Promise<void> {
     const existingTel = await tx.telecomNumber.findFirst({
-      where: { areaCode: sanitizedAreaCode, lineNumber: sanitizedLineNumber, contactMechanism: { tenantId } },
-      include: { contactMechanism: { include: { partyContacts: true } } },
+      where: {
+        areaCode: sanitizedAreaCode,
+        lineNumber: sanitizedLineNumber,
+        contactMechanism: { tenantId, partyContacts: { some: { partyId } } },
+      },
     });
-    if (existingTel?.contactMechanism.partyContacts.some((pc) => pc.partyId === partyId)) {
+    if (existingTel) {
       throw new DuplicateEntityError(
         `Phone number (${sanitizedAreaCode}) ${sanitizedLineNumber} is already registered for this party.`,
         { suggestedTools: ["add_contact_mechanism"], context: { contactMechanismType: "TELECOM_NUMBER" } }

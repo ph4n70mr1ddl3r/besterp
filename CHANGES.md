@@ -1,5 +1,39 @@
 # BestERP — Security & Architecture Fixes
 
+## Changes Applied (2026-07-16) — Code Review Round 31
+
+### 🟡 `party.service.ts` — duplicate email/phone check not scoped to the party (false negative)
+
+**Problem:** `checkEmailDuplicate` / `checkTelecomDuplicate` ran a tenant-wide `findFirst` and then validated ownership in memory via `contactMechanism.partyContacts.some((pc) => pc.partyId === partyId)`. `findFirst` returns an indeterminate match across all parties in the tenant, so the in-memory `some()` check could run against the *wrong* party's row — e.g. party B's email is returned, the check looks for party A → `false` → a genuine duplicate for party A is allowed. Confirmed by reasoning through the query shape (the `some()` ran on the row `findFirst` happened to pick, not on the requesting party).
+
+**Fix:** Pushed `partyContacts: { some: { partyId } }` into the Prisma `where.contactMechanism` filter so the query itself is scoped to the requesting party; the post-query `some()` re-check was removed (the match is now authoritative). Applied identically to `checkTelecomDuplicate`. Added a regression test asserting `where.contactMechanism.partyContacts.some.partyId` equals the requesting party and that a same-email-on-a-different-party does not throw `DuplicateEntityError`.
+
+### 🟡 `truncate.ts` — `Date` size check double-encoded (inaccurate truncation threshold)
+
+**Problem:** `normalisePrimitive` for `Date` ran `JSON.stringify(iso)` before `TextEncoder.encode`. `JSON.stringify` wraps the string in quotes, inflating the byte count by 2, so the oversize decision was made against a length 2 bytes larger than what is actually stored. Values hovering at the threshold could be misclassified and the `_preview` boundary drifted.
+
+**Fix:** Encode the ISO string directly via `textEncoder.encode(iso)` (strings are JSON-safe; no quoting needed), mirroring the existing `string` fast path. Non-oversize values are unchanged; only the boundary/truncation classification is now accurate.
+
+### 🟢 `crypto.ts` — `ancestors.delete` skipped on early return (ancestor-set leak)
+
+**Problem:** `sortArray`, `sortMap`, `sortSet`, and `sortObject` added the value to the `ancestors` circular-reference `Set` but only deleted it on the final `return`. Any branch that returned early left the value in the set, so a later sibling value that legitimately shared that reference could be misreported as a circular reference (`InvalidTypeValueError`).
+
+**Fix:** Wrapped each in `try { ... } finally { ancestors.delete(value); }` so cleanup runs on every exit path. Behaviour is unchanged for normal inputs; the leak only manifested on graphs where a reference appeared under two different parents.
+
+### 🟢 `prisma.service.ts` — `BYPASSSED` typo broke the RLS-bypass re-throw guard
+
+**Problem:** The superuser-RLS-bypass error message and the `catch` block that re-throws on that exact substring both spelled `BYPASSED` as `BYPASSSED`. The mismatch meant the `catch` guard (`message.includes("RLS will be BYPASSED")`) never matched, so a genuine bypass condition fell through to a generic `warn` instead of being surfaced as an error in production.
+
+**Fix:** Corrected the spelling in both the message constant and the `.includes()` guard so the re-throw path is live again.
+
+### 🟢 `health.module.ts` — removed unused `HealthService` export
+
+**Problem:** `HealthModule` re-exported `HealthService`, but no other module imports it — the controller injects it locally within the module. The `exports` entry was dead code that implied a shared provider boundary that didn't exist.
+
+**Fix:** Removed `exports: [HealthService]` from `HealthModule`. No call sites affected.
+
+---
+
 ## Changes Applied (2026-07-15) — Code Review Round 28
 
 ### 🔴 `main.ts` — catch-all Express error handler leaks `err.message` in development

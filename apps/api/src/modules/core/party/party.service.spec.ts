@@ -1485,6 +1485,68 @@ describe("PartyService", () => {
       expect(JSON.stringify(err)).not.toMatch(/a@example\.com/);
     });
 
+    it("scopes the email duplicate check to the requesting party (no false positive for other parties)", async () => {
+      // Regression guard for round-30 scoping fix: the duplicate query must be
+      // filtered by partyContacts.some({ partyId }) so an identical email
+      // registered to a DIFFERENT party is not mistaken for a duplicate of the
+      // requesting party.
+      const input: AddContactMechanismInput = {
+        tenantId: "tenant-1",
+        partyId: "11111111-1111-1111-1111-111111111111",
+        contactMechanismType: "EMAIL_ADDRESS",
+        emailAddress: { email: "shared@example.com" },
+      };
+
+      let capturedWhere: { contactMechanism?: unknown } | undefined;
+      const captureWhere = vi.fn().mockImplementation((args: any) => {
+        capturedWhere = args.where;
+        // Only the requesting party owns this email — simulate the
+        // scoped query returning no match for the requesting party.
+        return Promise.resolve(null);
+      });
+      const mockDb = {
+        contactMechanismType: {
+          findUnique: vi.fn().mockResolvedValue({ contactMechanismTypeId: "cmt-email" }),
+        },
+        $transaction: vi.fn().mockImplementation(async (fn: any) => {
+          const tx = {
+            party: {
+              findUnique: vi.fn().mockResolvedValue({ partyId: "11111111-1111-1111-1111-111111111111" }),
+            },
+            contactMechanism: {
+              create: vi.fn().mockResolvedValue({
+                contactMechanismId: "cm-new",
+                contactMechanismTypeId: "cmt-email",
+                tenantId: "tenant-1",
+                emailAddress: { email: "shared@example.com" },
+                contactMechanismType: { name: "EMAIL_ADDRESS" },
+                postalAddress: null,
+                telecomNumber: null,
+              }),
+            },
+            emailAddress: { findFirst: captureWhere },
+          };
+          return fn(tx);
+        }),
+      };
+
+      mockPrismaService.tenantScoped.mockReturnValue(mockDb);
+
+      // No DuplicateEntityError should be thrown because the existing match
+      // (if any) belongs to a different party — the scope filter excludes it.
+      await expect(partyService.addContactMechanism(input)).resolves.toBeDefined();
+
+      // The query must have been scoped to the requesting party via the
+      // partyContacts relation, not a tenant-wide findFirst.
+      expect(capturedWhere).toBeDefined();
+      expect(capturedWhere!.contactMechanism).toEqual(
+        expect.objectContaining({
+          tenantId: "tenant-1",
+          partyContacts: { some: { partyId: "11111111-1111-1111-1111-111111111111" } },
+        }),
+      );
+    });
+
     it("should throw InvalidTypeValueError when areaCode is missing for telecom", async () => {
       const input = {
         tenantId: "tenant-1",

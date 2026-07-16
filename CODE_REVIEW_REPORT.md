@@ -2,44 +2,65 @@
 
 ## Scope
 Fresh full review of the BestERP monorepo (`packages/shared`, `packages/mcp-tools`,
-`packages/database`, `apps/api`) conducted on 2026-07-14. This is review round 27;
-rounds 1–26 are documented in earlier revisions of this file and `CHANGES.md`.
+`packages/database`, `apps/api`) conducted on 2026-07-16. This is review round 31;
+rounds 1–29 are documented in earlier revisions of this file and `CHANGES.md`.
 
 ## Baseline (before this round)
 - `npm run typecheck` — clean across all workspaces
 - `npm run lint` — 0 errors, 0 warnings
 - `npm run test` — all passing: shared 137, mcp-tools 119, database 25 (10 RLS isolation
-  tests skipped without a live DB), api 302
+  tests skipped without a live DB), api 305
 
 ## Findings & Actions
 
 ### Fixed this round
 
-1. **🟡 `domain-exception.filter.ts` — `DomainError.message` reflected into HTTP
-   responses unsanitized.** Round 26 closed the log/response-injection surface on
-   `DomainError.context` values but missed the `message` field. DomainError messages
-   routinely embed user-supplied input that is only `.trim()`'d upstream — e.g.
-   `Invalid fromDate format: ${trimmed}`, `${field} is not a valid ISO 8601 date.
-   Received: ${value}`, `Invalid tenant ID: "${preview}"` — so interior control
-   characters (newlines, tabs, ANSI escapes) survive into the message. The filter
-   sent `exception.message` verbatim into the response body for every non-500
-   DomainError, in **both development and production** (unlike context, which is
-   dev-only). A value like `fromDate: "x\n[INFO] admin logged in"` would be
-   reflected into the response body and, when logged by a monitoring tool/client,
-   inject a forged log line. Fixed by applying `sanitizeLogMessage()` to the
-   message, mirroring the round-26 context treatment.
+1. **🟡 `party.service.ts` — duplicate email/phone check not scoped to the party (false
+   negative → duplicate allowed).** `checkEmailDuplicate` / `checkTelecomDuplicate`
+   issued a tenant-wide `findFirst` and then de-duplicated in memory with
+   `contactMechanism.partyContacts.some((pc) => pc.partyId === partyId)`. Because
+   `findFirst` returns an *indeterminate* match across all parties in the tenant, the
+   in-memory `some()` check ran against the wrong party's row: if party B's email was
+   the one returned, the check looked for party A and returned `false`, so a genuine
+   duplicate for party A slipped through. Fixed by pushing the `partyContacts.some({
+   partyId })` filter into the Prisma `where` clause so the query itself is scoped to
+   the requesting party; the `if (existing)` result no longer needs an in-memory
+   re-check. Same correction applied to `checkTelecomDuplicate`. Added a regression
+   test asserting the query `where.contactMechanism.partyContacts.some.partyId` equals
+   the requesting party and that a same-email-on-another-party does not false-positive.
 
-2. **🟢 `domain-exception.filter.ts` — `sanitizeContext` did not recurse into nested
-   objects.** The `ContextValue` type permits arbitrarily nested objects and arrays,
-   but `sanitizeContext` only scrubbed top-level strings and the string elements of
-   top-level arrays — a value under a nested key (e.g. `context.input.field`) passed
-   through verbatim. No current DomainError call site nests objects in context (all
-   are flat), so this was latent rather than exploitable today, but it was an
-   incomplete implementation of the stated round-26 goal ("sanitize context values").
-   Refactored to a recursive `sanitizeContextValue()` helper that walks the full
-   value tree (strings sanitized at every depth; arrays/objects recursed; primitives
-   passed through), closing the gap for any future DomainError that nests a
-   user-derived value.
+2. **🟡 `truncate.ts` — `Date` size check double-encoded by `JSON.stringify` round-trip
+   (inaccurate truncation threshold).** `normalisePrimitive` for `Date` ran the ISO
+   string through `JSON.stringify` before `TextEncoder.encode`, which wraps the string
+   in quotes (`"2024-..."`) and inflates the byte count by 2. The oversize marker was
+   therefore computed against a length 2 bytes larger than what is actually stored,
+   so values just under the threshold could be misclassified and the preview boundary
+   drifted. Fixed by encoding the ISO string directly (strings are JSON-safe; no
+   quoting needed), matching the existing `string` fast path. Behaviour unchanged for
+   non-oversize values; only the boundary/truncation decision is now accurate.
+
+3. **🟢 `crypto.ts` `sortKeysDeep` — `ancestors.delete` skipped on early return
+   (ancestor-set leak across sibling branches).** `sortArray`, `sortMap`, `sortSet`,
+   and `sortObject` added the current value to the `ancestors` `Set` but only deleted
+   it on the final `return` line. Any branch that returned early (e.g. `sortMap`/
+   `sortSet` returning the pre-computed array, or `sortObject` returning directly from
+   inside the `try`) left the value in the set, so a later sibling value that
+   legitimately shared that reference would be misreported as a circular reference.
+   Wrapped each in `try { ... } finally { ancestors.delete(value); }` so cleanup runs
+   on every exit path.
+
+4. **🟢 `prisma.service.ts` — typo `BYPASSSED` in RLS-bypass warning (and the matching
+   `catch` guard).** The superuser-RLS-bypass error message and the `catch` block that
+   re-throws it on that exact substring both spelled `BYPASSED` as `BYPASSSED`. The
+   mismatch meant the intended re-throw path was dead code (the `catch` never matched),
+   so a genuine bypass condition fell through to the generic `warn` instead of being
+   surfaced as an error. Fixed the spelling in both the message constant and the
+   `.includes()` guard.
+
+5. **🟢 `health.module.ts` — `HealthService` exported but never consumed externally.**
+   `HealthModule` re-exported `HealthService`, but no other module imports it (the
+   controller injects it locally within the module). Removed the unused `exports` to
+   keep the module boundary honest.
 
 ### Verified clean (no action needed)
 
@@ -59,13 +80,20 @@ rounds 1–26 are documented in earlier revisions of this file and `CHANGES.md`.
 - **`sanitize.ts` decode-then-strip loop** — stable; the `MAX_INPUT_LENGTH` (100 KB)
   cap and `MAX_SANITIZE_ITERATIONS` (10) bound the DoS surface.
 - **`crypto.ts` `sortKeysDeep`** — circular-reference, depth (100), WeakMap/WeakSet,
-  and function guards all present; prototype-pollution-safe via `Object.create(null)`.
+  and function guards all present; prototype-pollution-safe via `Object.create(null)`;
+  ancestor-set cleanup now runs on every exit path (see fix #3).
 - **`rls-extension.ts` Proxy traps** — `set`/`deleteProperty` blocked on both client
   and model delegates; raw SQL and `$`-prefixed methods blocked; non-existent models
   throw a clear error (round 26).
 
 ## Test Results
-
+```
+shared:    137 passed (4 files)
+mcp-tools: 119 passed (4 files)
+database:   25 passed, 10 skipped (2 files)
+api:       305 passed (14 files)
+────────────────────────────────────
+Total:     586 passed, 10 skipped
 ```
 shared:    137 passed (4 files)
 mcp-tools: 119 passed (4 files)
@@ -91,3 +119,11 @@ Total:     585 passed, 10 skipped
   addressed in round 27
 - ~~`domain-exception.filter.ts` sanitizeContext not recursive for nested
   objects~~ — addressed in round 27
+- ~~`party.service.ts` duplicate email/phone check not scoped to party~~ — addressed
+  in round 31
+- ~~`truncate.ts` Date size check double-encode~~ — addressed in round 31
+- ~~`crypto.ts` `sortKeysDeep` ancestor-set leak on early return~~ — addressed in
+  round 31
+- ~~`prisma.service.ts` `BYPASSSED` typo breaks RLS-bypass re-throw~~ — addressed in
+  round 31
+- ~~`health.module.ts` unused `exports`~~ — addressed in round 31

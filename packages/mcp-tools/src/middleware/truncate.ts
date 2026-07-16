@@ -154,7 +154,11 @@ function normalisePrimitive(value: unknown, effectiveMax: number): { normalised:
   if (typeof value === "function") return { normalised: { _error: "Cannot serialize Function value" }, marker: null };
   if (value instanceof Date) {
     const iso = value.toISOString();
-    return { normalised: iso, marker: checkOversized(textEncoder.encode(JSON.stringify(iso)), effectiveMax) };
+    // Encode the ISO string directly — no JSON.stringify round-trip needed
+    // since ISO strings are already valid JSON-safe content. The previous
+    // code double-encoded (JSON.stringify wraps the string in quotes),
+    // inflating the byte count by 2 and producing an inaccurate size check.
+    return { normalised: iso, marker: checkOversized(textEncoder.encode(iso), effectiveMax) };
   }
   return undefined;
 }
