@@ -135,7 +135,6 @@ export class DomainExceptionFilter implements ExceptionFilter {
     }
 
     const isDev = process.env.NODE_ENV === "development";
-    const isProd = process.env.NODE_ENV === "production";
     const body: Record<string, unknown> = {
       statusCode: status,
       error: exception.code,
@@ -153,7 +152,7 @@ export class DomainExceptionFilter implements ExceptionFilter {
       // then any HTML tags are stripped (stored-XSS defense). Running control
       // sanitization before HTML stripping keeps the existing "_"-substitution
       // semantics while closing the HTML-injection gap.
-      ...(status === 500 && isProd
+      ...(status === 500 && !isDev
         ? { message: "An unexpected error occurred" }
         : { message: stripHtmlTags(sanitizeLogMessage(exception.message)) }),
     };
@@ -232,7 +231,7 @@ export class DomainExceptionFilter implements ExceptionFilter {
     );
     const isDev = process.env.NODE_ENV === "development";
     const responseMessage = isDev && exception instanceof Error
-      ? sanitizeForLogOutput(exception.message)
+      ? stripHtmlTags(sanitizeForLogOutput(exception.message))
       : "Internal server error";
     response.status(500).json({
       statusCode: 500,

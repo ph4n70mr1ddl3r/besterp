@@ -2,13 +2,13 @@
 
 ## Scope
 Fresh full review of the BestERP monorepo (`packages/shared`, `packages/mcp-tools`,
-`packages/database`, `apps/api`) conducted on 2026-07-16. This is review round 38;
-rounds 1–37 are documented in earlier revisions of this file and `CHANGES.md`.
+`packages/database`, `apps/api`) conducted on 2026-07-16. This is review round 39;
+round 1–38 are documented in earlier revisions of this file and `CHANGES.md`.
 
 ## Baseline (before this round)
 - `npm run typecheck` — clean across all workspaces
 - `npm run lint` — 0 errors (1 pre-existing complexity warning in `crypto.ts:sortKeysDeep`)
-- `npm run test` — all passing: shared 139, mcp-tools 121, database 25 (10 RLS isolation
+- `npm run test` — all passing: shared 151, mcp-tools 126, database 25 (10 RLS isolation
   tests skipped without a live DB), api 308
 
 ## Findings & Actions (round 38)
@@ -90,14 +90,88 @@ rounds 1–37 are documented in earlier revisions of this file and `CHANGES.md`.
 - **ReDoS** — all regexes across the four packages re-verified linear/bounded (no nested
   quantifiers); no new ReDoS introduced by this round's edits.
 
+## Findings & Actions (round 39)
+
+### Fixed this round
+
+1. **🟡 `audit-log.ts:76-77` — successful tool `data` returned to the agent was never
+   redacted (secret leak on the live path).** The audit row (`logAction` →
+   `truncateValue(redactSensitiveFields(...))`) and the idempotency replay
+   (`handleExistingRecord` → `redactSensitiveFields`) both redact sensitive-named fields,
+   but the **live** success path returned `result` verbatim to the AI agent. A tool
+   returning a value under a sensitive-named key (e.g. a credential) therefore leaked on
+   the first call while being redacted everywhere durable. `executeAndLog` now applies
+   `redactSensitiveFields` to `result.data` before returning, matching the two durable
+   sinks. Added a regression test asserting a `{ password: "hunter2" }` live result reaches
+   the agent as `[REDACTED]`.
+
+2. **🟡 `prisma.service.ts:234-259` — `verifyRlsEnabled` had a wrong table list and ignored
+   `relforcerowsecurity`.** The checked list contained `party_relationship` and `audit_log`,
+   which are **not** tables in `schema.prisma` (the real ones are `party_role` and
+   `ai_action_log`), so the check could pass vacuously and give false assurance of tenant
+   isolation at boot. It also selected `relforcerowsecurity` but only filtered on
+   `relrowsecurity`, so a table with RLS *enabled but not FORCED* (where the app role owns
+   it) would still bypass RLS silently. The list now matches the eleven tables that
+   `rls-setup.sql` enables RLS + FORCE on, the filter asserts **both** `relrowsecurity` and
+   `relforcerowsecurity`, and any listed table missing entirely from `pg_class` (renamed /
+   dropped) is now treated as a coverage gap that refuses to boot.
+
+3. **🟡 `domain-exception.filter.ts:156,235` — HTTP error responses reflected
+   user-influenced text without hardening in staging/preview.** `handleDomainError`
+   genericized the 500 message only under `isProd`, so a 500 `DomainError` in
+   staging/preview reflected the raw (user-embedded) message — contradicting round 37's
+   "strict-unless-development" intent. Changed to `status === 500 && !isDev`. Separately,
+   `handleUnexpectedError`'s dev branch applied `sanitizeForLogOutput` but not
+   `stripHtmlTags`, so an HTML/script payload in an unexpected error message reached dev
+   clients; now also `stripHtmlTags`. Removed the now-unused `isProd` local.
+
+4. **🟡 `sanitize.ts:133,146-148` — bracket-wrapped query-string secrets leaked, and the
+   URL-collapse rule split mid-`[REDACTED]`.** The query-string secret rule trimmed only
+   *trailing* boundary punctuation, so `?token=[sk_live_abc]` kept the leading `[` and
+   leaked the secret. The leading `[` is now also stripped. Separately, the
+   URL-collapse value class excluded `]`, so after the query rule inserted `[REDACTED]` the
+   URL rule stopped at the marker's `]`, leaving the remainder of the query string (e.g. a
+   second `&token=…`) visible. The three URL-family value classes now allow `[`/`]` (while
+   still stopping at `)`/`}` for prose boundaries) so the whole URL — including every
+   redacted param — folds into `[HOST]/[PATH]`. Rewrote the three affected regression tests
+   to assert the secret is absent (the actual security property) rather than a literal
+   `[REDACTED]` token.
+
+5. **🟡 `tenant.ts:43-47` — unvalidated tenant ID echoed into the error message without
+   control-char/ANSI stripping (log injection).** `validateTenantId` interpolates a preview
+   of the attacker-influenced `tenantId` into the thrown `InvalidTenantIdError` message; if
+   it carried CRLF/ANSI escapes those reached operator logs verbatim. The preview is now run
+   through `sanitizeLogMessage` before interpolation.
+
+6. **🟢 `error-handler.ts:160` — `P2002` `conflictingFields` used `sanitizeLogMessage`
+   instead of `sanitizeForLogOutput`.** `meta.target` is schema-derived (low risk) but every
+   other externally-derived string in the file scrubs URLs/paths via `sanitizeForLogOutput`;
+   aligned the one inconsistency.
+
+### Reviewed but NOT changed (false positives / out of scope)
+
+- **`crypto.ts` aggregate byte budget under-counts key names** — `checkStringBounds`
+  charges only string *values*, not keys, so the serialized buffer can exceed
+  `MAX_HASH_TOTAL_BYTES` by ~2%. Still bounded by `MAX_HASH_KEYS` (10k); not a DoS vector.
+  Deferred as defense-in-depth.
+- **`truncate.ts` nested Map/Set become `{}`/`[]`** — `serializeObjectValue` only converts a
+  *top-level* Map/Set; a Map nested in an array/object is dropped from the persisted
+  payload (data-loss, not a leak). Noted for a future normalisation pass.
+- **`ai_action_log.tenant_id` nullable** — flagged LOW; a NULL tenant_id row is invisible to
+  all tenants under the RLS policy (no leak, just a stranded-audit edge). Changing a
+  shipped migration carries risk; deferred.
+- **`spike-rls.ts` Test 3 runs against the admin/superuser client** — flagged LOW; the
+  isolation assertion passing there validates query-time filtering, not RLS enforcement
+  under `besterp_app`. Spike-only (excluded from build). Deferred.
+
 ## Test Results
 ```
-shared:    139 passed (4 files)
-mcp-tools: 121 passed (4 files)
+shared:    151 passed (4 files)
+mcp-tools: 126 passed (4 files)
 database:   25 passed, 10 skipped (2 files)
 api:       308 passed (14 files)
 ───────────────────────────────────
-Total:     593 passed, 10 skipped
+Total:     610 passed, 10 skipped
 ```
 
 ## Findings & Actions (round 37)

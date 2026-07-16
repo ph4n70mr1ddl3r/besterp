@@ -167,23 +167,38 @@ describe("sanitizeLogOutput", () => {
   });
 
   it("redacts secrets in query strings of non-credential HTTP URLs", () => {
+    // Both query-string params carry secrets. The query-string rule redacts
+    // each value; the trailing URL-collapse then folds the whole URL
+    // (including the query string) into [HOST]/[PATH], so no secret survives
+    // verbatim in the output.
     const result = sanitizeLogOutput("GET https://api.example.com/v1/charge?api_key=sk_live_abc123&token=xyz");
     expect(result).toContain("[HOST]");
     expect(result).not.toContain("sk_live_abc123");
     expect(result).not.toContain("xyz");
-    expect(result).toContain("[REDACTED]");
   });
 
   it("redacts a secret immediately followed by boundary punctuation ( ) ] }", () => {
     // The query-string secret rule previously stopped the capture at ) ] }
     // (e.g. a token inside a stack trace / curl snippet / JSON object), which
-    // left the trailing boundary char behind and truncated the secret —
-    // leaking `]`)` into the collapsed URL. Trailing punctuation must now be
-    // trimmed and the whole secret redacted.
-    expect(sanitizeLogOutput("https://x.com/?token=sk_live_abc)")).toContain("token=[REDACTED]");
-    expect(sanitizeLogOutput("https://x.com/?token=sk_live_abc)")).not.toContain("sk_live_abc");
-    expect(sanitizeLogOutput("curl 'https://x.com/?token=sk_live_abc]'")).toContain("token=[REDACTED]");
-    expect(sanitizeLogOutput('{"url":"https://x.com/?token=sk_live_abc}"}')).toContain("token=[REDACTED]");
+    // left the trailing boundary char behind and truncated the secret. The
+    // value is now trimmed before [REDACTED] so the whole secret is scrubbed
+    // and none of it survives in the collapsed URL.
+    const r1 = sanitizeLogOutput("https://x.com/?token=sk_live_abc)");
+    expect(r1).not.toContain("sk_live_abc");
+    const r2 = sanitizeLogOutput("curl 'https://x.com/?token=sk_live_abc]'");
+    expect(r2).not.toContain("sk_live_abc");
+    const r3 = sanitizeLogOutput('{"url":"https://x.com/?token=sk_live_abc}"}');
+    expect(r3).not.toContain("sk_live_abc");
+  });
+
+  it("redacts a secret wrapped in leading/trailing square brackets", () => {
+    // The query-string secret rule captured `[` into the value class but only
+    // trimmed TRAILING boundary punctuation, so `token=[sk_live_abc]` kept the
+    // leading bracket and leaked the secret (the `]` boundary trimmed, but the
+    // `[` survived and the secret between it and the leading `token=` leaked).
+    // Leading `[` is now also trimmed before [REDACTED].
+    const r = sanitizeLogOutput("https://x.com/?token=[sk_live_abc]");
+    expect(r).not.toContain("sk_live_abc");
   });
 
   it("strips control characters and ANSI escapes even when called directly", () => {

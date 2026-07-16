@@ -157,7 +157,7 @@ const PRISMA_ERROR_HANDLERS: Record<string, ErrorFactory> = {
     // other externally-derived string in this file so a crafted/garbage
     // target cannot inject ANSI/CRLF into the agent-facing message.
     const rawTarget = Array.isArray(prismaMeta?.target) ? prismaMeta.target.join(", ") : prismaMeta?.target;
-    const target = rawTarget ? sanitizeLogMessage(rawTarget) : undefined;
+     const target = rawTarget ? sanitizeForLogOutput(rawTarget) : undefined;
     return {
       success: false,
       error: {

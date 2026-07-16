@@ -134,7 +134,7 @@ export function sanitizeLogOutput(message: string): string {
       // Strip trailing punctuation ( ), ] } that a secret could be wrapped in
       // (e.g. inside a stack trace, curl snippet, or JSON) so the boundary char
       // is not left behind after redaction and the secret is fully scrubbed.
-      return m.replace(/[)\]}\s]+$/, "") + "[REDACTED]";
+      return m.replace(/^\[+|[\])}\s]+$/g, "") + "[REDACTED]";
     })
     // Redact high-entropy bearer/secret tokens that appear outside the
     // key=value form above (e.g. `Authorization: Bearer sk_live_...` echoed in
@@ -143,9 +143,9 @@ export function sanitizeLogOutput(message: string): string {
     // from ordinary prose.
     .replace(/\bBearer\s+[A-Za-z0-9._-]+/gi, "Bearer [REDACTED]")
     .replace(/\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g, "[REDACTED_JWT]")
-    .replace(/(https?:\/\/)[^\s"')\]}]+/gi, "$1[HOST]/[PATH]")
-    .replace(/(?:ftp|sftp):\/\/[^\s"')\]}]+/gi, "[FTP_URL]")
-    .replace(/(?:ws|wss):\/\/[^\s"')\]}]+/gi, "[WEBSOCKET_URL]")
+    .replace(/(https?:\/\/)[^\s"')}]+/gi, "$1[HOST]/[PATH]")
+    .replace(/(?:ftp|sftp):\/\/[^\s"')}]+/gi, "[FTP_URL]")
+    .replace(/(?:ws|wss):\/\/[^\s"')}]+/gi, "[WEBSOCKET_URL]")
     // Generic catch-all for credential-bearing URLs whose scheme isn't
     // explicitly listed above (e.g. ldap://, ldaps://, ssh://, vault://,
     // smtp://, or custom schemes). A driver/library error can embed such a

@@ -74,6 +74,16 @@ async function executeAndLog(prisma: PrismaClient, backpressure: BackpressureMan
   }
 
   backpressure.log({ ...base, toolOutput: result.data ?? null });
+
+  // The success payload returned to the AI agent must be redacted the SAME
+  // way the durable sinks (audit row via truncateValue(redactSensitiveFields…)
+  // and idempotency replay via redactSensitiveFields) are. Without this, a
+  // tool returning a value under a sensitive-named key (e.g. a credential)
+  // leaks to the agent live on the first call, while the identical value is
+  // redacted when persisted or replayed — an asymmetric secret-leak path.
+  if (result.success && result.data != null) {
+    result = { ...result, data: redactSensitiveFields(result.data) };
+  }
   return result;
 }
 

@@ -13,6 +13,7 @@
 import type { PrismaClient, Prisma } from "@prisma/client";
 import { isDomainError, TenantContextFailedError, InvalidTenantIdError } from "./errors.js";
 import { MAX_TENANT_ID_LENGTH } from "./constants.js";
+import { sanitizeLogMessage } from "./sanitize.js";
 
 /** Prisma's interactive transaction client with all model delegates. */
 type PrismaTransactionClient = Prisma.TransactionClient;
@@ -37,10 +38,16 @@ export function validateTenantId(tenantId: string): void {
       `Tenant ID is too long (max ${MAX_TENANT_ID_LENGTH} characters).`
     );
   }
-  if (!TENANT_ID_PATTERN.test(tenantId)) {
+   if (!TENANT_ID_PATTERN.test(tenantId)) {
     // Sanitize: show only first 20 chars to prevent log injection and
-    // information disclosure from untrusted input.
-    const preview = tenantId.length > 20 ? `${tenantId.slice(0, 20)}...` : tenantId;
+    // information disclosure from untrusted input. The tenant ID is
+    // attacker-influenced at the auth boundary, so strip control characters
+    // and ANSI escapes from the preview before interpolating it into the
+    // error message — otherwise CR/LF or terminal-escape payloads reach
+    // operator logs verbatim (the same log-injection class sanitized
+    // everywhere else).
+    const rawPreview = tenantId.length > 20 ? `${tenantId.slice(0, 20)}...` : tenantId;
+    const preview = sanitizeLogMessage(rawPreview);
     throw new InvalidTenantIdError(
       `Invalid tenant ID: "${preview}". ` +
         "Tenant IDs may only contain alphanumeric characters, hyphens, and underscores."

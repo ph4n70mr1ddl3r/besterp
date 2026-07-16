@@ -231,14 +231,25 @@ export class PrismaService
    * gap is caught in CI / on startup rather than in a security incident.
    */
   private async verifyRlsEnabled(): Promise<void> {
+    // The exact set of tables that rls-setup.sql enables RLS + FORCE on.
+    // Keep this in sync with rls-setup.sql. Unquoted Postgres identifiers are
+    // stored lowercased in pg_class.relname, so the list must be lowercase to
+    // match. Previously this list contained "party_relationship" and
+    // "audit_log", which do not exist as tables (the real ones are
+    // "party_role" and "ai_action_log") — so the check could pass vacuously and
+    // give false assurance of tenant isolation at boot.
     const tenantTables = [
       "party",
       "contact_mechanism",
       "party_contact_mechanism",
       "party_role",
-      "party_relationship",
+      "ai_action_log",
       "idempotency_record",
-      "audit_log",
+      "person",
+      "organization",
+      "postal_address",
+      "telecom_number",
+      "email_address",
     ];
     try {
       const rows = await this._appClient.$queryRaw<{ relname: string; relrowsecurity: boolean; relforcerowsecurity: boolean }[]>`
@@ -247,17 +258,23 @@ export class PrismaService
         JOIN pg_namespace n ON n.oid = c.relnamespace
         WHERE n.nspname = 'public' AND c.relname = ANY(${tenantTables})
       `;
-      const missing = rows.filter((r) => !r.relrowsecurity);
-      if (missing.length > 0) {
-        const names = missing.map((r) => r.relname).join(", ");
+      const found = new Set(rows.map((r) => r.relname));
+      // A table missing entirely from pg_class is a coverage gap: rls-setup.sql
+      // enabled RLS on it but the table isn't present (or was renamed), so
+      // tenant isolation for that data cannot be verified. Refuse to boot
+      // rather than silently assume it's fine.
+      const notFound = tenantTables.filter((t) => !found.has(t));
+      const missing = rows.filter((r) => !r.relrowsecurity || !r.relforcerowsecurity);
+      if (notFound.length > 0 || missing.length > 0) {
+        const names = [...missing.map((r) => r.relname), ...notFound].join(", ");
         const msg =
-          `Row-Level Security is NOT enabled on tenant tables: ${names}. ` +
+          `Row-Level Security is NOT fully enabled (or the table is missing) on tenant tables: ${names}. ` +
           `Tenant isolation is disabled — apply rls-setup.sql (ENABLE/FORCE ` +
           `ROW LEVEL SECURITY + policies) before starting the service.`;
         this.logger.error(msg);
         throw new Error(msg);
       }
-      this.logger.debug("RLS verified enabled on tenant tables");
+      this.logger.debug("RLS verified enabled (and forced) on tenant tables");
     } catch (rlsErr) {
       if (rlsErr instanceof Error && rlsErr.message.includes("Row-Level Security is NOT enabled")) {
         throw rlsErr;

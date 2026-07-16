@@ -863,6 +863,26 @@ describe("Audit Log Middleware", () => {
     expect(storedInput.name).toBe("Jane Doe");
   });
 
+  it("should redact sensitive fields from the LIVE tool result returned to the agent", async () => {
+    // Regression guard for the live-vs-replay redaction asymmetry: the success
+    // payload returned to the AI agent must be redacted the SAME way the
+    // durable audit row (redactSensitiveFields) and idempotency replay
+    // (redactSensitiveFields) are. A tool returning a credential under a
+    // sensitive-named key must never leak to the agent on the first (live) call.
+    const input = { name: "Jane Doe" };
+    const toolResult: ToolResult = { success: true, data: { password: "hunter2", name: "Jane Doe" } };
+
+    mockPrisma.aiActionLog.create.mockResolvedValue({ id: "log-id" });
+
+    const middleware = auditLogMiddleware(mockPrisma as any);
+    const result = await middleware(input, mockContext, mockDefinition, successNext(toolResult));
+
+    expect(result.success).toBe(true);
+    const data = (result as any).data;
+    expect(data.password).toBe("[REDACTED]");
+    expect(data.name).toBe("Jane Doe");
+  });
+
   it("should redact snake_case sensitive fields (auth_token, session_token, client_secret, …)", async () => {
     // Regression guard: the catch-all regex used `\b` boundaries, and `_` is a
     // word character under `\w`, so `\btoken\b` could NOT match `session_token`,
