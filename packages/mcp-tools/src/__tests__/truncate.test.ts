@@ -59,6 +59,22 @@ describe("truncateValue", () => {
     expect(truncateValue(value)).toEqual(value);
   });
 
+  it("never returns a stored form larger than the limit after normalisation", () => {
+    // Object whose pre-parse JSON.stringify is just under the cap (so the
+    // first size check passes) but whose normalised JSONB form could exceed
+    // it (e.g. a value that expands on JSON.parse → re-serialise). The result
+    // must still be bounded: either unchanged, or a truncation marker whose
+    // _originalSize respects the limit.
+    const base = "x".repeat(MAX_STORED_PAYLOAD_SIZE - 50);
+    const value = { payload: base, n: 1 };
+    const result = truncateValue(value) as { _truncated?: boolean };
+    const reencoded = new TextEncoder().encode(JSON.stringify(result));
+    expect(reencoded.byteLength).toBeLessThanOrEqual(MAX_STORED_PAYLOAD_SIZE);
+    if (result._truncated) {
+      expect(result._originalSize).toBeGreaterThan(MAX_STORED_PAYLOAD_SIZE);
+    }
+  });
+
   it("returns an error marker for unserializable (circular) input", () => {
     const circular: Record<string, unknown> = {};
     circular.self = circular;

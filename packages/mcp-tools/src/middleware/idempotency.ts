@@ -407,7 +407,15 @@ async function updateIdempotencyRecordWithRetry(
             ? (truncateValue(toolResult.data, MAX_STORED_PAYLOAD_SIZE) as unknown as Prisma.InputJsonValue)
             : Prisma.DbNull,
           error: isSoftFailure
-            ? { message: capString(toolResult.error?.message, MAX_SOFT_FAILURE_MESSAGE_SIZE), code: toolResult.error?.code }
+            ? {
+                message: capString(toolResult.error?.message, MAX_SOFT_FAILURE_MESSAGE_SIZE),
+                // error.code is typed as a free-form string and is not validated
+                // against an allowlist (it comes from getErrorCode), so cap it to
+                // the same bound as the message and sanitize embedded URLs/paths.
+                // A tool returning a multi-KB `code` would otherwise be persisted
+                // verbatim in idempotency_record.error.code.
+                code: capString(sanitizeForLogOutput(toolResult.error?.code ?? ""), MAX_SOFT_FAILURE_MESSAGE_SIZE),
+              }
             : Prisma.DbNull,
           completedAt: new Date(),
         },

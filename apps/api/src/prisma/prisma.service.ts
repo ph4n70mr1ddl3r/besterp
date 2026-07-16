@@ -179,18 +179,24 @@ export class PrismaService
       const [roleResult] = await this._appClient.$queryRaw<[{ role: string }]>`SELECT current_user AS role`;
       const role = roleResult.role;
       if (role === "besterp" || role === "postgres") {
+        // PostgreSQL superusers BYPASS all RLS policies, so tenant isolation
+        // is silently disabled for every tenant-scoped query when the app
+        // client connects as one. This is a hard security failure regardless of
+        // environment — start refusing immediately rather than logging a
+        // warning that is easy to miss. (Previously this only threw in
+        // production; dev/staging deployments pointed at a privileged role
+        // were silently cross-tenant, and the warning text incorrectly claimed
+        // rows would be "silently rejected" when the opposite is true.)
         const msg =
-          `App client connected as superuser role '${role}' — RLS will be BYPASSED. ` +
-          `Set DATABASE_URL to the besterp_app role connection string.`;
+          `App client connected as superuser role '${role}' — RLS is BYPASSED and ` +
+          `tenant isolation is disabled. Set DATABASE_URL to the besterp_app ` +
+          `role connection string.`;
         this.logger.error(msg);
-        if (process.env.NODE_ENV === "production") {
-          throw new Error(msg);
-        }
-      } else {
-        this.logger.debug(`App client connected as role '${role}' (RLS enforced)`);
+        throw new Error(msg);
       }
+      this.logger.debug(`App client connected as role '${role}' (RLS enforced)`);
     } catch (roleErr) {
-      if (roleErr instanceof Error && roleErr.message.includes("RLS will be BYPASSED")) {
+      if (roleErr instanceof Error && roleErr.message.includes("RLS is BYPASSED")) {
         throw roleErr;
       }
       this.logger.warn(

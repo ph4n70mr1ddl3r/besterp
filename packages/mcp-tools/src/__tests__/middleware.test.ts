@@ -429,6 +429,32 @@ describe("Idempotency Middleware", () => {
     );
   });
 
+  it("should cap an oversized error.code in the persisted soft-failure record", async () => {
+    const input = { test: "value" };
+    const idempotencyKey = "test-oversize-code";
+    const contextWithKey = { ...mockContext, idempotencyKey };
+
+    mockFindInTransaction(null);
+    mockPrisma.idempotencyRecord.create.mockResolvedValue({ idempotencyKey, status: "pending" });
+    mockPrisma.idempotencyRecord.update.mockResolvedValue({});
+
+    // error.code is a free-form string (getErrorCode is defensive), so a tool
+    // could return a multi-KB code. It must be capped before persistence, the
+    // same way the message is, so it can't bloat idempotency_record.error.code.
+    const hugeCode = "Z".repeat(20_000);
+    const softFailureNext = async () => ({
+      success: false as const,
+      error: { code: hugeCode, message: "boom" },
+    });
+
+    const middleware = idempotencyMiddleware(mockPrisma as any);
+    await middleware(input, contextWithKey, mockDefinition, softFailureNext);
+
+    const updateCall = mockPrisma.idempotencyRecord.update.mock.calls[0][0];
+    const storedCode = updateCall.data.error.code as string;
+    expect(new TextEncoder().encode(storedCode).byteLength).toBeLessThanOrEqual(4096);
+  });
+
   it("should record successful results (success:true) as 'completed'", async () => {
     const input = { test: "value" };
     const idempotencyKey = "test-success";

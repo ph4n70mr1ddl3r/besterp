@@ -185,5 +185,14 @@ export function truncateValue(value: unknown, maxSize: number = MAX_STORED_PAYLO
   // Roundtrip through JSON.parse to normalise non-plain values
   // (class instances, Maps, Sets, BigInts, etc.) to plain JSON-safe
   // values before storage as JSONB.
-  return JSON.parse(result.serialized);
+  const parsed = JSON.parse(result.serialized);
+  // Re-validate the bound AFTER normalisation. The size check above measured
+  // `result.serialized` (the value going in), but JSON.parse → re-serialise by
+  // the JSONB writer can expand the stored form (e.g. Date → ISO string,
+  // Map[Symbol] keys, BigInt → string) beyond `maxSize` for pathological
+  // inputs. Apply the truncation marker to the normalised form so the stored
+  // payload can never exceed the bound.
+  const reparsed = textEncoder.encode(JSON.stringify(parsed));
+  const postMarker = checkOversized(reparsed, effectiveMax);
+  return postMarker ?? parsed;
 }

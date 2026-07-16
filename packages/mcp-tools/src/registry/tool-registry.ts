@@ -18,6 +18,16 @@ import { MAX_IDEMPOTENCY_KEY_LENGTH } from "@besterp/shared";
 const VALID_RISK_LEVELS: readonly RiskLevel[] = ["none", "low", "medium", "high", "critical"];
 
 /**
+ * Cap the length of the joined Zod validation-issue string returned to the
+ * agent. The path+message of each issue is derived from user input and could
+ * be arbitrarily large (many issues, or long per-issue messages), so the
+ * agent-facing error surface is bounded the same way soft-failure log lines
+ * are (error-handler.ts MAX_ERROR_LOG_LINE_LENGTH). The full issue list is
+ * still available in `context.issues` for programmatic callers.
+ */
+const MAX_VALIDATION_MESSAGE_LENGTH = 2000;
+
+/**
  * Regex for safe idempotency keys — printable ASCII only (0x21–0x7E).
  * Mirrors the pattern in idempotency.ts to reject control characters,
  * newlines, and non-ASCII bytes at the earliest possible point.
@@ -175,11 +185,17 @@ export class ToolRegistry {
         async (input, ctx) => {
           const parsed = definition.inputSchema.safeParse(input);
           if (!parsed.success) {
+            const issueString = parsed.error.issues
+              .map((i) => `${i.path.map((p) => typeof p === "symbol" ? p.toString() : String(p)).join(".")}: ${i.message}`)
+              .join("; ");
+            const detail = issueString.length > MAX_VALIDATION_MESSAGE_LENGTH
+              ? `${issueString.slice(0, MAX_VALIDATION_MESSAGE_LENGTH)}… [${parsed.error.issues.length} issues, truncated]`
+              : issueString;
             return {
               success: false,
               error: {
                 code: "INVALID_INPUT",
-                message: `Input validation failed: ${parsed.error.issues.map((i) => `${i.path.map((p) => typeof p === "symbol" ? p.toString() : String(p)).join(".")}: ${i.message}`).join("; ")}`,
+                message: `Input validation failed: ${detail}`,
                 suggestedTools: [name],
                 context: { issues: parsed.error.issues },
               },

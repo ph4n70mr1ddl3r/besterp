@@ -561,6 +561,28 @@ describe("PartyService", () => {
         partyService.getParty("tenant-1", "not-a-uuid")
       ).rejects.toThrow("partyId");
     });
+
+    it("should scope the lookup by tenantId at the application level", async () => {
+      const findUnique = vi.fn().mockResolvedValue(
+        mockParty({ name: "John Doe", person: { firstName: "John", lastName: "Doe" } })
+      );
+      const mockDb = { party: { findUnique } };
+      mockPrismaService.tenantScoped.mockReturnValue(mockDb);
+
+      await partyService.getParty("tenant-1", "12345678-1234-1234-1234-123456789abc");
+
+      // Defense-in-depth: tenantId must appear in the where clause so a
+      // regression in the RLS context-setting path cannot become a
+      // cross-tenant read. Earlier versions relied solely on RLS here.
+      expect(findUnique).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            partyId: "12345678-1234-1234-1234-123456789abc",
+            tenantId: "tenant-1",
+          }),
+        })
+      );
+    });
   });
 
   describe("searchParties", () => {
