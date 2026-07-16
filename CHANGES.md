@@ -1,5 +1,55 @@
 # BestERP — Security & Architecture Fixes
 
+## Changes Applied (2026-07-16) — Code Review Round 37
+
+### 🔴 `sanitize.ts` — `stripHtmlTags` DoS guard measured code units, not bytes
+
+**Problem:** The 100k length guard compared `input.length` (UTF-16 code units). A string of 99k multi-byte characters is ~400 KB in UTF-8 but stayed under the cap, then entered the entity-decode/strip loop and could balloon past the intended budget.
+
+**Fix:** Guard now measures `Buffer.byteLength(input, "utf8")`. Added regression test for oversized multi-byte input.
+
+### 🟡 `sanitize.ts` — bare bearer/JWT secrets leaked; `at /path` rule false-redacted prose
+
+**Problem:** `Authorization: Bearer sk_live_…` and bare JWTs reached operator logs unredacted. The `at /path` rule collapsed ordinary prose ("meet me at /home/user later") into "meet me [PATH] later", destroying legitimate log context.
+
+**Fix:** Added `Bearer …` and JWT redaction. Rewrote the path rule to redact only absolute, file-like paths (extension or `:line` suffix), leaving plain prose intact. Added regression tests.
+
+### 🟢 `validation.ts` — `EMAIL_REGEX` accepted invalid local parts
+
+**Problem:** Consecutive/leading/trailing dots (`a..b@x.com`, `.a@x.com`) were accepted.
+
+**Fix:** Added look-ahead/look-behind guards rejecting `.` at the start, end, or consecutively in the local part.
+
+### 🟡 `error-handler.ts` — MCP `DomainError.message` not sanitized for the agent
+
+**Problem:** `handleDomainError` returned the raw message (which embeds user input) to the AI agent, unlike every other agent-facing / durable error surface that runs `sanitizeForLogOutput`.
+
+**Fix:** Apply `sanitizeForLogOutput` to the message before returning it.
+
+### 🟡 `tool-registry.ts` — unbounded `context.issues` returned to the agent
+
+**Problem:** A crafted large invalid array produced an arbitrarily large Zod issues array in the tool result (memory amplification / DoS).
+
+**Fix:** Cap `context.issues` at `MAX_VALIDATION_ISSUES = 50`; the already-capped message string preserves a readable summary.
+
+### 🟡 `domain-exception.filter.ts` — reflected message not HTML-stripped; hardening gated on exact `production`
+
+**Problem:** `DomainError.message` (user input) was only control-char sanitized, so `<script>` reflected intact into the JSON response. HTTP-exception detail stripping only ran under `NODE_ENV === "production"`, so staging/preview deployments leaked raw validation bodies.
+
+**Fix:** `handleDomainError` now also runs `stripHtmlTags`. `handleHttpException` inverts the gate to strict-unless-`development` so hardening is the default.
+
+### 🔴 `prisma.service.ts` — superuser check by name; no boot-time RLS assertion
+
+**Problem:** `verifyAppClientRole` only matched role names `besterp`/`postgres`, missing any role granted `SUPERUSER`. RLS enable + policies live in the standalone `rls-setup.sql` (not run by `prisma migrate deploy`), so a forgotten apply silently disabled tenant isolation.
+
+**Fix:** Detect superuser via `pg_roles.rolsuper`/`rolcatupdate`. Added `verifyRlsEnabled()` that refuses to boot if RLS is not enabled on the core tenant tables.
+
+### 🟢 `migrations/…/migration.sql` — non-idempotent `CREATE INDEX`
+
+**Problem:** A manual re-run during production recovery aborted on "relation already exists".
+
+**Fix:** Added `IF NOT EXISTS`.
+
 ## Changes Applied (2026-07-16) — Code Review Round 35
 
 ### 🔴 `idempotency.ts` / `truncate.ts` — `_truncated` marker collided with real user data

@@ -28,6 +28,16 @@ const VALID_RISK_LEVELS: readonly RiskLevel[] = ["none", "low", "medium", "high"
 const MAX_VALIDATION_MESSAGE_LENGTH = 2000;
 
 /**
+ * Maximum number of Zod validation issues echoed back in `context.issues`.
+ * Zod emits one issue per invalid element, so a crafted array/object with
+ * many failing fields produces an arbitrarily large issues array. Returning
+ * it verbatim to the agent is a memory-amplification / DoS vector. The
+ * already-capped `message` string preserves a readable summary; only the
+ * first N structured issues are retained for programmatic callers.
+ */
+const MAX_VALIDATION_ISSUES = 50;
+
+/**
  * Regex for safe idempotency keys — printable ASCII only (0x21–0x7E).
  * Mirrors the pattern in idempotency.ts to reject control characters,
  * newlines, and non-ASCII bytes at the earliest possible point.
@@ -197,7 +207,7 @@ export class ToolRegistry {
                 code: "INVALID_INPUT",
                 message: `Input validation failed: ${detail}`,
                 suggestedTools: [name],
-                context: { issues: parsed.error.issues },
+                context: { issues: parsed.error.issues.slice(0, MAX_VALIDATION_ISSUES) },
               },
             };
           }

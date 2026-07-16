@@ -58,6 +58,15 @@ describe("stripHtmlTags", () => {
     expect(() => stripHtmlTags(long)).toThrow("input exceeds maximum");
   });
 
+  it("throws InvalidTypeValueError on oversized multi-byte input (byte-length guard)", () => {
+    // A 99k multi-byte string passes the UTF-16 code-unit count but is far
+    // larger in UTF-8 bytes. The guard measures bytes, so it must reject.
+    const longMultiByte = "中".repeat(99_000);
+    expect(Buffer.byteLength(longMultiByte, "utf8")).toBeGreaterThan(100_000);
+    expect(() => stripHtmlTags(longMultiByte)).toThrow(InvalidTypeValueError);
+    expect(() => stripHtmlTags(longMultiByte)).toThrow("input exceeds maximum");
+  });
+
   it("handles mixed content safely", () => {
     const result = stripHtmlTags("<b>hello</b> <script>evil</script> world");
     expect(result).toBe("hello  world");
@@ -133,9 +142,28 @@ describe("sanitizeLogOutput", () => {
     expect(result).not.toContain("sk-live-abc123");
   });
 
-  it("redacts file paths after 'at '", () => {
-    expect(sanitizeLogOutput("at /home/user/project/src/file.ts:42")).toContain("[PATH]");
-    expect(sanitizeLogOutput("at C:\\Users\\user\\src\\file.ts:1")).toContain("[PATH]");
+  it("redacts file paths anchored by 'at '", () => {
+    expect(sanitizeLogOutput("found at /home/user/project/src/file.ts:42")).toContain("[PATH]");
+    expect(sanitizeLogOutput("found at C:\\Users\\user\\src\\file.ts:1")).toContain("[PATH]");
+  });
+
+  it("does NOT redact ordinary prose containing 'at /path'", () => {
+    // A bare path at the end of a sentence with no file/extension/line suffix
+    // is treated as prose and left intact.
+    expect(sanitizeLogOutput("meet me at /home/user later")).toBe("meet me at /home/user later");
+    expect(sanitizeLogOutput("retry at /admin/reindex now")).toBe("retry at /admin/reindex now");
+  });
+
+  it("redacts bare bearer tokens", () => {
+    expect(sanitizeLogOutput("Authorization: Bearer sk_live_abc123xyz")).toContain("Bearer [REDACTED]");
+    expect(sanitizeLogOutput("Authorization: Bearer sk_live_abc123xyz")).not.toContain("sk_live_abc123xyz");
+  });
+
+  it("redacts bare JWTs", () => {
+    const jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.SflKxwRJSMeKKF2QT4f";
+    const result = sanitizeLogOutput(`token ${jwt}`);
+    expect(result).toContain("[REDACTED_JWT]");
+    expect(result).not.toContain(jwt);
   });
 
   it("redacts secrets in query strings of non-credential HTTP URLs", () => {

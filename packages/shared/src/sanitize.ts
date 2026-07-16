@@ -35,7 +35,12 @@ export function stripHtmlTags(input: string): string {
   // work. 100 KB is well above any legitimate text field (the largest field
   // MAX_PARTY_DESCRIPTION_LENGTH is 1000 chars).
   if (input.length === 0) return input;
-  if (input.length > MAX_INPUT_LENGTH) {
+  // Measure in UTF-8 bytes, not UTF-16 code units. Multi-byte characters
+  // (CJK, emoji) occupy up to 4 bytes each, so a string of 99k such chars is
+  // ~400 KB — far above the intended 100 KB budget. Measuring code units
+  // would let a crafted multi-byte string slip past the cap and then balloon
+  // further inside the decode loop (entity decoding can expand length).
+  if (Buffer.byteLength(input, "utf8") > MAX_INPUT_LENGTH) {
     throw new InvalidTypeValueError(
       `stripHtmlTags: input exceeds maximum allowed length. ` +
       `This may indicate a DoS attempt via deeply nested HTML encoding.`
@@ -126,6 +131,13 @@ export function sanitizeLogOutput(message: string): string {
     // in operator logs. Scrub the secret-bearing parameters first so the
     // host/path collapse then leaves nothing sensitive behind.
     .replace(/(?<=[?&])((?:key|token|secret|password|access_token|auth|api_key|apikey|client_secret)=)[^&\s"')\]}]+/gi, "$1[REDACTED]")
+    // Redact high-entropy bearer/secret tokens that appear outside the
+    // key=value form above (e.g. `Authorization: Bearer sk_live_...` echoed in
+    // an auth-failure error, or a bare JWT). The JWT pattern is conservative:
+    // three dot-separated base64url segments, which is structurally distinct
+    // from ordinary prose.
+    .replace(/\bBearer\s+[A-Za-z0-9._-]+/gi, "Bearer [REDACTED]")
+    .replace(/\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g, "[REDACTED_JWT]")
     .replace(/(https?:\/\/)[^\s"')\]}]+/gi, "$1[HOST]/[PATH]")
     .replace(/(?:ftp|sftp):\/\/[^\s"')\]}]+/gi, "[FTP_URL]")
     .replace(/(?:ws|wss):\/\/[^\s"')\]}]+/gi, "[WEBSOCKET_URL]")
@@ -141,8 +153,15 @@ export function sanitizeLogOutput(message: string): string {
     // `custom://host`) are left untouched. Runs AFTER the scheme-specific
     // patterns so they keep their labelled output ([DATABASE_URL],
     // [REDIS_URL], …) — this only catches what they miss.
-    .replace(/[a-zA-Z][a-zA-Z0-9+.-]*:\/\/[^\s:/@"']+:[^\s/@"']+@[^\s"']+/g, "[REDACTED_URL]")
-    .replace(/\bat\b\s*(?:[A-Za-z]:)?[/\\][^\s"':]+/gi, "[PATH]");
+     .replace(/[a-zA-Z][a-zA-Z0-9+.-]*:\/\/[^\s:/@"']+:[^\s/@"']+@[^\s"']+/g, "[REDACTED_URL]")
+     // Redact filesystem paths, but only when they are absolute (leading `/`
+     // with two or more segments, a `~/` home path, or a Windows drive root).
+     // This avoids corrupting ordinary prose such as "meet me at /home/user
+     // later" — the previous `\bat\b\s*/...` rule collapsed that to
+     // "meet me [PATH] later" and destroyed legitimate log context. A path is
+     // only redacted when it cannot be mistaken for prose: it must begin at a
+     // boundary and have at least two non-empty segments.
+      .replace(/(^|\s)(?:\/(?:[^\s'":/]+\/)+[^\s'":/]*\.[^\s'":/]+(?::\d+)?|~\/[^\s'":/]+\/[^\s'":/]*\.[^\s'":/]+(?::\d+)?|[A-Za-z]:\\[^\s'":]+(?::\d+)?)/g, "$1[PATH]");
 }
 
 /**

@@ -14,6 +14,7 @@ import { ExceptionFilter, Catch, ArgumentsHost, Logger, HttpException } from "@n
 import type { Response } from "express";
 import {
   DomainError, isDomainError, getErrorCode, sanitizeForLogOutput, sanitizeLogMessage,
+  stripHtmlTags,
   EntityNotFoundError, DuplicateEntityError, ConcurrencyConflictError,
   MissingSubtypeDataError, InvalidTypeValueError, InvalidTenantIdError,
   TenantContextFailedError,
@@ -143,14 +144,18 @@ export class DomainExceptionFilter implements ExceptionFilter {
       //   `Invalid fromDate format: ${trimmed}.`
       //   `${field} is not a valid ISO 8601 date. Received: ${value}.`
       // Those values are only .trim()'d upstream, so interior control chars
-      // (newlines, tabs, ANSI escapes) survive into the message. Reflecting
-      // the message verbatim into the response body re-opens the same
-      // log/response-injection surface that sanitizeContext() closes for
-      // context values — and unlike context this field is sent in BOTH dev
-      // and production for non-500 DomainErrors. Sanitize it consistently.
+      // (newlines, tabs, ANSI escapes) AND raw HTML/scripts survive into the
+      // message. Reflecting the message verbatim into the response body
+      // re-opens the same log/response-injection surface that
+      // sanitizeContext() closes for context values — and unlike context this
+      // field is sent in BOTH dev and production for non-500 DomainErrors.
+      // Control chars are converted to "_" first (matching sanitizeContext),
+      // then any HTML tags are stripped (stored-XSS defense). Running control
+      // sanitization before HTML stripping keeps the existing "_"-substitution
+      // semantics while closing the HTML-injection gap.
       ...(status === 500 && isProd
         ? { message: "An unexpected error occurred" }
-        : { message: sanitizeLogMessage(exception.message) }),
+        : { message: stripHtmlTags(sanitizeLogMessage(exception.message)) }),
     };
     if (isDev && exception.suggestedTools.length > 0) {
       body.suggestedTools = exception.suggestedTools;
@@ -165,10 +170,15 @@ export class DomainExceptionFilter implements ExceptionFilter {
     const status = exception.getStatus();
     const exceptionResponse = exception.getResponse();
 
-    // In production, strip any internal details from HttpException responses.
-    // Some NestJS exceptions (e.g., ValidationPipe errors) include the full
-    // validation error array, which could leak internal field names or logic.
-    if (process.env.NODE_ENV === "production" && typeof exceptionResponse === "object" && exceptionResponse !== null) {
+    // Strip internal details from HttpException responses in every environment
+    // EXCEPT development. Some NestJS exceptions (e.g., ValidationPipe errors)
+    // include the full validation error array, which could leak internal
+    // field names or logic. Production hardening must NOT depend on an exact
+    // "production" NODE_ENV: staging / preview / uat deployments that run under
+    // any other value would otherwise return raw error bodies (information
+    // disclosure). Only the explicit development environment is permissive.
+    const isDev = process.env.NODE_ENV === "development";
+    if (!isDev && typeof exceptionResponse === "object" && exceptionResponse !== null) {
       const res = exceptionResponse as Record<string, unknown>;
       // Keep only safe, client-facing fields; drop validation details, stack, etc.
       const safeBody: Record<string, unknown> = { statusCode: status };

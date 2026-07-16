@@ -117,7 +117,12 @@ function handleDomainError(error: DomainError, definition: { name: string }): To
     success: false,
     error: {
       code: error.code,
-      message: error.message,
+      // DomainError.message frequently embeds user-supplied values (malformed
+      // dates, received fields). Those are only .trim()'d upstream, so they may
+      // carry sensitive-looking content (URLs, connection strings) or HTML that
+      // would otherwise be reflected to the AI agent verbatim. Sanitize
+      // consistently with every other agent-facing / durable error surface.
+      message: sanitizeForLogOutput(error.message),
       suggestedTools: error.suggestedTools.length > 0 ? error.suggestedTools : [definition.name, "list_available_tools"],
       context: sanitizeContextValueForToolResult(error.context),
     },

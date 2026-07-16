@@ -2,14 +2,73 @@
 
 ## Scope
 Fresh full review of the BestERP monorepo (`packages/shared`, `packages/mcp-tools`,
-`packages/database`, `apps/api`) conducted on 2026-07-16. This is review round 35;
-rounds 1–34 are documented in earlier revisions of this file and `CHANGES.md`.
+`packages/database`, `apps/api`) conducted on 2026-07-16. This is review round 37;
+rounds 1–36 are documented in earlier revisions of this file and `CHANGES.md`.
 
 ## Baseline (before this round)
 - `npm run typecheck` — clean across all workspaces
 - `npm run lint` — 0 errors, 0 warnings
 - `npm run test` — all passing: shared 138, mcp-tools 121, database 25 (10 RLS isolation
   tests skipped without a live DB), api 306
+
+## Findings & Actions (round 37)
+
+### Fixed this round
+
+1. **🔴 `sanitize.ts:38` — `stripHtmlTags` length guard measured UTF-16 code units, not
+   bytes (DoS-guard bypass).** A ~99k multi-byte string is ~400 KB in UTF-8 yet
+   `input.length` (code units) stayed under the 100k cap, so it entered the entity-decode
+   strip loop and could balloon well past the intended budget. The guard now measures
+   `Buffer.byteLength(input, "utf8")`. Added regression test (multi-byte oversized input).
+
+2. **🟡 `sanitize.ts:128-145` — `sanitizeLogOutput` missed bare bearer/JWT secrets and
+   false-redacted ordinary prose as file paths.** `Authorization: Bearer sk_live_…` and
+   bare JWTs reached operator logs unredacted. The `at /path` path rule also collapsed
+   prose like "meet me at /home/user later" into "meet me [PATH] later", destroying
+   legitimate log context. Added `Bearer …` and JWT redaction, and rewrote the path rule
+   to redact only absolute paths that actually look like file paths (extension or `:line`
+   suffix), leaving plain prose intact. Added regression tests.
+
+3. **🟢 `validation.ts:32` — `EMAIL_REGEX` accepted invalid local parts (consecutive/leading/
+   trailing dots).** Added `(?!\.)(?!.*\.\.)…(?<!\.)` guards so `a..b@x.com` and `.a@x.com`
+   are now rejected. Existing valid addresses still pass.
+
+4. **🟡 `error-handler.ts:120` — MCP `DomainError.message` returned verbatim to the AI agent
+   without `sanitizeForLogOutput`.** `handleDomainError` is the one agent-facing surface that
+   did not scrub URLs/paths from the message (generic errors return a fixed string; idempotency
+   / audit / HTTP paths all sanitize). Now applies `sanitizeForLogOutput` consistently.
+
+5. **🟡 `tool-registry.ts:200` — unbounded `context.issues` array returned to the agent (DoS /
+   memory amplification).** Zod emits one issue per invalid element, so a crafted large array
+   produced an arbitrarily large issues array in the tool result. Now capped at
+   `MAX_VALIDATION_ISSUES = 50` (the message string was already capped at 2000 chars).
+
+6. **🟡 `domain-exception.filter.ts:153,171` — reflected `DomainError.message` not HTML-stripped;
+   error-response hardening gated on exact `NODE_ENV === "production"`.** The message embedded
+   user input but only control-char sanitized, so `<script>` reflected intact into the JSON
+   response. `handleDomainError` now also runs `stripHtmlTags`. `handleHttpException` only
+   stripped internal details under `production`, so staging/preview envs leaked raw validation
+   bodies; inverted to strict-unless-`development` so hardening is the default.
+
+7. **🔴 `prisma.service.ts:177` — superuser detection keyed on role name, not privilege; no boot
+   RLS assertion.** `verifyAppClientRole` only flagged roles literally named `besterp`/`postgres`,
+   missing any role granted `SUPERUSER`/catalog-update. Now queries `pg_roles` for `rolsuper`/
+   `rolcatupdate`. Added `verifyRlsEnabled()` called at boot: it refuses to start if RLS is not
+   enabled on the core tenant tables (RLS lives in the standalone `rls-setup.sql`, which
+   `prisma migrate deploy` does not run — a forgotten apply meant silent cross-tenant exposure).
+
+8. **🟢 `migrations/20260619000000…/migration.sql:9` — non-idempotent `CREATE INDEX`.** Added
+   `IF NOT EXISTS` so a re-run during manual production recovery no longer aborts.
+
+### Reviewed but NOT changed (false positives / out of scope)
+
+- **RLS-cache method/delegate caches** — closure captures the single `tenantId` bound at
+  `createTenantClient` time; clients are cached per `tenantId`, never reused across tenants.
+- **`crypto.ts` `hashInput`** — depth/key/string-byte guards confirmed correctly ordered; no
+  bypass. `NaN`/`Infinity`→`null`, circular `cause` handled.
+- **`party.service.ts` duplicate-contact / role checks** — RLS-scoped; explicit `tenantId`
+  filters consistent with the app-role path.
+- **CORS** — exact-origin match with `credentials` only when origin configured; no `*` reflection.
 
 ## Findings & Actions (round 35)
 

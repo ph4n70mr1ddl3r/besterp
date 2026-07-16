@@ -122,6 +122,7 @@ export class PrismaService
       }
       this.logger.log("Database connections established (admin + app)");
       await this.verifyAppClientRole();
+      await this.verifyRlsEnabled();
     } catch (error: unknown) {
       // Sanitize before logging: Prisma/driver connection errors frequently
       // embed the datasource URL (credentials + hostname) in their message
@@ -178,15 +179,21 @@ export class PrismaService
     try {
       const [roleResult] = await this._appClient.$queryRaw<[{ role: string }]>`SELECT current_user AS role`;
       const role = roleResult.role;
-      if (role === "besterp" || role === "postgres") {
+      // Detect superuser privilege directly rather than by role name. A role
+      // can be granted SUPERUSER (or renamed) independently of its name, and
+      // superusers BYPASS all RLS policies — silently disabling tenant
+      // isolation for every tenant-scoped query. Querying pg_roles catches the
+      // privilege regardless of how the role is named.
+      const [privResult] = await this._appClient.$queryRaw<[{ rolsuper: boolean; rolcatupdate: boolean }]>`
+        SELECT rolsuper, rolcatupdate FROM pg_roles WHERE rolname = current_user
+      `;
+      const isSuperuser = privResult?.rolsuper === true || privResult?.rolcatupdate === true;
+      if (isSuperuser) {
         // PostgreSQL superusers BYPASS all RLS policies, so tenant isolation
         // is silently disabled for every tenant-scoped query when the app
         // client connects as one. This is a hard security failure regardless of
         // environment — start refusing immediately rather than logging a
-        // warning that is easy to miss. (Previously this only threw in
-        // production; dev/staging deployments pointed at a privileged role
-        // were silently cross-tenant, and the warning text incorrectly claimed
-        // rows would be "silently rejected" when the opposite is true.)
+        // warning that is easy to miss.
         const msg =
           `App client connected as superuser role '${role}' — RLS is BYPASSED and ` +
           `tenant isolation is disabled. Set DATABASE_URL to the besterp_app ` +
@@ -201,6 +208,56 @@ export class PrismaService
       }
       this.logger.warn(
         `Could not verify app client database role: ${sanitizeForLogOutput(roleErr instanceof Error ? roleErr.message : String(roleErr))}`
+      );
+    }
+  }
+
+  /**
+   * Verify that Row-Level Security is actually enabled on the tenant-scoped
+   * tables at boot time. RLS enable + policies live in the standalone
+   * `rls-setup.sql` script, which `prisma migrate deploy` does NOT execute.
+   * If a deployment forgets to apply it (or recreates the DB from migrations),
+   * the tables exist with NO RLS — every tenant-scoped query then returns all
+   * tenants' rows with no error: a silent, total cross-tenant data exposure.
+   *
+   * Refuse to boot if RLS is missing on any of the core tenant tables so the
+   * gap is caught in CI / on startup rather than in a security incident.
+   */
+  private async verifyRlsEnabled(): Promise<void> {
+    const tenantTables = [
+      "party",
+      "contact_mechanism",
+      "party_contact_mechanism",
+      "party_role",
+      "party_relationship",
+      "idempotency_record",
+      "audit_log",
+    ];
+    try {
+      const rows = await this._appClient.$queryRawUnsafe<{ relname: string; relrowsecurity: boolean; relforcerowsecurity: boolean }[]>(
+        `SELECT c.relname, c.relrowsecurity, c.relforcerowsecurity
+         FROM pg_class c
+         JOIN pg_namespace n ON n.oid = c.relnamespace
+         WHERE n.nspname = 'public' AND c.relname = ANY($1)`,
+        tenantTables
+      );
+      const missing = rows.filter((r) => !r.relrowsecurity);
+      if (missing.length > 0) {
+        const names = missing.map((r) => r.relname).join(", ");
+        const msg =
+          `Row-Level Security is NOT enabled on tenant tables: ${names}. ` +
+          `Tenant isolation is disabled — apply rls-setup.sql (ENABLE/FORCE ` +
+          `ROW LEVEL SECURITY + policies) before starting the service.`;
+        this.logger.error(msg);
+        throw new Error(msg);
+      }
+      this.logger.debug("RLS verified enabled on tenant tables");
+    } catch (rlsErr) {
+      if (rlsErr instanceof Error && rlsErr.message.includes("Row-Level Security is NOT enabled")) {
+        throw rlsErr;
+      }
+      this.logger.warn(
+        `Could not verify RLS enablement: ${sanitizeForLogOutput(rlsErr instanceof Error ? rlsErr.message : String(rlsErr))}`
       );
     }
   }
