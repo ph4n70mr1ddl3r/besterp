@@ -335,4 +335,22 @@ describe("hashInput", () => {
     b.cause = a;
     expect(() => hashInput({ e: a })).toThrow(/Circular reference detected in hash input/);
   });
+
+  it("should refuse to hash an oversized string value (DoS guard)", () => {
+    // A single huge string slips past the MAX_HASH_KEYS structural guard
+    // (countKeys counts 0 keys for a primitive string) and would otherwise be
+    // JSON.stringified into a multi-hundred-MB buffer. The per-value byte cap
+    // must reject it before that.
+    const huge = "x".repeat(200_000);
+    expect(() => hashInput(huge)).toThrow(InvalidTypeValueError);
+    expect(() => hashInput(huge)).toThrow(/longer than/);
+
+    // A huge string nested inside an object is also rejected, not silently hashed.
+    expect(() => hashInput({ note: huge })).toThrow(InvalidTypeValueError);
+
+    // A string just under the cap is accepted (no false positives at the boundary).
+    const nearLimit = "x".repeat(99_000);
+    expect(() => hashInput(nearLimit)).not.toThrow();
+    expect(hashInput(nearLimit)).toMatch(/^[a-f0-9]{64}$/);
+  });
 });

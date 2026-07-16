@@ -142,6 +142,35 @@ const MAX_HASH_DEPTH = 100;
 /** Maximum number of keys in the canonical form to prevent DoS via wide/shallow objects. */
 const MAX_HASH_KEYS = 10_000;
 
+/**
+ * Maximum byte length of a single string value to prevent DoS via an
+ * oversized string. `countKeys` only counts object/array/Map/Set structure,
+ * so a lone multi-hundred-MB string would slip past that guard and get
+ * JSON.stringified into a proportionally large buffer — exhausting memory /
+ * blocking the event loop. `MAX_INPUT_LENGTH` in sanitize.ts caps the same
+ * class of input for HTML stripping; this is the idempotency-hash analogue,
+ * bounded well above any legitimate tool input (the largest field is
+ * MAX_PARTY_DESCRIPTION_LENGTH = 1000 chars).
+ */
+const MAX_HASH_STRING_BYTES = 100_000;
+
+/**
+ * Enforce the per-string byte cap (MAX_HASH_STRING_BYTES). A single oversized
+ * string would otherwise be JSON.stringified into a multi-hundred-MB buffer
+ * (countKeys only counts object/array/Map/Set structure, so a lone huge
+ * string slips past it). Measure byte length, not char length, so a
+ * 50k-CJK-char string (well above the limit) is caught even though its char
+ * count looks moderate.
+ */
+function checkStringBounds(value: string): void {
+  if (Buffer.byteLength(value, "utf8") > MAX_HASH_STRING_BYTES) {
+    throw new InvalidTypeValueError(
+      `Input contains a string longer than ${MAX_HASH_STRING_BYTES} bytes. ` +
+      `Refusing to hash to prevent denial of service.`
+    );
+  }
+}
+
 function sortKeysDeep(value: unknown, ancestors?: Set<object>, depth = 0): unknown {
   if (depth > MAX_HASH_DEPTH) {
     throw new InvalidTypeValueError(
@@ -154,10 +183,19 @@ function sortKeysDeep(value: unknown, ancestors?: Set<object>, depth = 0): unkno
     if (!Number.isFinite(value)) return null;
     return value;
   }
+  if (typeof value === "string") {
+    checkStringBounds(value);
+    return value;
+  }
   if (Array.isArray(value)) return sortArray(value, ancestors, depth);
   if (value instanceof Map) return sortMap(value, ancestors, depth);
   if (value instanceof Set) return sortSet(value, ancestors, depth);
   if (typeof value === "object") return sortObject(value, ancestors, depth);
+  return sortPrimitive(value);
+}
+
+/** Serialize a non-container primitive (bigint/symbol/function/others) for hashing. */
+function sortPrimitive(value: unknown): unknown {
   if (typeof value === "bigint") return `BigInt:${value.toString()}`;
   if (typeof value === "symbol") return `Symbol:${value.toString()}`;
   if (typeof value === "function") {
