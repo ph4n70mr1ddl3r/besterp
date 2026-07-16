@@ -158,3 +158,20 @@ describe("capString", () => {
     expect(capString(value, 6)).toBe("café");
   });
 });
+
+describe("truncateValue never throws", () => {
+  it("does not throw when JSON.stringify emits a value JSON.parse rejects", () => {
+    // Regression guard: a custom toJSON can make JSON.stringify succeed while
+    // the round-trip JSON.parse fails (e.g. emitting a lone UTF-16 surrogate).
+    // truncateValue is used in fire-and-forget audit/idempotency writes and
+    // must never throw — it should fall back to the string form instead.
+    const value = {
+      toJSON() {
+        return `bad\uD800surrogate`;
+      },
+    };
+    expect(() => truncateValue(value, MAX_STORED_PAYLOAD_SIZE)).not.toThrow();
+    // The stored form is the string produced by JSON.stringify.
+    expect(truncateValue(value, MAX_STORED_PAYLOAD_SIZE)).toBe(`bad\uD800surrogate`);
+  });
+});

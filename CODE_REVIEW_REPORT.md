@@ -2,8 +2,97 @@
 
 ## Scope
 Fresh full review of the BestERP monorepo (`packages/shared`, `packages/mcp-tools`,
-`packages/database`, `apps/api`) conducted on 2026-07-16. This is review round 33;
-rounds 1–32 are documented in earlier revisions of this file and `CHANGES.md`.
+`packages/database`, `apps/api`) conducted on 2026-07-16. This is review round 34;
+rounds 1–33 are documented in earlier revisions of this file and `CHANGES.md`.
+
+## Baseline (before this round)
+- `npm run typecheck` — clean across all workspaces
+- `npm run lint` — 0 errors, 0 warnings
+- `npm run test` — all passing: shared 138, mcp-tools 121, database 25 (10 RLS isolation
+  tests skipped without a live DB), api 306
+
+## Findings & Actions (round 34)
+
+### Fixed this round
+
+1. **🔴 `crypto.ts:104-111` — `Error.cause` hashed shallow + circular `cause` not
+   detected.** `serializeSpecialObject` flattened `cause` to one level (`{name, message}`),
+   so two inputs differing only in `cause` depth hashed **identically** (defeating
+   idempotency mismatch detection), and a circular `cause` chain did **not** throw like
+   every other circular type. `cause` is now recursively serialized via
+   `sortKeysDeep(value.cause, ancestors, depth + 1)`, inheriting the circular + depth
+   guards. Added regression tests.
+
+2. **🔴 `idempotency.ts:406` — success/failure `result` persisted & replayed without
+   sensitive-field redaction (secret-leak path).** The audit log redacts
+   `toolOutput` via `redactSensitiveFields`, but the idempotency `result` column applied
+   only `truncateValue`. A tool returning a value under a sensitive-named key would
+   persist it unredacted and replay it to the agent verbatim. Now `redactSensitiveFields`
+   runs before `truncateValue` on persist and is re-applied on replay. `redactSensitiveFields`
+   was exported from `audit-log.ts` and reused so both durable sinks share one implementation.
+
+3. **🟡 `truncate.ts:188` — `JSON.parse` could throw, violating the "never throws"
+   contract.** A value `JSON.stringify` emits but cannot re-parse (e.g. custom `toJSON`
+   emitting a lone surrogate) would crash a fire-and-forget audit/idempotency write. Added a
+   local `safeParse` that falls back to the string form. Added a regression test.
+
+4. **🟡 `error-handler.ts:140` — Prisma `meta.target` echoed to the agent unsanitized.**
+   The `P2002` handler interpolated `meta.target` (user-influenced under compound
+   constraints) verbatim into the `DUPLICATE_ENTITY` message / `context.conflictingFields`,
+   inconsistent with every other externally-derived string in the file. Now run through
+   `sanitizeLogMessage`.
+
+5. **🟡 `party.service.ts:611,808` — party existence checks relied solely on RLS
+   (incomplete round-32 hardening).** Round 32 added `tenantId` to `getParty`'s `where`, but
+   two sibling existence checks (`addPartyRoleTransaction`, `createContactMechanismTransaction`)
+   still queried `party.findUnique({ where: { partyId } })` with no `tenantId`. Added
+   `tenantId` to both, mirroring `getParty`.
+
+6. **🟡 `cleanup-expired-idempotency.ts` — advisory lock ineffective across Prisma's
+   connection pool.** `pg_try_advisory_lock` is session-scoped; under Prisma's pool the lock
+   and the batch operations could land on different backend connections, voiding
+   serialization. The whole cleanup now runs inside a single interactive `$transaction`.
+
+7. **🟡 `.github/workflows/ci.yml` — round-33 `ALLOW_SEED` guard broke the CI seed step.**
+   Added `ALLOW_SEED: "1"` to the CI "Seed database" step (ephemeral CI Postgres, safe).
+
+8. **🟢 `rls-setup.sql` — `set_tenant_context` lacked `search_path` pin + superuser
+   assertion.** Added `SET search_path = pg_catalog, public` to the function and a `DO $$`
+   assertion that raises if `besterp_app` is a superuser.
+
+9. **🟢 `health.controller.ts` — unauthenticated `/health` leaked environment/memory/uptime.**
+   The anonymous `/health` success path now returns only `{ status, timestamp, database }`.
+
+### Verified clean (no action needed)
+- **`sanitize.ts` decode loop** — 100 KB input cap + 10-iteration bound; all tag/entity
+  regexes are linear character classes (no ReDoS).
+- **`validateTenantId` / regexes** — `UUID_REGEX`, `EMAIL_REGEX`, `TENANT_ID_PATTERN`,
+  `ISO_DATE_REGEX` all anchored/bounded, no ReDoS.
+- **`sortKeysDeep`** — depth (100) + key-count (10k) guards; WeakMap/WeakSet rejected;
+  ancestor-set cleanup on every exit path (round 31).
+- **`idempotency.ts` state machine** — acquire/failed/stale-pending transitions under
+  Serializable isolation with P2034 retry; narrow failed-record race handled as
+  `REQUEST_IN_PROGRESS`.
+- **`rls-extension.ts` Proxy traps** — raw SQL / `$` / `_` props blocked; array `$transaction`
+  rejected; non-existent models throw.
+- **`party.controller.ts` / `auth` guards** — `tenantId` taken solely from JWT context and
+  spread after the body; global guards honor `@Public()`; `TenantGuard` defensively
+  re-validates `tenantId`/`userId`.
+- **`discovery-tools.ts`** — `typeName` is a `z.enum` allowlist; type tables are global by
+  design (admin client).
+- **`audit-log.ts`** — backpressure manager, `redactSensitiveFields` depth + circular guards.
+
+## Test Results
+```
+shared:    138 passed (4 files)
+mcp-tools: 121 passed (4 files)
+database:   25 passed, 10 skipped (2 files)
+api:       306 passed (14 files)
+───────────────────────────────────
+Total:     590 passed, 10 skipped
+```
+
+## Findings & Actions (round 33)
 
 ## Baseline (before this round)
 - `npm run typecheck` — clean across all workspaces

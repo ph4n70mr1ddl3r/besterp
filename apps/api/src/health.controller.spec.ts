@@ -11,7 +11,7 @@ describe("HealthController", () => {
     vi.useRealTimers();
   });
   describe("getHealth", () => {
-    it("should return health status", async () => {
+    it("should return a minimal, non-fingerprintable health status to anonymous callers", async () => {
       const expectedResponse: HealthStatus = {
         status: "ok",
         timestamp: new Date().toISOString(),
@@ -29,7 +29,17 @@ describe("HealthController", () => {
       const controller = new HealthController(mockHealthService as any);
       const result = await controller.getHealth();
 
-      expect(result).toEqual(expectedResponse);
+      // The anonymous /health endpoint must NOT disclose environment/memory/
+      // uptime (infrastructure fingerprinting). Only status/timestamp/database
+      // are returned.
+      expect(result).toEqual({
+        status: "ok",
+        timestamp: expectedResponse.timestamp,
+        database: "connected",
+      });
+      expect(result).not.toHaveProperty("environment");
+      expect(result).not.toHaveProperty("memory");
+      expect(result).not.toHaveProperty("uptime");
       expect(mockHealthService.getHealth).toHaveBeenCalled();
     });
 

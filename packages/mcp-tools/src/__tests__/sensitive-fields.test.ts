@@ -166,3 +166,31 @@ describe("SENSITIVE_FIELD_PATTERN", () => {
     expect(SENSITIVE_FIELD_PATTERN.test("bartender")).toBe(false);
   });
 });
+
+describe("redactSensitiveFields (shared by audit-log + idempotency)", () => {
+  // Imported from audit-log.ts so the SAME implementation redacts both the
+  // persisted ai_action_log.toolOutput row and the idempotency_record.result
+  // column. The idempotency sink previously applied NO redaction, leaking
+  // values under sensitive-named keys; this guards the shared function.
+  const { redactSensitiveFields } = await import("../middleware/audit-log.js");
+
+  it("redacts values under sensitive-named keys at any nesting depth", () => {
+    const input = {
+      partyId: "p1",
+      result: { apiKey: "sk_live_secret123", nested: { password: "hunter2" } },
+    };
+    const out = redactSensitiveFields(input) as Record<string, unknown>;
+    expect(out.partyId).toBe("p1");
+    expect((out.result as Record<string, unknown>).apiKey).toBe("[REDACTED]");
+    expect(
+      ((out.result as Record<string, unknown>).nested as Record<string, unknown>).password,
+    ).toBe("[REDACTED]");
+  });
+
+  it("replaces deep subgraphs with a placeholder when the redaction depth cap is exceeded", () => {
+    let deep: Record<string, unknown> = { leaf: "v" };
+    for (let i = 0; i < 15; i++) deep = { child: deep };
+    const out = redactSensitiveFields({ secret: deep }) as Record<string, unknown>;
+    expect(out.secret).toBe("[REDACTED]");
+  });
+});

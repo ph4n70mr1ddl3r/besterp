@@ -14,7 +14,11 @@ import { InvalidTypeValueError } from "./errors.js";
  * - BigInt: converted to string representation
  * - Symbol: converted to string representation
  * - undefined/NaN/Infinity: normalized to null
- * - Date/Error/RegExp: passed through for JSON.stringify
+ * - Date/RegExp: passed through for JSON.stringify
+ * - Error: recursively serialized (name/message/cause) with the same
+ *   circular-reference and depth guards applied to plain objects so a
+ *   circular `cause` chain throws like every other circular type and
+ *   differing `cause` depths produce distinct hashes.
  */
 function checkCircular(value: object, ancestors: Set<object>): void {
   if (ancestors.has(value)) {
@@ -104,9 +108,14 @@ function serializeSpecialObject(value: object, ancestors: Set<object>, depth: nu
   if (value instanceof Error) {
     const serialized: Record<string, unknown> = { name: value.name, message: value.message };
     if (value.cause !== undefined && value.cause !== null) {
-      serialized.cause = value.cause instanceof Error
-        ? { name: value.cause.name, message: value.cause.message }
-        : String(value.cause);
+      // Recurse through sortKeysDeep so the cause keeps full depth fidelity
+      // (nested cause.cause is preserved) and is subject to the same
+      // circular-reference + depth guards as any other value. A circular
+      // cause chain therefore throws "Circular reference detected in hash
+      // input" consistently, and inputs differing only in cause depth yield
+      // distinct hashes (otherwise two different tool inputs could collide
+      // to the same idempotency hash).
+      serialized.cause = sortKeysDeep(value.cause, ancestors, depth + 1);
     }
     return serialized;
   }

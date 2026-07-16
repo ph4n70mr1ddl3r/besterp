@@ -233,7 +233,7 @@ function isTerminal(value: unknown): boolean {
     || value instanceof Date || value instanceof RegExp;
 }
 
-function redactSensitiveFields(value: unknown, depth = 0, seen?: WeakSet<object>): unknown {
+export function redactSensitiveFields(value: unknown, depth = 0, seen?: WeakSet<object>): unknown {
   // Depth guard: once we exceed MAX_REDACTION_DEPTH, stop descending and
   // return a placeholder. Returning the raw value here (the previous
   // behaviour, via the depth clause in isTerminal) would bypass the

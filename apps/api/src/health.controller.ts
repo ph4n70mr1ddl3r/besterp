@@ -35,7 +35,12 @@ export class HealthController {
         message: "Service is not ready",
       });
     }
-    return status;
+    // Anonymous health endpoint: return only a minimal, non-fingerprintable
+    // body. Exposing environment/memory/uptime to unauthenticated callers
+    // (the version endpoint likewise) is mild info disclosure about
+    // infrastructure state. The full HealthStatus is still available to
+    // authenticated monitoring via the service directly.
+    return { status: status.status, timestamp: status.timestamp, database: status.database };
   }
 
   @Get("version")

@@ -309,4 +309,30 @@ describe("hashInput", () => {
     // Shallow input is unaffected.
     expect(() => hashInput({ a: { b: { c: 1 } } })).not.toThrow();
   });
+
+  it("should preserve full Error.cause depth (no silent collision across cause depths)", () => {
+    // Regression guard: Error.cause is recursively serialized with the same
+    // depth/canonicalisation as any other value. Two inputs whose only
+    // difference is the depth of their `cause` chain must hash DISTINCTLY,
+    // otherwise two different tool inputs could collide to the same
+    // idempotency hash (defeating mismatch detection).
+    const shallow = { e: Object.assign(new Error("boom"), { cause: new Error("inner") }) };
+    const deeper = {
+      e: Object.assign(new Error("boom"), {
+        cause: Object.assign(new Error("mid"), { cause: new Error("inner") }),
+      }),
+    };
+    expect(hashInput(shallow)).not.toBe(hashInput(deeper));
+  });
+
+  it("should throw on a circular Error.cause chain (consistent with other circular types)", () => {
+    // Regression guard: a circular `cause` chain must be detected and throw
+    // like every other circular reference (previously it was silently
+    // flattened to one level and returned a hash without throwing).
+    const a: Record<string, unknown> = new Error("a");
+    const b: Record<string, unknown> = new Error("b");
+    a.cause = b;
+    b.cause = a;
+    expect(() => hashInput({ e: a })).toThrow(/Circular reference detected in hash input/);
+  });
 });

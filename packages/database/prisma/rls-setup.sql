@@ -15,7 +15,19 @@ BEGIN
   -- string "p_tenant_id" instead of the parameter value.
   EXECUTE format('SET LOCAL app.current_tenant = %L', p_tenant_id);
 END;
-$$ LANGUAGE plpgsql SECURITY INVOKER;
+$$ LANGUAGE plpgsql SECURITY INVOKER SET search_path = pg_catalog, public;
+
+-- Defense-in-depth: refuse to apply RLS policies if the application role was
+-- provisioned as a superuser. Superusers ALWAYS bypass RLS (see FORCE RLS
+-- note above), so a misprovisioned besterp_app would silently disable tenant
+-- isolation for every query. Fail loudly at setup time rather than leaking
+-- data across tenants.
+DO $$
+BEGIN
+  IF (SELECT rolsuper FROM pg_roles WHERE rolname = 'besterp_app') THEN
+    RAISE EXCEPTION 'Refusing to set up RLS: role besterp_app is a superuser and bypasses RLS';
+  END IF;
+END $$;
 
 -- ─── Force RLS even for table owner ──────────────────────────
 -- By default, table OWNERS bypass RLS. We need FORCE ROW LEVEL SECURITY

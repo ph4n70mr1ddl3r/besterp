@@ -44,37 +44,36 @@ async function main() {
   // concurrent runs of this script (e.g., overlapping cron triggers) will
   // serialise on this lock so they don't double-scan the same rows.
   const ADVISORY_LOCK_KEY = 0x62657374657270; // 'besterp' in ASCII hex bytes
-  let lockAcquired = false;
   let totalDeleted = 0;
   let before = 0;
   let after = 0;
 
-  // Try to acquire the advisory lock. pg_try_advisory_lock returns false
-  // immediately if another process already holds it — the script exits
-  // cleanly rather than blocking indefinitely.
-  try {
-    const lockResult = await prisma.$queryRaw<Array<{ pg_try_advisory_lock: boolean }>>`
+  // Run the entire cleanup — advisory lock acquisition, scan, and
+  // batched deletes — inside a single interactive transaction so every
+  // statement executes on the SAME backend connection. pg_advisory_lock is
+  // *session* scoped: under Prisma's default connection pool the lock and
+  // the subsequent findMany/deleteMany could otherwise land on different
+  // pooled connections, voiding the serialisation guarantee. Bounding the
+  // work to one transaction keeps the lock effective and lets the server
+  // release it automatically on commit/rollback (an explicit
+  // pg_advisory_unlock is still issued for clarity/early release).
+  const result = await prisma.$transaction(async (tx) => {
+    const lockResult = await tx.$queryRaw<Array<{ pg_try_advisory_lock: boolean }>>`
       SELECT pg_try_advisory_lock(${ADVISORY_LOCK_KEY})
     `;
-    lockAcquired = lockResult[0]?.pg_try_advisory_lock === true;
+    const lockAcquired = lockResult[0]?.pg_try_advisory_lock === true;
     if (!lockAcquired) {
-      console.log("Another cleanup is already running — exiting without doing work.");
-      return;
+      return { skipped: true as const, deleted: 0, before: 0, after: 0 };
     }
-  } catch (e) {
-    console.error("Could not query advisory lock — aborting:", e);
-    await prisma.$disconnect().catch(() => {});
-    process.exit(1);
-  }
 
-  // Capture count after lock acquisition for accurate before/after comparison
-  before = await prisma.idempotencyRecord.count();
+    // Capture count after lock acquisition for accurate before/after comparison.
+    const beforeCount = await tx.idempotencyRecord.count();
 
-  try {
+    let deleted = 0;
     // Delete in batches to avoid long-running transactions and lock contention
     // on large tables. Without batching, a single deleteMany with millions of
     // expired rows can hold a write lock for seconds.
-    let deleted: number;
+    let batchDeleted: number;
     do {
       // Find expired rows by their composite (idempotencyKey, tenantId) primary
       // key, then delete those exact rows. Idempotency keys are tenant-scoped
@@ -84,7 +83,7 @@ async function main() {
       // deleting by it is precise.
       // orderBy ensures deterministic iteration so the oldest expired rows
       // are always cleaned first (helps with retention SLAs).
-      const expired = await prisma.idempotencyRecord.findMany({
+      const expired = await tx.idempotencyRecord.findMany({
         where: { expiresAt: { lt: new Date() } },
         orderBy: { expiresAt: "asc" },
         select: { idempotencyKey: true, tenantId: true },
@@ -92,27 +91,35 @@ async function main() {
       });
       if (expired.length === 0) break;
 
-      const result = await prisma.idempotencyRecord.deleteMany({
+      const del = await tx.idempotencyRecord.deleteMany({
         where: {
           OR: expired.map((r) => ({
             idempotencyKey_tenantId: { idempotencyKey: r.idempotencyKey, tenantId: r.tenantId },
           })),
         },
       });
-      deleted = result.count;
-      totalDeleted += deleted;
-    } while (deleted === BATCH_SIZE);
-  } finally {
-    // Capture count while lock is still held for accurate before/after comparison.
-    after = await prisma.idempotencyRecord.count();
-    if (lockAcquired) {
-      try {
-        await prisma.$queryRaw`SELECT pg_advisory_unlock(${ADVISORY_LOCK_KEY})`;
-      } catch (e) {
-        console.warn("Could not release advisory lock:", e);
-      }
+      batchDeleted = del.count;
+      deleted += batchDeleted;
+    } while (batchDeleted === BATCH_SIZE);
+
+    const afterCount = await tx.idempotencyRecord.count();
+    try {
+      await tx.$queryRaw`SELECT pg_advisory_unlock(${ADVISORY_LOCK_KEY})`;
+    } catch (e) {
+      console.warn("Could not release advisory lock:", e);
     }
+
+    return { skipped: false as const, deleted, before: beforeCount, after: afterCount };
+  });
+
+  if (result.skipped) {
+    console.log("Another cleanup is already running — exiting without doing work.");
+    return;
   }
+
+  totalDeleted = result.deleted;
+  before = result.before;
+  after = result.after;
 
   console.log("Idempotency cleanup complete:");
   console.log(`   Records before: ${before}`);

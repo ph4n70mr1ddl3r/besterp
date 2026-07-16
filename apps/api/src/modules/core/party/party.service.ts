@@ -608,7 +608,7 @@ export class PartyService {
   ): Promise<Prisma.PartyRoleGetPayload<{ include: { roleType: true } }>> {
     try {
       return await db.$transaction(async (tx) => {
-        const party = await tx.party.findUnique({ where: { partyId } });
+        const party = await tx.party.findUnique({ where: { partyId, tenantId } });
         if (!party) {
           throw new EntityNotFoundError(`Party '${partyId}' not found.`, { suggestedTools: ["search_parties", "get_party"], context: { partyId } });
         }
@@ -805,7 +805,7 @@ export class PartyService {
   }>> {
     try {
       return await db.$transaction(async (tx: Prisma.TransactionClient) => {
-        const existingParty = await tx.party.findUnique({ where: { partyId } });
+        const existingParty = await tx.party.findUnique({ where: { partyId, tenantId } });
         if (!existingParty) {
           throw new EntityNotFoundError(`Party '${partyId}' not found.`, { suggestedTools: ["search_parties", "get_party"], context: { partyId } });
         }

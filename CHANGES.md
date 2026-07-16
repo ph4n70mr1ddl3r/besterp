@@ -1,5 +1,61 @@
 # BestERP — Security & Architecture Fixes
 
+## Changes Applied (2026-07-16) — Code Review Round 34
+
+### 🔴 `crypto.ts` — `Error.cause` hashed shallow / circular `cause` not detected
+
+**Problem:** `serializeSpecialObject` flattened `Error.cause` to a single level (`{name, message}`), so a nested `cause.cause` was dropped — two inputs differing only in `cause` depth hashed **identically**, collapsing distinct idempotency inputs. It also never added the `Error` to the `ancestors` set, so a circular `cause` chain did **not** throw like every other circular type (silent hash instead of an error).
+
+**Fix:** `cause` is now recursively serialized via `sortKeysDeep(value.cause, ancestors, depth + 1)`, inheriting the same circular-reference + depth guards and full depth fidelity. Added regression tests (distinct hashes for differing cause depth; throws on circular cause).
+
+### 🔴 `idempotency.ts` — success/failure `result` persisted & replayed **without** sensitive-field redaction
+
+**Problem:** `updateIdempotencyRecordWithRetry` stored `toolResult.data` after `truncateValue` only — no `redactSensitiveFields`. A tool returning a value under a sensitive-named key (e.g. a "create credential" tool) would persist it **unredacted** in `idempotency_record.result` and replay it to the agent verbatim. The parallel audit log (`audit-log.ts`) redacts, so this was an asymmetric secret-leak path between the two durable sinks.
+
+**Fix:** `redactSensitiveFields` is now applied before `truncateValue` in the persist path, and re-applied on the replay path (`handleExistingRecord`) for defense-in-depth against pre-fix rows. `redactSensitiveFields` was exported from `audit-log.ts` and reused so both sinks share one implementation. Added regression tests.
+
+### 🟡 `truncate.ts` — `JSON.parse` could throw, violating the "never throws" contract
+
+**Problem:** `truncateValue` round-tripped `JSON.parse(result.serialized)` with no try/catch. A value `JSON.stringify` emits but cannot re-parse (e.g. a custom `toJSON` emitting a lone UTF-16 surrogate) would throw and crash a fire-and-forget audit/idempotency write.
+
+**Fix:** Added a local `safeParse` that returns the string form on parse failure, so `truncateValue` keeps its "never throws" guarantee. Added a regression test.
+
+### 🟡 `error-handler.ts` — Prisma `meta.target` echoed to the agent unsanitized
+
+**Problem:** The `P2002` handler interpolated `meta.target` (a field/column name, user-influenced under compound constraints) verbatim into the `DUPLICATE_ENTITY` message and `context.conflictingFields` returned to the agent — inconsistent with every other externally-derived string in the file.
+
+**Fix:** `target` is now run through `sanitizeLogMessage(...)` before interpolation.
+
+### 🟡 `party.service.ts` — party existence checks relied solely on RLS (incomplete round-32 hardening)
+
+**Problem:** Round 32 hardened `getParty` with an explicit `tenantId` filter but left two sibling existence checks (`addPartyRoleTransaction`, `createContactMechanismTransaction`) querying `party.findUnique({ where: { partyId } })` with no `tenantId` — the same RLS-only pattern flagged as risky. A regression in the proxy/`set_tenant_context` path would have allowed operating on another tenant's party.
+
+**Fix:** Added `tenantId` to both `where` clauses, mirroring `getParty`.
+
+### 🟡 `cleanup-expired-idempotency.ts` — advisory lock ineffective across Prisma's connection pool
+
+**Problem:** `pg_try_advisory_lock` is *session*-scoped. Under Prisma's default connection pool the lock acquisition and the subsequent `findMany`/`deleteMany` could execute on different backend connections, so the lock did **not** actually serialize overlapping runs (the stated safety guarantee was void).
+
+**Fix:** The entire cleanup (lock acquire → scan → batched deletes → unlock) now runs inside a single interactive `$transaction`, so every statement shares one backend and the lock is effective. The server still releases the lock on commit/rollback.
+
+### 🟡 `.github/workflows/ci.yml` — round-33 `ALLOW_SEED` guard broke the CI seed step
+
+**Problem:** Round 33 made seeding require `ALLOW_SEED=1`. CI ran `npm run db:seed` with only `DATABASE_URL`/`DATABASE_ADMIN_URL` set (no `ALLOW_SEED`), so the "Seed database" step would throw and fail the pipeline.
+
+**Fix:** Added `ALLOW_SEED: "1"` to the CI seed step (the CI Postgres is ephemeral, so the opt-in is safe).
+
+### 🟢 `rls-setup.sql` — `set_tenant_context` lacked `search_path` pin; no superuser assertion
+
+**Problem:** `set_tenant_context` (SECURITY INVOKER) had no `SET search_path`, the classic function-based wrong-resolution footgun. Nothing asserted `besterp_app` is non-superuser at setup, so a misprovisioned role would silently disable RLS.
+
+**Fix:** Added `SET search_path = pg_catalog, public` to the function and a `DO $$` assertion that raises if `besterp_app` is a superuser.
+
+### 🟢 `health.controller.ts` — unauthenticated `/health` leaked environment/memory/uptime
+
+**Problem:** The `@Public()` `/health` success path returned the full `HealthStatus` including `environment`, `memory`, and `uptime` to anonymous callers — mild infrastructure fingerprinting (the round-33 fix only addressed the error path / debug log).
+
+**Fix:** The anonymous `/health` response now returns only `{ status, timestamp, database }`. Updated `health.controller.spec.ts`.
+
 ## Changes Applied (2026-07-16) — Code Review Round 33
 
 ### 🟡 `seed.ts` — seed guard bypassable by non-prod `NODE_ENV` pointing at prod DB

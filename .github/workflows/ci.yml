@@ -120,6 +120,9 @@ jobs:
         env:
           DATABASE_URL: postgresql://besterp_app:besterp_app_dev@localhost:5434/besterp
           DATABASE_ADMIN_URL: postgresql://besterp:besterp_dev@localhost:5434/besterp
+          # Opt-in guard required by the seed script (defense-in-depth against
+          # seeding a real database). This CI postgres is ephemeral, so it's safe.
+          ALLOW_SEED: "1"
         run: npm run db:seed
 
       - name: Run shared package tests

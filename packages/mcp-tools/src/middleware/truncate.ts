@@ -116,6 +116,21 @@ function serializeObjectValue(value: unknown): { serialized: string } | { _error
 }
 
 /**
+ * Parse JSON without throwing. Returns `undefined` if `JSON.parse` fails
+ * (e.g. a custom `toJSON` that emits a lone surrogate the parser rejects).
+ * Kept local to truncateValue because the surrounding code path has already
+ * produced a valid JSON *text* form via JSON.stringify, which the JSONB
+ * writer can store even when the round-trip re-parse is not possible.
+ */
+function safeParse(serialized: string): unknown | undefined {
+  try {
+    return JSON.parse(serialized);
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Check whether a UTF-8 encoded byte array exceeds `effectiveMax` bytes,
  * returning a truncation marker if so, or `null` if the value fits.
  */
@@ -185,7 +200,15 @@ export function truncateValue(value: unknown, maxSize: number = MAX_STORED_PAYLO
   // Roundtrip through JSON.parse to normalise non-plain values
   // (class instances, Maps, Sets, BigInts, etc.) to plain JSON-safe
   // values before storage as JSONB.
-  const parsed = JSON.parse(result.serialized);
+  const parsed = safeParse(result.serialized);
+  if (parsed === undefined) {
+    // JSON.parse threw on a value JSON.stringify emitted but cannot re-parse
+    // (e.g. a custom toJSON that emits a lone UTF-16 surrogate). The string
+    // form is still valid JSON text for storage as JSONB, so fall back to the
+    // pre-parse form rather than throwing — this middleware must never throw
+    // from a fire-and-forget audit/idempotency write.
+    return result.serialized;
+  }
   // Re-validate the bound AFTER normalisation. The size check above measured
   // `result.serialized` (the value going in), but JSON.parse → re-serialise by
   // the JSONB writer can expand the stored form (e.g. Date → ISO string,

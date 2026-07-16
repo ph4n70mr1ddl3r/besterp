@@ -137,7 +137,13 @@ type ErrorFactory = (entityName: string, entityPlural: string, definition: { nam
 
 const PRISMA_ERROR_HANDLERS: Record<string, ErrorFactory> = {
   P2002(entityName, entityPlural, definition, prismaMeta) {
-    const target = Array.isArray(prismaMeta?.target) ? prismaMeta.target.join(", ") : prismaMeta?.target;
+    // meta.target is a schema-derived field/column name, but it is
+    // user-influenced in compound-constraint scenarios and is echoed to the
+    // agent (and into context.conflictingFields). Sanitize it like every
+    // other externally-derived string in this file so a crafted/garbage
+    // target cannot inject ANSI/CRLF into the agent-facing message.
+    const rawTarget = Array.isArray(prismaMeta?.target) ? prismaMeta.target.join(", ") : prismaMeta?.target;
+    const target = rawTarget ? sanitizeLogMessage(rawTarget) : undefined;
     return {
       success: false,
       error: {
