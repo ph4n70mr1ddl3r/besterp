@@ -1,7 +1,7 @@
 // Unit tests for PrismaService
 // Tests tenant client caching, eviction, destroyed guard, and lifecycle
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterAll } from "vitest";
 
 // PrismaService extends PrismaClient, which requires a datasource.
 // We mock the PrismaClient constructor to avoid needing a real DB.
@@ -141,6 +141,49 @@ describe("PrismaService", () => {
       const service = new PrismaService();
       expect(service.appClient).toBeDefined();
       expect(service.appClient).not.toBe(service);
+    });
+  });
+
+  describe("boot-time RLS / role verification fail-closed", () => {
+    const prevDbUrl = process.env.DATABASE_URL;
+    const prevAdminUrl = process.env.DATABASE_ADMIN_URL;
+    beforeEach(() => {
+      process.env.DATABASE_URL = "postgres://app:app@localhost:5432/besterp";
+      process.env.DATABASE_ADMIN_URL = "postgres://admin:admin@localhost:5432/besterp";
+    });
+    afterAll(() => {
+      if (prevDbUrl === undefined) delete process.env.DATABASE_URL;
+      else process.env.DATABASE_URL = prevDbUrl;
+      if (prevAdminUrl === undefined) delete process.env.DATABASE_ADMIN_URL;
+      else process.env.DATABASE_ADMIN_URL = prevAdminUrl;
+    });
+
+    it("refuses to boot when the role verification query fails (tenant isolation unverified)", async () => {
+      const service = new PrismaService();
+      // Make the real verifyAppClientRole run but have its pg_roles lookup fail,
+      // so the fail-closed path is exercised (spying on the method would bypass
+      // its body and never reach the catch).
+      (service.appClient as unknown as { $queryRaw: () => Promise<unknown> }).$queryRaw = vi
+        .fn()
+        .mockRejectedValue(new Error("permission denied on pg_catalog.pg_roles"));
+      await expect(service.onModuleInit()).rejects.toThrow(/tenant isolation unverified/);
+    });
+
+    it("refuses to boot when the RLS enablement verification query fails (tenant isolation unverified)", async () => {
+      const service = new PrismaService();
+      // current_user lookup succeeds (so verifyAppClientRole passes), but the
+      // pg_class RLS check query fails — exercising the fail-closed path in
+      // verifyRlsEnabled.
+      let call = 0;
+      (service.appClient as unknown as { $queryRaw: () => Promise<unknown> }).$queryRaw = vi
+        .fn()
+        .mockImplementation(async () => {
+          call += 1;
+          if (call === 1) return [{ role: "besterp_app" }];
+          if (call === 2) return [{ rolsuper: false, rolcatupdate: false }];
+          throw new Error("relation pg_class does not exist");
+        });
+      await expect(service.onModuleInit()).rejects.toThrow(/tenant isolation unverified/);
     });
   });
 

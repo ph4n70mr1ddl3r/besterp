@@ -353,4 +353,20 @@ describe("hashInput", () => {
     expect(() => hashInput(nearLimit)).not.toThrow();
     expect(hashInput(nearLimit)).toMatch(/^[a-f0-9]{64}$/);
   });
+
+  it("should refuse to hash many near-limit strings that exceed the aggregate size budget (memory-DoS guard)", () => {
+    // Each string is under MAX_HASH_STRING_BYTES (99 KB) and the key count
+    // (1200) is under MAX_HASH_KEYS (10_000), so the per-string and per-key
+    // guards alone pass — but JSON.stringifying 1200×99 KB ≈ 115 MB would
+    // exhaust memory / block the event loop. The aggregate byte budget must
+    // reject this before serialization.
+    const wide = Array.from({ length: 1200 }, () => "x".repeat(99_000));
+    expect(() => hashInput(wide)).toThrow(InvalidTypeValueError);
+    expect(() => hashInput(wide)).toThrow(/aggregate serialized size limit/);
+
+    // A small number of near-limit strings stays well within budget.
+    const modest = Array.from({ length: 8 }, () => "x".repeat(99_000));
+    expect(() => hashInput(modest)).not.toThrow();
+    expect(hashInput(modest)).toMatch(/^[a-f0-9]{64}$/);
+  });
 });

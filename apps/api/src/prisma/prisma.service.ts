@@ -206,9 +206,16 @@ export class PrismaService
       if (roleErr instanceof Error && roleErr.message.includes("RLS is BYPASSED")) {
         throw roleErr;
       }
-      this.logger.warn(
-        `Could not verify app client database role: ${sanitizeForLogOutput(roleErr instanceof Error ? roleErr.message : String(roleErr))}`
-      );
+      // The verification query itself failed (permission error on pg_catalog,
+      // transient outage, schema drift, …). We must FAIL CLOSED: an
+      // unverifiable role means we cannot prove RLS is enforced, and booting
+      // silently with a possibly-superuser client silently disables tenant
+      // isolation. Refuse to start instead of warn-and-continue.
+      const msg = `Could not verify app client database role — refusing to boot (tenant isolation unverified): ${
+        sanitizeForLogOutput(roleErr instanceof Error ? roleErr.message : String(roleErr))
+      }`;
+      this.logger.error(msg);
+      throw new Error(msg, { cause: roleErr });
     }
   }
 
@@ -234,13 +241,12 @@ export class PrismaService
       "audit_log",
     ];
     try {
-      const rows = await this._appClient.$queryRawUnsafe<{ relname: string; relrowsecurity: boolean; relforcerowsecurity: boolean }[]>(
-        `SELECT c.relname, c.relrowsecurity, c.relforcerowsecurity
-         FROM pg_class c
-         JOIN pg_namespace n ON n.oid = c.relnamespace
-         WHERE n.nspname = 'public' AND c.relname = ANY($1)`,
-        tenantTables
-      );
+      const rows = await this._appClient.$queryRaw<{ relname: string; relrowsecurity: boolean; relforcerowsecurity: boolean }[]>`
+        SELECT c.relname, c.relrowsecurity, c.relforcerowsecurity
+        FROM pg_class c
+        JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE n.nspname = 'public' AND c.relname = ANY(${tenantTables})
+      `;
       const missing = rows.filter((r) => !r.relrowsecurity);
       if (missing.length > 0) {
         const names = missing.map((r) => r.relname).join(", ");
@@ -256,9 +262,15 @@ export class PrismaService
       if (rlsErr instanceof Error && rlsErr.message.includes("Row-Level Security is NOT enabled")) {
         throw rlsErr;
       }
-      this.logger.warn(
-        `Could not verify RLS enablement: ${sanitizeForLogOutput(rlsErr instanceof Error ? rlsErr.message : String(rlsErr))}`
-      );
+      // The verification query itself failed. Fail closed: an unverifiable RLS
+      // state means we cannot prove tenant isolation is active, and booting
+      // silently means a forgotten rls-setup.sql apply would expose every
+      // tenant's rows with no error. Refuse to start instead of warn-and-continue.
+      const msg = `Could not verify RLS enablement — refusing to boot (tenant isolation unverified): ${
+        sanitizeForLogOutput(rlsErr instanceof Error ? rlsErr.message : String(rlsErr))
+      }`;
+      this.logger.error(msg);
+      throw new Error(msg, { cause: rlsErr });
     }
   }
 

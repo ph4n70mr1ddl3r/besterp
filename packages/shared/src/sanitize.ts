@@ -117,7 +117,7 @@ export function stripHtmlTags(input: string): string {
  * routines to prevent leaking infrastructure details in logs.
  */
 export function sanitizeLogOutput(message: string): string {
-  return message
+  return sanitizeLogMessage(message)
     .replace(/postgres(?:ql)?:\/\/[^\s"']+/gi, "[DATABASE_URL]")
     .replace(/redis:\/\/[^\s"']+/gi, "[REDIS_URL]")
     .replace(/mongodb(\+srv)?:\/\/[^\s"']+/gi, "[DATABASE_URL]")
@@ -130,7 +130,12 @@ export function sanitizeLogOutput(message: string): string {
     // secret would otherwise be collapsed into `[PATH]` and survive verbatim
     // in operator logs. Scrub the secret-bearing parameters first so the
     // host/path collapse then leaves nothing sensitive behind.
-    .replace(/(?<=[?&])((?:key|token|secret|password|access_token|auth|api_key|apikey|client_secret)=)[^&\s"')\]}]+/gi, "$1[REDACTED]")
+    .replace(/(?<=[?&])((?:key|token|secret|password|access_token|auth|api_key|apikey|client_secret)=)[^&\s"']+/gi, (m) => {
+      // Strip trailing punctuation ( ), ] } that a secret could be wrapped in
+      // (e.g. inside a stack trace, curl snippet, or JSON) so the boundary char
+      // is not left behind after redaction and the secret is fully scrubbed.
+      return m.replace(/[)\]}\s]+$/, "") + "[REDACTED]";
+    })
     // Redact high-entropy bearer/secret tokens that appear outside the
     // key=value form above (e.g. `Authorization: Bearer sk_live_...` echoed in
     // an auth-failure error, or a bare JWT). The JWT pattern is conservative:

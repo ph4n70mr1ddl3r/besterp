@@ -174,6 +174,30 @@ describe("sanitizeLogOutput", () => {
     expect(result).toContain("[REDACTED]");
   });
 
+  it("redacts a secret immediately followed by boundary punctuation ( ) ] }", () => {
+    // The query-string secret rule previously stopped the capture at ) ] }
+    // (e.g. a token inside a stack trace / curl snippet / JSON object), which
+    // left the trailing boundary char behind and truncated the secret —
+    // leaking `]`)` into the collapsed URL. Trailing punctuation must now be
+    // trimmed and the whole secret redacted.
+    expect(sanitizeLogOutput("https://x.com/?token=sk_live_abc)")).toContain("token=[REDACTED]");
+    expect(sanitizeLogOutput("https://x.com/?token=sk_live_abc)")).not.toContain("sk_live_abc");
+    expect(sanitizeLogOutput("curl 'https://x.com/?token=sk_live_abc]'")).toContain("token=[REDACTED]");
+    expect(sanitizeLogOutput('{"url":"https://x.com/?token=sk_live_abc}"}')).toContain("token=[REDACTED]");
+  });
+
+  it("strips control characters and ANSI escapes even when called directly", () => {
+    // sanitizeLogOutput composes the log-injection strip first, so a newline
+    // injected into a credential-bearing message cannot forge log lines when
+    // the function is used directly (not via sanitizeForLogOutput).
+    const injected = "see postgres://u:p@h/db\n[REDACTED-LOGLINE]";
+    const result = sanitizeLogOutput(injected);
+    expect(result).toContain("[DATABASE_URL]");
+    expect(result).not.toContain("\n");
+    expect(result).not.toContain("[REDACTED-LOGLINE]");
+    expect(result).toContain("_");
+  });
+
   it("preserves safe log messages", () => {
     expect(sanitizeLogOutput("User login successful")).toBe("User login successful");
     expect(sanitizeLogOutput("Party created: John Doe")).toBe("Party created: John Doe");

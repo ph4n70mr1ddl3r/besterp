@@ -88,7 +88,16 @@ function sanitizeContextValue(value: unknown, depth = 0, seen?: WeakSet<object>)
   if (value instanceof Map) {
     const state = trackSeen(value, seen);
     if (state.circular) return "[Circular]";
-    return [...value.entries()].map(([k, v]) => [sanitizeContextValue(k, depth + 1, state.seen), sanitizeContextValue(v, depth + 1, state.seen)]);
+    return [...value.entries()].map(([k, v]) => {
+      // Mirror audit-log's redactSensitiveFields: redact the value when the
+      // key is itself a sensitive-field name, so a secret stored under a
+      // Map/Set key (e.g. new Map([["password", "hunter2"]])) is not reflected
+      // to the AI agent. Plain-object keys already get this treatment in
+      // sanitizeObject; Map keys previously did not.
+      const keyStr = typeof k === "string" ? k : String(k);
+      const redactedValue = isSensitiveField(keyStr) ? "[REDACTED]" : sanitizeContextValue(v, depth + 1, state.seen);
+      return [sanitizeContextValue(k, depth + 1, state.seen), redactedValue];
+    });
   }
   if (value instanceof Set) {
     const state = trackSeen(value, seen);

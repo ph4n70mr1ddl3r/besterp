@@ -2,14 +2,103 @@
 
 ## Scope
 Fresh full review of the BestERP monorepo (`packages/shared`, `packages/mcp-tools`,
-`packages/database`, `apps/api`) conducted on 2026-07-16. This is review round 37;
-rounds 1–36 are documented in earlier revisions of this file and `CHANGES.md`.
+`packages/database`, `apps/api`) conducted on 2026-07-16. This is review round 38;
+rounds 1–37 are documented in earlier revisions of this file and `CHANGES.md`.
 
 ## Baseline (before this round)
 - `npm run typecheck` — clean across all workspaces
-- `npm run lint` — 0 errors, 0 warnings
-- `npm run test` — all passing: shared 138, mcp-tools 121, database 25 (10 RLS isolation
-  tests skipped without a live DB), api 306
+- `npm run lint` — 0 errors (1 pre-existing complexity warning in `crypto.ts:sortKeysDeep`)
+- `npm run test` — all passing: shared 139, mcp-tools 121, database 25 (10 RLS isolation
+  tests skipped without a live DB), api 308
+
+## Findings & Actions (round 38)
+
+### Fixed this round
+
+1. **🟡 `crypto.ts:241` — `hashInput` had no aggregate serialized-size cap (memory-DoS).**
+   `MAX_HASH_STRING_BYTES` bounds each *individual* string and `MAX_HASH_KEYS` bounds
+   container/key count, but an input like `Array(1200).fill("x".repeat(99_000))` passes
+   both guards (each string < 100 KB, 1200 keys < 10k) while `JSON.stringify` produces a
+   ~115 MB buffer — exhausting memory / blocking the event loop. Added `MAX_HASH_TOTAL_BYTES
+   = 2_000_000` and a byte budget threaded through `sortKeysDeep`: every string accrues its
+   UTF-8 byte length to the running total and the whole sort throws
+   `InvalidTypeValueError` ("aggregate serialized size limit") the moment the budget is
+   exceeded, before any large stringification. Added regression tests (wide array of
+   near-limit strings rejected; small count accepted).
+
+2. **🟡 `sanitize.ts:119` — `sanitizeLogOutput` left control/ANSI chars intact, and the
+   query-string secret rule truncated secrets at boundary punctuation (`)` `]` `}`).**
+   `sanitizeLogOutput` is the redaction primitive but did *not* apply the
+   log-injection strip (`sanitizeLogMessage`), so a newline injected into a
+   credential-bearing message survived into logs when the function was called directly
+   (`sanitizeForLogOutput` composes them, but direct use is a documented path). It now
+   strips control/ANSI characters first. Separately, the query-string secret value class
+   `[^&\s"')\]}]+` stopped at `)`/`]`/`}`, so `...?token=sk_live_abc)` redacted only up to
+   the boundary, leaving `]`/`)` behind and truncating the secret mid-value. The value
+   class is widened to `[^&\s"']+` and trailing boundary punctuation is trimmed before
+   `[REDACTED]` is appended. Added regression tests (boundary punctuation, injected
+   newline stripped).
+
+3. **🟡 `error-handler.ts:88` — `DomainError.context` Map/Set values under a sensitive-key
+   name were not redacted (agent-facing secret leak).** `sanitizeObject` applies
+   `isSensitiveField(k)` → `"[REDACTED]"` to plain-object keys, but the `Map` branch only
+   scrubbed *values* (URL/path), so a `DomainError` carrying
+   `context: { mapData: new Map([["password", "hunter2"]]) }` reflected `hunter2` to the AI
+   agent. The `Map` branch now redacts the value when its key is a sensitive-field name,
+   mirroring `audit-log.ts`'s `redactSensitiveFields`. Updated the regression test that
+   previously *asserted* the leak (now asserts `[REDACTED]`).
+
+4. **🟡 `prisma.service.ts:205,255` — RLS / superuser boot assertions failed *open* on a
+   verification query error.** `verifyAppClientRole` / `verifyRlsEnabled` wrapped the
+   actual check in `try/catch` and, on any thrown error (permission denied on `pg_catalog`,
+   transient outage, schema drift), logged only a `warn` and booted. That silently starts
+   the service with unverified tenant isolation — the exact gap the assertions exist to
+   prevent. Both now **fail closed**: a verification query that cannot run throws
+   `"… refusing to boot (tenant isolation unverified): …"` (with `cause` attached) instead
+   of warn-and-continue. Also switched `verifyRlsEnabled`'s `$queryRawUnsafe` to the
+   parameterized `$queryRaw` template for consistency and to remove the "unsafe" footgun
+   (the table list was already a hardcoded constant, so no injection surface existed).
+
+### Reviewed but NOT changed (false positives / out of scope)
+
+- **`rls-extension.ts` shared-pool context leakage** — flagged by sub-review: the design
+  relies on `SET LOCAL app.current_tenant` within an interactive transaction that holds a
+  dedicated connection, so a prior tenant cannot leak to a later query; raw-SQL / `$` /
+  `_` traps still block reaching the base client, and `verifyRlsEnabled` boot assertion
+  (round 37) plus fail-closed role check (this round) close the misconfig path. The
+  proposed explicit `SET LOCAL ... = ''` reset would add value but is deferred as a
+  defense-in-depth hardening (no live exploit; requires a code path that issues a query
+  outside every tenant transaction, which the proxy prevents by construction).
+- **`hashInput` `toJSON` enumerable key / `MAX_HASH_TOTAL_BYTES` over-redaction** — an
+  input whose aggregate bytes exceed 2 MB is rejected; legitimate tool inputs are bounded
+  by field caps (largest is `MAX_PARTY_DESCRIPTION_LENGTH = 1000`), so the budget is
+  never hit in practice. `toJSON` rejection is the existing documented behavior for
+  non-serializable values.
+- **`truncate.ts` string-fallback / `audit-log` `reasoning` not secret-scanned** —
+  flagged LOW in sub-review; the `reasoning` string is agent-supplied and capped, and the
+  string-fallback in `truncateValue` only affects inputs that already produce invalid
+  JSON. Deferred as non-security-impacting.
+- **`health.controller.ts` `/version` fingerprinting** — flagged LOW; `/version` is
+  `@Public()` and returns package name/version. Accepted trade-off (operators need a
+  liveness/version probe); not changed this round.
+- **Blocking `CREATE INDEX` in `migrations/20260619000000…`** — flagged LOW; the
+  `pg_trgm` GIN index is `CREATE INDEX` (not `CONCURRENTLY`) so it locks the table during
+  `prisma migrate deploy`. Deferred: changing shipped migrations is risky and the comment
+  already documents manual `CONCURRENTLY` application.
+- **`party.service.ts` `searchParties` type-table joins** — confirmed still gated by
+  `tenantId` in the same `where`; no cross-tenant leak.
+- **ReDoS** — all regexes across the four packages re-verified linear/bounded (no nested
+  quantifiers); no new ReDoS introduced by this round's edits.
+
+## Test Results
+```
+shared:    139 passed (4 files)
+mcp-tools: 121 passed (4 files)
+database:   25 passed, 10 skipped (2 files)
+api:       308 passed (14 files)
+───────────────────────────────────
+Total:     593 passed, 10 skipped
+```
 
 ## Findings & Actions (round 37)
 

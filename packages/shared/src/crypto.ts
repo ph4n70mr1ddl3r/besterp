@@ -26,17 +26,17 @@ function checkCircular(value: object, ancestors: Set<object>): void {
   }
 }
 
-function sortArray(value: unknown[], ancestors: Set<object>, depth: number): unknown[] {
+function sortArray(value: unknown[], ancestors: Set<object>, depth: number, budget: { bytes: number }): unknown[] {
   checkCircular(value, ancestors);
   ancestors.add(value);
   try {
-    return value.map((v) => sortKeysDeep(v, ancestors, depth + 1));
+    return value.map((v) => sortKeysDeep(v, ancestors, depth + 1, budget));
   } finally {
     ancestors.delete(value);
   }
 }
 
-function sortMap(value: Map<unknown, unknown>, ancestors: Set<object>, depth: number): unknown[] {
+function sortMap(value: Map<unknown, unknown>, ancestors: Set<object>, depth: number, budget: { bytes: number }): unknown[] {
   checkCircular(value, ancestors);
   ancestors.add(value);
   try {
@@ -56,19 +56,19 @@ function sortMap(value: Map<unknown, unknown>, ancestors: Set<object>, depth: nu
     }
     const sortedEntries = prepared
       .sort((a, b) => a.kStr < b.kStr ? -1 : a.kStr > b.kStr ? 1 : 0);
-    return sortedEntries.map(({ v, kSorted }) => [kSorted, sortKeysDeep(v, ancestors, depth + 1)]);
+    return sortedEntries.map(({ v, kSorted }) => [kSorted, sortKeysDeep(v, ancestors, depth + 1, budget)]);
   } finally {
     ancestors.delete(value);
   }
 }
 
-function sortSet(value: Set<unknown>, ancestors: Set<object>, depth: number): unknown[] {
+function sortSet(value: Set<unknown>, ancestors: Set<object>, depth: number, budget: { bytes: number }): unknown[] {
   checkCircular(value, ancestors);
   ancestors.add(value);
   try {
     // Pre-compute stringified forms to avoid redundant JSON.stringify calls
     // in the comparator (same optimization as sortMap).
-    const sorted = Array.from(value).map((v) => sortKeysDeep(v, ancestors, depth + 1));
+    const sorted = Array.from(value).map((v) => sortKeysDeep(v, ancestors, depth + 1, budget));
     const prepared = sorted.map((v) => ({ v, str: JSON.stringify(v) }));
     return prepared
       .sort((a, b) => a.str < b.str ? -1 : a.str > b.str ? 1 : 0)
@@ -78,19 +78,19 @@ function sortSet(value: Set<unknown>, ancestors: Set<object>, depth: number): un
   }
 }
 
-function sortPlainObject(value: object, ancestors: Set<object>, depth: number): Record<string, unknown> {
+function sortPlainObject(value: object, ancestors: Set<object>, depth: number, budget: { bytes: number }): Record<string, unknown> {
   // Use Object.create(null) to prevent prototype pollution — even if the
   // input contains __proto__, setting it on a null-prototype object creates
   // a data property rather than modifying the object's prototype chain.
   const sorted: Record<string, unknown> = Object.create(null);
   const keys = Object.keys(value).sort();
   for (const key of keys) {
-    sorted[key] = sortKeysDeep((value as Record<string, unknown>)[key], ancestors, depth + 1);
+    sorted[key] = sortKeysDeep((value as Record<string, unknown>)[key], ancestors, depth + 1, budget);
   }
   return sorted;
 }
 
-function serializeSpecialObject(value: object, ancestors: Set<object>, depth: number): unknown {
+function serializeSpecialObject(value: object, ancestors: Set<object>, depth: number, budget: { bytes: number }): unknown {
   // WeakMap/WeakSet are non-enumerable: Object.keys() returns [], so they
   // would otherwise fall through to sortPlainObject and hash as `{}` —
   // colliding with an empty object and with every other Weak collection
@@ -115,22 +115,22 @@ function serializeSpecialObject(value: object, ancestors: Set<object>, depth: nu
       // input" consistently, and inputs differing only in cause depth yield
       // distinct hashes (otherwise two different tool inputs could collide
       // to the same idempotency hash).
-      serialized.cause = sortKeysDeep(value.cause, ancestors, depth + 1);
+      serialized.cause = sortKeysDeep(value.cause, ancestors, depth + 1, budget);
     }
     return serialized;
   }
-  return sortPlainObject(value, ancestors, depth);
+  return sortPlainObject(value, ancestors, depth, budget);
 }
 
-function sortObject(value: object, ancestors: Set<object>, depth: number): unknown {
+function sortObject(value: object, ancestors: Set<object>, depth: number, budget: { bytes: number }): unknown {
   checkCircular(value, ancestors);
   ancestors.add(value);
   try {
     const proto = Object.getPrototypeOf(value);
     if (proto === Object.prototype || proto === null) {
-      return sortPlainObject(value, ancestors, depth);
+      return sortPlainObject(value, ancestors, depth, budget);
     }
-    return serializeSpecialObject(value, ancestors, depth);
+    return serializeSpecialObject(value, ancestors, depth, budget);
   } finally {
     ancestors.delete(value);
   }
@@ -141,6 +141,18 @@ const MAX_HASH_DEPTH = 100;
 
 /** Maximum number of keys in the canonical form to prevent DoS via wide/shallow objects. */
 const MAX_HASH_KEYS = 10_000;
+
+/**
+ * Maximum aggregate serialized byte length across ALL string values in the
+ * input. `MAX_HASH_STRING_BYTES` caps each *individual* string, but `countKeys`
+ * only counts object/array/Map/Set structure — an input like
+ * `Array(1200).fill("x".repeat(99000))` passes the key count (1200 < 10_000)
+ * and the per-string cap (99 KB < 100 KB) yet `JSON.stringify`s into a
+ * ~115 MB buffer, exhausting memory / blocking the event loop. This aggregate
+ * budget bounds the total serialized output regardless of how the large
+ * strings are distributed across containers.
+ */
+const MAX_HASH_TOTAL_BYTES = 2_000_000;
 
 /**
  * Maximum byte length of a single string value to prevent DoS via an
@@ -162,8 +174,18 @@ const MAX_HASH_STRING_BYTES = 100_000;
  * 50k-CJK-char string (well above the limit) is caught even though its char
  * count looks moderate.
  */
-function checkStringBounds(value: string): void {
-  if (Buffer.byteLength(value, "utf8") > MAX_HASH_STRING_BYTES) {
+function checkStringBounds(value: string, budget?: { bytes: number }): void {
+  const len = Buffer.byteLength(value, "utf8");
+  if (budget) {
+    budget.bytes += len;
+    if (budget.bytes > MAX_HASH_TOTAL_BYTES) {
+      throw new InvalidTypeValueError(
+        `Input exceeds aggregate serialized size limit of ${MAX_HASH_TOTAL_BYTES} bytes. ` +
+        `Refusing to hash to prevent denial of service.`
+      );
+    }
+  }
+  if (len > MAX_HASH_STRING_BYTES) {
     throw new InvalidTypeValueError(
       `Input contains a string longer than ${MAX_HASH_STRING_BYTES} bytes. ` +
       `Refusing to hash to prevent denial of service.`
@@ -171,7 +193,7 @@ function checkStringBounds(value: string): void {
   }
 }
 
-function sortKeysDeep(value: unknown, ancestors?: Set<object>, depth = 0): unknown {
+function sortKeysDeep(value: unknown, ancestors?: Set<object>, depth = 0, budget?: { bytes: number }): unknown {
   if (depth > MAX_HASH_DEPTH) {
     throw new InvalidTypeValueError(
       `Input exceeds maximum nesting depth of ${MAX_HASH_DEPTH}. Refusing to hash to prevent stack overflow.`
@@ -184,13 +206,13 @@ function sortKeysDeep(value: unknown, ancestors?: Set<object>, depth = 0): unkno
     return value;
   }
   if (typeof value === "string") {
-    checkStringBounds(value);
+    checkStringBounds(value, budget);
     return value;
   }
-  if (Array.isArray(value)) return sortArray(value, ancestors, depth);
-  if (value instanceof Map) return sortMap(value, ancestors, depth);
-  if (value instanceof Set) return sortSet(value, ancestors, depth);
-  if (typeof value === "object") return sortObject(value, ancestors, depth);
+  if (Array.isArray(value)) return sortArray(value, ancestors, depth, budget ?? { bytes: 0 });
+  if (value instanceof Map) return sortMap(value, ancestors, depth, budget ?? { bytes: 0 });
+  if (value instanceof Set) return sortSet(value, ancestors, depth, budget ?? { bytes: 0 });
+  if (typeof value === "object") return sortObject(value, ancestors, depth, budget ?? { bytes: 0 });
   return sortPrimitive(value);
 }
 
@@ -240,7 +262,8 @@ function countKeys(value: unknown): number {
 
 export function hashInput(input: unknown): string {
   try {
-    const canonical = sortKeysDeep(input);
+    const budget = { bytes: 0 };
+    const canonical = sortKeysDeep(input, undefined, 0, budget);
     const keyCount = countKeys(canonical);
     if (keyCount > MAX_HASH_KEYS) {
       throw new InvalidTypeValueError(
