@@ -48,17 +48,36 @@ function safeSliceUtf8(encoded: Uint8Array, byteLimit: number): string {
   return textDecoder.decode(encoded.slice(0, sliceEnd));
 }
 
+/**
+ * Private discriminator that uniquely identifies a truncation marker. A plain
+ * `_truncated` flag alone could collide with a real user field named
+ * `_truncated`, causing the idempotency replay path to falsely report an
+ * original result as "truncated for storage". The high-entropy private key
+ * (`__besterp_trunc`) makes such a collision effectively impossible.
+ */
+const TRUNCATION_MARKER_KEY = "__besterp_trunc";
+
 /** Structured marker stored in place of an oversized payload. */
 function truncationMarker(encoded: Uint8Array): {
+  __besterp_trunc: true;
   _truncated: true;
   _originalSize: number;
   _preview: string;
 } {
   return {
+    [TRUNCATION_MARKER_KEY]: true,
     _truncated: true,
     _originalSize: encoded.byteLength,
     _preview: safeSliceUtf8(encoded, PREVIEW_BYTES),
   };
+}
+
+export function isTruncationMarker(value: unknown): boolean {
+  return (
+    value != null &&
+    typeof value === "object" &&
+    (value as Record<string, unknown>)[TRUNCATION_MARKER_KEY] === true
+  );
 }
 
 /**

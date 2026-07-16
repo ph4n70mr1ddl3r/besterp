@@ -119,6 +119,12 @@ export function sanitizeLogOutput(message: string): string {
     .replace(/mysql:\/\/[^\s"']+/gi, "[DATABASE_URL]")
     .replace(/amqps?:\/\/[^\s"']+/gi, "[MESSAGE_BROKER_URL]")
     .replace(/(https?:\/\/)[^\s"')\]}]+/gi, "$1[HOST]/[PATH]")
+    // Redact query strings that may carry secrets (API keys, tokens, passwords)
+    // even on non-credential URLs. A URL like
+    // `https://api.example.com/v1?key=sk_live_abc123` survives the generic
+    // [HOST]/[PATH] rule above with its full query string intact, leaking the
+    // key to operator logs. Scrub common secret-bearing parameter names.
+    .replace(/(?<=[?&])((?:key|token|secret|password|access_token|auth|api_key|apikey|client_secret)=)[^&\s"')\]}]+/gi, "$1[REDACTED]")
     .replace(/(?:ftp|sftp):\/\/[^\s"')\]}]+/gi, "[FTP_URL]")
     .replace(/(?:ws|wss):\/\/[^\s"')\]}]+/gi, "[WEBSOCKET_URL]")
     // Generic catch-all for credential-bearing URLs whose scheme isn't

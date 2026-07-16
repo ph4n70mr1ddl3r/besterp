@@ -16,9 +16,10 @@
 // If no idempotency key is provided, the middleware is a no-op pass-through.
 
 import { PrismaClient, Prisma, IdempotencyRecord } from "@prisma/client";
+import { createHash } from "node:crypto";
 import { hashInput, getErrorCode, sanitizeLogMessage, sanitizeForLogOutput, ConcurrencyConflictError, MAX_SOFT_FAILURE_MESSAGE_SIZE, IDEMPOTENCY_TTL_MS, MAX_IDEMPOTENCY_KEY_LENGTH, IDEMPOTENCY_MAX_RETRIES, IDEMPOTENCY_RETRY_BASE_DELAY_MS } from "@besterp/shared";
 import { ToolMiddleware, ToolResult, ToolContext } from "../schema/tool-definition.js";
-import { truncateValue, MAX_STORED_PAYLOAD_SIZE, capString } from "./truncate.js";
+import { truncateValue, MAX_STORED_PAYLOAD_SIZE, capString, isTruncationMarker } from "./truncate.js";
 import { redactSensitiveFields } from "./audit-log.js";
 
 /**
@@ -149,9 +150,16 @@ function logIdempotencyWarn(message: string): void {
   process.stderr.write(`[Idempotency] ${JSON.stringify({ timestamp: new Date().toISOString(), message })}\n`);
 }
 
-/** Redact an idempotency key to a safe preview for log messages. */
+/**
+ * Redact an idempotency key to a non-reversible token for agent-facing and
+ * log messages. Previously the first 32 plaintext characters were embedded
+ * verbatim — if a key ever carried a secret (defense-in-depth), up to 32 chars
+ * would leak to the AI agent. We now hash it to a short opaque prefix so the
+ * key remains distinguishable across messages without revealing its content.
+ */
 function redactKey(key: string): string {
-  return sanitizeLogMessage(key.slice(0, 32));
+  const token = createHash("sha256").update(key).digest("hex").slice(0, 12);
+  return sanitizeLogMessage(`id-${token}`);
 }
 
 async function acquireIdempotencyRecord(
@@ -256,7 +264,7 @@ function handleExistingRecord(
       };
     }
     const data = existing.result;
-    const isTruncated = data != null && typeof data === "object" && "_truncated" in (data as Record<string, unknown>);
+    const isTruncated = isTruncationMarker(data);
     return {
       success: true,
       // Re-apply sensitive-field redaction on replay as defense-in-depth:

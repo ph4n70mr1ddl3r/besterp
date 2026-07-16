@@ -6,7 +6,7 @@
 // shared by both functions.
 
 import { describe, it, expect } from "vitest";
-import { truncateValue, capString } from "../middleware/truncate.js";
+import { truncateValue, capString, isTruncationMarker } from "../middleware/truncate.js";
 import { MAX_STORED_PAYLOAD_SIZE } from "@besterp/shared";
 
 describe("truncateValue", () => {
@@ -52,6 +52,19 @@ describe("truncateValue", () => {
     expect(result._originalSize).toBeGreaterThan(MAX_STORED_PAYLOAD_SIZE);
     expect(result._preview.length).toBeGreaterThan(0);
     expect(result._preview.length).toBeLessThanOrEqual(1100); // ~1 KB preview
+  });
+
+  it("truncation marker carries a private discriminator so a real '_truncated' user field cannot falsely trigger replay notes", () => {
+    const huge = "a".repeat(MAX_STORED_PAYLOAD_SIZE + 1000);
+    const marker = truncateValue(huge);
+    expect(isTruncationMarker(marker)).toBe(true);
+    // A plain object with a user-supplied `_truncated` key must NOT be detected
+    // as a truncation marker — that collision would falsely tell the agent the
+    // original result was truncated for storage.
+    expect(isTruncationMarker({ _truncated: true, data: "real" })).toBe(false);
+    expect(isTruncationMarker({ data: "real" })).toBe(false);
+    expect(isTruncationMarker(null)).toBe(false);
+    expect(isTruncationMarker("string")).toBe(false);
   });
 
   it("round-trips a plain object under the limit unchanged", () => {

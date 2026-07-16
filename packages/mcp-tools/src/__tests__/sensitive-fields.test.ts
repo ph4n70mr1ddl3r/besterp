@@ -2,6 +2,7 @@
 
 import { describe, it, expect } from "vitest";
 import { isSensitiveField, splitFieldTokens, SENSITIVE_FIELDS, SENSITIVE_TOKENS, SENSITIVE_FIELD_PATTERN } from "../middleware/sensitive-fields.js";
+import { redactSensitiveFields } from "../middleware/audit-log.js";
 
 describe("isSensitiveField", () => {
   it("should catch explicit sensitive field names", () => {
@@ -172,7 +173,6 @@ describe("redactSensitiveFields (shared by audit-log + idempotency)", () => {
   // persisted ai_action_log.toolOutput row and the idempotency_record.result
   // column. The idempotency sink previously applied NO redaction, leaking
   // values under sensitive-named keys; this guards the shared function.
-  const { redactSensitiveFields } = await import("../middleware/audit-log.js");
 
   it("redacts values under sensitive-named keys at any nesting depth", () => {
     const input = {

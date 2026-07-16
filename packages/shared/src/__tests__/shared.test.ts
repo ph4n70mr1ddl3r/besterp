@@ -203,9 +203,13 @@ describe("DomainError subclasses", () => {
     expect(json.cause).toBe("root cause");
   });
 
-  it("DomainError toJSON handles non-Error cause", () => {
-    const error = new DomainError("TEST", "msg", { cause: "string cause" as any });
-    expect(error.toJSON().cause).toBe("string cause");
+  it("DomainError toJSON handles non-Error cause without leaking its data", () => {
+    // A non-Error cause (e.g. an attached object) must NOT be stringified into
+    // durable sinks (audit logs, idempotency records), since a custom class's
+    // toString() can embed sensitive field data. It is replaced with a safe
+    // placeholder instead.
+    const error = new DomainError("TEST", "msg", { cause: { secret: "leak" } as any });
+    expect(error.toJSON().cause).toBe("[Non-error cause]");
   });
 
   it("DomainError toJSON handles null cause", () => {
@@ -249,6 +253,17 @@ describe("isValidISODate", () => {
   it("accepts date-only with Z suffix (UTC marker, no time)", () => {
     expect(isValidISODate("2024-06-15Z")).toBe(true);
     expect(isValidISODate("2000-02-29Z")).toBe(true);
+  });
+
+  it("rejects timezone offsets outside the valid -12:00..+14:00 range", () => {
+    // +14:00 is the maximum valid offset; +14:30/+14:59 are not.
+    expect(isValidISODate("2024-06-15T00:00:00+14:00")).toBe(true);
+    expect(isValidISODate("2024-06-15T00:00:00+14:30")).toBe(false);
+    expect(isValidISODate("2024-06-15T00:00:00+14:59")).toBe(false);
+    // -12:00 is the minimum valid offset; -13:00 is not.
+    expect(isValidISODate("2024-06-15T00:00:00-12:00")).toBe(true);
+    expect(isValidISODate("2024-06-15T00:00:00-12:30")).toBe(false);
+    expect(isValidISODate("2024-06-15T00:00:00-13:00")).toBe(false);
   });
 
   it("rejects non-date strings", () => {

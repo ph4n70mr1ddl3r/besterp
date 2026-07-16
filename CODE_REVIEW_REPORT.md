@@ -2,14 +2,69 @@
 
 ## Scope
 Fresh full review of the BestERP monorepo (`packages/shared`, `packages/mcp-tools`,
-`packages/database`, `apps/api`) conducted on 2026-07-16. This is review round 34;
-rounds 1–33 are documented in earlier revisions of this file and `CHANGES.md`.
+`packages/database`, `apps/api`) conducted on 2026-07-16. This is review round 35;
+rounds 1–34 are documented in earlier revisions of this file and `CHANGES.md`.
 
 ## Baseline (before this round)
 - `npm run typecheck` — clean across all workspaces
 - `npm run lint` — 0 errors, 0 warnings
 - `npm run test` — all passing: shared 138, mcp-tools 121, database 25 (10 RLS isolation
   tests skipped without a live DB), api 306
+
+## Findings & Actions (round 35)
+
+### Fixed this round
+
+1. **🔴 `idempotency.ts:259` / `truncate.ts` — `_truncated` marker collided with real
+   user data (correctness/abuse path).** The replay path detected truncation via a bare
+   `"_truncated" in data` check. A tool whose result genuinely contains a top-level
+   `_truncated` field would be falsely reported to the agent as "was truncated for
+   storage", and a `_truncated:true` field could be misread on replay. `truncateValue`
+   now emits a high-entropy private discriminator (`__besterp_trunc`) alongside the
+   `_truncated` flag, and `handleExistingRecord` detects truncation via the exported
+   `isTruncationMarker` helper. Added regression tests.
+
+2. **🔴 `sanitize.ts:121` — secrets in HTTP URL query strings were not redacted.** The
+   generic `https?://…` rule reduced a URL to `[HOST]/[PATH]` but preserved the full
+   query string, so `https://api.example.com/v1/charge?api_key=sk_live_abc123&token=xyz`
+   leaked both secrets to operator logs. A new regex redacts common secret-bearing query
+   parameters (`key`, `token`, `secret`, `password`, `access_token`, `auth`, `api_key`,
+   `apikey`, `client_secret`) to `[REDACTED]`. Added regression test.
+
+3. **🟡 `validation.ts:61` — ISO date regex accepted invalid timezone offsets
+   (`+14:30`, `+14:59`, `-12:30`, `-13:00`).** The offset minute group `[0-5]\d` was
+   unconstrained for extreme hours. The regex now restricts `+14` to `:00` only and
+   `-12` to `:00` only, keeping the valid -12:00..+14:00 window. Added regression test.
+
+4. **🟡 `errors.ts:60-68` — `DomainError.toJSON` serialized non-Error `cause` via
+   `String(cause)`.** A non-`Error` cause (e.g. an attached object) would have its data
+   stringified into audit logs / idempotency records; a custom class `toString()` can
+   embed sensitive field data. Non-Error causes now serialize to the safe placeholder
+   `[Non-error cause]`. Updated the regression test.
+
+5. **🟡 `idempotency.ts:153-155` — idempotency key leaked its first 32 plaintext chars to
+   agent-facing error messages.** `redactKey` embedded `key.slice(0, 32)` verbatim; if a
+   key ever carried a secret (defense-in-depth), up to 32 chars reached the AI agent.
+   Keys are now hashed with SHA-256 and only a 12-char opaque prefix (`id-…`) is shown.
+   Updated the regression test that asserted the raw key appeared in stderr.
+
+6. **🟢 `sensitive-fields.test.ts:170-175` — pre-existing broken test.** The `redactSensitiveFields`
+   describe block used a top-level `await import(...)` outside an async function, so the
+   entire test file failed to transform (0 tests ran). Replaced the dynamic import with a
+   static top-level import. The file now executes (part of the 121→122 mcp-tools tests).
+
+### Reviewed but NOT changed (false positives / out of scope)
+
+- **`rls-extension.ts:199-215` method-cache `tenantId` capture (flagged HIGH by sub-review).**
+  Verified the closure captures the single `tenantId` bound at `createTenantClient` time, and
+  `PrismaService.tenantScoped` caches clients keyed by `tenantId` (`prisma.service.ts:247`),
+  so a proxy is never reused across tenants. The finding does not manifest in real usage.
+- **Cross-tool / cross-user idempotency key collision.** The DB unique constraint is
+  `(idempotencyKey, tenantId)`; keys are caller-supplied opaque tokens (UUID/ULID/hash) and
+  are treated as secret per-operation. Re-namespacing by tool/user would be a breaking change
+  to the existing contract and is deferred.
+- **`create-roles.sql:19` committed dev password.** Documented dev-only with `NOINHERIT`;
+  left as-is to avoid diverging from the provisioning script's contract. Tracked as a follow-up.
 
 ## Findings & Actions (round 34)
 

@@ -610,7 +610,11 @@ describe("Idempotency Middleware", () => {
     const allArgs = stderrCalls
       .map((args) => args.map((a) => (typeof a === "string" ? a : "<binary>")).join(" "))
       .join("\n");
-    expect(allArgs).toContain("test-update-fails");
+    // The idempotency key is redacted to a non-reversible hash token in logs,
+    // so the raw key ("test-update-fails") must NOT appear verbatim — only the
+    // "id-" prefixed hash token does.
+    expect(allArgs).not.toContain("test-update-fails");
+    expect(allArgs).toContain("id-");
   });
 
   it("should pass through when idempotencyKey is absurdly long (defensive pre-check)", async () => {

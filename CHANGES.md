@@ -1,5 +1,43 @@
 # BestERP — Security & Architecture Fixes
 
+## Changes Applied (2026-07-16) — Code Review Round 35
+
+### 🔴 `idempotency.ts` / `truncate.ts` — `_truncated` marker collided with real user data
+
+**Problem:** The idempotency replay path detected truncation via a bare `"_truncated" in data` check. A tool whose result genuinely contains a top-level `_truncated` field would be falsely reported to the agent as "was truncated for storage", and such a field could be misread on replay.
+
+**Fix:** `truncateValue` now emits a high-entropy private discriminator (`__besterp_trunc`) alongside the `_truncated` flag. `handleExistingRecord` detects truncation via the exported `isTruncationMarker` helper, which requires the discriminator — a real user field named `_truncated` can no longer trigger the false note. Added regression tests.
+
+### 🔴 `sanitize.ts` — secrets in HTTP URL query strings were not redacted
+
+**Problem:** The generic `https?://…` rule reduced a URL to `[HOST]/[PATH]` but preserved the full query string, so `https://api.example.com/v1/charge?api_key=sk_live_abc123&token=xyz` leaked both secrets to operator logs.
+
+**Fix:** A new regex redacts common secret-bearing query parameters (`key`, `token`, `secret`, `password`, `access_token`, `auth`, `api_key`, `apikey`, `client_secret`) to `[REDACTED]` after the `[HOST]/[PATH]` reduction. Added regression test.
+
+### 🟡 `validation.ts` — ISO date regex accepted invalid timezone offsets
+
+**Problem:** The offset minute group was unconstrained for extreme hours, so `+14:30`, `+14:59`, `-12:30`, and `-13:00` were accepted even though they fall outside the valid -12:00..+14:00 window.
+
+**Fix:** The regex now restricts `+14` to `:00` only and `-12` to `:00` only. Added regression test.
+
+### 🟡 `errors.ts` — `DomainError.toJSON` serialized non-Error `cause` via `String(cause)`
+
+**Problem:** A non-`Error` cause (e.g. an attached object) would have its data stringified into audit logs / idempotency records; a custom class `toString()` can embed sensitive field data.
+
+**Fix:** Non-Error causes now serialize to the safe placeholder `[Non-error cause]`. Updated the regression test.
+
+### 🟡 `idempotency.ts` — idempotency key leaked 32 plaintext chars to agent-facing errors
+
+**Problem:** `redactKey` embedded `key.slice(0, 32)` verbatim in agent-facing error messages. If a key ever carried a secret, up to 32 chars reached the AI agent.
+
+**Fix:** Keys are now hashed with SHA-256 and only a 12-char opaque prefix (`id-…`) is shown. Updated the regression test that asserted the raw key appeared in stderr.
+
+### 🟢 `sensitive-fields.test.ts` — pre-existing broken test file
+
+**Problem:** The `redactSensitiveFields` describe block used a top-level `await import(...)` outside an async function, so the entire file failed to transform and 0 tests ran.
+
+**Fix:** Replaced the dynamic import with a static top-level import. The file now executes.
+
 ## Changes Applied (2026-07-16) — Code Review Round 34
 
 ### 🔴 `crypto.ts` — `Error.cause` hashed shallow / circular `cause` not detected

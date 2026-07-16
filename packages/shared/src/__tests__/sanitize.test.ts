@@ -138,6 +138,14 @@ describe("sanitizeLogOutput", () => {
     expect(sanitizeLogOutput("at C:\\Users\\user\\src\\file.ts:1")).toContain("[PATH]");
   });
 
+  it("redacts secrets in query strings of non-credential HTTP URLs", () => {
+    const result = sanitizeLogOutput("GET https://api.example.com/v1/charge?api_key=sk_live_abc123&token=xyz");
+    expect(result).toContain("[HOST]");
+    expect(result).not.toContain("sk_live_abc123");
+    expect(result).not.toContain("xyz");
+    expect(result).toContain("[REDACTED]");
+  });
+
   it("preserves safe log messages", () => {
     expect(sanitizeLogOutput("User login successful")).toBe("User login successful");
     expect(sanitizeLogOutput("Party created: John Doe")).toBe("Party created: John Doe");

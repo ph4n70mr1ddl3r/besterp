@@ -56,12 +56,18 @@ export class DomainError extends Error {
  * to prevent leaking internal error chains (e.g., Prisma errors with
  * SQL/connection details) into audit logs or idempotency records.
  * `stack` is deliberately omitted to prevent leaking internal stack frames.
+ *
+ * A non-Error cause (e.g. an attached object) is NOT stringified via
+ * `String(cause)` because a custom class's `toString()` can embed sensitive
+ * field data into durable sinks (audit logs, idempotency records). We return
+ * a safe placeholder instead, consistent with the redaction applied to
+ * `context` values — callers must never attach secrets as `cause`.
  */
 function serializeCause(cause: unknown): unknown {
   try {
     if (cause === undefined || cause === null) return cause;
-    if (!(cause instanceof Error)) return String(cause);
-    return cause.message;
+    if (cause instanceof Error) return cause.message;
+    return "[Non-error cause]";
   } catch {
     return "[Error serializing cause]";
   }
