@@ -282,6 +282,9 @@ function splitFieldNameTokens(key: string): string[] {
   return matches ? matches.filter((t) => t.length > 0) : [];
 }
 
+/** Public tokeniser used by consumers (e.g. the MCP `sensitive-fields` shim). */
+export { splitFieldNameTokens };
+
 const SENSITIVE_FIELD_TOKENS: ReadonlySet<string> = Object.freeze(new Set([
   "password", "passwd", "pwd", "secret", "token", "credential", "credentials",
   "otp", "mfa", "passcode", "passphrase", "signature", "sign",
@@ -307,37 +310,89 @@ export function isSensitiveFieldName(key: string): boolean {
 }
 
 /**
+ * Maximum recursion depth for {@link redactSensitiveFieldValues}. Beyond this
+ * the traversal stops and returns `"[Too deep]"` — mirroring the depth guard
+ * on the MCP `redactSensitiveFields` / `sanitizeContextValue` consumers, so a
+ * maliciously deep `DomainError.context` cannot blow the stack on the REST
+ * dev-reflection path (which invokes this function on an attacker-influenceable
+ * context tree).
+ */
+export const MAX_REDACTION_DEPTH = 20;
+
+/**
  * Recursively redact values stored under sensitive-named keys within an
- * arbitrary object/array tree, while also running every string leaf through
- * `sanitizeForLogOutput` (URL/connection-string/secret redaction) so the
- * result is safe to reflect to an agent or persist to a durable sink.
+ * arbitrary object/array/Map/Set tree, while also running every string leaf
+ * through `sanitizeForLogOutput` (URL/connection-string/secret redaction) so
+ * the result is safe to reflect to an agent or persist to a durable sink.
  *
- * Mirrors the key-based redaction applied by the MCP error-handler and the
- * audit-log/idempotency middlewares, so agent-facing surfaces stay consistent
- * on what counts as a secret. Container cycles are guarded with a `WeakSet`.
+ * This is the canonical, single-source-of-truth redactor shared by the REST
+ * `DomainExceptionFilter` AND the MCP agent/durable surfaces (audit-log,
+ * error-handler, idempotency). It is keyed on {@link isSensitiveFieldName} so
+ * every surface agrees on what counts as sensitive, and it handles Map/Set
+ * containers (converting them to JSON-safe arrays while still redacting
+ * sensitive-named keys) and guards against both unbounded recursion (depth
+ * cap) and container cycles (WeakSet) — the exact properties the MCP
+ * `redactSensitiveFields` carries, so the two surfaces cannot diverge.
  *
- * @param value value to redact (object, array, string, or primitive)
+ * @param value value to redact (object, array, Map, Set, string, or primitive)
+ * @param depth internal recursion depth; do not pass from callers
  * @param seen  internal cycle-tracking set; do not pass from callers
  */
-export function redactSensitiveFieldValues(value: unknown, seen?: WeakSet<object>): unknown {
-  if (typeof value === "string") return sanitizeForLogOutput(value);
-  if (value === null || typeof value !== "object") return value;
-  if (Array.isArray(value)) {
-    const s = seen ?? new WeakSet<object>();
-    if (s.has(value)) return "[Circular]";
-    s.add(value);
-    return value.map((item) => redactSensitiveFieldValues(item, s));
-  }
-  const s = seen ?? new WeakSet<object>();
-  if (s.has(value)) return "[Circular]";
-  s.add(value);
+function redactArray(value: unknown[], depth: number, seen: WeakSet<object>): unknown {
+  if (seen.has(value)) return "[Circular]";
+  seen.add(value);
+  return value.map((item) => redactSensitiveFieldValues(item, depth + 1, seen));
+}
+
+function redactMap(value: Map<unknown, unknown>, depth: number, seen: WeakSet<object>): unknown {
+  if (seen.has(value)) return "[Circular]";
+  seen.add(value);
+  // Map is not JSON-native; convert to an array of [key, value] pairs so the
+  // data survives serialisation (a bare Map would become {} and be silently
+  // dropped from a reflected/durable payload). Sensitive-named keys are
+  // redacted (mirroring the MCP audit-log redactor) so a secret stored under a
+  // Map key is not reflected verbatim on any surface.
+  return [...value.entries()].map(([k, v]) => {
+    const keyStr = typeof k === "string" ? k : String(k);
+    return [
+      isSensitiveFieldName(keyStr) ? "[REDACTED]" : redactSensitiveFieldValues(k, depth + 1, seen),
+      isSensitiveFieldName(keyStr) ? "[REDACTED]" : redactSensitiveFieldValues(v, depth + 1, seen),
+    ];
+  });
+}
+
+function redactSet(value: Set<unknown>, depth: number, seen: WeakSet<object>): unknown {
+  if (seen.has(value)) return "[Circular]";
+  seen.add(value);
+  return [...value].map((v) => redactSensitiveFieldValues(v, depth + 1, seen));
+}
+
+function redactPlainObject(value: Record<string, unknown>, depth: number, seen: WeakSet<object>): Record<string, unknown> {
+  if (seen.has(value)) return "[Circular]" as unknown as Record<string, unknown>;
+  seen.add(value);
   const out: Record<string, unknown> = {};
-  for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+  for (const [key, child] of Object.entries(value)) {
     out[key] = isSensitiveFieldName(key)
       ? "[REDACTED]"
-      : redactSensitiveFieldValues(child, s);
+      : redactSensitiveFieldValues(child, depth + 1, seen);
   }
   return out;
+}
+
+export function redactSensitiveFieldValues(
+  value: unknown,
+  depth = 0,
+  seen?: WeakSet<object>,
+): unknown {
+  if (depth > MAX_REDACTION_DEPTH) return "[Too deep]";
+  if (typeof value === "string") return sanitizeForLogOutput(value);
+  if (value === null || typeof value !== "object") return value;
+  if (value instanceof WeakMap || value instanceof WeakSet) return "[WeakCollection]";
+  const s = seen ?? new WeakSet<object>();
+  if (Array.isArray(value)) return redactArray(value, depth, s);
+  if (value instanceof Map) return redactMap(value, depth, s);
+  if (value instanceof Set) return redactSet(value, depth, s);
+  return redactPlainObject(value as Record<string, unknown>, depth, s);
 }
 
 /**

@@ -1,8 +1,13 @@
 // Unit tests for sensitive-field detection (shared by audit-log + error-handler)
 
 import { describe, it, expect } from "vitest";
-import { isSensitiveField, splitFieldTokens, SENSITIVE_FIELDS, SENSITIVE_TOKENS, SENSITIVE_FIELD_PATTERN } from "../middleware/sensitive-fields.js";
+import { isSensitiveField, splitFieldTokens } from "../middleware/sensitive-fields.js";
+import { isSensitiveFieldName } from "@besterp/shared";
 import { redactSensitiveFields } from "../middleware/audit-log.js";
+
+// The local `isSensitiveField` delegates to the canonical `isSensitiveFieldName`
+// in @besterp/shared. The tests below assert the two surfaces agree on what
+// counts as sensitive (the asymmetric-leak class of bug that round 44 fixed).
 
 describe("isSensitiveField", () => {
   it("should catch explicit sensitive field names", () => {
@@ -119,52 +124,56 @@ describe("splitFieldTokens", () => {
   });
 });
 
-describe("SENSITIVE_FIELDS", () => {
-  it("should be frozen (immutable at runtime)", () => {
-    expect(Object.isFrozen(SENSITIVE_FIELDS)).toBe(true);
+describe("delegation to shared isSensitiveFieldName (single source of truth)", () => {
+  it("should agree with the shared single source of truth on every sample", () => {
+    const samples = [
+      "password", "apiKey", "secret", "token", "code", "session", "signature",
+      "sign", "birthDate", "otp", "mfa", "primaryKey", "email", "partyId", "name",
+    ];
+    for (const s of samples) {
+      expect(isSensitiveField(s)).toBe(isSensitiveFieldName(s));
+    }
   });
 
   it("should contain all expected ERP-specific fields", () => {
-    expect(SENSITIVE_FIELDS.has("birthDate")).toBe(true);
-    expect(SENSITIVE_FIELDS.has("birth_date")).toBe(true);
-    expect(SENSITIVE_FIELDS.has("date_of_birth")).toBe(true);
-    expect(SENSITIVE_FIELDS.has("dob")).toBe(true);
-    expect(SENSITIVE_FIELDS.has("national_id")).toBe(true);
-    expect(SENSITIVE_FIELDS.has("bank_account")).toBe(true);
-    expect(SENSITIVE_FIELDS.has("routing_number")).toBe(true);
-    expect(SENSITIVE_FIELDS.has("otp")).toBe(true);
-    expect(SENSITIVE_FIELDS.has("mfa")).toBe(true);
-  });
-});
-
-describe("SENSITIVE_TOKENS", () => {
-  it("should be frozen (immutable at runtime)", () => {
-    expect(Object.isFrozen(SENSITIVE_TOKENS)).toBe(true);
+    // The canonical set lives in @besterp/shared; verify the MCP surface
+    // agrees on the ERP-specific PII/credential field names.
+    expect(isSensitiveField("birthDate")).toBe(true);
+    expect(isSensitiveField("birth_date")).toBe(true);
+    expect(isSensitiveField("date_of_birth")).toBe(true);
+    expect(isSensitiveField("dob")).toBe(true);
+    expect(isSensitiveField("national_id")).toBe(true);
+    expect(isSensitiveField("bank_account")).toBe(true);
+    expect(isSensitiveField("routing_number")).toBe(true);
+    expect(isSensitiveField("otp")).toBe(true);
+    expect(isSensitiveField("mfa")).toBe(true);
   });
 
-  it("should contain otp and mfa", () => {
-    expect(SENSITIVE_TOKENS.has("otp")).toBe(true);
-    expect(SENSITIVE_TOKENS.has("mfa")).toBe(true);
-  });
-});
-
-describe("SENSITIVE_FIELD_PATTERN", () => {
   it("should match standard credential patterns", () => {
-    expect(SENSITIVE_FIELD_PATTERN.test("password")).toBe(true);
-    expect(SENSITIVE_FIELD_PATTERN.test("secret")).toBe(true);
-    expect(SENSITIVE_FIELD_PATTERN.test("token")).toBe(true);
-    expect(SENSITIVE_FIELD_PATTERN.test("api_key")).toBe(true);
-    expect(SENSITIVE_FIELD_PATTERN.test("apiKey")).toBe(true);
-    expect(SENSITIVE_FIELD_PATTERN.test("credential")).toBe(true);
-    expect(SENSITIVE_FIELD_PATTERN.test("auth_token")).toBe(true);
-    expect(SENSITIVE_FIELD_PATTERN.test("authToken")).toBe(true);
+    expect(isSensitiveField("password")).toBe(true);
+    expect(isSensitiveField("secret")).toBe(true);
+    expect(isSensitiveField("token")).toBe(true);
+    expect(isSensitiveField("api_key")).toBe(true);
+    expect(isSensitiveField("apiKey")).toBe(true);
+    expect(isSensitiveField("credential")).toBe(true);
+    expect(isSensitiveField("auth_token")).toBe(true);
+    expect(isSensitiveField("authToken")).toBe(true);
   });
 
   it("should NOT match unrelated words containing sensitive substrings", () => {
-    expect(SENSITIVE_FIELD_PATTERN.test("tokenize")).toBe(false);
-    expect(SENSITIVE_FIELD_PATTERN.test("credentials")).toBe(false);
-    expect(SENSITIVE_FIELD_PATTERN.test("passwordless")).toBe(false);
-    expect(SENSITIVE_FIELD_PATTERN.test("bartender")).toBe(false);
+    expect(isSensitiveField("tokenize")).toBe(false);
+    expect(isSensitiveField("passwordless")).toBe(false);
+    expect(isSensitiveField("bartender")).toBe(false);
+  });
+
+  it("should redact the codes that the MCP surface previously MISSED", () => {
+    // Regression for round 44: code / session / signature / sign were in the
+    // shared single source of truth but absent from the old local copy, so they
+    // leaked on the MCP surface while being redacted on the REST surface.
+    expect(isSensitiveField("code")).toBe(true);
+    expect(isSensitiveField("session")).toBe(true);
+    expect(isSensitiveField("signature")).toBe(true);
+    expect(isSensitiveField("sign")).toBe(true);
   });
 });
 

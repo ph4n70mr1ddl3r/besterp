@@ -38,6 +38,16 @@ const prisma = new PrismaClient({
   datasourceUrl: process.env.DATABASE_ADMIN_URL,
 });
 
+// Interactive-transaction timeout (ms). Prisma's default is 5000ms, so any
+// non-trivial cleanup (a few thousand expired rows, or a single transaction
+// that holds the advisory lock past 5s) times out, the whole transaction
+// ROLLS BACK (deleting nothing), and the script exits non-zero having cleaned
+// 0 rows — silently defeating its only purpose while the table grows unbounded.
+// Raise the default well above the expected runtime and allow tuning via env.
+const TX_TIMEOUT_MS = process.env.CLEANUP_TX_TIMEOUT_MS
+  ? Number(process.env.CLEANUP_TX_TIMEOUT_MS)
+  : 600_000;
+
 async function main() {
   const BATCH_SIZE = 5000;
   // Application-scoped advisory lock key — arbitrary constant. Two
@@ -57,7 +67,8 @@ async function main() {
   // work to one transaction keeps the lock effective and lets the server
   // release it automatically on commit/rollback (an explicit
   // pg_advisory_unlock is still issued for clarity/early release).
-  const result = await prisma.$transaction(async (tx) => {
+  const result = await prisma.$transaction(
+    async (tx) => {
     const lockResult = await tx.$queryRaw<Array<{ pg_try_advisory_lock: boolean }>>`
       SELECT pg_try_advisory_lock(${ADVISORY_LOCK_KEY})
     `;
@@ -110,7 +121,9 @@ async function main() {
     }
 
     return { skipped: false as const, deleted, before: beforeCount, after: afterCount };
-  });
+  },
+  { timeout: TX_TIMEOUT_MS },
+);
 
   if (result.skipped) {
     console.log("Another cleanup is already running — exiting without doing work.");

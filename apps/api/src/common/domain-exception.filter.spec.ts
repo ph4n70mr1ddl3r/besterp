@@ -199,6 +199,32 @@ describe("DomainExceptionFilter", () => {
       });
     });
 
+    it("scrubs embedded secrets from a string HttpException message in production", () => {
+      // Regression: round 43 sanitised the array-validation branch but left
+      // the string message/error branches verbatim, so a custom
+      // HttpException carrying a connection string / Bearer token in its
+      // string message reached REST clients in production.
+      process.env.NODE_ENV = "production";
+      const ctx = createMockHost();
+      const error = new HttpException(
+        {
+          statusCode: 500,
+          error: "postgres://user:secret@db:5432/app",
+          message: "connect failed: postgres://user:secret@db:5432/app",
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+
+      filter.catch(error, ctx.host);
+
+      expect(ctx.captured.sentStatus).toBe(500);
+      const body = ctx.captured.body as Record<string, unknown>;
+      expect(JSON.stringify(body)).not.toContain("secret");
+      expect(JSON.stringify(body)).not.toContain("postgres://user");
+      expect((body.error as string)).toContain("[DATABASE_URL]");
+      expect((body.message as string)).toContain("[DATABASE_URL]");
+    });
+
     it("passes the full response through in non-production", () => {
       process.env.NODE_ENV = "development";
       const ctx = createMockHost();

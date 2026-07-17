@@ -262,13 +262,28 @@ export class PrismaService
       // A table missing entirely from pg_class is a coverage gap: rls-setup.sql
       // enabled RLS on it but the table isn't present (or was renamed), so
       // tenant isolation for that data cannot be verified. Refuse to boot
-      // rather than silently assume it's fine.
+      // rather than silently assuming it's fine.
       const notFound = tenantTables.filter((t) => !found.has(t));
       const missing = rows.filter((r) => !r.relrowsecurity || !r.relforcerowsecurity);
-      if (notFound.length > 0 || missing.length > 0) {
+      // A table that HAS force-RLS in the database but is NOT in tenantTables
+      // means a new tenant table was added to rls-setup.sql (and applied) but
+      // this authoritative list was not updated. The query uses `= ANY(list)`,
+      // so such a table simply isn't inspected — the boot check passes
+      // vacuously and the new table's tenant isolation goes unverified. If the
+      // DB reports MORE force-RLS tenant tables than we enumerated, someone
+      // forgot to extend this list; refuse to boot so the gap is caught rather
+      // than silently accepted. Global (non-tenant) tables never have FORCE RLS
+      // applied, so this cannot false-positive on type tables.
+      const forceRlsCount = rows.filter((r) => r.relforcerowsecurity).length;
+      const unexpected = forceRlsCount > tenantTables.length;
+      if (notFound.length > 0 || missing.length > 0 || unexpected) {
         const names = [...missing.map((r) => r.relname), ...notFound].join(", ");
         const msg =
           `Row-Level Security is NOT fully enabled (or the table is missing) on tenant tables: ${names}. ` +
+          (unexpected
+            ? `The database reports ${forceRlsCount} force-RLS tables but only ${tenantTables.length} are enumerated for verification — ` +
+              `a new tenant table was likely added to rls-setup.sql without updating the verification list. `
+            : "") +
           `Tenant isolation is disabled — apply rls-setup.sql (ENABLE/FORCE ` +
           `ROW LEVEL SECURITY + policies) before starting the service.`;
         this.logger.error(msg);

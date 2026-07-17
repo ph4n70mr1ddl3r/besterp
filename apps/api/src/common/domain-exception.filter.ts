@@ -151,7 +151,12 @@ export class DomainExceptionFilter implements ExceptionFilter {
       // Keep only safe, client-facing fields; drop validation details, stack, etc.
       const safeBody: Record<string, unknown> = { statusCode: status };
       if (typeof res.message === "string") {
-        safeBody.message = res.message;
+        // A custom/upstream HttpException may carry a secret-shaped value
+        // (connection string, Bearer token, ?token=…) directly in its string
+        // message. Scrub it the same way the array-validation branch and the
+        // DomainError path do, so a REST client cannot extract a secret that
+        // an AI agent would not see.
+        safeBody.message = sanitizeForLogOutput(res.message);
       } else       if (Array.isArray(res.message)) {
         // ValidationPipe errors carry an array of per-field detail strings
         // like "field must be shorter than or equal to 500 characters" or
@@ -180,7 +185,7 @@ export class DomainExceptionFilter implements ExceptionFilter {
       } else {
         safeBody.message = status === 400 ? "Validation failed" : "Request error";
       }
-      if (typeof res.error === "string") safeBody.error = res.error;
+      if (typeof res.error === "string") safeBody.error = sanitizeForLogOutput(res.error);
       response.status(status).json(safeBody);
       return;
     }

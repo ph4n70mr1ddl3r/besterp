@@ -9,9 +9,9 @@
 // never break the tool).
 
 import { PrismaClient, Prisma } from "@prisma/client";
-import { getErrorCode, sanitizeLogMessage, sanitizeForLogOutput, MAX_REASONING_LENGTH } from "@besterp/shared";
+import { getErrorCode, sanitizeLogMessage, sanitizeForLogOutput, MAX_REASONING_LENGTH, MAX_SOFT_FAILURE_MESSAGE_SIZE } from "@besterp/shared";
 import { ToolMiddleware, ToolContext, ToolResult } from "../schema/tool-definition.js";
-import { truncateValue, MAX_STORED_PAYLOAD_SIZE } from "./truncate.js";
+import { truncateValue, capString, MAX_STORED_PAYLOAD_SIZE } from "./truncate.js";
 import { isSensitiveField } from "./sensitive-fields.js";
 
 /** Maximum depth for recursive sensitive field redaction. */
@@ -68,7 +68,7 @@ async function executeAndLog(prisma: PrismaClient, backpressure: BackpressureMan
     // ai_action_log table, so we strip it the same way shutdown/log paths do.
     backpressure.log({
       ...base,
-      toolOutput: { error: { message: sanitizeForLogOutput(error instanceof Error ? error.message : String(error)), code: getErrorCode(error) } },
+      toolOutput: { error: { message: sanitizeForLogOutput(error instanceof Error ? error.message : String(error)), code: capString(sanitizeForLogOutput(getErrorCode(error) ?? ""), MAX_SOFT_FAILURE_MESSAGE_SIZE) || undefined } },
     });
     throw error;
   }

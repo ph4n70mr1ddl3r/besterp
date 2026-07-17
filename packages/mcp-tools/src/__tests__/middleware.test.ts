@@ -808,6 +808,38 @@ describe("Idempotency Middleware", () => {
     expect(stored).toContain("[DATABASE_URL]");
   });
 
+  it("should cap and sanitize the thrown-error (hard-failure) error.code", async () => {
+    // Regression guard for an asymmetric-leak path: the soft-failure branch
+    // capped + scrubbed error.code, but the hard-throw branch stored it verbatim
+    // (getErrorCode(error) with no cap/sanitize). A thrown custom error whose
+    // .code carries a long or secret-shaped value would persist into the durable
+    // 24h-TTL idempotency_record.error.code unredacted. Both paths must apply
+    // capString(sanitizeForLogOutput(...)) to the code.
+    const input = { test: "value" };
+    const idempotencyKey = "test-hard-code-cap";
+    const contextWithKey = { ...mockContext, idempotencyKey };
+    const hugeCode = "x".repeat(8000);
+
+    mockFindInTransaction(null);
+    mockPrisma.idempotencyRecord.create.mockResolvedValue({
+      idempotencyKey,
+      status: "pending",
+    });
+    mockPrisma.idempotencyRecord.update.mockResolvedValue({});
+
+    const middleware = idempotencyMiddleware(mockPrisma as any);
+    const errWithCode = Object.assign(new Error("boom"), { code: hugeCode });
+    await expect(
+      middleware(input, contextWithKey, mockDefinition, throwingNext(errWithCode))
+    ).rejects.toThrow();
+
+    const updateCall = mockPrisma.idempotencyRecord.update.mock.calls[0];
+    const stored = updateCall[0].data.error.code;
+    expect(stored.length).toBeLessThan(4500);
+    expect(stored.length).toBeGreaterThan(0);
+    expect(stored).toMatch(/truncated/);
+  });
+
   it("should sanitize DB connection strings from the soft-failure error.message", async () => {
     // Regression guard for an asymmetric-leak path: the soft-failure (returned
     // `{ success: false }`, NOT thrown) branch persisted its error.message
@@ -1060,7 +1092,9 @@ describe("Audit Log Middleware", () => {
       expect.objectContaining({
         data: expect.objectContaining({
           toolCalled: "test_tool",
-          toolOutput: { error: { message: "Test error", code: undefined } },
+          // `code` is now a sensitive field name (single source of truth),
+          // so the audit path redacts its value — mirroring the REST surface.
+          toolOutput: { error: { message: "Test error", code: "[REDACTED]" } },
         }),
       })
     );

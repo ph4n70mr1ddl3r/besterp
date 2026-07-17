@@ -28,7 +28,7 @@ export {
   isValidISODate,
 } from "./validation.js";
 
-export { stripHtmlTags, sanitizeLogOutput, sanitizeLogMessage, safeFromCodePoint, sanitizeForLogOutput, isSensitiveFieldName, redactSensitiveFieldValues } from "./sanitize.js";
+export { stripHtmlTags, sanitizeLogOutput, sanitizeLogMessage, safeFromCodePoint, sanitizeForLogOutput, isSensitiveFieldName, redactSensitiveFieldValues, MAX_REDACTION_DEPTH, splitFieldNameTokens } from "./sanitize.js";
 
 export {
   MAX_PARTY_NAME_LENGTH,

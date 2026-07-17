@@ -373,7 +373,17 @@ async function executeAndUpdate(
     );
     const failedResult: ToolResult = {
       success: false,
-      error: { code: getErrorCode(error) ?? "EXECUTION_ERROR", message },
+      error: {
+        // The soft-failure path (updateIdempotencyRecordWithRetry) already
+        // caps + scrubs error.code; the hard-throw path must do the same so a
+        // thrown custom error whose .code carries a long/secret-shaped value is
+        // not persisted verbatim into the durable 24h-TTL idempotency_record.
+        code: capString(
+          sanitizeForLogOutput(getErrorCode(error) ?? "EXECUTION_ERROR"),
+          MAX_SOFT_FAILURE_MESSAGE_SIZE,
+        ),
+        message,
+      },
     };
     try {
       await updateIdempotencyRecordWithRetry(prisma, idempotencyKey, tenantId, failedResult, true);

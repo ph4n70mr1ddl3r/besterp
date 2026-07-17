@@ -2,14 +2,14 @@
 
 ## Scope
 Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
-`packages/mcp-tools`, `apps/api`) conducted on 2026-07-17. This is review round 43;
-round 1–42 are documented in earlier revisions of this file and `CHANGES.md`.
+`packages/mcp-tools`, `apps/api`) conducted on 2026-07-17. This is review 44;
+round 1–43 are documented in earlier revisions of this file and `CHANGES.md`.
 
 ## Baseline (before this round)
 - `npm run typecheck` — clean across all workspaces
 - `npm run lint` — 0 errors (1 pre-existing complexity warning in `crypto.ts:sortKeysDeep`)
-- `npm run test` — all passing: shared 154, mcp-tools 130, database 25 (10 RLS isolation
-  tests skipped without a live DB), api 312
+- `npm run test` — all passing: shared 164, mcp-tools 132, database 25 (10 RLS isolation
+  tests skipped without a live DB), api 313
 
 ## Findings & Actions (round 43)
 
@@ -81,6 +81,94 @@ database:   25 passed, 10 skipped (2 files)
 api:       312 passed (14 files)  (+3 — round 43 REST redaction regression tests)
 ───────────────────────────────────
 Total:     621 passed, 10 skipped
+```
+
+## Findings & Actions (round 44)
+
+### Fixed this round
+
+1. **🔴 `sensitive-fields.ts` — the MCP surface used a divergent sensitive-field detector that
+   omitted `code`/`session`/`signature`/`sign` (asymmetric secret leak).** Round 43 promoted
+   `isSensitiveFieldName` to `@besterp/shared` as the single source of truth and added those four
+   names to it, but the three MCP middlewares (`audit-log`, `error-handler`, `tool-registry`) kept
+   using a local `isSensitiveField` without them. A value under a key named `code` (MFA/verification
+   code), `session` (session token), `signature`, or `sign` (signing secret) was redacted on the
+   REST surface but **leaked** on the agent-first MCP surface — through the live tool result,
+   `ai_action_log.tool_input`/`toolOutput`, the idempotency persist + replay paths, and validation
+   `issues.received`. Made `sensitive-fields.ts` delegate to the shared `isSensitiveFieldName`
+   (and `splitFieldTokens` to the shared tokeniser), removing the duplicated local set/regex/tokens
+   so the two surfaces cannot diverge. Added regression tests (the four previously-missed names are
+   now redacted; the MCP detector agrees with the shared one on a sample).
+
+2. **🔴 `sanitize.ts` — the shared `redactSensitiveFieldValues` (used by the REST filter's dev
+   `context` reflection) dropped `Map`/`Set` to `{}` and had no recursion depth cap.** A `Map`/`Set`
+   fell through to `Object.entries(...)` → `[]`, so it serialised to `{}` (data loss) and, unlike the
+   MCP `redactSensitiveFields`, it never redacted sensitive-named Map/Set keys — `new Map([["password",
+   "hunter2"]])` reflected as `{}` on REST while the MCP surface redacted it. With no depth guard, a
+   deeply nested attacker-influenced `DomainError.context` could blow the stack on the REST dev path
+   (DoS). Rewrote it as the complete canonical redactor: depth-guarded (`"[Too deep]"` past
+   `MAX_REDACTION_DEPTH`), Map/Set-aware (converted to JSON-safe `[k,v]`/array form with sensitive
+   keys redacted), cycle-guarded. Split container handling into helper functions to stay under the
+   lint complexity cap. Added regression tests (Map key redaction, Map/Set preservation, depth guard).
+
+3. **🔴 `domain-exception.filter.ts` — the REST `HttpException` string `message`/`error` branches
+   were not secret-scrubbed in production (asymmetric leak).** Round 43 sanitized the array
+   validation-message branch and `DomainError` messages, but the `typeof res.message === "string"`
+   branch copied the message verbatim and `res.error` was copied verbatim. A custom/upstream
+   `HttpException` carrying a connection string or `Bearer` token in its string `message`/`error`
+   reached REST clients in production unredacted while the same value was scrubbed on the MCP surface
+   and the array branch. Both string branches now pass through `sanitizeForLogOutput`. Added a
+   regression test (embedded `postgres://…` secret redacted in the string message/error).
+
+4. **🟡 `idempotency.ts` / `audit-log.ts` — the thrown-error `error.code` was persisted raw and
+   un-capped (asymmetric with the already-fixed soft-failure branch).** Round 32 #4 / round 43 #4
+   fixed only the soft-failure `error.code` (`capString(sanitizeForLogOutput(...))`). The idempotency
+   hard-throw path stored `code: getErrorCode(error)` verbatim and the audit-log thrown-error path
+   stored `code: getErrorCode(error)` raw. `getErrorCode` is a free-form (non-allowlisted) string, so
+   a thrown custom error with a long/secret `.code` persisted verbatim into the durable 24h-TTL
+   `idempotency_record.error.code` / `ai_action_log.toolOutput.error.code`. Both now apply
+   `capString(sanitizeForLogOutput(...), MAX_SOFT_FAILURE_MESSAGE_SIZE)`. Added a regression test
+   (oversized hard-throw code capped + truncated).
+
+5. **🟡 `cleanup-expired-idempotency.ts` — the cleanup silently rolled back on real datasets.** The
+   whole scan + batched-delete runs in one interactive `$transaction` whose default Prisma timeout is
+   5s; any non-trivial cleanup (a few thousand expired rows, or a transaction holding the advisory
+   lock past 5s) timed out, rolled back (deleting nothing), and exited non-zero having cleaned 0 rows
+   — defeating its only purpose while the table grew unbounded. Pass an explicit `timeout` (default
+   600s, tunable via `CLEANUP_TX_TIMEOUT_MS`).
+
+6. **🟢 `prisma.service.ts` — the RLS boot check could pass vacuously for newly-added tenant
+   tables.** `verifyRlsEnabled` treats the hard-coded `tenantTables` list as authoritative; a new
+   tenant table added to `schema.prisma` + `rls-setup.sql` but omitted from the list is simply never
+   inspected, so the check passes and that table's tenant isolation goes unverified. The query now
+   also fails closed if the DB reports MORE force-RLS tables than the enumeration covers (with a clear
+   message). Global tables never have FORCE RLS applied, so no false-positive.
+
+### Reviewed but NOT changed (false positives / out of scope)
+
+- **`redactSensitiveFieldValues` over-redaction of benign `error.code`** — because `code` is now a
+  sensitive field name (round 43 single source of truth), the audit-log `toolOutput.error.code`
+  (e.g. `P2002`) is redacted to `[REDACTED]` on every surface. This is consistent with the established
+  policy (over-redaction of `code`/`session` was an accepted trade-off in round 43) and matches the
+  REST surface; intentional, not a regression.
+- **`crypto.ts` aggregate byte budget under-counts key names** — already documented (round 40
+  deferred); bounded by `MAX_HASH_KEYS` (10k), no DoS path.
+- **`sanitize.ts` generic-URL catch-all (no userinfo)** — a non-credential URL with a secret in the
+  *path* is not redacted by the catch-all; query-string secrets are now covered (round 43). Known
+  limitation, out of scope.
+- **`ai_action_log.tenant_id` nullable** — flagged LOW in rounds 38–43; a NULL tenant_id row is
+  invisible to all tenants under RLS (no leak). Changing a shipped migration carries risk; deferred.
+- **`migrations/20260619000000…` non-concurrent `CREATE INDEX`** — flagged LOW in round 38; `IF NOT
+  EXISTS` present, comment documents manual `CONCURRENTLY`. Deferred.
+
+## Test Results
+```
+shared:    164 passed (4 files)   (+10 — round 44 Map/Set + depth + regression tests)
+mcp-tools: 132 passed (4 files)   (+2 — round 44 shared-detector + hard-throw-code regressions)
+database:   25 passed, 10 skipped (2 files)
+api:       313 passed (14 files)  (+1 — round 44 REST string-message/error regression)
+───────────────────────────────────
+Total:     634 passed, 10 skipped
 ```
 
 ## Findings & Actions (round 42)

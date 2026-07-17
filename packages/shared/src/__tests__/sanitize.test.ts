@@ -572,4 +572,35 @@ describe("redactSensitiveFieldValues", () => {
     const out = redactSensitiveFieldValues(obj) as Record<string, unknown>;
     expect(out.self).toBe("[Circular]");
   });
+
+  it("redacts sensitive-named Map keys and preserves the data (not {} )", () => {
+    // Regression: the canonical redactor must handle Map/Set (converting them
+    // to JSON-safe arrays) and redact sensitive-named keys — a Map passed to
+    // the REST dev-context reflection path was previously serialised as {} and
+    // its secret under a sensitive key leaked on the MCP surface but not here.
+    const input = { m: new Map([["password", "hunter2"]]) };
+    const out = redactSensitiveFieldValues(input) as Record<string, unknown>;
+    expect(out.m).toEqual([["[REDACTED]", "[REDACTED]"]]);
+  });
+
+  it("converts plain Map/Set values to JSON-safe arrays", () => {
+    const input = { m: new Map([["k", "v"]]), s: new Set([1, 2]) };
+    const out = redactSensitiveFieldValues(input) as Record<string, unknown>;
+    expect(out.m).toEqual([["k", "v"]]);
+    expect(out.s).toEqual([1, 2]);
+  });
+
+  it("stops descending and returns a placeholder past the depth cap", () => {
+    // Regression: no depth guard meant a deeply nested attacker-controlled
+    // context could blow the stack on the REST dev-reflection path. Use a
+    // non-sensitive key so the value is actually traversed (a sensitive key
+    // short-circuits to "[REDACTED]" before descending). The traversal stops
+    // at MAX_REDACTION_DEPTH and emits "[Too deep]" rather than recursing
+    // unbounded, so the leaf value is never reached.
+    let deep: Record<string, unknown> = { leaf: "v" };
+    for (let i = 0; i < 50; i++) deep = { child: deep };
+    const out = redactSensitiveFieldValues({ payload: deep }) as Record<string, unknown>;
+    expect(JSON.stringify(out)).toContain("[Too deep]");
+    expect(JSON.stringify(out)).not.toContain("leaf");
+  });
 });

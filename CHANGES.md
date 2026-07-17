@@ -1,5 +1,43 @@
 # BestERP — Security & Architecture Fixes
 
+## Changes Applied (2026-07-17) — Code Review Round 44
+
+### 🔴 `sanitize.ts` / `sensitive-fields.ts` — MCP surface used a divergent sensitive-field detector (asymmetric secret leak)
+
+**Problem:** Round 43 promoted `isSensitiveFieldName` to `@besterp/shared` as the single source of truth and added `code`, `session`, `signature`, `sign` to it — but the three MCP middlewares (`audit-log`, `error-handler`, `tool-registry`) kept using a *local* `isSensitiveField` that omitted those four names. A value under a key literally named `code` (MFA/verification code), `session` (session token), `signature`, or `sign` (signing secret) was redacted on the REST surface but **leaked** on the agent-first MCP surface — via the live tool result, `ai_action_log.tool_input`/`toolOutput`, the idempotency persist + replay paths, and validation `issues.received`. The exact asymmetric-leak pattern the codebase's review process targets.
+
+**Fix:** Made `packages/mcp-tools/src/middleware/sensitive-fields.ts` delegate `isSensitiveField` to the shared `isSensitiveFieldName` (and `splitFieldTokens` to the shared tokeniser) so the MCP/durable surfaces and the REST `DomainExceptionFilter` share one definition of "sensitive" permanently. Removed the duplicated local constant set/regex/tokens.
+
+### 🔴 `sanitize.ts` — shared `redactSensitiveFieldValues` dropped Map/Set and had no recursion depth cap
+
+**Problem:** The canonical redactor promoted in round 43 (used by the REST filter's dev `context` reflection) only handled plain objects/arrays. A `Map`/`Set` fell through to `Object.entries(...)` → `[]`, silently serialising to `{}` (data loss), and unlike the MCP `redactSensitiveFields` it **never redacted sensitive-named Map/Set keys** — so `new Map([["password","hunter2"]])` reflected as `{}` on REST while the MCP surface redacted it. It also had no depth guard, so an attacker-influenced deeply nested `DomainError.context` could blow the stack on the REST dev path (DoS). The two sibling redactors (`redactSensitiveFields`, `sanitizeContextValue`) are depth-bounded.
+
+**Fix:** Rewrote `redactSensitiveFieldValues` as the complete canonical redactor: depth-guarded (returns `"[Too deep]"` past `MAX_REDACTION_DEPTH`), Map/Set-aware (converted to JSON-safe `[k,v]`/array form, with sensitive-named keys redacted to `"[REDACTED]"`), cycle-guarded via `WeakSet`. Split container handling into `redactArray`/`redactMap`/`redactSet`/`redactPlainObject` helpers to stay under the lint complexity cap. Added regression tests (Map key redaction, Map/Set preservation, depth guard).
+
+### 🔴 `domain-exception.filter.ts` — REST `HttpException` string `message`/`error` not secret-scrubbed
+
+**Problem:** Round 43 sanitized the *array* validation-message branch and `DomainError` messages, but the `typeof res.message === "string"` branch copied the message verbatim and `res.error` was copied verbatim in production. A custom/upstream `HttpException` carrying a connection string or `Bearer` token in its string `message`/`error` reached REST clients in production unredacted — while the same value was scrubbed on the MCP surface and the array branch. Asymmetric leak on the production REST path.
+
+**Fix:** Both the string `message` and `error` branches now pass through `sanitizeForLogOutput` before being returned (matching the array branch and `DomainError` path). Added a regression test asserting a `postgres://…` secret in the string message/error is redacted in production.
+
+### 🟡 `idempotency.ts` / `audit-log.ts` — thrown-error `error.code` persisted raw/un-capped (asymmetric with soft-fail)
+
+**Problem:** Round 32 #4 / round 43 #4 fixed only the *soft-failure* `error.code` to `capString(sanitizeForLogOutput(...))`. The idempotency **hard-throw** path (`executeAndUpdate`) stored `code: getErrorCode(error)` with no cap and no sanitization, and the audit-log **thrown-error** path stored `code: getErrorCode(error)` raw. `getErrorCode` returns a free-form (non-allowlisted) string, so a thrown custom error with a long/secret `.code` persisted verbatim into the durable 24h-TTL `idempotency_record.error.code` / `ai_action_log.toolOutput.error.code`. Asymmetric vs the already-fixed sibling path.
+
+**Fix:** The idempotency hard-throw `error.code` and the audit-log thrown-error `code` now both apply `capString(sanitizeForLogOutput(...), MAX_SOFT_FAILURE_MESSAGE_SIZE)`. Added a regression test (oversized hard-throw code capped + truncated).
+
+### 🟡 `cleanup-expired-idempotency.ts` — cleanup silently rolled back on real datasets (transaction timeout)
+
+**Problem:** The whole scan + batched-delete runs inside one interactive `$transaction`. Prisma's default interactive-transaction `timeout` is 5s, so any non-trivial cleanup (a few thousand expired rows, or a single transaction holding the advisory lock past 5s) times out, the transaction **rolls back** (deleting nothing), and the script exits non-zero having cleaned 0 rows — silently defeating its only purpose while the table grows unbounded.
+
+**Fix:** Pass an explicit `timeout` (default 600s, tunable via `CLEANUP_TX_TIMEOUT_MS`) to the interactive transaction so the cleanup completes instead of rolling back.
+
+### 🟢 `prisma.service.ts` — RLS boot check could pass vacuously for newly-added tenant tables
+
+**Problem:** `verifyRlsEnabled` treats the hard-coded `tenantTables` list as authoritative. If a new tenant table is added to `schema.prisma` + `rls-setup.sql` (so it gets RLS+FORCE at the DB) but the developer forgets to add it to `tenantTables`, the `= ANY(list)` query simply never inspects that table — the check passes and the new table's tenant isolation goes unverified.
+
+**Fix:** The query now also fails closed if the DB reports MORE force-RLS tables than the enumeration covers (a forgotten-list-entry signal), with a clear message naming the discrepancy. Global (non-tenant) tables never have FORCE RLS applied, so this cannot false-positive.
+
 ## Changes Applied (2026-07-17) — Code Review Round 43
 
 ### 🔴 `domain-exception.filter.ts` — REST DomainError message not secret-redacted (asymmetric with MCP)
