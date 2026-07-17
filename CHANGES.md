@@ -1,5 +1,33 @@
 # BestERP — Security & Architecture Fixes
 
+## Changes Applied (2026-07-17) — Code Review Round 43
+
+### 🔴 `domain-exception.filter.ts` — REST DomainError message not secret-redacted (asymmetric with MCP)
+
+**Problem:** The non-500 production path reflected `message: stripHtmlTags(sanitizeLogMessage(exception.message))`. `sanitizeLogMessage` only strips control chars/ANSI, so a connection string, `Bearer` token, or `?token=…` secret embedded in a DomainError message (which routinely echoes user-supplied input) reached REST clients verbatim — while the same message was scrubbed to `[DATABASE_URL]`/`[REDACTED]` for AI agents via the MCP `error-handler`. Inconsistent agent-facing redaction across the two surfaces.
+
+**Fix:** Changed the message to `stripHtmlTags(sanitizeForLogOutput(exception.message))`, matching the file's `handleUnexpectedError` path and the MCP middleware. Added a regression test.
+
+### 🟡 `domain-exception.filter.ts` — dev `context` not field-name redacted
+
+**Problem:** `sanitizeContext` only ran `sanitizeForLogOutput` per string leaf; a `DomainError` with `context: { apiKey: "…" }` reflected verbatim to REST dev clients while MCP agents saw `"[REDACTED]"`.
+
+**Fix:** Promoted the field-name redactor to `@besterp/shared` as `isSensitiveFieldName` + `redactSensitiveFieldValues` (single source of truth) and changed `sanitizeContext` to redact the whole tree at once so the key is visible. Added a regression test.
+
+### 🟡 `domain-exception.filter.ts` — `HttpException` validation-array messages not secret-scrubbed
+
+**Fix:** Each cleaned validation message now passes through `sanitizeForLogOutput` before being returned. Added a regression test (embedded bearer token redacted).
+
+### 🔴 `idempotency.ts` — soft-failure `error.message` persisted to durable store without redaction
+
+**Problem:** The thrown-error branch scrubs the message via `sanitizeForLogOutput`; the `success:false` (non-thrown) branch only `capString`'d it — so a tool returning a non-thrown failure whose message embeds a connection string persisted that secret verbatim into the 24h-TTL durable `idempotency_record`, which the thrown path redacted. Asymmetric durable-sink leak.
+
+**Fix:** Wrapped the soft-failure `message` in `sanitizeForLogOutput` (matching the already-scrubbed `code`). Added a regression test.
+
+### 🟡 `sanitize.ts` — broadened query-string secret param names
+
+**Fix:** Added `pwd`, `passwd`, `signature`, `sign`, `otp`, `code`, `session`, `client_id`, `bearer` to the query-string secret redactor so secrets in those params are redacted across every `sanitizeLogOutput` consumer. Added regression tests.
+
 ## Changes Applied (2026-07-17) — Code Review Round 42
 
 ### 🟡 `tool-registry.ts` — validation `issues` returned to agent without redaction/sanitization

@@ -130,7 +130,7 @@ export function sanitizeLogOutput(message: string): string {
     // secret would otherwise be collapsed into `[PATH]` and survive verbatim
     // in operator logs. Scrub the secret-bearing parameters first so the
     // host/path collapse then leaves nothing sensitive behind.
-    .replace(/(?<=[?&])((?:key|token|secret|password|access_token|auth|api_key|apikey|client_secret)=)[^&\s"']+/gi, (m) => {
+    .replace(/(?<=[?&])((?:key|token|secret|password|passwd|pwd|access_token|auth|api_key|apikey|client_secret|client_id|signature|sign|otp|code|session|bearer)=)[^&\s"']+/gi, (m) => {
       // Strip trailing punctuation ( ), ] } that a secret could be wrapped in
       // (e.g. inside a stack trace, curl snippet, or JSON) so the boundary char
       // is not left behind after redaction and the secret is fully scrubbed.
@@ -236,6 +236,108 @@ export function sanitizeLogMessage(s: string): string {
  */
 export function sanitizeForLogOutput(message: string): string {
   return sanitizeLogOutput(sanitizeLogMessage(message));
+}
+
+/**
+ * Field names whose *values* must be redacted before an object is reflected to
+ * an agent or persisted to a durable sink (audit log, idempotency record),
+ * regardless of which surface emits it.
+ *
+ * Kept as a single source of truth so the REST `DomainExceptionFilter`, the MCP
+ * error-handler, and the audit-log/idempotency middlewares cannot diverge on
+ * what counts as sensitive — a value under a sensitive-named key that one
+ * surface redacts but another reflects is an asymmetric secret-leak path.
+ */
+const SENSITIVE_FIELD_NAMES: ReadonlySet<string> = Object.freeze(new Set([
+  "password", "passwd", "pwd", "secret", "token", "api_key", "apiKey",
+  "authorization", "creditcard", "credit_card", "ssn", "taxid", "tax_id",
+  "access_token", "refresh_token", "session_id", "sessionid", "sessionid",
+  "private_key", "privatekey", "secret_key", "secretkey",
+  "accesskey", "access_key", "encryption_key", "encryptionkey",
+  "pin", "cc_number", "card_number", "date_of_birth", "dob",
+  "birthdate", "birth_date", "dateofbirth",
+  "bank_account", "routing_number", "national_id", "passport",
+  "otp", "otp_code", "one_time_password", "mfa", "mfa_secret",
+  "passcode", "passphrase", "signature", "sign", "session", "code",
+]));
+
+/**
+ * Catch-all sensitive field pattern (snake/kebab/camel aware).
+ *
+ * `\\b` is deliberately NOT used: `_` is a word character under `\\w`, so
+ * `\\btoken\\b` would miss `session_token`, `client_secret`, etc. Alnum-only
+ * lookarounds treat `_`/`-` as separators, catching both snake_case and
+ * camelCase variants while rejecting infix matches inside unrelated words.
+ */
+const SENSITIVE_FIELD_NAME_PATTERN =
+  /(?<![a-z0-9])(password|passwd|pwd|secret|token|api[_-]?key|credential|auth(?:token|key|code|[_-](?:token|key|code))?|signature|otp|mfa|passcode|passphrase|sign)(?![a-z0-9])/i;
+
+/**
+ * Split a field name into tokens at snake_case, kebab-case, and camelCase
+ * boundaries (e.g. `clientSecret` → [`client`, `Secret`],
+ * `access_token` → [`access`, `token`]).
+ */
+function splitFieldNameTokens(key: string): string[] {
+  const matches = key.match(/[a-z0-9]+|[A-Z][a-z]*/g);
+  return matches ? matches.filter((t) => t.length > 0) : [];
+}
+
+const SENSITIVE_FIELD_TOKENS: ReadonlySet<string> = Object.freeze(new Set([
+  "password", "passwd", "pwd", "secret", "token", "credential", "credentials",
+  "otp", "mfa", "passcode", "passphrase", "signature", "sign",
+]));
+
+/**
+ * Returns true if a field name matches a sensitive pattern. Three layers:
+ * 1. Exact match against the explicit `SENSITIVE_FIELD_NAMES` set.
+ * 2. The `SENSITIVE_FIELD_NAME_PATTERN` regex (snake/kebab/camel aware).
+ * 3. A token-based fallback that splits on camelCase + snake/kebab boundaries
+ *    and checks each token against `SENSITIVE_FIELD_TOKENS` — catches camelCase
+ *    names (`clientSecret`, `bearerToken`) the regex's alnum lookarounds miss.
+ *
+ * `key`/`code`/`session` are intentionally NOT token fallbacks: they
+ * over-redact benign names (`primaryKey`, `foreignKey`, `sortKey`,
+ * `statusCode`). Key-bearing sensitive fields are covered by the explicit set
+ * and the `api[_-]?key` regex branch.
+ */
+export function isSensitiveFieldName(key: string): boolean {
+  if (SENSITIVE_FIELD_NAMES.has(key.toLowerCase())) return true;
+  if (SENSITIVE_FIELD_NAME_PATTERN.test(key)) return true;
+  return splitFieldNameTokens(key).some((t) => SENSITIVE_FIELD_TOKENS.has(t.toLowerCase()));
+}
+
+/**
+ * Recursively redact values stored under sensitive-named keys within an
+ * arbitrary object/array tree, while also running every string leaf through
+ * `sanitizeForLogOutput` (URL/connection-string/secret redaction) so the
+ * result is safe to reflect to an agent or persist to a durable sink.
+ *
+ * Mirrors the key-based redaction applied by the MCP error-handler and the
+ * audit-log/idempotency middlewares, so agent-facing surfaces stay consistent
+ * on what counts as a secret. Container cycles are guarded with a `WeakSet`.
+ *
+ * @param value value to redact (object, array, string, or primitive)
+ * @param seen  internal cycle-tracking set; do not pass from callers
+ */
+export function redactSensitiveFieldValues(value: unknown, seen?: WeakSet<object>): unknown {
+  if (typeof value === "string") return sanitizeForLogOutput(value);
+  if (value === null || typeof value !== "object") return value;
+  if (Array.isArray(value)) {
+    const s = seen ?? new WeakSet<object>();
+    if (s.has(value)) return "[Circular]";
+    s.add(value);
+    return value.map((item) => redactSensitiveFieldValues(item, s));
+  }
+  const s = seen ?? new WeakSet<object>();
+  if (s.has(value)) return "[Circular]";
+  s.add(value);
+  const out: Record<string, unknown> = {};
+  for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+    out[key] = isSensitiveFieldName(key)
+      ? "[REDACTED]"
+      : redactSensitiveFieldValues(child, s);
+  }
+  return out;
 }
 
 /**

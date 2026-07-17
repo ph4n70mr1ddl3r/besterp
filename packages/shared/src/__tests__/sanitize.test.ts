@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { stripHtmlTags, sanitizeLogOutput, sanitizeLogMessage, sanitizeForLogOutput, safeFromCodePoint } from "../sanitize.js";
+import { stripHtmlTags, sanitizeLogOutput, sanitizeLogMessage, sanitizeForLogOutput, safeFromCodePoint, isSensitiveFieldName, redactSensitiveFieldValues } from "../sanitize.js";
 import { InvalidTypeValueError } from "../errors.js";
 
 describe("stripHtmlTags", () => {
@@ -516,5 +516,60 @@ describe("safeFromCodePoint", () => {
 
   it("returns replacement character for NaN", () => {
     expect(safeFromCodePoint(NaN)).toBe("\uFFFD");
+  });
+});
+
+describe("sanitizeLogOutput — broadened query-string secret params", () => {
+  it("redacts pwd/passwd query params", () => {
+    const r = sanitizeLogOutput("https://x.com/login?pwd=hunter2&passwd=secret");
+    expect(r).not.toContain("hunter2");
+    expect(r).not.toContain("secret");
+  });
+
+  it("redacts signature/sign/otp/code/session query params", () => {
+    const r = sanitizeLogOutput("https://x.com/sign?signature=sig123&sign=s&otp=123456&code=abc&session=ses_xyz");
+    expect(r).not.toContain("sig123");
+    expect(r).not.toContain("123456");
+    expect(r).not.toContain("ses_xyz");
+  });
+
+  it("redacts client_id query param", () => {
+    const r = sanitizeLogOutput("https://x.com/oauth?client_id=client_secret_value");
+    expect(r).not.toContain("client_secret_value");
+  });
+});
+
+describe("isSensitiveFieldName", () => {
+  it("detects common sensitive field names", () => {
+    for (const k of ["password", "apiKey", "api_key", "secret", "token", "clientSecret", "accessToken", "newPassword", "user_passphrase"]) {
+      expect(isSensitiveFieldName(k)).toBe(true);
+    }
+  });
+
+  it("does NOT flag benign key-bearing names", () => {
+    for (const k of ["primaryKey", "foreignKey", "sortKey", "statusCode", "name", "email", "partyId"]) {
+      expect(isSensitiveFieldName(k)).toBe(false);
+    }
+  });
+});
+
+describe("redactSensitiveFieldValues", () => {
+  it("redacts values under sensitive-named keys at any depth", () => {
+    const input = { user: { password: "hunter2", name: "alice" }, token: "sk_live_x" };
+    const out = redactSensitiveFieldValues(input) as Record<string, unknown>;
+    expect(out.user).toEqual({ password: "[REDACTED]", name: "alice" });
+    expect(out.token).toBe("[REDACTED]");
+  });
+
+  it("redacts secrets embedded in string leaves", () => {
+    const out = redactSensitiveFieldValues({ note: "see postgres://user:pass@db" }) as Record<string, unknown>;
+    expect((out.note as string)).toContain("[DATABASE_URL]");
+  });
+
+  it("guards against circular references", () => {
+    const obj: Record<string, unknown> = {};
+    obj.self = obj;
+    const out = redactSensitiveFieldValues(obj) as Record<string, unknown>;
+    expect(out.self).toBe("[Circular]");
   });
 });

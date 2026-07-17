@@ -423,7 +423,14 @@ async function updateIdempotencyRecordWithRetry(
             : Prisma.DbNull,
           error: isSoftFailure
             ? {
-                message: capString(toolResult.error?.message, MAX_SOFT_FAILURE_MESSAGE_SIZE),
+                // The hard-fail throw path scrubs the message via
+                // sanitizeForLogOutput; the soft-fail path MUST too. A tool that
+                // returns `{ success: false, error: { message } }` (the normal
+                // Zod-validation / business-rule path — which does NOT throw)
+                // would otherwise persist its message verbatim into the durable
+                // 24h-TTL idempotency_record, leaking any embedded
+                // connection string / secret that the thrown-error path scrubs.
+                message: capString(sanitizeForLogOutput(toolResult.error?.message ?? ""), MAX_SOFT_FAILURE_MESSAGE_SIZE),
                 // error.code is typed as a free-form string and is not validated
                 // against an allowlist (it comes from getErrorCode), so cap it to
                 // the same bound as the message and sanitize embedded URLs/paths.

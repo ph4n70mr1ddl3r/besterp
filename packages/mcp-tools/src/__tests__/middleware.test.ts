@@ -807,6 +807,44 @@ describe("Idempotency Middleware", () => {
     expect(stored).not.toContain("postgres://");
     expect(stored).toContain("[DATABASE_URL]");
   });
+
+  it("should sanitize DB connection strings from the soft-failure error.message", async () => {
+    // Regression guard for an asymmetric-leak path: the soft-failure (returned
+    // `{ success: false }`, NOT thrown) branch persisted its error.message
+    // via capString only, while the hard-throw branch scrubbed it via
+    // sanitizeForLogOutput. A tool returning a non-thrown failure whose message
+    // embeds a connection string (e.g. a downstream credential-check failure)
+    // would therefore persist the secret verbatim into the durable 24h-TTL
+    // idempotency_record, which the thrown-error path redacted. Both paths must
+    // apply sanitizeForLogOutput before the durable write.
+    const input = { test: "value" };
+    const idempotencyKey = "test-soft-msg-sanitize";
+    const contextWithKey = { ...mockContext, idempotencyKey };
+
+    mockFindInTransaction(null);
+    mockPrisma.idempotencyRecord.create.mockResolvedValue({
+      idempotencyKey,
+      status: "pending",
+    });
+    mockPrisma.idempotencyRecord.update.mockResolvedValue({});
+
+    const softFailureNext = async () => ({
+      success: false as const,
+      error: {
+        code: "INVALID_INPUT",
+        message: "Credential check failed: postgres://besterp:s3cret-pw@10.0.0.5:5432/besterp",
+      },
+    });
+
+    const middleware = idempotencyMiddleware(mockPrisma as any);
+    await middleware(input, contextWithKey, mockDefinition, softFailureNext);
+
+    const updateCall = mockPrisma.idempotencyRecord.update.mock.calls[0];
+    const stored = updateCall[0].data.error.message;
+    expect(stored).not.toContain("s3cret-pw");
+    expect(stored).not.toContain("postgres://");
+    expect(stored).toContain("[DATABASE_URL]");
+  });
 });
 
 describe("Audit Log Middleware", () => {

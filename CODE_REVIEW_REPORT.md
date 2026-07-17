@@ -2,14 +2,86 @@
 
 ## Scope
 Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
-`packages/mcp-tools`, `apps/api`) conducted on 2026-07-17. This is review round 42;
-round 1–41 are documented in earlier revisions of this file and `CHANGES.md`.
+`packages/mcp-tools`, `apps/api`) conducted on 2026-07-17. This is review round 43;
+round 1–42 are documented in earlier revisions of this file and `CHANGES.md`.
 
 ## Baseline (before this round)
 - `npm run typecheck` — clean across all workspaces
 - `npm run lint` — 0 errors (1 pre-existing complexity warning in `crypto.ts:sortKeysDeep`)
-- `npm run test` — all passing: shared 153, mcp-tools 129, database 25 (10 RLS isolation
-  tests skipped without a live DB), api 309
+- `npm run test` — all passing: shared 154, mcp-tools 130, database 25 (10 RLS isolation
+  tests skipped without a live DB), api 312
+
+## Findings & Actions (round 43)
+
+### Fixed this round
+
+1. **🔴 `domain-exception.filter.ts` — DomainError `message` reflected to REST clients
+   was NOT secret-redacted (only HTML-stripped), an asymmetric leak vs. the parallel
+   MCP agent surface.** The non-500 production path built
+   `message: stripHtmlTags(sanitizeLogMessage(exception.message))` — `sanitizeLogMessage`
+   only strips control chars/ANSI, so a connection string, `Bearer` token, or
+   `?token=…` secret embedded in a DomainError message (which routinely echoes
+   user-supplied input) reached REST clients verbatim while the same message was
+   scrubbed to `[DATABASE_URL]`/`[REDACTED]` for AI agents. Changed the message to
+   `stripHtmlTags(sanitizeForLogOutput(exception.message))`, matching the file's own
+   `handleUnexpectedError` path and the MCP `error-handler`. Added a regression test
+   (connection string in DomainError message redacted in production).
+
+2. **🟡 `domain-exception.filter.ts` — dev `context` tree was control-char sanitized but
+   NOT field-name redacted, leaking secrets under sensitive-named keys to REST dev
+   clients.** `sanitizeContext` only ran `sanitizeForLogOutput` per string leaf; a
+   `DomainError` thrown with `context: { apiKey: "sk_live_…" }` reflected verbatim to
+   REST dev clients while MCP agents saw `"[REDACTED]"`. Promoted the field-name
+   redactor to `@besterp/shared` as `isSensitiveFieldName` + `redactSensitiveFieldValues`
+   (single source of truth, reused by the REST filter), and changed `sanitizeContext`
+   to redact the whole tree at once so the key is visible to the redactor. Added a
+   regression test (`password`/`apiKey` redacted in dev context).
+
+3. **🟡 `domain-exception.filter.ts` — `HttpException` validation-array messages were not
+   secret-scrubbed.** A custom validator embedding a `Bearer …`/connection-string secret
+   in a non-quoted message survived to REST clients (the existing strip step only removes
+   quoted/`received:` values). Each cleaned message now passes through `sanitizeForLogOutput`
+   before being returned. Added a regression test (embedded bearer token redacted).
+
+4. **🔴 `idempotency.ts` — soft-failure `error.message` was persisted to the durable
+   `idempotency_record` WITHOUT secret redaction (asymmetric with the hard-fail path).**
+   The thrown-error branch scrubs the message via `sanitizeForLogOutput`; the
+   `success:false` (non-thrown) branch only `capString`'d it — so a tool returning a
+   non-thrown failure whose message embeds a connection string persisted that secret
+   verbatim into the 24h-TTL durable row, which the thrown path redacted. Wrapped the
+   soft-failure `message` in `sanitizeForLogOutput` (matching the already-scrubbed
+   `code`). Added a regression test (connection string redacted in soft-failure record).
+
+5. **🟡 `sanitize.ts` — `sanitizeLogOutput` query-string secret redactor missed common
+   secret-bearing param names** (`pwd`, `passwd`, `signature`, `sign`, `otp`, `code`,
+   `session`, `client_id`, `bearer`). Broadened the alternation so secrets in those
+   query params are redacted across every surface that uses `sanitizeLogOutput`. Added
+   regression tests.
+
+### Reviewed but NOT changed (false positives / out of scope)
+
+- **`crypto.ts` aggregate hash budget quote-overhead rounding** — flagged by the
+  shared-package review: `checkStringBounds`/`chargeKeyBytes` charge JSON quote/bracket
+  overhead only for keys, not string *values*, so `JSON.stringify` output can exceed
+  `MAX_HASH_TOTAL_BYTES` by a bounded margin (a few %). The cap is a safety backstop for
+  idempotency hashing; legitimate inputs are tiny and the overflow is bounded by quote
+  overhead, not orders of magnitude. Deferred as defense-in-depth — no exploit path.
+- **`sanitize.ts` generic-URL catch-all (no userinfo)** — a non-credential URL with a
+  secret in the *path* (not `user:pass@` userinfo) is not redacted by the catch-all.
+  Low-frequency; out of scope for this round (query-string secrets are now covered, which
+  covers the realistic cases). Documented as a known limitation.
+- **`prisma.service.ts` tenant propagation, `mcp.module.ts` idempotency-key validation,
+  `truncate.ts` byte safety, error-handler no-stack-leak** — re-verified clean this round.
+
+## Test Results
+```
+shared:    154 passed (4 files)   (+1 — round 43 redactor + broadened-param tests)
+mcp-tools: 130 passed (4 files)   (+1 — round 43 soft-failure durable-sanitize regression)
+database:   25 passed, 10 skipped (2 files)
+api:       312 passed (14 files)  (+3 — round 43 REST redaction regression tests)
+───────────────────────────────────
+Total:     621 passed, 10 skipped
+```
 
 ## Findings & Actions (round 42)
 

@@ -13,8 +13,8 @@
 import { ExceptionFilter, Catch, ArgumentsHost, Logger, HttpException } from "@nestjs/common";
 import type { Response } from "express";
 import {
-  DomainError, isDomainError, getErrorCode, sanitizeForLogOutput, sanitizeLogMessage,
-  stripHtmlTags,
+  DomainError, isDomainError, getErrorCode, sanitizeForLogOutput,
+  stripHtmlTags, redactSensitiveFieldValues,
   EntityNotFoundError, DuplicateEntityError, ConcurrencyConflictError,
   MissingSubtypeDataError, InvalidTypeValueError, InvalidTenantIdError,
   TenantContextFailedError,
@@ -43,55 +43,21 @@ function domainErrorToStatus(error: DomainError): number {
 }
 
 /**
- * Recursively sanitize a single ContextValue before including it in HTTP
- * responses. Strips control characters (newlines, tabs, ANSI escapes) from
- * every string at every nesting depth. Primitives (number, boolean, null)
- * pass through unchanged.
- *
- * ContextValue permits arbitrarily nested objects and arrays, so this walks
- * the full value tree rather than only the top level — a value reflected
- * under a nested key (e.g. context.input.field) would otherwise bypass the
- * top-level sanitization and reach the client verbatim.
- *
- * Includes circular reference protection via a WeakSet — mirrors the
- * error-handler middleware's `sanitizeContextValue` to prevent stack
- * overflow on pathological DomainError.context objects.
- */
-function sanitizeContextValue(value: ContextValue, seen?: WeakSet<object>): ContextValue {
-  if (typeof value === "string") return sanitizeForLogOutput(value);
-  if (Array.isArray(value)) {
-    // Arrays are reference types — track them to detect cycles.
-    const s = seen ?? new WeakSet();
-    if (s.has(value as object)) return "[Circular]" as unknown as ContextValue;
-    s.add(value as object);
-    return value.map((v) => sanitizeContextValue(v, s));
-  }
-  if (value !== null && typeof value === "object") {
-    const s = seen ?? new WeakSet();
-    if (s.has(value as object)) return "[Circular]" as unknown as ContextValue;
-    s.add(value as object);
-    const sanitized: Record<string, ContextValue> = {};
-    for (const [key, child] of Object.entries(value)) {
-      sanitized[key] = sanitizeContextValue(child, s);
-    }
-    return sanitized;
-  }
-  return value;
-}
-
-/**
  * Sanitize DomainError.context values before including them in HTTP responses.
  * Strips control characters (newlines, tabs, ANSI escapes) from string values
  * to prevent log injection if the response body is ever logged by a monitoring
- * tool or API client.
+ * tool or API client, redacts values stored under sensitive-named keys
+ * (password, apiKey, …) so a secret attached under a sensitive-named context
+ * key reaches REST dev clients as "[REDACTED]" — matching the key-based
+ * redaction the MCP error-handler applies to the same DomainError.context for
+ * AI agents — and guards against container cycles.
  */
 function sanitizeContext(context: Record<string, ContextValue>): Record<string, ContextValue> {
-  const seen = new WeakSet<object>();
-  const sanitized: Record<string, ContextValue> = {};
-  for (const [key, value] of Object.entries(context)) {
-    sanitized[key] = sanitizeContextValue(value, seen);
-  }
-  return sanitized;
+  // Redact the whole context tree at once so key-based redaction can see the
+  // field names (a per-entry walk would lose the key by the time the value
+  // reached the redactor). redactSensitiveFieldValues sanitizes every string
+  // leaf and redacts values under sensitive-named keys, and guards cycles.
+  return redactSensitiveFieldValues(context) as Record<string, ContextValue>;
 }
 
 @Catch()
@@ -143,18 +109,21 @@ export class DomainExceptionFilter implements ExceptionFilter {
       //   `Invalid fromDate format: ${trimmed}.`
       //   `${field} is not a valid ISO 8601 date. Received: ${value}.`
       // Those values are only .trim()'d upstream, so interior control chars
-      // (newlines, tabs, ANSI escapes) AND raw HTML/scripts survive into the
+      // (newlines, tabs, ANSI escapes), raw HTML/scripts, AND sensitive
+      // connection strings / tokens (e.g. a `postgres://user:pass@…` echoed
+      // via a downstream error, or a `Bearer …` token) survive into the
       // message. Reflecting the message verbatim into the response body
       // re-opens the same log/response-injection surface that
       // sanitizeContext() closes for context values — and unlike context this
       // field is sent in BOTH dev and production for non-500 DomainErrors.
-      // Control chars are converted to "_" first (matching sanitizeContext),
-      // then any HTML tags are stripped (stored-XSS defense). Running control
-      // sanitization before HTML stripping keeps the existing "_"-substitution
-      // semantics while closing the HTML-injection gap.
+      // sanitizeForLogOutput runs control-char/ANSI stripping FIRST and then
+      // redacts URLs/secrets/tokens (matching the MCP error-handler), and
+      // stripHtmlTags last for stored-XSS defense. This keeps the existing
+      // "_"-substitution + HTML-strip semantics while closing the
+      // secret-disclosure gap that the parallel MCP surface did not have.
       ...(status === 500 && !isDev
         ? { message: "An unexpected error occurred" }
-        : { message: stripHtmlTags(sanitizeLogMessage(exception.message)) }),
+        : { message: stripHtmlTags(sanitizeForLogOutput(exception.message)) }),
     };
     if (isDev && exception.suggestedTools.length > 0) {
       body.suggestedTools = exception.suggestedTools;
@@ -193,11 +162,16 @@ export class DomainExceptionFilter implements ExceptionFilter {
         const cleaned: string[] = res.message
           .map((m) => {
             if (typeof m !== "string") return "Validation error";
-            return m
+            const stripped = m
               .replace(/\s*received\s*:\s*"[^"]*"\s*$/i, "")
               .replace(/\s*"[^"]*"\s*$/, "")
               .replace(/[.,;:]\s*$/, "")
               .trim() || m.split(" ")[0] || "Validation error";
+            // A custom validator may embed a connection-string/secret-shaped
+            // value directly in the message. Scrub it the same way the MCP
+            // error-handler scrubs agent-facing errors so a REST client cannot
+            // extract a secret that an AI agent would not see.
+            return sanitizeForLogOutput(stripped);
           })
           .filter(Boolean);
         safeBody.message = cleaned.length > 0

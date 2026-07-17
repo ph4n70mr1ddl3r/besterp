@@ -237,6 +237,68 @@ describe("DomainExceptionFilter", () => {
     });
   });
 
+  describe("secret redaction in reflected message", () => {
+    it("redacts connection strings embedded in the DomainError message in production", () => {
+      process.env.NODE_ENV = "production";
+      const ctx = createMockHost();
+      const error = new InvalidTypeValueError(
+        `Invalid value: postgres://user:secretpw@db:5432/erp`
+      );
+
+      filter.catch(error, ctx.host);
+
+      const body = ctx.captured.body as Record<string, unknown>;
+      const message = body.message as string;
+      // The connection string (credentials + host) must be redacted — matching
+      // the MCP error-handler, which would have scrubbed the same message for
+      // AI agents. Previously only HTML tags were stripped, leaking the secret.
+      expect(message).not.toContain("secretpw");
+      expect(message).not.toContain("postgres://");
+      expect(message).toContain("[DATABASE_URL]");
+    });
+
+    it("redacts values under sensitive-named keys in dev context", () => {
+      process.env.NODE_ENV = "development";
+      const ctx = createMockHost();
+      const error = new InvalidTypeValueError("bad", {
+        context: { password: "hunter2", apiKey: "sk_live_x", name: "alice" },
+      });
+
+      filter.catch(error, ctx.host);
+
+      const body = ctx.captured.body as Record<string, unknown>;
+      const context = body.context as Record<string, unknown>;
+      expect(context.password).toBe("[REDACTED]");
+      expect(context.apiKey).toBe("[REDACTED]");
+      expect(context.name).toBe("alice");
+    });
+  });
+
+  describe("HttpException validation message secret redaction", () => {
+    it("scrubs embedded secrets from array validation messages in production", () => {
+      process.env.NODE_ENV = "production";
+      const ctx = createMockHost();
+      // A custom validator may embed a bearer/secret token directly in the
+      // message (not as a quoted "received:" value, which the strip step
+      // removes). The message must still be scrubbed before it reaches the
+      // REST client — matching how the MCP error-handler scrubs tokens for
+      // AI agents.
+      const error = new HttpException(
+        { statusCode: 400, error: "Bad Request", message: [
+          "auth header was Bearer sk_live_abc123xyz which is not valid",
+        ] },
+        HttpStatus.BAD_REQUEST,
+      );
+
+      filter.catch(error, ctx.host);
+
+      const body = ctx.captured.body as Record<string, unknown>;
+      const messages = body.message as string[];
+      expect(messages[0]).not.toContain("sk_live_abc123xyz");
+      expect(messages[0]).toContain("Bearer [REDACTED]");
+    });
+  });
+
   describe("headers already sent", () => {
     it("does not attempt to write a second response", () => {
       process.env.NODE_ENV = "production";
