@@ -20,7 +20,7 @@ import {
   OnModuleInit,
 } from "@nestjs/common";
 import { validateTenantIdEnhanced } from "@besterp/database";
-import { InvalidTypeValueError, MAX_USER_ID_LENGTH, MAX_IDEMPOTENCY_KEY_LENGTH, MAX_AGENT_ID_LENGTH, MAX_CONVERSATION_ID_LENGTH, MAX_REASONING_LENGTH } from "@besterp/shared";
+import { InvalidTypeValueError, MAX_USER_ID_LENGTH, MAX_IDEMPOTENCY_KEY_LENGTH, SAFE_IDEMPOTENCY_KEY, MAX_AGENT_ID_LENGTH, MAX_CONVERSATION_ID_LENGTH, MAX_REASONING_LENGTH } from "@besterp/shared";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { PrismaModule } from "../prisma/prisma.module.js";
 import { PartyService } from "../modules/core/party/party.service.js";
@@ -126,6 +126,20 @@ export class McpModule implements OnModuleInit {
     // code (audit logs, idempotency records) never sees padded strings.
     // Empty strings are normalised to undefined to keep data consistent.
     const idempotencyKey = validateOptionalField("idempotencyKey", overrides.idempotencyKey, MAX_IDEMPOTENCY_KEY_LENGTH);
+    // Reject keys with control characters or non-ASCII bytes at the auth
+    // boundary rather than letting them pass through to the idempotency
+    // middleware, which would silently treat an unsafe key as a no-op
+    // (skipping idempotency entirely) with no error. That asymmetry hid a
+    // caller bug and silently disabled dedup. The same charset rule is applied
+    // by the middleware and tool registry; enforcing it here keeps the three
+    // boundaries consistent — a bad key surfaces as a structured 422 at the
+    // entry point, not as a silent behavior change mid-pipeline.
+    if (idempotencyKey !== undefined && !SAFE_IDEMPOTENCY_KEY.test(idempotencyKey)) {
+      throw new InvalidTypeValueError(
+        "McpModule.buildContext: idempotencyKey must contain only printable ASCII characters.",
+        { context: { field: "idempotencyKey" } }
+      );
+    }
     const agentId = validateOptionalField("agentId", overrides.agentId, MAX_AGENT_ID_LENGTH);
     const conversationId = validateOptionalField("conversationId", overrides.conversationId, MAX_CONVERSATION_ID_LENGTH);
     // reasoning validates identically to the other optional string fields, so

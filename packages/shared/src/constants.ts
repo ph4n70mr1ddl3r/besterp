@@ -120,6 +120,23 @@ export const MAX_TENANT_CACHE_SIZE = 256;
 /** Maximum length for idempotency keys. */
 export const MAX_IDEMPOTENCY_KEY_LENGTH = 500;
 
+/**
+ * Allowed charset for idempotency keys — printable ASCII only (0x21–0x7E).
+ *
+ * Rejects control characters, newlines, tabs, and non-ASCII bytes that could
+ * corrupt log output or database storage. Keys are typically UUIDs, ULIDs, or
+ * hashes — all printable-ASCII tokens. A key failing this check is almost
+ * certainly a caller bug, not a legitimate idempotency attempt.
+ *
+ * Centralised here so every boundary that handles idempotency keys (the MCP
+ * auth boundary in `McpModule.buildContext`, the idempotency middleware, and the
+ * tool registry) applies the SAME rule — previously the rule was duplicated in
+ * two mcp-tools files and absent from `buildContext`, so an unsafe key passed
+ * the auth boundary only to be silently dropped by the middleware (a no-op
+ * rather than a structured error).
+ */
+export const SAFE_IDEMPOTENCY_KEY = /^[!-~]+$/;
+
 /** TTL for idempotency records (24 hours in milliseconds). */
 export const IDEMPOTENCY_TTL_MS = 86_400_000;
 

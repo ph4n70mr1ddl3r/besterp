@@ -2,14 +2,57 @@
 
 ## Scope
 Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
-`packages/mcp-tools`, `apps/api`) conducted on 2026-07-17. This is review round 40;
-round 1–39 are documented in earlier revisions of this file and `CHANGES.md`.
+`packages/mcp-tools`, `apps/api`) conducted on 2026-07-17. This is review round 41;
+round 1–40 are documented in earlier revisions of this file and `CHANGES.md`.
 
 ## Baseline (before this round)
 - `npm run typecheck` — clean across all workspaces
 - `npm run lint` — 0 errors (1 pre-existing complexity warning in `crypto.ts:sortKeysDeep`)
 - `npm run test` — all passing: shared 151, mcp-tools 126, database 25 (10 RLS isolation
   tests skipped without a live DB), api 308
+
+## Findings & Actions (round 41)
+
+### Fixed this round
+
+1. **🟡 `mcp.module.ts` — idempotency-key charset guard was inconsistent across
+   the three boundaries that handle the key (deferred-class / consistency gap).**
+   `SAFE_IDEMPOTENCY_KEY` (printable-ASCII only; rejects control chars and
+   non-ASCII) was duplicated in `idempotency.ts` and `tool-registry.ts` but the
+   MCP auth boundary `McpModule.buildContext` never applied it. A key carrying a
+   newline or non-ASCII byte therefore passed `buildContext` and was then
+   silently treated as a no-op by the idempotency middleware (which skips
+   idempotency on an unsafe key with no error) — replay/dedup protection was
+   silently disabled and the caller bug stayed invisible. Promoted the regex to
+   `@besterp/shared` (`constants.ts`) as the single source of truth, imported it
+   in `idempotency.ts` / `tool-registry.ts`, and added the check to `buildContext`
+   so an unsafe key now throws a structured `InvalidTypeValueError` (422) at the
+   entry point — matching how every other malformed boundary input is rejected.
+   Added a regression test (control-char + non-ASCII keys rejected).
+
+### Reviewed but NOT changed (false positives / out of scope)
+
+- **`rls-extension.ts` shared-pool context reset** — flagged in rounds 38/39; the
+  design relies on `SET LOCAL app.current_tenant` within a dedicated-connection
+  transaction, plus the fail-closed `verifyRlsEnabled` / `verifyAppClientRole`
+  boot assertions. No live exploit path; deferred.
+- **`ai_action_log.tenant_id` nullable** — flagged LOW in rounds 39/40; a NULL
+  tenant_id row is invisible to all tenants under RLS (no leak). Changing a
+  shipped migration carries risk; deferred.
+- **`spike-rls.ts` Test 3** — spike-only (excluded from build); deferred.
+- **`party.service.ts` `searchParties` type-table joins, CORS, RLS-cache closure
+  capture, discovery-tools type-table allowlist, queue module, JWT strategy** —
+  re-verified clean this round; no new issues.
+
+## Test Results
+```
+shared:    153 passed (4 files)   (+0 vs round 40)
+mcp-tools: 129 passed (4 files)   (+0 vs round 40)
+database:   25 passed, 10 skipped (2 files)
+api:       309 passed (14 files)  (+1 — round 41 idempotency-key boundary test)
+───────────────────────────────────
+Total:     616 passed, 10 skipped
+```
 
 ## Findings & Actions (round 40)
 

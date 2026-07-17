@@ -260,6 +260,32 @@ describe("McpModule", () => {
       expect(ctx.idempotencyKey).toBe("my-key");
     });
 
+    it("should reject a non-printable-ASCII idempotency key at the boundary", () => {
+      // A key with control chars / non-ASCII must be rejected here — not
+      // silently dropped mid-pipeline by the idempotency middleware.
+      expect(() =>
+        mcpModule.buildContext({
+          tenantId: "tenant-1",
+          userId: "user-1",
+          idempotencyKey: "key\nwith\tnewline",
+        })
+      ).toThrow(InvalidTypeValueError);
+      expect(() =>
+        mcpModule.buildContext({
+          tenantId: "tenant-1",
+          userId: "user-1",
+          idempotencyKey: "key-with-émoji",
+        })
+      ).toThrow(/idempotencyKey must contain only printable ASCII/);
+      expect(() =>
+        mcpModule.buildContext({
+          tenantId: "tenant-1",
+          userId: "user-1",
+          idempotencyKey: "key-with-émoji",
+        })
+      ).toThrow(InvalidTypeValueError);
+    });
+
     it("should reject whitespace-only idempotencyKey", () => {
       expect(() =>
         mcpModule.buildContext({

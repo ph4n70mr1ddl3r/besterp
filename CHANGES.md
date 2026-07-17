@@ -1,5 +1,13 @@
 # BestERP — Security & Architecture Fixes
 
+## Changes Applied (2026-07-17) — Code Review Round 41
+
+### 🟡 `mcp.module.ts` / `constants.ts` — idempotency-key charset guard inconsistent across boundaries
+
+**Problem:** The printable-ASCII rule for idempotency keys (`SAFE_IDEMPOTENCY_KEY`, rejecting control chars and non-ASCII) was duplicated in `idempotency.ts` and `tool-registry.ts` but absent from the MCP auth boundary `McpModule.buildContext`. A key with a newline or non-ASCII byte passed `buildContext` cleanly, then was silently treated as a no-op by the idempotency middleware (which skips idempotency on an unsafe key) — no error, dedup silently disabled. That asymmetry masked caller bugs and could let a malformed key silently defeat replay protection.
+
+**Fix:** Promoted `SAFE_IDEMPOTENCY_KEY` to `@besterp/shared` (`constants.ts`) as the single source of truth, imported it in `idempotency.ts` and `tool-registry.ts`, and added the check to `buildContext` so an unsafe key now throws a structured `InvalidTypeValueError` (422) at the entry point — consistent with how the other malformed-boundary inputs are rejected. Added a regression test asserting control-char and non-ASCII keys are rejected.
+
 ## Changes Applied (2026-07-17) — Code Review Round 40
 
 ### 🟢 `crypto.ts` — aggregate byte budget under-counted key names

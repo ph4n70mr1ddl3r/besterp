@@ -17,18 +17,10 @@
 
 import { PrismaClient, Prisma, IdempotencyRecord } from "@prisma/client";
 import { createHash } from "node:crypto";
-import { hashInput, getErrorCode, sanitizeLogMessage, sanitizeForLogOutput, ConcurrencyConflictError, MAX_SOFT_FAILURE_MESSAGE_SIZE, IDEMPOTENCY_TTL_MS, MAX_IDEMPOTENCY_KEY_LENGTH, IDEMPOTENCY_MAX_RETRIES, IDEMPOTENCY_RETRY_BASE_DELAY_MS } from "@besterp/shared";
+import { hashInput, getErrorCode, sanitizeLogMessage, sanitizeForLogOutput, ConcurrencyConflictError, MAX_SOFT_FAILURE_MESSAGE_SIZE, IDEMPOTENCY_TTL_MS, MAX_IDEMPOTENCY_KEY_LENGTH, SAFE_IDEMPOTENCY_KEY, IDEMPOTENCY_MAX_RETRIES, IDEMPOTENCY_RETRY_BASE_DELAY_MS } from "@besterp/shared";
 import { ToolMiddleware, ToolResult, ToolContext } from "../schema/tool-definition.js";
 import { truncateValue, MAX_STORED_PAYLOAD_SIZE, capString, isTruncationMarker } from "./truncate.js";
 import { redactSensitiveFields } from "./audit-log.js";
-
-/**
- * Regex for safe idempotency keys — printable ASCII only (0x21–0x7E).
- * Rejects control characters, newlines, tabs, and non-ASCII bytes that
- * could corrupt log output or database storage. Mirrors the
- * `SAFE_REQUEST_ID` pattern in request-id.ts for consistency.
- */
-const SAFE_IDEMPOTENCY_KEY = /^[!-~]+$/;
 
 /**
  * Threshold after which a "pending" idempotency record is considered stale.

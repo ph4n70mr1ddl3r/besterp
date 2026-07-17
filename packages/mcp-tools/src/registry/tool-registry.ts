@@ -13,7 +13,7 @@ import {
   ZodSchemaLike,
   RiskLevel,
 } from "../schema/tool-definition.js";
-import { MAX_IDEMPOTENCY_KEY_LENGTH } from "@besterp/shared";
+import { MAX_IDEMPOTENCY_KEY_LENGTH, SAFE_IDEMPOTENCY_KEY } from "@besterp/shared";
 
 const VALID_RISK_LEVELS: readonly RiskLevel[] = ["none", "low", "medium", "high", "critical"];
 
@@ -36,13 +36,6 @@ const MAX_VALIDATION_MESSAGE_LENGTH = 2000;
  * first N structured issues are retained for programmatic callers.
  */
 const MAX_VALIDATION_ISSUES = 50;
-
-/**
- * Regex for safe idempotency keys — printable ASCII only (0x21–0x7E).
- * Mirrors the pattern in idempotency.ts to reject control characters,
- * newlines, and non-ASCII bytes at the earliest possible point.
- */
-const SAFE_IDEMPOTENCY_KEY = /^[!-~]+$/;
 
 export class ToolRegistry {
   private readonly tools = new Map<string, RegistryEntry>();
