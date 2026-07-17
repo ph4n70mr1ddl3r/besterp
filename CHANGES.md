@@ -1,5 +1,13 @@
 # BestERP — Security & Architecture Fixes
 
+## Changes Applied (2026-07-17) — Code Review Round 42
+
+### 🟡 `tool-registry.ts` — validation `issues` returned to agent without redaction/sanitization
+
+**Problem:** The failed-validation `INVALID_INPUT` path returned Zod `issues` verbatim to the AI agent in `context.issues`. Unlike every other agent-facing surface — the live `ToolResult` (`redactSensitiveFields`), `DomainError.context` (`sanitizeContextValue`), and the audit/idempotency durable sinks — this path applied neither sensitive-field redaction nor log-output sanitization. A schema whose issue `message` echoes the received input (a common custom-errorMap pattern) would surface that value to the agent, and a `received` value carried under a sensitive-named path (`password`, `apiKey`, `token`, …) bypassed the key-based redaction applied to live results. URLs/connection strings embedded in issue messages also reached the agent unsanitized.
+
+**Fix:** Added `sanitizeIssues`, which strips URLs/paths/ANSI from every issue `message`/`path` via `sanitizeForLogOutput` and redacts a `received` value when its path ends in a sensitive-named key (`isSensitiveField`) — matching `redactSensitiveFields` / `sanitizeContextValue`. The capped joined `message` summary is sanitized at the call site. Added two regression tests (URL redaction in issue message; secret `received` value redacted under a sensitive-named path).
+
 ## Changes Applied (2026-07-17) — Code Review Round 41
 
 ### 🟡 `mcp.module.ts` / `constants.ts` — idempotency-key charset guard inconsistent across boundaries

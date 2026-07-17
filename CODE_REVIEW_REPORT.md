@@ -2,14 +2,64 @@
 
 ## Scope
 Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
-`packages/mcp-tools`, `apps/api`) conducted on 2026-07-17. This is review round 41;
-round 1–40 are documented in earlier revisions of this file and `CHANGES.md`.
+`packages/mcp-tools`, `apps/api`) conducted on 2026-07-17. This is review round 42;
+round 1–41 are documented in earlier revisions of this file and `CHANGES.md`.
 
 ## Baseline (before this round)
 - `npm run typecheck` — clean across all workspaces
 - `npm run lint` — 0 errors (1 pre-existing complexity warning in `crypto.ts:sortKeysDeep`)
-- `npm run test` — all passing: shared 151, mcp-tools 126, database 25 (10 RLS isolation
-  tests skipped without a live DB), api 308
+- `npm run test` — all passing: shared 153, mcp-tools 129, database 25 (10 RLS isolation
+  tests skipped without a live DB), api 309
+
+## Findings & Actions (round 42)
+
+### Fixed this round
+
+1. **🟡 `tool-registry.ts` — Zod validation `issues` were returned to the AI agent
+   without sensitive-field redaction or log-output sanitization (asymmetric leak
+   vector).** The failed-validation `INVALID_INPUT` path built
+   `context: { issues: parsed.error.issues.slice(0, MAX_VALIDATION_ISSUES) }` and
+   returned it verbatim to the agent. Unlike every other agent-facing error surface
+   (the live `ToolResult` via `redactSensitiveFields`, `DomainError.context` via
+   `sanitizeContextValue`, and the audit/idempotency durable sinks), this path was
+   **not** filtered: a schema whose issue `message` echoes the received input (a
+   common custom-errorMap pattern) would surface that value to the agent, and a
+   value carried under a sensitive-named path (`password`, `apiKey`, `token`, …)
+   bypassed the key-based redaction applied to live results. Also, any URL/connection
+   string embedded in an issue message reached the agent unsanitized. Added
+   `sanitizeIssues`, which strips URLs/paths/ANSI from every issue `message`/`path`
+   (`sanitizeForLogOutput`) and redacts a `received` value when its path ends in a
+   sensitive-named key (`isSensitiveField`) — matching `redactSensitiveFields` /
+   `sanitizeContextValue`. The already-capped joined `message` summary is likewise
+   sanitized at the call site. Added two regression tests (URL redaction in issue
+   message; secret `received` value redacted under a sensitive-named path).
+
+### Reviewed but NOT changed (false positives / out of scope)
+
+- **`rls-setup.sql` `set_tenant_context`** — dynamic SQL via `format(..., %L)` quotes
+  the tenant id, and `validateTenantIdEnhanced` validates `/^[a-zA-Z0-9_-]+$/`
+  at three boundaries, so no SQLi/injection path; SECURITY INVOKER + `search_path`
+  pin are present. Defense-in-depth only — no change.
+- **`migrations/20260619000000…` non-concurrent `CREATE INDEX`** — flagged LOW in
+  round 38, explicitly deferred (changing shipped migrations is risky; the
+  migration comment documents manual `CONCURRENTLY` application). No change.
+- **`health.controller.ts` `/version` fingerprinting** — flagged LOW in round 38,
+  accepted as an operator liveness/version probe (`@Public()`). No change.
+- **`discovery-tools.ts`, `queue.module.ts`, `seed.ts`, `cleanup-expired-idempotency.ts`,
+  `party-tools.ts`, `party.dto.ts`, `jwt.strategy.ts`, `tenant.ts`, `main.ts`** —
+  re-verified clean this round (independent sub-review confirmed no new 🔴/🟡
+  exploit paths; all agent-facing surfaces apply consistent redaction/sanitization,
+  tenant isolation is enforced at the RLS + app-layer).
+
+## Test Results
+```
+shared:    153 passed (4 files)   (+0 vs round 41)
+mcp-tools: 131 passed (4 files)   (+2 — round 42 issue-sanitization regression tests)
+database:   25 passed, 10 skipped (2 files)
+api:       309 passed (14 files)
+───────────────────────────────────
+Total:     618 passed, 10 skipped
+```
 
 ## Findings & Actions (round 41)
 

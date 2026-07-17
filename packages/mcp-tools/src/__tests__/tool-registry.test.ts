@@ -129,6 +129,59 @@ describe("ToolRegistry", () => {
       expect(handler).not.toHaveBeenCalled();
     });
 
+    it("should sanitize URLs/paths embedded in validation issue messages", async () => {
+      const handler = vi.fn();
+      const schema = z.object({
+        name: z.string().refine(() => false, { message: "bad value at https://secret.example.com/v1/key?api_key=sk_live_abc" }),
+      });
+      registry.register({
+        name: "leaky_tool",
+        description: "A tool whose schema echoes a secret URL in the issue message",
+        inputSchema: schema,
+        riskLevel: "low",
+        handler,
+      });
+
+      const result = await registry.execute("leaky_tool", { name: "x" }, mockContext);
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe("INVALID_INPUT");
+      const issues = result.error?.context?.issues as Array<{ message: string }> | undefined;
+      expect(issues).toBeDefined();
+      expect(JSON.stringify(issues)).not.toContain("sk_live_abc");
+      expect(JSON.stringify(issues)).toContain("[HOST]/[PATH]");
+    });
+
+    it("should redact a secret value echoed in a validation issue under a sensitive-named path", async () => {
+      const handler = vi.fn();
+      // A custom errorMap echoes the received input (a pattern real schemas use).
+      const schema = z.object({
+        password: z.string().min(1).superRefine(() => {}),
+      }).superRefine((val, ctx) => {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["password"],
+          message: "invalid password",
+          // @ts-expect-error custom schema carrying the received value
+          received: val.password,
+        });
+      });
+      registry.register({
+        name: "secret_tool",
+        description: "A tool that echoes a secret field value into validation issues",
+        inputSchema: schema,
+        riskLevel: "low",
+        handler,
+      });
+
+      const result = await registry.execute("secret_tool", { password: "hunter2" }, mockContext);
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe("INVALID_INPUT");
+      const issues = result.error?.context?.issues as Array<{ received?: string }> | undefined;
+      expect(issues).toBeDefined();
+      expect(issues!.some((i) => i.received === "[REDACTED]")).toBe(true);
+      expect(JSON.stringify(issues)).not.toContain("hunter2");
+    });
+
     it("should run global middlewares before handler", async () => {
       const order: string[] = [];
       const mw: ToolMiddleware = async (input, ctx, def, next) => {

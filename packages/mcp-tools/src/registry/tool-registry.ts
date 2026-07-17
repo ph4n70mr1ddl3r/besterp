@@ -13,7 +13,8 @@ import {
   ZodSchemaLike,
   RiskLevel,
 } from "../schema/tool-definition.js";
-import { MAX_IDEMPOTENCY_KEY_LENGTH, SAFE_IDEMPOTENCY_KEY } from "@besterp/shared";
+import { MAX_IDEMPOTENCY_KEY_LENGTH, SAFE_IDEMPOTENCY_KEY, sanitizeForLogOutput } from "@besterp/shared";
+import { isSensitiveField } from "../middleware/sensitive-fields.js";
 
 const VALID_RISK_LEVELS: readonly RiskLevel[] = ["none", "low", "medium", "high", "critical"];
 
@@ -194,13 +195,28 @@ export class ToolRegistry {
             const detail = issueString.length > MAX_VALIDATION_MESSAGE_LENGTH
               ? `${issueString.slice(0, MAX_VALIDATION_MESSAGE_LENGTH)}… [${parsed.error.issues.length} issues, truncated]`
               : issueString;
+            // The joined `message` is already capped above, but the
+            // `context.issues` array is returned verbatim to the AI agent and
+            // is NOT filtered through the error-handler's
+            // `sanitizeContextValue` (that only runs on thrown DomainErrors).
+            // A Zod issue's `message` can embed the received input (e.g. a
+            // custom errorMap echoing `${input}`, or a tool whose schema
+            // reports the offending value), and an issue whose `path` ends in a
+            // sensitive-named key (password, apiKey, token, …) would surface
+            // the rejected value to the agent — bypassing the field-name
+            // redaction applied to live results and DomainError.context.
+            // Sanitize every string (strip URLs/paths/ANSI) and redact values
+            // carried under a sensitive-named path so this agent-facing surface
+            // stays consistent with every other error path. The full/capped
+            // `message` string above preserves a readable (sanitized) summary.
+            const sanitizedIssues = this.sanitizeIssues(parsed.error.issues, MAX_VALIDATION_ISSUES);
             return {
               success: false,
               error: {
                 code: "INVALID_INPUT",
                 message: `Input validation failed: ${detail}`,
                 suggestedTools: [name],
-                context: { issues: parsed.error.issues.slice(0, MAX_VALIDATION_ISSUES) },
+                context: { issues: sanitizedIssues },
               },
             };
           }
@@ -252,6 +268,39 @@ export class ToolRegistry {
           nameParts.some((p) => p.length >= 2 && existingParts.some((ep) => ep.includes(p) || p.includes(ep)));
       })
       .slice(0, 5);
+  }
+
+  /**
+   * Sanitize and redact Zod validation issues before returning them to the
+   * AI agent in `context.issues`. Mirrors the redaction (sensitive-named
+   * paths) and log-output sanitization (URLs/paths/ANSI) applied by
+   * `redactSensitiveFields` / `sanitizeContextValue` to every other
+   * agent-facing surface, so a failed-validation response cannot leak a
+   * secret carried under a sensitive-named field or an embedded connection
+   * string. Caps to the first `maxIssues` issues for memory safety.
+   */
+  private sanitizeIssues(issues: ReadonlyArray<{ path: PropertyKey[]; message: string; code?: string; received?: unknown }>, maxIssues: number): unknown[] {
+    return issues.slice(0, maxIssues).map((issue) => {
+      const path = issue.path.map((p) => (typeof p === "symbol" ? p.toString() : String(p)));
+      const lastSegment = path.length > 0 ? path[path.length - 1] : "";
+      // Strip URLs/paths/ANSI from the human-readable message, and redact any
+      // value carried under a sensitive-named path (e.g. an errorMap that
+      // echoes the received input). Zod never sets `received` by default, but
+      // custom schemas can; treat the field as sensitive when its name matches
+      // the shared sensitive-field rules so a failed-validation response
+      // cannot surface a secret the way the live result path would redact it.
+      const redacted: Record<string, unknown> = {
+        code: issue.code ?? "custom",
+        message: sanitizeForLogOutput(issue.message),
+        path: path.map((p) => sanitizeForLogOutput(p)),
+      };
+      if (isSensitiveField(lastSegment ?? "") && issue.received !== undefined) {
+        redacted.received = "[REDACTED]";
+      } else if (issue.received !== undefined) {
+        redacted.received = sanitizeForLogOutput(String(issue.received));
+      }
+      return redacted;
+    });
   }
 }
 
