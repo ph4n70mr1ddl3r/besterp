@@ -1,15 +1,62 @@
 # Code Review Report
 
 ## Scope
-Fresh full review of the BestERP monorepo (`packages/shared`, `packages/mcp-tools`,
-`packages/database`, `apps/api`) conducted on 2026-07-16. This is review round 39;
-round 1–38 are documented in earlier revisions of this file and `CHANGES.md`.
+Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
+`packages/mcp-tools`, `apps/api`) conducted on 2026-07-17. This is review round 40;
+round 1–39 are documented in earlier revisions of this file and `CHANGES.md`.
 
 ## Baseline (before this round)
 - `npm run typecheck` — clean across all workspaces
 - `npm run lint` — 0 errors (1 pre-existing complexity warning in `crypto.ts:sortKeysDeep`)
 - `npm run test` — all passing: shared 151, mcp-tools 126, database 25 (10 RLS isolation
   tests skipped without a live DB), api 308
+
+## Findings & Actions (round 40)
+
+### Fixed this round
+
+1. **🟢 `crypto.ts` — aggregate byte budget under-counted key names (deferred item from
+   round 39).** `checkStringBounds` only charged string *values* to `MAX_HASH_TOTAL_BYTES`,
+   so the JSON-serialized form of object/Map *keys* escaped the guard: a wide object/Map of
+   ~200-byte keys with empty values (12k keys ≈ 2.4 MB of key bytes alone) exceeded the 2 MB
+   cap without tripping the DoS guard. Added `chargeKeyBytes` (key length + 2 quote bytes)
+   called from `sortPlainObject` (object keys) and `sortMap` (Map keys); both now throw the
+   aggregate size-limit `InvalidTypeValueError` before serialization. Added regression tests
+   (wide object keys rejected; modest key set accepted; wide Map keys rejected).
+
+2. **🟢 `truncate.ts` — nested Map/Set dropped from the persisted payload (deferred item
+   from round 39).** `serializeObjectValue` converted only a *top-level* Map/Set to arrays;
+   a Map/Set nested inside an array/object was silently turned into `{}`/`[]` by
+   `JSON.stringify`, losing data from the audit/idempotency record (data-loss, not a leak).
+   Added `normaliseForTruncation`, which recursively converts nested Map/Set (and
+   arrays/plain objects) to JSON-safe arrays, with a `WeakSet` cycle guard and a pass-through
+   for special objects (Date/Error/RegExp/class instances) so their `toJSON`/built-in
+   serialization is preserved (a Date is not flattened into `{ }`). Added regression tests
+   (nested Map-in-array preserved as `[k,v]` pairs; nested Set-in-object preserved; circular
+   nested reference returns the error marker rather than being silently elided).
+
+### Reviewed but NOT changed (false positives / out of scope)
+
+- **`rls-extension.ts` shared-pool context reset** — flagged in round 38; the design relies
+  on `SET LOCAL app.current_tenant` within a transaction that holds a dedicated connection,
+  and `verifyRlsEnabled` boot assertion plus fail-closed role check close the misconfig path.
+  A redundant explicit `SET LOCAL ... = ''` reset remains deferred (no live exploit path).
+- **`ai_action_log.tenant_id` nullable** — flagged LOW in round 39; a NULL tenant_id row is
+  invisible to all tenants under RLS (no leak, just a stranded-audit edge). Changing a
+  shipped migration carries risk; still deferred.
+- **`spike-rls.ts` Test 3 runs against the admin/superuser client** — flagged LOW in round 39;
+  spike-only (excluded from build); deferred.
+
+## Test Results
+```
+shared:    153 passed (4 files)   (+2 — round 40 key-budget regression tests)
+mcp-tools: 129 passed (4 files)   (+3 — round 40 nested-Map/Set regression tests)
+database:   25 passed, 10 skipped (2 files)
+api:       308 passed (14 files)
+───────────────────────────────────
+Total:     615 passed, 10 skipped
+```
+
 
 ## Findings & Actions (round 38)
 

@@ -369,4 +369,34 @@ describe("hashInput", () => {
     expect(() => hashInput(modest)).not.toThrow();
     expect(hashInput(modest)).toMatch(/^[a-f0-9]{64}$/);
   });
+
+  it("should charge object/Map key-name bytes to the aggregate size budget (key-only over-flow guard)", () => {
+    // Regression: checkStringBounds only fired for string *values*, so a wide
+    // object of long *keys* with empty values escaped the aggregate guard and
+    // JSON.stringified past MAX_HASH_TOTAL_BYTES. Each key is ~200 bytes; ~12k
+    // keys would add ~2.4 MB of *key* bytes (plus quotes) on top of the value
+    // budget — larger than the 2 MB aggregate cap — and must now be rejected.
+    const wideKeys: Record<string, string> = {};
+    for (let i = 0; i < 12_000; i++) {
+      wideKeys[`k${"x".repeat(196)}_${i}`] = "";
+    }
+    expect(() => hashInput(wideKeys)).toThrow(InvalidTypeValueError);
+    expect(() => hashInput(wideKeys)).toThrow(/aggregate serialized size limit/);
+
+    // A modest number of long keys stays within budget (no false positive).
+    const modestKeys: Record<string, string> = {};
+    for (let i = 0; i < 40; i++) {
+      modestKeys[`k${"x".repeat(196)}_${i}`] = "";
+    }
+    expect(() => hashInput(modestKeys)).not.toThrow();
+  });
+
+  it("should charge nested Map key bytes to the aggregate size budget", () => {
+    const wideMap = new Map<string, string>();
+    for (let i = 0; i < 12_000; i++) {
+      wideMap.set(`k${"x".repeat(196)}_${i}`, "");
+    }
+    expect(() => hashInput(wideMap)).toThrow(InvalidTypeValueError);
+    expect(() => hashInput(wideMap)).toThrow(/aggregate serialized size limit/);
+  });
 });

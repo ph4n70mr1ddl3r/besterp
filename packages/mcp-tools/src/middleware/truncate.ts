@@ -111,22 +111,73 @@ export function capString(value: unknown, maxBytes: number): string {
 }
 
 /**
- * Serialize a non-primitive value to a JSON-safe form, handling Map/Set
+ * Recursively normalise a value to a JSON-safe form, converting nested
+ * Map/Set to arrays. `JSON.stringify` silently converts Map/Set to `{}`,
+ * so a Map nested inside an array/object would otherwise be dropped entirely
+ * from the persisted payload (data-loss, not a leak). A depth guard prevents
+ * a pathological/cyclic nested structure from running away — circular
+ * references within Map/Set values are rejected rather than silently lost.
+ */
+function normaliseForTruncation(value: unknown, seen: WeakSet<object> = new WeakSet()): unknown {
+  if (value === null || value === undefined) return value;
+  if (typeof value !== "object") return value;
+
+  if (value instanceof Map) {
+    if (seen.has(value)) throw new Error("Circular reference in Map value");
+    seen.add(value);
+    try {
+      return Array.from(value.entries()).map(([k, v]) => [normaliseForTruncation(k, seen), normaliseForTruncation(v, seen)]);
+    } finally {
+      seen.delete(value);
+    }
+  }
+  if (value instanceof Set) {
+    if (seen.has(value)) throw new Error("Circular reference in Set value");
+    seen.add(value);
+    try {
+      return Array.from(value.values()).map((v) => normaliseForTruncation(v, seen));
+    } finally {
+      seen.delete(value);
+    }
+  }
+  if (Array.isArray(value)) {
+    return value.map((v) => normaliseForTruncation(v, seen));
+  }
+  // Defer to JSON.stringify's built-in handling for special objects (Date,
+  // RegExp, Error, BigInt wrappers, class instances with toJSON) rather than
+  // flattening their enumerable own properties — otherwise a Date would be
+  // spread into { } and lose its value. Only plain objects / null-prototype
+  // objects are recursed into for nested Map/Set normalisation.
+  const proto = Object.getPrototypeOf(value);
+  if (proto !== Object.prototype && proto !== null) {
+    return value;
+  }
+  // Plain object (null-prototype safe since WeakSet only keys objects).
+  if (seen.has(value)) throw new Error("Circular reference in object value");
+  seen.add(value);
+  try {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value)) {
+      out[k] = normaliseForTruncation(v, seen);
+    }
+    return out;
+  } finally {
+    seen.delete(value);
+  }
+}
+
+/**
+ * Serialize a non-primitive value to a JSON-safe form, handling nested Map/Set
  * conversion. Returns a structured error marker on serialisation failure.
  * Never throws.
  */
 function serializeObjectValue(value: unknown): { serialized: string } | { _error: string } {
   try {
-    // Convert Map/Set to arrays before serialisation — JSON.stringify
-    // silently converts Map/Set to "{}", losing all data. This conversion
-    // mirrors the audit-log middleware's pre-processing but is applied here
-    // so custom middleware authors who call truncateValue directly don't hit
-    // the silent data-loss pitfall.
-    const normalised = value instanceof Map
-      ? Array.from(value.entries())
-      : value instanceof Set
-        ? Array.from(value)
-        : value;
+    // Convert Map/Set (including nested ones) to arrays before serialisation —
+    // JSON.stringify silently converts Map/Set to "{}", losing all data. This
+    // conversion mirrors the audit-log middleware's pre-processing but recurses
+    // so a Map nested inside an array/object isn't dropped from the payload.
+    const normalised = normaliseForTruncation(value);
     const serialized = JSON.stringify(normalised);
     return { serialized };
   } catch {

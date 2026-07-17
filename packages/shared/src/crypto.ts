@@ -53,6 +53,10 @@ function sortMap(value: Map<unknown, unknown>, ancestors: Set<object>, depth: nu
       }));
     for (const entry of prepared) {
       entry.kStr = JSON.stringify(entry.kSorted);
+      // The key serializes as `"kStr"` on the wire; charge its quoted length to
+      // the aggregate budget (object keys are charged in sortPlainObject, Map
+      // keys were previously exempt — a wide Map of long keys escaped the guard).
+      chargeKeyBytes(entry.kStr, budget);
     }
     const sortedEntries = prepared
       .sort((a, b) => a.kStr < b.kStr ? -1 : a.kStr > b.kStr ? 1 : 0);
@@ -85,6 +89,7 @@ function sortPlainObject(value: object, ancestors: Set<object>, depth: number, b
   const sorted: Record<string, unknown> = Object.create(null);
   const keys = Object.keys(value).sort();
   for (const key of keys) {
+    chargeKeyBytes(key, budget);
     sorted[key] = sortKeysDeep((value as Record<string, unknown>)[key], ancestors, depth + 1, budget);
   }
   return sorted;
@@ -188,6 +193,28 @@ function checkStringBounds(value: string, budget?: { bytes: number }): void {
   if (len > MAX_HASH_STRING_BYTES) {
     throw new InvalidTypeValueError(
       `Input contains a string longer than ${MAX_HASH_STRING_BYTES} bytes. ` +
+      `Refusing to hash to prevent denial of service.`
+    );
+  }
+}
+
+/**
+ * Charge a structural string (object key, Map key, or quoted wrapper) to the
+ * aggregate byte budget. `checkStringBounds` only fires for *string values*
+ * reached through `sortKeysDeep`, so the JSON-serialized form of object/Map
+ * *keys* — which are emitted verbatim into `JSON.stringify(canonical)` — would
+ * otherwise exceed `MAX_HASH_TOTAL_BYTES` without tripping the guard. A key of
+ * length L serializes as `"L"` (quote-wrapped), so we charge L + 2 to match the
+ * wire size. Key names are bounded by `MAX_HASH_KEYS` (10k) but a 10k-array of
+ * 200-char keys still adds ~2 MB of *key* bytes on top of the value budget; the
+ * budget now covers both.
+ */
+function chargeKeyBytes(value: string, budget?: { bytes: number }): void {
+  if (!budget) return;
+  budget.bytes += Buffer.byteLength(value, "utf8") + 2;
+  if (budget.bytes > MAX_HASH_TOTAL_BYTES) {
+    throw new InvalidTypeValueError(
+      `Input exceeds aggregate serialized size limit of ${MAX_HASH_TOTAL_BYTES} bytes. ` +
       `Refusing to hash to prevent denial of service.`
     );
   }

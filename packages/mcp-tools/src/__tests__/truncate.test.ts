@@ -127,6 +127,33 @@ describe("truncateValue", () => {
     expect(result._preview.charAt(0)).toBe("a");
     expect(result._preview.slice(0, 100)).toBe("a".repeat(100));
   });
+
+  it("preserves a Map nested inside an array/object (no silent data-loss)", () => {
+    // Regression: serializeObjectValue only converted a *top-level* Map/Set,
+    // so a Map nested in an array/object was dropped (JSON.stringify turns Map
+    // into {}) — losing the data from the persisted audit/idempotency payload.
+    const nested = { list: [1, new Map([["token", "secret"], ["n", 2]]), "x"] };
+    const result = truncateValue(nested) as { list: unknown[] };
+    // The nested Map must survive as a [key, value] pair array, not be elided.
+    expect(Array.isArray(result.list)).toBe(true);
+    const mapEntry = result.list[1];
+    expect(Array.isArray(mapEntry)).toBe(true);
+    expect(mapEntry).toEqual([["token", "secret"], ["n", 2]]);
+  });
+
+  it("preserves a Set nested inside an object", () => {
+    const nested = { tags: new Set(["a", "b"]), meta: { s: new Set([1, 2, 3]) } };
+    const result = truncateValue(nested) as { tags: unknown[]; meta: { s: unknown[] } };
+    expect(result.tags).toEqual(["a", "b"]);
+    expect(result.meta.s).toEqual([1, 2, 3]);
+  });
+
+  it("rejects a circular reference in a nested Map/Set rather than truncating it away", () => {
+    const a: Record<string, unknown> = {};
+    const m = new Map<string, unknown>([["self", a]]);
+    a.ref = m; // m -> a -> m
+    expect(truncateValue(m)).toEqual({ _error: "Failed to serialize value" });
+  });
 });
 
 describe("capString", () => {

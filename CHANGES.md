@@ -1,5 +1,19 @@
 # BestERP — Security & Architecture Fixes
 
+## Changes Applied (2026-07-17) — Code Review Round 40
+
+### 🟢 `crypto.ts` — aggregate byte budget under-counted key names
+
+**Problem:** `checkStringBounds` charged only string *values* to `MAX_HASH_TOTAL_BYTES`, so the JSON-serialized form of object/Map *keys* escaped the guard. A wide object/Map of long keys (e.g. 12k keys × ~200 bytes) adds ~2.4 MB of key bytes on top of the value budget, exceeding the 2 MB cap without tripping the DoS guard.
+
+**Fix:** Added `chargeKeyBytes` (key + 2 quote bytes) and call it from `sortPlainObject` (object keys) and `sortMap` (Map keys). Both now throw the aggregate size-limit `InvalidTypeValueError`. Added regression tests for wide object keys and wide Map keys.
+
+### 🟢 `truncate.ts` — nested Map/Set dropped from persisted payload
+
+**Problem:** `serializeObjectValue` converted only a *top-level* Map/Set to arrays; a Map/Set nested inside an array/object was silently turned into `{}`/`[]` by `JSON.stringify`, losing data from the audit/idempotency record (data-loss, not a leak).
+
+**Fix:** Added `normaliseForTruncation`, which recursively converts nested Map/Set (and arrays/plain objects) to JSON-safe arrays, with a `WeakSet` cycle guard and a pass-through for special objects (Date/Error/RegExp/class instances) so their `toJSON`/built-in serialization is preserved. Added regression tests for nested Map-in-array, nested Set-in-object, and circular-nested detection.
+
 ## Changes Applied (2026-07-16) — Code Review Round 37
 
 ### 🔴 `sanitize.ts` — `stripHtmlTags` DoS guard measured code units, not bytes
