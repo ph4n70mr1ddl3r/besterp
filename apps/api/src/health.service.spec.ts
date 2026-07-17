@@ -108,5 +108,35 @@ describe("HealthService", () => {
       expect(result.build?.number).toBeUndefined();
       expect(result.build?.date).toBeUndefined();
     });
+
+    it("should redact name and version for anonymous /version callers in production", async () => {
+      // The /version endpoint is anonymous (@Public()), so returning the exact
+      // package name + semantic version in production fingerprints the build
+      // and lets an attacker target known CVEs for that release. In production
+      // the endpoint must return a generic, non-fingerprintable marker.
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("BUILD_NUMBER", undefined);
+      vi.stubEnv("BUILD_DATE", undefined);
+
+      const service = new HealthService(createMockPrisma());
+      const result = await service.getVersion();
+
+      expect(result.version).toBe("redacted");
+      expect(result.name).toBe("redacted");
+      expect(result.build).toBeUndefined();
+      expect(result.warning).toBeUndefined();
+    });
+
+    it("should still disclose name and version outside production", async () => {
+      // Non-production builds are not a deployed attack surface, so operators
+      // still get the full triplet for debugging.
+      vi.stubEnv("NODE_ENV", "staging");
+
+      const service = new HealthService(createMockPrisma());
+      const result = await service.getVersion();
+
+      expect(result.version).not.toBe("redacted");
+      expect(result.name).not.toBe("redacted");
+    });
   });
 });

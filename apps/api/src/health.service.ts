@@ -147,14 +147,31 @@ export class HealthService implements OnModuleInit {
   async getVersion(): Promise<VersionInfo> {
     await this.packageInfoReady;
     const isProd = process.env.NODE_ENV === "production";
+    // The /version endpoint is anonymous (@Public()), so it is reachable by
+    // anyone — including unauthenticated attackers. Returning the exact
+    // package name + semantic version in production fingerprints the build,
+    // letting an attacker target known CVEs for that exact release. Mirror the
+    // fail-closed hardening already applied to the anonymous /health body: in
+    // production return only a generic, non-fingerprintable marker. Operators
+    // still get the full triplet in non-production (dev/staging/preview), where
+    // the build is not a deployed attack surface.
+    if (isProd) {
+      return {
+        version: "redacted",
+        name: "redacted",
+        environment: process.env.NODE_ENV || "development",
+        warning: undefined,
+        build: undefined,
+      };
+    }
     return {
       version: this.packageInfo.version,
       name: this.packageInfo.name,
       environment: process.env.NODE_ENV || "development",
       // Suppress filesystem-path errors in production to avoid information
       // disclosure about the container/server layout.
-      warning: isProd ? undefined : this.packageInfoError ?? undefined,
-      build: isProd ? undefined : {
+      warning: this.packageInfoError ?? undefined,
+      build: {
         number: process.env.BUILD_NUMBER,
         date: process.env.BUILD_DATE,
       },

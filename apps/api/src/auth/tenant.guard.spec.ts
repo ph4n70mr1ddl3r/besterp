@@ -5,16 +5,17 @@
 // surface as a 500 with a clear message rather than a silent 403.
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { ExecutionContext, InternalServerErrorException, UnauthorizedException } from "@nestjs/common";
+import { ExecutionContext, ForbiddenException, InternalServerErrorException, UnauthorizedException } from "@nestjs/common";
 import { Reflector } from "@nestjs/core";
 import { TenantGuard } from "./tenant.guard.js";
+import { HealthController } from "../health.controller.js";
 
-function makeContext(opts: { user?: unknown; isPublic?: boolean }): ExecutionContext {
+function makeContext(opts: { user?: unknown; isPublic?: boolean; controllerClass?: unknown }): ExecutionContext {
   const req: Record<string, unknown> = {};
   if ("user" in opts) req.user = opts.user;
   return {
     getHandler: () => ({} as any),
-    getClass: () => ({} as any),
+    getClass: () => (opts.controllerClass ?? {}) as any,
     switchToHttp: () => ({
       getRequest: () => req,
       getResponse: () => ({} as any),
@@ -53,11 +54,21 @@ describe("TenantGuard", () => {
     }
   });
 
-  it("allows public routes through without req.user", () => {
+  it("allows public routes through without req.user when on HealthController", () => {
     (reflector.getAllAndOverride as any).mockReturnValue(true);
-    const ctx = makeContext({}); // no user, but @Public()
+    const ctx = makeContext({ controllerClass: HealthController }); // no user, but @Public()
 
     expect(guard.canActivate(ctx)).toBe(true);
+  });
+
+  it("refuses @Public() on a non-health controller (fail-closed scope)", () => {
+    // @Public() is a global authentication opt-out. A misplaced decorator on a
+    // tenant-scoped controller would silently expose data to anonymous callers,
+    // so the guard must fail closed and refuse the request.
+    (reflector.getAllAndOverride as any).mockReturnValue(true);
+    const ctx = makeContext({ controllerClass: class OtherController {} });
+
+    expect(() => guard.canActivate(ctx)).toThrow(ForbiddenException);
   });
 
   it("attaches TenantContext from req.user on non-public routes", () => {

@@ -1,5 +1,19 @@
 # BestERP — Security & Architecture Fixes
 
+## Changes Applied (2026-07-17) — Code Review Round 45
+
+### 🟡 `health.service.ts` — anonymous `/version` fingerprints the build in production
+
+**Problem:** `HealthController.getVersion()` is `@Public()` (no JWT), so it is reachable by anyone. It returned the package `name` + `version` (and build number/date) verbatim in **every** environment, including production. An exact name + semantic version fingerprints the deployed release, letting an attacker target known CVEs for that specific build — the same infrastructure-fingerprinting class the anonymous `/health` body was already minimised against (round 33/34). The `build`/warning suppression already keyed on `NODE_ENV === "production"`, but `name`/`version` were never gated.
+
+**Fix:** `getVersion()` now returns generic `"redacted"` markers for `name`/`version` (and omits `build`/`warning`) when `NODE_ENV === "production"`, matching the fail-closed hardening of the `/health` body. Non-production keeps the full triplet for operator debugging. Added regression tests (production redaction; non-production disclosure).
+
+### 🟡 `jwt-auth.guard.ts` / `tenant.guard.ts` — `@Public()` was an unscoped global auth opt-out
+
+**Problem:** `@Public()` is a boolean decorator honoured by both `JwtAuthGuard` and `TenantGuard` for *any* controller or method. For a multi-tenant system that is a standing footgun: a single misplaced `@Public()` silently unauthenticates a tenant-scoped route, exposing data to anonymous callers — with no warning at boot or runtime. Only `HealthController` is legitimately public today, so the broad opt-out was pure latent risk.
+
+**Fix:** Added `auth/public-scope.ts` with `isPublicAllowedForHandler()`, which fails closed (`ForbiddenException`) unless the handler's controller is `HealthController`. Both guards now call it before honoring `@Public()`. A future attempt to opt any other controller out of authentication is rejected at request time rather than silently bypassed. Added a regression test (non-health `@Public()` throws `ForbiddenException`; health stays allowed).
+
 ## Changes Applied (2026-07-17) — Code Review Round 44
 
 ### 🔴 `sanitize.ts` / `sensitive-fields.ts` — MCP surface used a divergent sensitive-field detector (asymmetric secret leak)

@@ -13,6 +13,7 @@ import { Request } from "express";
 import type { JwtValidatedUser } from "./jwt.strategy.js";
 import { TenantContext } from "../common/tenant-context.js";
 import { IS_PUBLIC_KEY } from "./public.decorator.js";
+import { isPublicAllowedForHandler } from "./public-scope.js";
 
 @Injectable()
 export class TenantGuard implements CanActivate {
@@ -24,6 +25,9 @@ export class TenantGuard implements CanActivate {
       context.getClass(),
     ]);
     if (isPublic) {
+      // @Public() is only permitted on HealthController (see jwt-auth.guard).
+      // Fail closed if any other controller opts out of authentication.
+      isPublicAllowedForHandler(context);
       return true;
     }
 

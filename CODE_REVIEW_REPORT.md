@@ -2,8 +2,8 @@
 
 ## Scope
 Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
-`packages/mcp-tools`, `apps/api`) conducted on 2026-07-17. This is review 44;
-round 1–43 are documented in earlier revisions of this file and `CHANGES.md`.
+`packages/mcp-tools`, `apps/api`) conducted on 2026-07-17. This is review 45;
+round 1–44 are documented in earlier revisions of this file and `CHANGES.md`.
 
 ## Baseline (before this round)
 - `npm run typecheck` — clean across all workspaces
@@ -11,7 +11,74 @@ round 1–43 are documented in earlier revisions of this file and `CHANGES.md`.
 - `npm run test` — all passing: shared 164, mcp-tools 132, database 25 (10 RLS isolation
   tests skipped without a live DB), api 313
 
-## Findings & Actions (round 43)
+## Findings & Actions (round 45)
+
+### Fixed this round
+
+1. **🟡 `health.service.ts` — anonymous `/version` fingerprints the build in production.**
+   `getVersion()` is served by the `@Public()` `HealthController.getVersion()` (no JWT), so
+   it is reachable by anyone. It returned the package `name` + `version` (and `build`
+   number/date) verbatim in **every** environment, including production — an exact
+   name + semantic version fingerprints the deployed release and lets an attacker target
+   known CVEs for that specific build. This is the same infrastructure-fingerprinting
+   class the anonymous `/health` body was already minimised against (round 33/34): that
+   endpoint returns only `{ status, timestamp, database }`. The `build`/`warning`
+   suppression already keyed on `NODE_ENV === "production"`, but `name`/`version` were
+   never gated. `getVersion()` now returns generic `"redacted"` markers for `name`/`version`
+   (and omits `build`/`warning`) in production, matching the fail-closed `/health` body;
+   non-production keeps the full triplet for operator debugging. Added regression tests
+   (production redaction; non-production disclosure).
+
+2. **🟡 `jwt-auth.guard.ts` / `tenant.guard.ts` — `@Public()` was an unscoped global auth
+   opt-out (silent unauthentication footgun).** `@Public()` is a boolean decorator honoured
+   by both `JwtAuthGuard` and `TenantGuard` for *any* controller or method. For a
+   multi-tenant system that is a standing footgun: a single misplaced `@Public()` silently
+   unauthenticates a tenant-scoped route — exposing data to anonymous callers with no
+   warning at boot or runtime. Only `HealthController` is legitimately public today, so the
+   broad opt-out was pure latent risk. Added `auth/public-scope.ts` with
+   `isPublicAllowedForHandler()`, which fails closed (`ForbiddenException`) unless the
+   handler's controller is `HealthController`; both guards now call it before honoring
+   `@Public()`. A future attempt to opt any other controller out of authentication is
+   rejected at request time rather than silently bypassed. Added a regression test
+   (non-health `@Public()` throws `ForbiddenException`; health stays allowed).
+
+### Reviewed but NOT changed (false positives / out of scope)
+
+- **`role` claim parsed but dropped on the REST path** — `JwtStrategy.validate()` populates
+  `JwtValidatedUser.role` (validated, trimmed, length-capped), but `TenantContext`
+  (`tenant-context.ts`) has no `role` field, so it is never enforced. There is **no RBAC**
+  layer anywhere in the codebase (grep-confirmed: `user.role`/`req.user` only appear in
+  tests/comments), so the claim is unused for authorization. This is a design gap, not a
+  live exploit — enforcing an unused claim would create a false sense of authz. Deferred:
+  either add a real `RoleGuard`/`Roles()` RBAC layer or remove `role` from the JWT contract
+  until RBAC exists. Flagged as a follow-up to track; out of scope for this round's
+  concrete fixes.
+- **`taxId` returned verbatim in `PartyResult`/`ContactMechanismResult`** — the redaction
+  pattern (`redactSensitiveFieldValues`) is applied only to *error* contexts, not to
+  successful response DTOs. `taxId` (PII/tax data) is therefore returned to any
+  authenticated tenant member. Likely intended (tenant-owned data), but inconsistent with
+  how contact-mechanism PII is treated elsewhere. Flagged for awareness; masking in
+  list/search responses is a product decision, deferred.
+- **`@IsDateString()` on optional date DTO fields** — default class-validator accepts some
+  non-strict forms, but the service layer re-validates with `isValidISODate`, so the DTO
+  check is not the final gate. Defense-in-depth holds. No change.
+- **`party.service.ts` / `discovery-tools.ts` / `queue.module.ts` / `prisma.service.ts` /
+  `mcp.module.ts`** — re-verified clean this round; tenant isolation (RLS boot assertion +
+  superuser boot refusal + app-level `tenantId` filters + spread-after-`tenantId`
+  controllers), secret redaction across all agent/REST/durable surfaces, and idempotency
+  key charset consistency remain intact. No new 🔴/🟡 exploit paths.
+
+## Test Results
+```
+shared:    164 passed (4 files)   (unchanged vs round 44)
+mcp-tools: 132 passed (4 files)   (unchanged vs round 44)
+database:   25 passed, 10 skipped (2 files)
+api:       316 passed (14 files)  (+3 — round 45 /version redaction + @Public() scope tests)
+───────────────────────────────────
+Total:     637 passed, 10 skipped
+```
+
+## Findings & Actions (round 44)
 
 ### Fixed this round
 
