@@ -7,7 +7,7 @@
 // - JWT secret check (warns in dev, fails in production)
 
 import "reflect-metadata";
-import { NestFactory } from "@nestjs/core";
+import { NestFactory, DiscoveryService } from "@nestjs/core";
 import { Logger, ValidationPipe, type INestApplication } from "@nestjs/common";
 import helmet from "helmet";
 import { sanitizeForLogOutput, JWT_EXPIRES_IN_REGEX } from "@besterp/shared";
@@ -18,6 +18,7 @@ import express, { type Request, type Response, type NextFunction } from "express
 // This must remain imported so TypeScript recognises requestId on the Request type.
 import "./common/tenant-context.js";
 import { resolveRequestId } from "./common/request-id.js";
+import { verifyPublicEndpointsScope } from "./auth/public-scope.js";
 
 const logger = new Logger("Bootstrap");
 
@@ -280,6 +281,23 @@ async function bootstrap() {
   app.useGlobalPipes(
     new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true })
   );
+
+  // Boot-time guard against a mis-scoped @Public(): scan every registered
+  // controller/handler and abort startup if any non-Health endpoint opts out
+  // of authentication. This catches the silent footgun at deploy time that the
+  // per-request check in isPublicAllowedForHandler would otherwise only catch
+  // when an attacker happens to hit the route.
+  try {
+    const discovery = app.get(DiscoveryService);
+    verifyPublicEndpointsScope(discovery);
+  } catch (scanErr) {
+    logger.error(
+      `Startup aborted by @Public() scope verification: ${
+        sanitizeForLogOutput(scanErr instanceof Error ? scanErr.message : String(scanErr))
+      }`
+    );
+    process.exit(1);
+  }
 
   const port = parsePort();
   try {

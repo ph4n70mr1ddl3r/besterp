@@ -2,14 +2,14 @@
 
 ## Scope
 Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
-`packages/mcp-tools`, `apps/api`) conducted on 2026-07-17. This is review 45;
-round 1–44 are documented in earlier revisions of this file and `CHANGES.md`.
+`packages/mcp-tools`, `apps/api`) conducted on 2026-07-18. This is review 46;
+round 1–45 are documented in earlier revisions of this file and `CHANGES.md`.
 
 ## Baseline (before this round)
 - `npm run typecheck` — clean across all workspaces
 - `npm run lint` — 0 errors (1 pre-existing complexity warning in `crypto.ts:sortKeysDeep`)
 - `npm run test` — all passing: shared 164, mcp-tools 132, database 25 (10 RLS isolation
-  tests skipped without a live DB), api 313
+  tests skipped without a live DB), api 322
 
 ## Findings & Actions (round 45)
 

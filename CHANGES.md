@@ -1,5 +1,13 @@
 # BestERP — Security & Architecture Fixes
 
+## Changes Applied (2026-07-18) — Code Review Round 46
+
+### 🟡 `auth/public-scope.ts` / `main.ts` / `public-scope.spec.ts` — build-breaking type import + lint regressions in the round-45 `@Public()` scope scan
+
+**Problem:** The boot-time `verifyPublicEndpointsScope` scan (added round 45) imported `InstanceWrapper` via the deep path `@nestjs/core/injector/instance-wrapper`, which is not a package-exported subpath in NestJS 11 — `npm run typecheck` failed for the whole `apps/api` workspace (`TS2307: Cannot find module '@nestjs/core/injector/instance-wrapper'`). The scan wiring in `main.ts` also imported `DiscoveryService` from a second `@nestjs/core` statement (duplicate-import lint error) and contained a dead `app.get(Reflector)` call whose comment implied it initialised something the `DiscoveryService` dependency graph already resolves. The same broken deep import in the new spec broke typecheck there too, and left two unused `eslint-disable` directives.
+
+**Fix:** Dropped the explicit `InstanceWrapper` import and let `getControllers()`'s return type be inferred, deriving the element type in the spec from `ReturnType<DiscoveryService["getControllers"]>[number]`. Merged the duplicate `@nestjs/core` import in `main.ts` and removed the no-op `Reflector` fetch. Removed the stale `eslint-disable` comments. `typecheck`, `lint`, and `test` are all clean again (api 322 passing; the only remaining lint warning is the pre-existing `crypto.ts:sortKeysDeep` complexity note).
+
 ## Changes Applied (2026-07-17) — Code Review Round 45
 
 ### 🟡 `health.service.ts` — anonymous `/version` fingerprints the build in production
