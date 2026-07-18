@@ -774,10 +774,11 @@ export class PartyService {
   /** Throw DuplicateEntityError if the phone number is already registered for this party. */
   private static async checkTelecomDuplicate(
     tx: Prisma.TransactionClient, partyId: string, tenantId: string,
-    sanitizedAreaCode: string, sanitizedLineNumber: string,
+    sanitizedCountryCode: string, sanitizedAreaCode: string, sanitizedLineNumber: string,
   ): Promise<void> {
     const existingTel = await tx.telecomNumber.findFirst({
       where: {
+        countryCode: sanitizedCountryCode,
         areaCode: sanitizedAreaCode,
         lineNumber: sanitizedLineNumber,
         contactMechanism: { tenantId, partyContacts: { some: { partyId } } },
@@ -785,7 +786,7 @@ export class PartyService {
     });
     if (existingTel) {
       throw new DuplicateEntityError(
-        `Phone number (${sanitizedAreaCode}) ${sanitizedLineNumber} is already registered for this party.`,
+        `Phone number ${sanitizedCountryCode} (${sanitizedAreaCode}) ${sanitizedLineNumber} is already registered for this party.`,
         { suggestedTools: ["add_contact_mechanism"], context: { contactMechanismType: "TELECOM_NUMBER" } }
       );
     }
@@ -822,7 +823,16 @@ export class PartyService {
           // version, and a second call with the clean value creates a duplicate.
           const sanitizedAreaCode = stripHtmlTags(telecomNumber.areaCode.trim());
           const sanitizedLineNumber = stripHtmlTags(telecomNumber.lineNumber.trim());
-          await PartyService.checkTelecomDuplicate(tx, partyId, tenantId, sanitizedAreaCode, sanitizedLineNumber);
+          // countryCode is part of the canonical E.164 number, so two numbers
+          // that differ only by country code (+1 vs +44 with the same
+          // area+line) are DISTINCT numbers and must not collapse into the same
+          // duplicate match. The check therefore scopes on countryCode too; it
+          // otherwise treated "+1 555 1234" and "+44 555 1234" as the same
+          // number, which is incorrect for international subscribers.
+          const sanitizedCountryCode = telecomNumber.countryCode
+            ? stripHtmlTags(telecomNumber.countryCode.trim())
+            : DEFAULT_PHONE_COUNTRY_CODE;
+          await PartyService.checkTelecomDuplicate(tx, partyId, tenantId, sanitizedCountryCode, sanitizedAreaCode, sanitizedLineNumber);
         }
 
         return tx.contactMechanism.create({

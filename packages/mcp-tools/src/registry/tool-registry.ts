@@ -199,10 +199,24 @@ export class ToolRegistry {
             const issueString = parsed.error.issues
               .map((i) => `${i.path.map((p) => typeof p === "symbol" ? p.toString() : String(p)).join(".")}: ${i.message}`)
               .join("; ");
-            const detail = issueString.length > MAX_VALIDATION_MESSAGE_LENGTH
+            const detailRaw = issueString.length > MAX_VALIDATION_MESSAGE_LENGTH
               ? `${issueString.slice(0, MAX_VALIDATION_MESSAGE_LENGTH)}… [${parsed.error.issues.length} issues, truncated]`
               : issueString;
-            // The joined `message` is already capped above, but the
+            // Sanitize the joined summary BEFORE embedding it in the agent-facing
+            // `message`. `detailRaw` is only length-capped above; a Zod issue's
+            // `message` can embed the received input (a custom errorMap echoing
+            // `${input}`, or a schema that reports the offending value) so a
+            // connection string / `?api_key=…` / ANSI-CRLF payload survives
+            // verbatim — while the parallel `context.issues` array below IS
+            // scrubbed via `sanitizeIssues`. That asymmetry is exactly the
+            // secret-leak class rounds 42/44/48/49 closed on every other
+            // surface; the errorHandlerMiddleware only catches *thrown* errors,
+            // and this soft-failure return is never thrown, so it reaches the
+            // agent unsanitized unless we scrub it here (verified: a crafted
+            // `.refine()` message with `api_key=sk_live_abc` leaked the key in
+            // `error.message` while `context.issues` redacted it).
+            const detail = sanitizeForLogOutput(detailRaw);
+            // The joined `message` is already capped AND sanitized above, but the
             // `context.issues` array is returned verbatim to the AI agent and
             // is NOT filtered through the error-handler's
             // `sanitizeContextValue` (that only runs on thrown DomainErrors).
@@ -214,8 +228,7 @@ export class ToolRegistry {
             // redaction applied to live results and DomainError.context.
             // Sanitize every string (strip URLs/paths/ANSI) and redact values
             // carried under a sensitive-named path so this agent-facing surface
-            // stays consistent with every other error path. The full/capped
-            // `message` string above preserves a readable (sanitized) summary.
+            // stays consistent with every other error path.
             const sanitizedIssues = this.sanitizeIssues(parsed.error.issues, MAX_VALIDATION_ISSUES);
             return {
               success: false,

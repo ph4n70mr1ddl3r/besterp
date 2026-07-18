@@ -1,5 +1,100 @@
 # BestERP — Security & Architecture Fixes
 
+## Changes Applied (2026-07-18) — Code Review Round 50
+
+### 🔴 `packages/mcp-tools/src/registry/tool-registry.ts` — Zod validation `message` returned to the AI agent was NOT secret-sanitized (asymmetric secret-leak)
+
+**Problem:** On validation failure the pipeline joins each issue's `path: message`
+into a single `detail` string, length-caps it, and embeds it verbatim in the
+agent-facing top-level `error.message`. The parallel `context.issues` array is
+scrubbed via `sanitizeIssues`, but `detail` was only `.slice()`-capped — so a
+secret embedded in an issue `message` (a custom `errorMap`/`.refine()` that
+echoes the received value, or a connection string) leaked verbatim in
+`error.message` while `context.issues` redacted it. This is the asymmetric-leak
+class rounds 42/44/48/49 closed on every other surface; `errorHandlerMiddleware`
+only catches *thrown* errors and this soft-failure return is never thrown, so it
+reached the agent unsanitized.
+
+**Fix:** `detail` now runs through `sanitizeForLogOutput` before being embedded
+(matching `context.issues`). The latent `leaky_tool` fixture already carried the
+secret in the top-level message; the regression test now asserts
+`error.message` does not contain it and contains `[HOST]/[PATH]`.
+
+### 🔴 `packages/shared/src/sanitize.ts` — OAuth `#fragment` secrets (`#access_token=`, `#id_token=`) and `;`-separated params were not redacted
+
+**Problem:** The query-string secret rule matched only a `(?<=[?&])` lookbehind,
+so a secret delivered in a URL fragment (the OAuth implicit-flow mechanism,
+`#access_token=`/`#id_token=`) survived verbatim — the subsequent
+`(https?://)… → [HOST]/[PATH]` collapse requires a leading scheme+host and never
+consumes a bare `#token=…`. Separately, `;` (a separator some query parsers
+treat like `&`) and the `id_token` param name were missing, so `;token=…`
+leaked when no `?`/`&`/`#` preceded it.
+
+**Fix:** added `id_token` to the param-name alternation, added `#` to the lookbehind,
+and added `;` to the lookbehind while excluding it from the value class (so a
+`?a=1;token=…` immediately following another param is still caught). Regression
+tests added (`#token=`, `#id_token=`, `;token=`, `?token=x;other=2`).
+
+### 🔴 `packages/shared/src/crypto.ts` — `sortSet` never charged element bytes to the aggregate hash budget (bypassed the DoS guard)
+
+**Problem:** `sortArray`/`sortPlainObject`/`sortMap` all charge string *values*
+(and, for maps, keys) to `budget.bytes` via `checkStringBounds`/`chargeKeyBytes`,
+but `sortSet` called `JSON.stringify(v)` only to sort and never charged the
+elements. A `Set` of ~30 × 99 KB strings (≈3 MB) therefore hashed
+successfully and emitted a ~3 MB `JSON.stringify` buffer, defeating the round-38
+`MAX_HASH_TOTAL_BYTES` DoS guard that every other container honored.
+
+**Fix:** `sortSet` now charges each element's serialized bytes to the budget (and the
+`sortKeysDeep` value path already charges the string values). Regression test added
+(a wide `Set` of distinct near-limit strings now throws the aggregate-size-limit
+error; a modest `Set` stays within budget).
+
+### 🟡 `apps/api/src/queue/queue.module.ts` — `REDIS_HOST` silently defaulted to `localhost` in production
+
+**Problem:** Only the Redis *password* was enforced in non-development; an unset/
+empty `REDIS_HOST` fell back to `localhost`, so a misconfigured production
+instance would connect to an unintended (and unauthenticated) Redis rather than
+failing closed.
+
+**Fix:** `REDIS_HOST` is now required when `NODE_ENV !== "development"` (mirroring
+the password guard); only development keeps the localhost fallback. Added a
+production host-guard regression test.
+
+### 🟡 `apps/api/src/modules/core/party/party.service.ts` — telecom duplicate check ignored `countryCode`
+
+**Problem:** `checkTelecomDuplicate` matched only on `(areaCode, lineNumber)`, so
+`+1 555 1234` and `+44 555 1234` collided as the same number — incorrect for
+international subscribers.
+
+**Fix:** the check (and the create path feeding it) now scope on `countryCode`
+(defaulting to `+1` when omitted, matching the stored value). Added a regression
+test asserting `countryCode` is in the duplicate-check `where`.
+
+### 🟡 `apps/api/src/mcp/tools/party-tools.ts` — MCP email validation diverged from the REST/service layer
+
+**Problem:** the MCP `emailAddressSchema` used Zod's built-in `.email()`, while
+`party.service.ts` enforces the stricter `EMAIL_REGEX`. Zod accepts addresses
+`EMAIL_REGEX` rejects (e.g. a double-dot local part `a..b@x.com`), so an
+MCP-submitted address could pass validation and then be rejected by the service's
+duplicate-check/re-validation.
+
+**Fix:** the MCP path now runs through the same `EMAIL_REGEX` as the service
+layer.
+
+### 🟢 `packages/mcp-tools/src/middleware/audit-log.ts` — MCP `redactSensitiveFields` diverged from the canonical shared redactor (depth cap + non-string Map keys)
+
+**Problem:** `MAX_REDACTION_DEPTH` was 10 on the MCP side vs 20 on the canonical
+REST redactor, so a legitimately deep (11–20 level) payload was over-redacted
+(`[Too deep]`) on the MCP/durable surface while preserved on REST — silent data
+loss in `ai_action_log`/idempotency. And `redactMap` only redacted when
+`typeof k === "string"`, so a `Map` keyed by an object whose `toString()` yields
+a sensitive name was redacted on REST (`String(k)`) but not on MCP.
+
+**Fix:** aligned `MAX_REDACTION_DEPTH` to 20 and switched `redactMap` to `String(k)`
+for parity. Regression tests updated/added.
+
+---
+
 ## Changes Applied (2026-07-18) — Code Review Round 49
 
 ### 🔴 `packages/shared/src/sanitize.ts` — query-string secret rule *annotated* the secret instead of *replacing* it (live secret-leak in the core redaction primitive)

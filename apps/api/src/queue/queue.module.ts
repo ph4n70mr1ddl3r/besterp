@@ -24,8 +24,20 @@ export class QueueModule {
   private static readonly logger = new Logger(QueueModule.name);
 
   private static resolveRedisOptions(options?: Partial<QueueModuleOptions>): { host: string; port: number; password: string | undefined } {
-    const rawHost = options?.redis?.host || process.env.REDIS_HOST || "localhost";
-    const host = rawHost.trim();
+    const rawHost = options?.redis?.host || process.env.REDIS_HOST;
+    // Fail closed in non-development: a silently-defaulted localhost Redis in
+    // production is a misconfiguration footgun — the app would connect to an
+    // unintended (and unauthenticated, if REDIS_PASSWORD is also unset) Redis
+    // rather than erroring. Only development keeps the localhost fallback so a
+    // local dev box can run without env wiring; production must set REDIS_HOST
+    // explicitly (mirrors resolvePassword's production guard).
+    if (!rawHost && process.env.NODE_ENV !== "development") {
+      this.logger.error(
+        "REDIS_HOST not set in production — refusing to default to localhost (would connect to an unintended Redis instance)."
+      );
+      throw new Error("Redis host is required in non-development environments. Set REDIS_HOST.");
+    }
+    const host = (rawHost ?? "localhost").trim();
     if (!host) {
       throw new Error("Redis host is required. Set REDIS_HOST or provide options.redis.host.");
     }

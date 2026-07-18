@@ -5,6 +5,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { PartyService } from "./party.service.js";
 import { CreatePartyInput, SearchPartiesInput, AddContactMechanismInput } from "./party.types.js";
 import { Prisma } from "@prisma/client";
+import { TenantScopedClient } from "@besterp/database";
 import {
   MissingSubtypeDataError,
   InvalidTypeValueError,
@@ -1863,6 +1864,53 @@ describe("PartyService", () => {
 
       const result = await partyService.addContactMechanism(input);
       expect(result.telecomNumber?.countryCode).toBe("+44");
+    });
+
+    it("should scope the telecom duplicate check on countryCode (round-50 fix)", async () => {
+      // Regression: checkTelecomDuplicate previously matched only on
+      // (areaCode, lineNumber), so "+1 555 1234" and "+44 555 1234"
+      // collided as the same number. The duplicate check must now include
+      // countryCode in the `where` so international numbers are distinguished.
+      const captured: Array<Record<string, unknown>> = [];
+      const capturedTx = {
+        party: { findUnique: vi.fn().mockResolvedValue({ partyId: "12345678-1234-1234-1234-123456789abc" }) },
+        telecomNumber: {
+          findFirst: vi.fn().mockImplementation((args: { where: Record<string, unknown> }) => {
+            captured.push(args.where);
+            return null;
+          }),
+        },
+        contactMechanism: {
+          create: vi.fn().mockResolvedValue({
+            contactMechanismId: "contact-telecom-cc",
+            contactMechanismType: { name: "TELECOM_NUMBER" },
+            postalAddress: null,
+            telecomNumber: { countryCode: "+44", areaCode: "20", lineNumber: "79461234", extension: null },
+            emailAddress: null,
+          }),
+        },
+      };
+      const mockDb = {
+        contactMechanismType: {
+          findUnique: vi.fn().mockResolvedValue({ contactMechanismTypeId: "cmt-telecom" }),
+        },
+        $transaction: vi.fn().mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => fn(capturedTx)),
+      };
+      mockPrismaService.tenantScoped.mockReturnValue(mockDb as unknown as TenantScopedClient);
+
+      await partyService.addContactMechanism({
+        tenantId: "tenant-1",
+        partyId: "12345678-1234-1234-1234-123456789abc",
+        contactMechanismType: "TELECOM_NUMBER",
+        telecomNumber: { countryCode: "+44", areaCode: "20", lineNumber: "79461234" },
+      });
+
+      expect(captured.length).toBe(1);
+      expect(captured[0]).toMatchObject({
+        countryCode: "+44",
+        areaCode: "20",
+        lineNumber: "79461234",
+      });
     });
   });
 

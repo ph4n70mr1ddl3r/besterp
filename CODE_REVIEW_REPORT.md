@@ -2,8 +2,128 @@
 
 ## Scope
 Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
-`packages/mcp-tools`, `apps/api`) conducted on 2026-07-18. This is review 49;
-round 1–48 are documented in earlier revisions of this file and `CHANGES.md`.
+`packages/mcp-tools`, `apps/api`) conducted on 2026-07-18. This is review 50;
+round 1–49 are documented in earlier revisions of this file and `CHANGES.md`.
+
+## Findings & Actions (round 50)
+
+### Fixed this round
+
+1. **🔴 `tool-registry.ts:224` — Zod validation `message` returned to the AI
+   agent was NOT secret-sanitized (asymmetric secret-leak; contradicts its own
+   comment).** On validation failure the pipeline joins each issue's
+   `path: message` into a single `detail` string, length-caps it, and embeds it
+   verbatim in the agent-facing top-level `error.message`. The parallel
+   `context.issues` array *is* scrubbed via `sanitizeIssues`, but `detail` was
+   only `.slice()`-capped — so a secret embedded in an issue `message` (a custom
+   `errorMap`/`.refine()` that echoes the received value, or a connection
+   string) leaked verbatim to the agent in `error.message` while `context.issues`
+   redacted it. This is exactly the asymmetric-leak class rounds 42/44/48/49
+   closed on every other surface; `errorHandlerMiddleware` only catches
+   *thrown* errors and this soft-failure return is never thrown, so it reached the
+   agent unsanitized. `detail` now runs through `sanitizeForLogOutput` before
+   being embedded (matching `context.issues`). The latent `party-tools`
+   `leaky_tool` fixture already carried the secret in the top-level message; the
+   regression test now asserts `error.message` does not contain it and contains
+   `[HOST]/[PATH]`.
+
+2. **🔴 `sanitize.ts:152` — OAuth `#fragment` tokens (`#access_token=`,
+   `#id_token=`) were never redacted.** The query-string secret rule only matched a
+   `(?<=[?&])` lookbehind, so a secret delivered in a URL fragment (the
+   OAuth implicit-flow delivery mechanism) survived verbatim — the subsequent
+   `(https?://)… → [HOST]/[PATH]` collapse requires a leading scheme+host and
+   never consumes a bare `#token=…`. Added `id_token` to the param-name
+   alternation and `#` to the lookbehind so fragment secrets are replaced, not
+   annotated. Added regression tests (`#token=`, `#id_token=`).
+
+3. **🔴 `sanitize.ts:152` + `crypto.ts` — `;` was not treated as a
+   query-parameter separator, and `id_token` was missing from the param list.**
+   Frameworks that parse `;` as a separator (PHP, some OAuth libs) would leak a
+   `;token=…` value when no leading `?`/`&`/`#` preceded it. Added `;` to
+   the lookbehind and excluded it from the value class (so a `?a=1;token=…`
+   immediately following another param is still caught). Regression tests added for
+   both `;token=` and `?token=x;other=2`.
+
+4. **🔴 `crypto.ts:69` — `sortSet` never charged its element bytes to the
+   aggregate hash budget (bypassed the round-38 DoS guard).** `sortArray`/
+   `sortPlainObject`/`sortMap` all charge string *values* and (for maps) keys to
+   `budget.bytes` via `checkStringBounds`/`chargeKeyBytes`, but `sortSet`
+   called `JSON.stringify(v)` only to sort and never charged the elements. A
+   `Set` of ~30 × 99 KB strings (≈3 MB) therefore hashed successfully and
+   emitted a ~3 MB `JSON.stringify` buffer, defeating `MAX_HASH_TOTAL_BYTES`.
+   `sortSet` now charges each element's serialized bytes (and the sort path already
+   charged the string values via `sortKeysDeep`). Regression test added (a wide
+   Set of distinct near-limit strings now throws the aggregate-size-limit error).
+
+5. **🟡 `queue.module.ts:27` — `REDIS_HOST` silently defaulted to
+   `localhost` even in production.** Only the Redis *password* was enforced in
+   non-development; an unset/empty `REDIS_HOST` fell back to `localhost`, so a
+   misconfigured production instance would connect to an unintended (and
+   unauthenticated) Redis rather than failing closed. Mirroring the password
+   guard, `REDIS_HOST` is now required when `NODE_ENV !== "development"`;
+   only development keeps the localhost fallback. Added a production host-guard
+   regression test.
+
+6. **🟡 `party.service.ts:775` — telecom duplicate check ignored
+   `countryCode`.** `checkTelecomDuplicate` matched only on
+   `(areaCode, lineNumber)`, so `+1 555 1234` and `+44 555 1234` collided
+   as the same number — incorrect for international subscribers and a
+   correctness gap. The check (and the create path that feeds it) now scope on
+   `countryCode` too (defaulting to `+1` when omitted, matching the stored
+   value). Added a regression test asserting `countryCode` is in the
+   duplicate-check `where`.
+
+7. **🟡 `party-tools.ts:251` — MCP email validation diverged from the REST/
+   service layer.** The MCP `emailAddressSchema` used Zod's built-in `.email()`,
+   while `party.service.ts` enforces the stricter `EMAIL_REGEX`. Zod accepts
+   addresses `EMAIL_REGEX` rejects (e.g. a double-dot local part
+   `a..b@x.com`), so an MCP-submitted address could pass validation and then be
+   rejected by the service's duplicate-check/re-validation. The MCP path now runs
+   through the same `EMAIL_REGEX`.
+
+8. **🟢 `audit-log.ts:18` / `audit-log.ts:240` — the MCP `redactSensitiveFields`
+   diverged from the canonical shared redactor on depth cap (10 vs 20) and
+   non-string Map keys.** The two "must-match" redactors disagreed: a legitimately
+   deep (11–20 level) payload was over-redacted (`[Too deep]`) on the MCP/
+   durable surface while the REST canonical redactor preserved it, causing silent
+   data loss in `ai_action_log`/idempotency for deep-but-legitimate objects; and
+   a `Map` keyed by an object whose `toString()` yields a sensitive name was
+   redacted on REST (`String(k)`) but not on MCP. Aligned
+   `MAX_REDACTION_DEPTH` to 20 and switched `redactMap` to `String(k)` for
+   parity. Regression tests updated/added (`too-deep` nesting now uses 25
+   levels; non-string sensitive Map key redacted on both surfaces).
+
+### Reviewed but NOT changed (false positives / out of scope)
+
+- **`role` claim parsed but unenforced / `taxId` returned verbatim /
+  dev DB password / non-concurrent `CREATE INDEX` / `ai_action_log.tenant_id`
+  nullable** — same documented latent gaps & deferred items as rounds 45–49;
+  no change this round.
+- **`prisma.service.ts` RLS boot assertions, `rls-extension.ts` context
+  reset, `discovery-tools` global reference data, `secret-strength` zero-entropy
+  heuristic (does not catch 2-char repeats like `abab…`), `searchParties`
+  `mode:"insensitive"` substring DoS** — re-verified clean / accepted as
+  defense-in-depth or product decisions this round; tenant isolation (RLS boot
+  assertion + superuser boot refusal + app-level `tenantId` filters), secret
+  redaction across REST/MCP/durable surfaces, idempotency-key charset
+  consistency, and ReDoS remain intact. No new 🔴/🟡 exploit paths beyond the
+  eight above.
+
+## Test Results
+```
+shared:    170 passed (4 files)   (+3 — round 50 fragment/; Set-budget regressions)
+mcp-tools: 136 passed (4 files)   (+2 — round 50 validation-message + non-string Map-key regressions)
+database:   25 passed, 10 skipped (2 files)
+api:       324 passed (15 files)  (+2 — round 50 Redis-host + telecom-countryCode regressions)
+───────────────────────────────────
+Total:     655 passed, 10 skipped
+```
+
+## Baseline (before this round)
+- `npm run typecheck` — clean across all workspaces
+- `npm run lint` — 0 errors, 0 warnings
+- `npm run test` — all passing: shared 164, mcp-tools 134, database 25 (10 RLS
+  isolation tests skipped without a live DB), api 322
 
 ## Findings & Actions (round 49)
 

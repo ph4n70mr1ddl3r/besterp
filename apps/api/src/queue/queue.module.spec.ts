@@ -104,7 +104,15 @@ describe("QueueModule", () => {
 
     it("should throw when no password in production", () => {
       process.env.NODE_ENV = "production";
+      process.env.REDIS_HOST = "redis.example.com";
       expect(() => QueueModule.forRoot()).toThrow("Redis password is required in non-development");
+    });
+
+    it("should throw when REDIS_HOST is unset in production (fail-closed, no silent localhost default)", () => {
+      process.env.NODE_ENV = "production";
+      // REDIS_HOST deleted by beforeEach; ensure it is absent here.
+      delete process.env.REDIS_HOST;
+      expect(() => QueueModule.forRoot()).toThrow("Redis host is required in non-development");
     });
 
     it("should allow no password in development", () => {

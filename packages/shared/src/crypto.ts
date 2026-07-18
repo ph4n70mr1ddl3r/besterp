@@ -71,9 +71,21 @@ function sortSet(value: Set<unknown>, ancestors: Set<object>, depth: number, bud
   ancestors.add(value);
   try {
     // Pre-compute stringified forms to avoid redundant JSON.stringify calls
-    // in the comparator (same optimization as sortMap).
+    // in the comparator (same optimization as sortMap). Each element is first
+    // run through sortKeysDeep (which charges its string *values* to the
+    // budget) — but a Set of *strings* (the dominant case for large
+    // payloads) produces elements that are already strings, so their bytes
+    // are never charged here. Charge each element's serialized bytes to the
+    // aggregate budget so a wide Set of large strings cannot bypass the
+    // MAX_HASH_TOTAL_BYTES DoS guard (object/Map keys ARE charged via
+    // chargeKeyBytes; this was the missing leg — a Set of ~30 × 99 KB
+    // strings previously hashed successfully, emitting a ~3 MB buffer).
     const sorted = Array.from(value).map((v) => sortKeysDeep(v, ancestors, depth + 1, budget));
-    const prepared = sorted.map((v) => ({ v, str: JSON.stringify(v) }));
+    const prepared = sorted.map((v) => {
+      const str = JSON.stringify(v);
+      chargeKeyBytes(str, budget);
+      return { v, str };
+    });
     return prepared
       .sort((a, b) => a.str < b.str ? -1 : a.str > b.str ? 1 : 0)
       .map(({ v }) => v);

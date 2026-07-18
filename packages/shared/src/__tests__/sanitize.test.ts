@@ -219,6 +219,35 @@ describe("sanitizeLogOutput", () => {
     expect(r2).toContain("token=[REDACTED]");
   });
 
+  it("redacts secrets in a URL fragment (#access_token=…)", () => {
+    // OAuth implicit-flow tokens arrive in the URL fragment
+    // (`#access_token=sk_live_…`, `#id_token=…`), which the query-string
+    // secret rule must also cover. A bare `#token=…` with no scheme/host is
+    // never consumed by the `(https?://)…→[HOST]/[PATH]` collapse, so
+    // without `#` in the lookbehind the secret survives verbatim in logs and
+    // durable sinks (round-50 finding).
+    const frag = sanitizeLogOutput("oauth callback #token=supersecretvalue done");
+    expect(frag).not.toContain("supersecretvalue");
+    expect(frag).toContain("token=[REDACTED]");
+    const idTok = sanitizeLogOutput("redirect #id_token=eyJ.abc.def");
+    expect(idTok).not.toContain("eyJ.abc.def");
+    expect(idTok).toContain("id_token=[REDACTED]");
+  });
+
+  it("redacts secret params separated by ';' (and a ';' after another param)", () => {
+    // Some query-string parsers treat `;` as a parameter separator (PHP,
+    // certain OAuth libs). A `;token=…` must be redacted even though `&`
+    // is absent, and a `?a=1;token=…` immediately following another param
+    // must not be skipped because `;` is excluded from the value class
+    // (round-50 finding).
+    const semi = sanitizeLogOutput("?a=1;token=sk_live_zzz");
+    expect(semi).not.toContain("sk_live_zzz");
+    expect(semi).toContain("token=[REDACTED]");
+    const bare = sanitizeLogOutput("?token=sk_live_aaa;other=2");
+    expect(bare).not.toContain("sk_live_aaa");
+    expect(bare).toContain("token=[REDACTED]");
+  });
+
   it("strips control characters and ANSI escapes even when called directly", () => {
     // sanitizeLogOutput composes the log-injection strip first, so a newline
     // injected into a credential-bearing message cannot forge log lines when

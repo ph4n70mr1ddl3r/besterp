@@ -43,6 +43,7 @@ import {
   MAX_EXTENSION_LENGTH,
   MAX_PHONE_COUNTRY_CODE_LENGTH,
   MAX_EMAIL_LENGTH,
+  EMAIL_REGEX,
   DEFAULT_SEARCH_LIMIT,
   MIN_SEARCH_LIMIT,
   MAX_SEARCH_LIMIT,
@@ -248,7 +249,16 @@ const telecomNumberSchema = z.object({
 });
 
 const emailAddressSchema = z.object({
-  email: z.string().transform(s => stripHtmlTags(s.trim().toLowerCase())).pipe(z.string().email().max(MAX_EMAIL_LENGTH)).describe("Email address"),
+  // Route through the SAME `EMAIL_REGEX` the service layer uses (party.service.ts),
+  // not Zod's built-in `.email()`. Zod's validator accepts addresses the
+  // service's `EMAIL_REGEX` rejects (e.g. a double-dot local part
+  // `a..b@x.com`), so an MCP-submitted address could pass validation here and
+  // then be rejected by the service's duplicate-check / re-validation — a
+  // cross-surface inconsistency (round-50 review). The service is canonical, so
+  // the MCP path must agree with it.
+  email: z.string().transform(s => stripHtmlTags(s.trim().toLowerCase()))
+    .pipe(z.string().max(MAX_EMAIL_LENGTH).regex(EMAIL_REGEX, "Invalid email format (must match EMAIL_REGEX)"))
+    .describe("Email address"),
 });
 
 // ─── Tool: create_party ───────────────────────────────────────────

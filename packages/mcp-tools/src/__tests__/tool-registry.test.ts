@@ -167,6 +167,14 @@ describe("ToolRegistry", () => {
       expect(issues).toBeDefined();
       expect(JSON.stringify(issues)).not.toContain("sk_live_abc");
       expect(JSON.stringify(issues)).toContain("[HOST]/[PATH]");
+
+      // Regression (round 50): the joined top-level `message` was only
+      // length-capped, not sanitized, so the secret reached the agent while
+      // `context.issues` redacted it — an asymmetric secret-leak. The whole
+      // agent-facing message must be scrubbed too.
+      expect(result.error?.message).toBeDefined();
+      expect(result.error?.message).not.toContain("sk_live_abc");
+      expect(result.error?.message).toContain("[HOST]/[PATH]");
     });
 
     it("should redact a secret value echoed in a validation issue under a sensitive-named path", async () => {

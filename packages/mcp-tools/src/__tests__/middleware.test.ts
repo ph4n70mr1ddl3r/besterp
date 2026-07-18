@@ -953,6 +953,33 @@ describe("Audit Log Middleware", () => {
     expect(data.name).toBe("Jane Doe");
   });
 
+  it("should redact a Map whose key is a non-string object toString()-ing to a sensitive name", async () => {
+    // Regression (round 50): the MCP audit-log redactMap only redacted
+    // when `typeof k === "string" && isSensitiveField(k)`. The canonical
+    // shared redactSensitiveFields coerces the key via String(k), so a Map
+    // keyed by an object whose toString() yields e.g. "password" was
+    // redacted on the REST surface but NOT on the MCP/durable surface —
+    // a divergence between the two "must-match" redactors. redactMap now
+    // uses String(k) too, so the key + value are redacted on both.
+    const secretKey = { toString: () => "password" } as unknown as string;
+    const m = new Map<unknown, unknown>([[secretKey, "hunter2"]]);
+    const input = { name: "Jane Doe" };
+    const toolResult: ToolResult = { success: true, data: { mapData: m, name: "Jane Doe" } };
+
+    mockPrisma.aiActionLog.create.mockResolvedValue({ id: "log-id" });
+
+    const middleware = auditLogMiddleware(mockPrisma as any);
+    const result = await middleware(input, mockContext, mockDefinition, successNext(toolResult));
+
+    expect(result.success).toBe(true);
+    const data = (result as any).data;
+    // The Map is serialized to [[key, value], ...] entries.
+    const entries = data.mapData as unknown[][];
+    expect(entries).toHaveLength(1);
+    expect(entries[0][0]).toBe("[REDACTED]");
+    expect(entries[0][1]).toBe("[REDACTED]");
+  });
+
   it("should sanitize secret-bearing string values under NON-sensitive keys (live + durable)", async () => {
     // Regression guard (round 48): redactSensitiveFields returned terminal
     // string values verbatim, so a connection string / JWT / `?api_key=…`
@@ -1117,12 +1144,14 @@ describe("Audit Log Middleware", () => {
     // Regression guard: redactSensitiveFields previously returned the RAW
     // (unredacted) value once depth exceeded the cap, because isTerminal
     // short-circuited on the depth check BEFORE the key-name redaction loop
-    // ran. A sensitive field buried deeper than the cap (password 12 levels
-    // down) was therefore persisted verbatim to ai_action_log.tool_input.
-    // The depth guard now returns "[Too deep]" (matching the error-handler)
-    // so descent — and redaction — never silently stops at the cap.
+    // ran. A sensitive field buried deeper than the cap was therefore
+    // persisted verbatim to ai_action_log.tool_input. The depth guard now
+    // returns "[Too deep]" (matching the error-handler) so descent — and
+    // redaction — never silently stops at the cap. MAX_REDACTION_DEPTH is
+    // kept in lock-step with the canonical shared redactor (20), so we nest
+    // well past it (25 levels) to confirm the cap still bites.
     let deep: Record<string, unknown> = { password: "leak-me" };
-    for (let i = 0; i < 12; i++) deep = { nested: deep };
+    for (let i = 0; i < 25; i++) deep = { nested: deep };
     const input = { root: deep };
     const toolResult: ToolResult = { success: true, data: "ok" };
 
@@ -1273,9 +1302,8 @@ describe("Audit Log Middleware", () => {
     process.stderr.write = writeSpy as typeof process.stderr.write;
 
     try {
-      const middleware = auditLogMiddleware(mockPrisma as any);
-      // The middleware must not throw on a write failure — it is fire-and-forget.
-      const result = await middleware(input, mockContext, mockDefinition, successNext(toolResult));
+    const middleware = auditLogMiddleware(mockPrisma as any);
+    const result = await middleware(input, mockContext, mockDefinition, successNext(toolResult));
       expect(result).toEqual(toolResult);
       // Let the fire-and-forget .catch land in the stderr spy.
       await new Promise<void>((resolve) => setImmediate(resolve));

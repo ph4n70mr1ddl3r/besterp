@@ -14,8 +14,12 @@ import { ToolMiddleware, ToolContext, ToolResult } from "../schema/tool-definiti
 import { truncateValue, capString, MAX_STORED_PAYLOAD_SIZE } from "./truncate.js";
 import { isSensitiveField } from "./sensitive-fields.js";
 
-/** Maximum depth for recursive sensitive field redaction. */
-const MAX_REDACTION_DEPTH = 10;
+/** Maximum depth for recursive sensitive field redaction. Kept identical to
+ * `MAX_REDACTION_DEPTH` in `@besterp/shared` (the canonical REST redactor)
+ * so the two "must-match" redactors cannot diverge and silently drop data
+ * from `ai_action_log` / the idempotency sink for legitimately deep
+ * (11–20 level) payloads while the REST surface still preserves them. */
+const MAX_REDACTION_DEPTH = 20;
 
 /** Maximum concurrent audit log writes to prevent memory pressure under DB slowdown. */
 const MAX_CONCURRENT_AUDIT_WRITES = 100;
@@ -238,7 +242,14 @@ function redactMap(value: Map<unknown, unknown>, depth: number, seen: WeakSet<ob
   // dropping the data from the audit record. An array of entries survives
   // serialisation and preserves the iterable semantics.
   return [...value.entries()].map(([k, v]) => {
-    if (typeof k === "string" && isSensitiveField(k)) {
+    // Coerce the key to a string (mirroring the canonical shared
+    // `redactSensitiveFields`): a non-string Map key whose `toString()`
+    // yields a sensitive name must be redacted too, otherwise the MCP
+    // surface and the REST canonical redactor disagree (the REST side
+    // uses `String(k)`). Redacting the key only — the value is still
+    // recursed into so any string leaf underneath is scrubbed.
+    const keyStr = typeof k === "string" ? k : String(k);
+    if (isSensitiveField(keyStr)) {
       return ["[REDACTED]", "[REDACTED]"];
     }
     return [k, redactSensitiveFields(v, depth + 1, seen)];

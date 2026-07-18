@@ -142,14 +142,23 @@ export function sanitizeLogOutput(message: string): string {
     .replace(/mongodb(\+srv)?:\/\/[^\s"']+/gi, "[DATABASE_URL]")
     .replace(/mysql:\/\/[^\s"']+/gi, "[DATABASE_URL]")
     .replace(/amqps?:\/\/[^\s"']+/gi, "[MESSAGE_BROKER_URL]")
-    // Redact query strings that may carry secrets (API keys, tokens, passwords)
-    // even on non-credential URLs. This MUST run BEFORE the generic
-    // `(https?:\/\/)[^\s...]+ → [HOST]/[PATH]` rule below: that rule consumes
-    // the entire URL including the trailing `?key=sk_live_abc123`, so the
-    // secret would otherwise be collapsed into `[PATH]` and survive verbatim
-    // in operator logs. Scrub the secret-bearing parameters first so the
-    // host/path collapse then leaves nothing sensitive behind.
-    .replace(/(?<=[?&])((?:key|token|secret|password|passwd|pwd|access_token|auth|api_key|apikey|client_secret|client_id|signature|sign|otp|code|session|bearer)=)([^&\s"']+)/gi, (m, name, value) => {
+    // Redact query strings (AND URL fragments, which OAuth implicit-flow
+    // tokens like `#access_token=`/`#id_token=` are delivered in) that may
+    // carry secrets (API keys, tokens, passwords) even on non-credential
+    // URLs. This MUST run BEFORE the generic `(https?:\/\/)[^\s...]+ →
+    // [HOST]/[PATH]` rule below: that rule consumes the entire URL including
+    // the trailing `?key=sk_live_abc123`, so the secret would otherwise be
+    // collapsed into `[PATH]` and survive verbatim in operator logs. Scrub
+    // the secret-bearing parameters first so the host/path collapse then
+    // leaves nothing sensitive behind. Both `?`/`&` (query separators) and
+    // `;` (a separator some query parsers treat identically) AND `#` (the
+    // fragment separator) are recognised as starts of a param, and `;` is
+    // excluded from the value class so a `;token=…` immediately following
+    // another param is still caught. A `;`-prefixed value with no leading
+    // `?`/`&`/`#` is still matched by the `#`/`?`/`&` lookbehind because
+    // `;` is not a lookbehind char — guarded below by widening the value
+    // class exclusions only (see `[^&;\s"']`).
+    .replace(/(?<=[?&#;])((?:key|token|id_token|access_token|secret|password|passwd|pwd|auth|api_key|apikey|client_secret|client_id|signature|sign|otp|code|session|bearer)=)([^&;\s"']+)/gi, (m, name, value) => {
       // `name` is `param=`, `value` is the bare secret (`sk_live_abc123`).
       // The value must be REPLACED (not merely annotated) so the secret
       // cannot survive in the output. A previous revision appended

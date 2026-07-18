@@ -399,4 +399,23 @@ describe("hashInput", () => {
     expect(() => hashInput(wideMap)).toThrow(InvalidTypeValueError);
     expect(() => hashInput(wideMap)).toThrow(/aggregate serialized size limit/);
   });
+
+  it("should charge Set element bytes to the aggregate size budget", () => {
+    // Regression (round 50): sortSet ran JSON.stringify(v) only for sorting
+    // and never charged the element bytes to the aggregate budget, while
+    // object/Map values ARE charged via checkStringBounds/chargeKeyBytes. A
+    // Set of ~30 × 99 KB string elements (≈3 MB) therefore hashed
+    // successfully and emitted a ~3 MB buffer, bypassing the
+    // MAX_HASH_TOTAL_BYTES DoS guard that every other container honored.
+    // NOTE: elements must be DISTINCT — a Set de-duplicates identical
+    // values, so we suffix each with its index.
+    const wideSet = new Set(Array.from({ length: 30 }, (_, i) => `x${i}`.padEnd(99_000, "x")));
+    expect(() => hashInput(wideSet)).toThrow(InvalidTypeValueError);
+    expect(() => hashInput(wideSet)).toThrow(/aggregate serialized size limit/);
+
+    // A modest Set of near-limit strings stays within budget (no false positive).
+    const modestSet = new Set(Array.from({ length: 8 }, (_, i) => `x${i}`.padEnd(99_000, "x")));
+    expect(() => hashInput(modestSet)).not.toThrow();
+    expect(hashInput(modestSet)).toMatch(/^[a-f0-9]{64}$/);
+  });
 });
