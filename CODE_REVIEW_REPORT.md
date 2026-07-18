@@ -2,16 +2,72 @@
 
 ## Scope
 Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
-`packages/mcp-tools`, `apps/api`) conducted on 2026-07-18. This is review 46;
-round 1–45 are documented in earlier revisions of this file and `CHANGES.md`.
+`packages/mcp-tools`, `apps/api`) conducted on 2026-07-18. This is review 47;
+round 1–46 are documented in earlier revisions of this file and `CHANGES.md`.
 
 ## Baseline (before this round)
 - `npm run typecheck` — clean across all workspaces
-- `npm run lint` — 0 errors (1 pre-existing complexity warning in `crypto.ts:sortKeysDeep`)
+- `npm run lint` — 1 pre-existing complexity warning in `crypto.ts:sortKeysDeep`
+  (cyclomatic complexity 17, max 15)
 - `npm run test` — all passing: shared 164, mcp-tools 132, database 25 (10 RLS isolation
   tests skipped without a live DB), api 322
 
-## Findings & Actions (round 45)
+## Findings & Actions (round 47)
+
+### Fixed this round
+
+1. **🟢 `crypto.ts:sortKeysDeep` — cyclomatic complexity 17 exceeded the lint cap (15),
+   the only outstanding lint warning from round 46.** The entry point inlined every
+   type-dispatch branch (null/undefined, number, string, array/Map/Set/object, primitive)
+   plus the depth guard, pushing it two points over the configured `max-complexity` of 15.
+   Extracted the non-null/non-primitive dispatch into a new `dispatchContainer()` helper,
+   which preserves the exact budget/ancestors threading (the `budget ?? { bytes: 0 }`
+   defaulting for string/number short-circuits is kept local to `sortKeysDeep`) and the
+   single recursive call site for each container type. `sortKeysDeep` drops to complexity 14;
+   `dispatchContainer` is 6. `npm run lint` is now 0 errors / 0 warnings across all
+   workspaces. No behavior change — full shared test suite (164) still passes, and the
+   canonical-form / aggregate-budget / depth-guard regression tests are unchanged.
+
+### Reviewed but NOT changed (false positives / out of scope)
+
+- **`jwt.strategy.ts` `role` claim parsed but never enforced** — `JwtStrategy.validate()`
+  populates `JwtValidatedUser.role` (validated, trimmed, length-capped) but it is never
+  consumed by `TenantContext`, any `RoleGuard`, or an authorization check (grep-confirmed:
+  no RBAC layer exists). This is the same design gap flagged in round 45. It is NOT a live
+  exploit (an unused claim cannot grant or deny access), but it is a latent footgun that
+  implies authz exists where none does. Round 45 framed the fix as "add a real RBAC layer
+  or remove `role` from the JWT contract" — both are contract/feature changes that exceed a
+  review-round fix and risk breaking live token issuers. Deferred to a dedicated RBAC
+  follow-up; left documented here so it is tracked, not forgotten.
+- **`taxId` returned verbatim in `PartyResult`/`ContactMechanismResult`** — re-verified: the
+  sensitive-field redactor (`isSensitiveFieldName`) is applied only to *error* contexts and
+  *durable* sinks, not to successful response DTOs, so a tenant-owned `taxId` is returned to
+  any authenticated tenant member. This is consistent with how other tenant-owned PII is
+  treated and is a product decision, not a cross-tenant leak. Deferred (unchanged from
+  round 45).
+- **`sanitize.ts` generic-URL catch-all (path-secret) "known limitation"** — re-verified:
+  the generic `(https?:\/\/)[^\s"')}]+ → [HOST]/[PATH]` rule collapses the *entire* URL
+  tail (path + query) into `[PATH]`, so a secret embedded anywhere in the URL — including
+  the path — is already scrubbed. The round-44 "known limitation" (secret in URL path) is
+  in fact already covered by this collapse; the dedicated regression test
+  (`path contains sensitive data` → `sk-live-abc123` removed) passes. No change needed.
+- **`party.service.ts` / `discovery-tools.ts` / `queue.module.ts` / `prisma.service.ts` /
+  `mcp.module.ts` / `crypto.ts` (aggregate budget)** — re-verified clean: tenant isolation
+  (RLS boot assertion + superuser boot refusal + app-level `tenantId` filters), secret
+  redaction across REST/MCP/durable surfaces, and idempotency-key charset consistency remain
+  intact. No new 🔴/🟡 exploit paths.
+
+## Test Results
+```
+shared:    164 passed (4 files)   (unchanged)
+mcp-tools: 132 passed (4 files)   (unchanged)
+database:   25 passed, 10 skipped (2 files)
+api:       322 passed (15 files)  (unchanged)
+───────────────────────────────────
+Total:     643 passed, 10 skipped
+```
+
+## Findings & Actions (round 46)
 
 ### Fixed this round
 

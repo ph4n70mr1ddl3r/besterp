@@ -1,5 +1,21 @@
 # BestERP — Security & Architecture Fixes
 
+## Changes Applied (2026-07-18) — Code Review Round 47
+
+### 🟢 `crypto.ts` — `sortKeysDeep` exceeded the lint complexity cap (the last outstanding lint warning)
+
+**Problem:** `sortKeysDeep` inlined every type-dispatch branch (null/undefined, number,
+string, array/Map/Set/object, primitive) plus the depth guard, pushing its cyclomatic
+complexity to 17 against the configured `max-complexity` of 15 — the single remaining
+`npm run lint` warning carried over from round 46.
+
+**Fix:** Extracted the non-null/non-primitive dispatch into a new `dispatchContainer()`
+helper. It preserves the exact budget/ancestors threading (the `budget ?? { bytes: 0 }`
+defaulting for the string/number short-circuits stays local to `sortKeysDeep`) and the
+single recursive call site per container type. `sortKeysDeep` drops to complexity 14 and
+`dispatchContainer` is 6. `npm run lint` is now 0 errors / 0 warnings across all
+workspaces; no behavior change (shared suite 164 still passes).
+
 ## Changes Applied (2026-07-18) — Code Review Round 46
 
 ### 🟡 `auth/public-scope.ts` / `main.ts` / `public-scope.spec.ts` — build-breaking type import + lint regressions in the round-45 `@Public()` scope scan

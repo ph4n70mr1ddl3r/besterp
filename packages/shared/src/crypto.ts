@@ -220,13 +220,37 @@ function chargeKeyBytes(value: string, budget?: { bytes: number }): void {
   }
 }
 
+/**
+ * Dispatch a non-null, non-undefined, non-string, non-number value to the
+ * correct recursive sorter. Extracted from {@link sortKeysDeep} to keep that
+ * entry point's cyclomatic complexity within the lint cap while preserving the
+ * single budget/ancestors threading that every container sorter depends on.
+ *
+ * A missing `budget` (a caller passing only the first three args) is
+ * materialized to a zeroed local so container and string sorters still charge
+ * their keys/values, mirroring the previous inline `budget ?? { bytes: 0 }`
+ * defaulting.
+ */
+function dispatchContainer(
+  value: object,
+  ancestors: Set<object>,
+  depth: number,
+  budget?: { bytes: number },
+): unknown {
+  const b = budget ?? { bytes: 0 };
+  if (Array.isArray(value)) return sortArray(value, ancestors, depth, b);
+  if (value instanceof Map) return sortMap(value, ancestors, depth, b);
+  if (value instanceof Set) return sortSet(value, ancestors, depth, b);
+  if (typeof value === "object") return sortObject(value, ancestors, depth, b);
+  return sortPrimitive(value);
+}
+
 function sortKeysDeep(value: unknown, ancestors?: Set<object>, depth = 0, budget?: { bytes: number }): unknown {
   if (depth > MAX_HASH_DEPTH) {
     throw new InvalidTypeValueError(
       `Input exceeds maximum nesting depth of ${MAX_HASH_DEPTH}. Refusing to hash to prevent stack overflow.`
     );
   }
-  ancestors = ancestors ?? new Set<object>();
   if (value === null || value === undefined) return null;
   if (typeof value === "number") {
     if (!Number.isFinite(value)) return null;
@@ -236,11 +260,9 @@ function sortKeysDeep(value: unknown, ancestors?: Set<object>, depth = 0, budget
     checkStringBounds(value, budget);
     return value;
   }
-  if (Array.isArray(value)) return sortArray(value, ancestors, depth, budget ?? { bytes: 0 });
-  if (value instanceof Map) return sortMap(value, ancestors, depth, budget ?? { bytes: 0 });
-  if (value instanceof Set) return sortSet(value, ancestors, depth, budget ?? { bytes: 0 });
-  if (typeof value === "object") return sortObject(value, ancestors, depth, budget ?? { bytes: 0 });
-  return sortPrimitive(value);
+  ancestors = ancestors ?? new Set<object>();
+  if (typeof value !== "object") return sortPrimitive(value);
+  return dispatchContainer(value, ancestors, depth, budget);
 }
 
 /** Serialize a non-container primitive (bigint/symbol/function/others) for hashing. */
