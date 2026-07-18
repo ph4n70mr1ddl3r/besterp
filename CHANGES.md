@@ -1,5 +1,73 @@
 # BestERP — Security & Architecture Fixes
 
+## Changes Applied (2026-07-18) — Code Review Round 48
+
+### 🔴 `packages/shared/src/sanitize.ts` — O(n²) ReDoS in the credential-URL catch-all (event-loop DoS)
+
+**Problem:** `sanitizeLogOutput` / `sanitizeForLogOutput` had no input-length cap, and
+the generic `scheme://user:pass@host` catch-all used an unbounded greedy scheme prefix
+`[a-zA-Z][a-zA-Z0-9+.-]*`. On a long run of letters with no `://` the regex
+backtracks char-by-char at every offset (catastrophic backtracking) — empirically ~6.9 s
+for a 100k-char string. This is called on hot, synchronous, agent-facing **and**
+durable-persist paths (MCP `error-handler`, `audit-log`, `idempotency`,
+`tool-registry`; and `redactSensitiveFieldValues` runs it on every string leaf), so a
+single crafted ~100k-char error/tool-output blocks the Node event loop for seconds. The
+`.slice(...)` truncation applied by callers happens *after* this runs, so it could not
+mitigate the cost.
+
+**Fix:** Capped the scheme length at `{1,31}` (linear; ~13 ms at 100k, verified) and
+added a defensive `MAX_LOG_OUTPUT_LENGTH = 100_000` UTF-8 byte cap at the top of
+`sanitizeLogOutput` (mirroring the guard in `stripHtmlTags`). Added a regression test
+(100k letter run returns in < 500 ms; credential URLs still redacted).
+
+### 🟡 `packages/mcp-tools/src/middleware/audit-log.ts` — MCP redactor did not sanitize string leaves (asymmetric secret leak)
+
+**Problem:** `redactSensitiveFields` returned terminal **string** values verbatim (its
+`isTerminal` short-circuit), so a connection string / JWT / `?api_key=…` embedded in a
+tool result *value* under a benign-named key (`url`, `note`) survived the MCP redactor —
+even though the canonical shared `redactSensitiveFieldValues` (used by the REST
+`DomainExceptionFilter`) scrubs every string leaf via `sanitizeForLogOutput`. The secret
+therefore leaked to the agent (live path), the `ai_action_log` durable row, and any
+idempotency replay.
+
+**Fix:** String leaves now pass through `sanitizeForLogOutput` before being returned,
+matching the REST surface. Added a regression test (connection string under `url`/`note`
+scrubbed on both the live result and the persisted `toolOutput`).
+
+### 🟡 `apps/api/src/prisma/prisma.service.ts` — `verifyRlsEnabled` "unexpected table" guard was unreachable dead code
+
+**Problem:** The verification query filtered `WHERE relname = ANY(tenantTables)`, so
+`forceRlsCount` was derived only from the enumerated rows and could never exceed
+`tenantTables.length`. The `unexpected` branch (round 44 #6's intended protection
+against a new tenant table added to `rls-setup.sql` but omitted from the list) could
+never fire — the gap stayed open and boot passed vacuously.
+
+**Fix:** The query now selects **all** `relkind='r'` tables in `public` and diffs the
+actual force-RLS set against the enumeration; a force-RLS table not in the list now
+refuses to boot. No false-positive on global (non-tenant) tables (they never get FORCE
+RLS).
+
+### 🟡 `packages/database/prisma/migrations/20260718000000_ai_action_log_tenant_id_not_null` — closed the `ai_action_log.tenant_id` nullable drift
+
+**Problem:** The init migration declared `ai_action_log.tenant_id` as `TEXT` (nullable)
+while `schema.prisma` mandates `NOT NULL` and every other tenant table uses `TEXT NOT
+NULL`. Because the migrations are shipped/squashed, a fresh `migrate deploy` produced a
+genuinely nullable column — a direct/raw insert could write a NULL `tenant_id` row
+(invisible to all tenants under RLS, but a stranded-audit / data-integrity gap and a
+false assumption for any consumer trusting `tenant_id` is always present).
+
+**Fix:** New migration backfills any NULL to `''` and sets `NOT NULL`, aligning the DB
+with the schema.
+
+### 🟢 `packages/mcp-tools/src/registry/tool-registry.ts` — `UNKNOWN_TOOL` reflected the raw requested tool name
+
+**Problem:** The requested tool `name` is attacker-controlled and the `UNKNOWN_TOOL`
+result bypasses `errorHandlerMiddleware`, so a crafted name embedding a secret-bearing
+URL (`foo?api_key=…`) reached the agent unsanitized.
+
+**Fix:** `name` (and similar-name suggestions) now run through `sanitizeForLogOutput`
+before being reflected. Added a regression test.
+
 ## Changes Applied (2026-07-18) — Code Review Round 47
 
 ### 🟢 `crypto.ts` — `sortKeysDeep` exceeded the lint complexity cap (the last outstanding lint warning)

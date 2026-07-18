@@ -492,6 +492,29 @@ describe("sanitizeForLogOutput", () => {
   it("handles ANSI-only input", () => {
     expect(sanitizeForLogOutput("\x1b[31m\x1b[0m")).toBe("");
   });
+
+  it("does not catastrophically backtrack on long letter runs (ReDoS)", () => {
+    // Regression guard (round 48): the generic `scheme://user:pass@host`
+    // catch-all had an unbounded greedy scheme prefix
+    // (`[a-zA-Z][a-zA-Z0-9+.-]*`), which backtracked O(n²) on a long run of
+    // letters with no `://` — a 100k-char input blocked the event loop for
+    // ~7s. The scheme length is now capped ({1,31}) and the input is length-
+    // bounded, so sanitization of a huge attacker-controlled message stays
+    // linear and returns quickly.
+    const input = "x".repeat(100_000);
+    const start = performance.now();
+    const result = sanitizeForLogOutput(input);
+    const elapsed = performance.now() - start;
+    expect(result).toBe(input);
+    expect(elapsed).toBeLessThan(500);
+  });
+
+  it("redacts a credential-bearing URL even with a 31+ char scheme", () => {
+    // The scheme-length cap must not suppress legitimate (short) credential
+    // URLs. A normal ssh/ldap/vault URL must still be redacted.
+    expect(sanitizeForLogOutput("ssh://user:pass@host:22/path")).toContain("[REDACTED_URL]");
+    expect(sanitizeForLogOutput("ldap://cn=admin:password@ldap.host/dc=x")).toContain("[REDACTED_URL]");
+  });
 });
 
 describe("safeFromCodePoint", () => {

@@ -116,7 +116,26 @@ export function stripHtmlTags(input: string): string {
  * internal file paths, hostnames). Used by error handlers and shutdown
  * routines to prevent leaking infrastructure details in logs.
  */
+/**
+ * Maximum input length fed to the URL/path redaction regexes. Unlike
+ * `stripHtmlTags`, this function has no inherent length cap, and two of its
+ * regexes (the generic `scheme://user:pass@host` catch-all below) have a
+ * greedy unbounded scheme prefix that triggers catastrophic backtracking
+ * (O(n²)) on a long run of letters with no `://` — an event-loop-blocking
+ * ReDoS on hot, agent-facing and durable-persist paths. Bound the input so no
+ * downstream regex can be fed an unbounded string.
+ */
+const MAX_LOG_OUTPUT_LENGTH = 100_000;
+
 export function sanitizeLogOutput(message: string): string {
+  // Defensive length cap (mirrors the guard in stripHtmlTags). Without it, a
+  // long attacker-influenced error message / tool output / validation `received`
+  // value could trigger O(n²) backtracking in the URL catch-all regex below and
+  // block the Node event loop (DoS). The .slice(...) truncation applied by
+  // callers happens AFTER this runs, so it cannot mitigate the cost.
+  if (Buffer.byteLength(message, "utf8") > MAX_LOG_OUTPUT_LENGTH) {
+    message = message.slice(0, MAX_LOG_OUTPUT_LENGTH);
+  }
   return sanitizeLogMessage(message)
     .replace(/postgres(?:ql)?:\/\/[^\s"']+/gi, "[DATABASE_URL]")
     .replace(/redis:\/\/[^\s"']+/gi, "[REDIS_URL]")
@@ -158,7 +177,12 @@ export function sanitizeLogOutput(message: string): string {
     // `custom://host`) are left untouched. Runs AFTER the scheme-specific
     // patterns so they keep their labelled output ([DATABASE_URL],
     // [REDIS_URL], …) — this only catches what they miss.
-     .replace(/[a-zA-Z][a-zA-Z0-9+.-]*:\/\/[^\s:/@"']+:[^\s/@"']+@[^\s"']+/g, "[REDACTED_URL]")
+     // The scheme prefix is length-bounded (`{1,31}`) so the greedy quantifier
+     // cannot overlap the trailing `://`/`user:pass@` match and force
+     // catastrophic backtracking (O(n²)) on a long run of letters with no
+     // `://` (event-loop-blocking ReDoS). Postgres identifiers cap at 63 bytes,
+     // 31 is ample for any real scheme and keeps the regex linear.
+     .replace(/[a-zA-Z][a-zA-Z0-9+.-]{1,31}:\/\/[^\s:/@"']+:[^\s/@"']+@[^\s"']+/g, "[REDACTED_URL]")
      // Redact filesystem paths, but only when they are absolute (leading `/`
      // with two or more segments, a `~/` home path, or a Windows drive root).
      // This avoids corrupting ordinary prose such as "meet me at /home/user

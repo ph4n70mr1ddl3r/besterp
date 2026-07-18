@@ -252,11 +252,19 @@ export class PrismaService
       "email_address",
     ];
     try {
+      // Query ALL force-RLS tables in `public` (do NOT pre-filter by
+      // `= ANY(tenantTables)`). A pre-filter would make the "unexpected extra
+      // table" check unreachable: rows could only ever come from the enumerated
+      // list, so a new tenant table added to rls-setup.sql (and applied) but
+      // omitted here would simply never be inspected and the boot check would
+      // pass vacuously — the exact gap round 44 #6 meant to close. By querying
+      // everything, we can diff the actual force-RLS set against the
+      // authoritative enumeration and refuse to boot on either side of the diff.
       const rows = await this._appClient.$queryRaw<{ relname: string; relrowsecurity: boolean; relforcerowsecurity: boolean }[]>`
         SELECT c.relname, c.relrowsecurity, c.relforcerowsecurity
         FROM pg_class c
         JOIN pg_namespace n ON n.oid = c.relnamespace
-        WHERE n.nspname = 'public' AND c.relname = ANY(${tenantTables})
+        WHERE n.nspname = 'public' AND c.relkind = 'r'
       `;
       const found = new Set(rows.map((r) => r.relname));
       // A table missing entirely from pg_class is a coverage gap: rls-setup.sql
@@ -265,23 +273,20 @@ export class PrismaService
       // rather than silently assuming it's fine.
       const notFound = tenantTables.filter((t) => !found.has(t));
       const missing = rows.filter((r) => !r.relrowsecurity || !r.relforcerowsecurity);
-      // A table that HAS force-RLS in the database but is NOT in tenantTables
-      // means a new tenant table was added to rls-setup.sql (and applied) but
-      // this authoritative list was not updated. The query uses `= ANY(list)`,
-      // so such a table simply isn't inspected — the boot check passes
-      // vacuously and the new table's tenant isolation goes unverified. If the
-      // DB reports MORE force-RLS tenant tables than we enumerated, someone
-      // forgot to extend this list; refuse to boot so the gap is caught rather
-      // than silently accepted. Global (non-tenant) tables never have FORCE RLS
-      // applied, so this cannot false-positive on type tables.
-      const forceRlsCount = rows.filter((r) => r.relforcerowsecurity).length;
-      const unexpected = forceRlsCount > tenantTables.length;
-      if (notFound.length > 0 || missing.length > 0 || unexpected) {
+      // A force-RLS table in the database that is NOT in tenantTables means a
+      // new tenant table was added to rls-setup.sql (and applied) but this
+      // authoritative list was not updated — its tenant isolation goes
+      // unverified. Refuse to boot so the gap is caught rather than silently
+      // accepted. Global (non-tenant) tables never have FORCE RLS applied, so
+      // this only fires on genuinely tenant-scoped tables.
+      const forceRlsNames = new Set(rows.filter((r) => r.relforcerowsecurity).map((r) => r.relname));
+      const unexpected = new Set([...forceRlsNames].filter((n) => !tenantTables.includes(n)));
+      if (notFound.length > 0 || missing.length > 0 || unexpected.size > 0) {
         const names = [...missing.map((r) => r.relname), ...notFound].join(", ");
         const msg =
           `Row-Level Security is NOT fully enabled (or the table is missing) on tenant tables: ${names}. ` +
-          (unexpected
-            ? `The database reports ${forceRlsCount} force-RLS tables but only ${tenantTables.length} are enumerated for verification — ` +
+          (unexpected.size > 0
+            ? `The database reports force-RLS on ${[...unexpected].join(", ")} which are NOT in the verification list of ${tenantTables.length} tables — ` +
               `a new tenant table was likely added to rls-setup.sql without updating the verification list. `
             : "") +
           `Tenant isolation is disabled — apply rls-setup.sql (ENABLE/FORCE ` +

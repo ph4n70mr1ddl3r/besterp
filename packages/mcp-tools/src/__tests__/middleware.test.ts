@@ -953,6 +953,41 @@ describe("Audit Log Middleware", () => {
     expect(data.name).toBe("Jane Doe");
   });
 
+  it("should sanitize secret-bearing string values under NON-sensitive keys (live + durable)", async () => {
+    // Regression guard (round 48): redactSensitiveFields returned terminal
+    // string values verbatim, so a connection string / JWT / `?api_key=…`
+    // embedded in a tool result value under a benign key (e.g. `url`, `note`)
+    // survived the MCP redactor even though the canonical REST redactor
+    // (shared redactSensitiveFieldValues) scrubs every string leaf. The secret
+    // therefore leaked to the agent (live path) and the ai_action_log durable
+    // row. String leaves must now pass through sanitizeForLogOutput.
+    const input = { note: "ok" };
+    const toolResult: ToolResult = {
+      success: true,
+      data: {
+        url: "postgres://user:topsecret@db.example.com:5432/prod",
+        note: "see https://api.example.com/v1/charge?api_key=sk_live_abc123",
+        name: "Jane Doe",
+      },
+    };
+
+    mockPrisma.aiActionLog.create.mockResolvedValue({ id: "log-id" });
+
+    const middleware = auditLogMiddleware(mockPrisma as any);
+    const result = await middleware(input, mockContext, mockDefinition, successNext(toolResult));
+
+    const live = (result as any).data;
+    expect(live.url).toContain("[DATABASE_URL]");
+    expect(live.url).not.toContain("topsecret");
+    expect(live.note).toContain("[HOST]/[PATH]");
+    expect(live.note).not.toContain("sk_live_abc123");
+    expect(live.name).toBe("Jane Doe");
+
+    const storedOutput = mockPrisma.aiActionLog.create.mock.calls[0][0].data.toolOutput;
+    expect(JSON.stringify(storedOutput)).not.toContain("topsecret");
+    expect(JSON.stringify(storedOutput)).not.toContain("sk_live_abc123");
+  });
+
   it("should redact snake_case sensitive fields (auth_token, session_token, client_secret, …)", async () => {
     // Regression guard: the catch-all regex used `\b` boundaries, and `_` is a
     // word character under `\w`, so `\btoken\b` could NOT match `session_token`,

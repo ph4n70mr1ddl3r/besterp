@@ -146,13 +146,20 @@ export class ToolRegistry {
     if (!entry) {
       // Hallucination guard — suggest similar tool names
       const similar = this.findSimilarNames(name);
+      // Sanitize the requested tool name before reflecting it back to the agent:
+      // `name` is attacker-controlled (the requested tool) and this result
+      // bypasses errorHandlerMiddleware, so a crafted name embedding a secret
+      // (e.g. `foo?api_key=sk_live_abc`) would otherwise reach the agent
+      // unsanitized (round 48).
+      const safeName = sanitizeForLogOutput(name);
+      const safeSimilar = similar.map((s) => sanitizeForLogOutput(s));
       return {
         success: false,
         error: {
           code: "UNKNOWN_TOOL",
-          message: `Tool '${name}' does not exist.${similar.length > 0 ? ` Similar tools: [${similar.map((s) => `'${s}'`).join(", ")}].` : ""} Use 'list_available_tools' to see all available tools.`,
-          suggestedTools: ["list_available_tools", ...similar],
-          context: { requestedTool: name, similarTools: similar },
+          message: `Tool '${safeName}' does not exist.${safeSimilar.length > 0 ? ` Similar tools: [${safeSimilar.map((s) => `'${s}'`).join(", ")}].` : ""} Use 'list_available_tools' to see all available tools.`,
+          suggestedTools: ["list_available_tools", ...safeSimilar],
+          context: { requestedTool: safeName, similarTools: safeSimilar },
         },
       };
     }

@@ -253,6 +253,15 @@ export function redactSensitiveFields(value: unknown, depth = 0, seen?: WeakSet<
   // security-sensitive redaction path. Mirrors the error-handler's
   // sanitizeContextValue depth guard ("[Too deep]").
   if (depth > MAX_REDACTION_DEPTH) return "[Too deep]";
+  // A terminal (string/primitive) value is returned verbatim EXCEPT strings,
+  // which must still pass through sanitizeForLogOutput so a connection string,
+  // JWT, or `?api_key=…` secret embedded in a tool result *value* (under a
+  // non-sensitive key) is scrubbed before it reaches the agent, the
+  // ai_action_log durable row, or an idempotency replay. Without this the MCP
+  // redactor diverged from the canonical REST redactor
+  // (shared `redactSensitiveFieldValues`), which scrubs every string leaf —
+  // an asymmetric secret-leak path (round 48).
+  if (typeof value === "string") return sanitizeForLogOutput(value);
   if (isTerminal(value)) return value;
   seen = seen ?? new WeakSet();
   if (seen.has(value as object)) return "[Circular]";

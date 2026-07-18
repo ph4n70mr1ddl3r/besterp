@@ -2,8 +2,110 @@
 
 ## Scope
 Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
-`packages/mcp-tools`, `apps/api`) conducted on 2026-07-18. This is review 47;
-round 1–46 are documented in earlier revisions of this file and `CHANGES.md`.
+`packages/mcp-tools`, `apps/api`) conducted on 2026-07-18. This is review 48;
+round 1–47 are documented in earlier revisions of this file and `CHANGES.md`.
+
+## Findings & Actions (round 48)
+
+### Fixed this round
+
+1. **🔴 `sanitize.ts:161` — O(n²) ReDoS in the generic credential-URL catch-all
+   (event-loop-blocking DoS).** `sanitizeLogOutput`/`sanitizeForLogOutput` had no
+   input-length cap, and the generic `scheme://user:pass@host` catch-all used an
+   unbounded greedy scheme prefix `[a-zA-Z][a-zA-Z0-9+.-]*`. On a long run of
+   letters with no `://` the engine backtracked char-by-char at every offset —
+   empirically ~6.9 s for a 100k-char string. This is called on hot, synchronous,
+   agent-facing **and** durable-persist paths (MCP `error-handler`, `audit-log`,
+   `idempotency`, `tool-registry`; and `redactSensitiveFieldValues` runs it on every
+   string leaf), so a single crafted ~100k-char error/tool-output blocks the event
+   loop for seconds. The scheme length is now capped at `{1,31}` (linear; ~13 ms at
+   100k, verified), and a defensive `MAX_LOG_OUTPUT_LENGTH = 100_000` byte cap was
+   added at the top of `sanitizeLogOutput` (the `.slice(...)` callers truncate
+   *after* this runs, so they did not mitigate the cost). Added a regression test
+   (100k letter run returns in < 500 ms; credential URLs still redacted).
+
+2. **🟡 `audit-log.ts:256` — MCP `redactSensitiveFields` did not sanitize string
+   leaves (asymmetric secret-leak vs. the canonical REST redactor).** The local
+   `isTerminal` short-circuit returned raw **strings** verbatim, so a connection
+   string / JWT / `?api_key=…` embedded in a tool result *value* under a
+   benign-named key (`url`, `note`) survived the MCP redactor even though the canonical
+   shared `redactSensitiveFieldValues` (used by the REST `DomainExceptionFilter`)
+   scrubs every string leaf via `sanitizeForLogOutput`. The secret therefore leaked to
+   the agent (live path, `audit-log.ts:85`), the `ai_action_log` durable row
+   (`audit-log.ts:217`), and any idempotency replay (`idempotency.ts:267`). String
+   leaves now pass through `sanitizeForLogOutput` (matching the REST surface). Added a
+   regression test (connection string under `url`/`note` scrubbed on live + durable).
+
+3. **🟡 `prisma.service.ts:255-289` — `verifyRlsEnabled` "unexpected table" guard
+   was unreachable dead code (contradicted the round-44 invariant).** The query
+   filtered `WHERE relname = ANY(tenantTables)`, so `forceRlsCount` was derived only
+   from the enumerated rows and could never exceed `tenantTables.length` — the
+   `unexpected` branch (meant to catch a new tenant table added to `rls-setup.sql`
+   but omitted from the list) could never fire, so the gap round 44 #6 intended to
+   close stayed open. The query now selects **all** `relkind='r'` tables in `public`
+   and diffs the actual force-RLS set against the enumeration; a force-RLS table not
+   in the list now refuses to boot. No false-positive on global (non-tenant) tables
+   since those never have FORCE RLS.
+
+4. **🟡 `migrations/20260718000000_ai_action_log_tenant_id_not_null` — closed the
+   `ai_action_log.tenant_id` nullable drift (the long-deferred "nullable concern",
+   real migration root cause).** The init migration declared `ai_action_log.tenant_id`
+   as `TEXT` (nullable) while `schema.prisma` mandates `NOT NULL` and every other
+   tenant table uses `TEXT NOT NULL`. Because the migrations are shipped/squashed, a
+   freshly `migrate deploy`-ed database had a genuinely nullable column — a direct/raw
+   insert could write a NULL `tenant_id` row invisible to all tenants under RLS (no
+   cross-tenant leak, but a stranded-audit/data-integrity gap and a false assumption
+   for any consumer trusting `tenant_id` is always present). New migration backfills
+   any NULL to `''` and sets `NOT NULL`.
+
+5. **🟢 `tool-registry.ts:149-157` — `UNKNOWN_TOOL` reflected the raw requested
+   tool name without sanitization.** `name` is attacker-controlled (the requested
+   tool) and the result bypasses `errorHandlerMiddleware`, so a crafted name embedding
+   a secret-bearing URL (`foo?api_key=…`) reached the agent unsanitized. The name
+   (and similar-name suggestions) now run through `sanitizeForLogOutput` before being
+   reflected. Added a regression test.
+
+### Reviewed but NOT changed (false positives / out of scope)
+
+- **`create-roles.sql:19` committed dev password `'besterp_app_dev'`** — dev-only
+  (`NOINHERIT`, documented in-file warning; `rls-setup.sql` refuses if `besterp_app`
+  is a superuser). A real credential-hygiene footgun if copied to staging/prod
+  verbatim, but out of scope for this round (tracked since round 35).
+- **`role` claim parsed but dropped on the REST path** — `JwtStrategy.validate()`
+  populates `JwtValidatedUser.role` (validated) but it is never consumed by
+  `TenantContext`/a `RoleGuard` (grep-confirmed: no RBAC layer exists). Same
+  documented latent gap as rounds 45/46; deferred to a dedicated RBAC follow-up.
+- **`taxId` returned verbatim in `PartyResult`/`ContactMechanismResult`** — the
+  sensitive-field redactor is applied only to *error* contexts and *durable* sinks,
+  not successful response DTOs; consistent with how other tenant-owned PII is treated
+  (product decision). Deferred (unchanged from round 45/46).
+- **`migration/20260619000000…` non-concurrent `CREATE INDEX`** — flagged LOW in
+  round 38; `IF NOT EXISTS` present, comment documents manual `CONCURRENTLY`.
+  Changing shipped migrations is risky; deferred.
+- **`party.service.ts` / `discovery-tools.ts` / `queue.module.ts` / `prisma.service.ts`
+  / `mcp.module.ts` / `crypto.ts` / `truncate.ts` / `rls-extension.ts` / REST filter
+  / `sanitize.ts` (other rules) / `sensitive-fields.ts`** — re-verified clean this
+  round; tenant isolation (RLS boot assertion + superuser boot refusal + app-level
+  `tenantId` filters), secret redaction across REST/MCP/durable surfaces, idempotency
+  consistency, and ReDoS remain intact. No new 🔴/🟡 exploit paths beyond the five
+   above.
+
+## Test Results
+```
+shared:    166 passed (4 files)   (+2 — round 48 ReDoS + credential-URL regression)
+mcp-tools: 134 passed (4 files)   (+2 — round 48 string-leaf + UNKNOWN_TOOL name regressions)
+database:   25 passed, 10 skipped (2 files)
+api:       322 passed (15 files)  (unchanged)
+───────────────────────────────────
+Total:     647 passed, 10 skipped
+```
+
+## Baseline (before this round)
+- `npm run typecheck` — clean across all workspaces
+- `npm run lint` — 0 errors, 0 warnings
+- `npm run test` — all passing: shared 164, mcp-tools 132, database 25 (10 RLS
+  isolation tests skipped without a live DB), api 322
+
 
 ## Baseline (before this round)
 - `npm run typecheck` — clean across all workspaces

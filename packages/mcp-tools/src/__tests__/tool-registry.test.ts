@@ -96,6 +96,24 @@ describe("ToolRegistry", () => {
       expect(result.error?.suggestedTools).toContain("list_available_tools");
     });
 
+    it("should sanitize a crafted unknown tool name before reflecting it", async () => {
+      // Regression guard (round 48): the requested tool name is
+      // attacker-controlled and the UNKNOWN_TOOL result bypasses
+      // errorHandlerMiddleware, so a name embedding a secret-bearing URL
+      // reached the agent unsanitized. Now the name is run through
+      // sanitizeForLogOutput before being reflected in the message / context.
+      const malicious = "https://api.example.com/v1/x?api_key=sk_live_abc123";
+      const result = await registry.execute(malicious, {}, mockContext);
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe("UNKNOWN_TOOL");
+      const serialized = JSON.stringify(result.error);
+      // The credential-bearing URL is collapsed to [HOST]/[PATH] and the
+      // secret is scrubbed rather than reflected verbatim to the agent.
+      expect(serialized).not.toContain("api.example.com");
+      expect(serialized).not.toContain("sk_live_abc123");
+      expect(serialized).toContain("[HOST]/[PATH]");
+    });
+
     it("should execute a tool with valid Zod input", async () => {
       const handler = vi.fn().mockResolvedValue({ success: true, data: { name: "result" } });
       registry.register({
