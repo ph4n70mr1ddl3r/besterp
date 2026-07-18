@@ -2,8 +2,82 @@
 
 ## Scope
 Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
-`packages/mcp-tools`, `apps/api`) conducted on 2026-07-18. This is review 48;
-round 1–47 are documented in earlier revisions of this file and `CHANGES.md`.
+`packages/mcp-tools`, `apps/api`) conducted on 2026-07-18. This is review 49;
+round 1–48 are documented in earlier revisions of this file and `CHANGES.md`.
+
+## Findings & Actions (round 49)
+
+### Fixed this round
+
+1. **🔴 `sanitize.ts:152` — `sanitizeLogOutput` query-string secret rule
+   *annotated* the secret instead of *replacing* it (live secret-leak in the
+   core redaction primitive).** The rule matched the full `param=value` and
+   returned `m.replace(...)+"[REDACTED]"`, so `api_key=sk_live_abc123` became
+   `api_key=sk_live_abc123[REDACTED]` — the **secret text survived verbatim**
+   in the output. Every surface (REST `DomainExceptionFilter`, MCP
+   `error-handler`/`audit-log`/`idempotency`/`tool-registry`, durable sinks)
+   composes `sanitizeLogOutput`, so this bypassed redaction everywhere it was
+   used. It stayed hidden through rounds 44–48 because every existing regression
+   test fed an `https://…?param=secret` URL, and the *subsequent*
+   `(https?://)… → [HOST]/[PATH]` collapse folded the whole URL (secret included)
+   away — masking the defective query rule. The leak is real whenever a
+   secret-bearing query string appears **without** a leading `https://` URL (a
+   bare `?api_key=…`, a `reasoning`/log line, a curl arg). The rule now
+   captures the `param=` prefix and the bare value in separate groups and returns
+   `param=[REDACTED]` (`api_key=sk_live_abc123` → `api_key=[REDACTED]`).
+   Added a regression test that exercises the no-URL case (previously uncovered).
+
+2. **🔴 `audit-log.ts:42` — `reasoning` was persisted to the durable
+   `ai_action_log` sink un-sanitized (asymmetric secret-leak to the durable
+   row).** `reasoning` originates from the AI agent / tool-call context
+   (attacker-influenceable via the MCP request body) and is written verbatim to
+   `ai_action_log.reasoning`, a cross-tenant audit table. Every *other* durable
+   sink (`toolInput`, `toolOutput` → both `redactSensitiveFields`) and every
+   agent-facing surface run through `sanitizeForLogOutput`, but `reasoning` was
+   only length-sliced to `MAX_REASONING_LENGTH` — so a connection string,
+   JWT, or `?api_key=…` embedded in it leaked into the durable row. This is
+   the same class of asymmetric-leak round 44/48 closed for the other sinks,
+   now extended to `reasoning`. It was also the *trigger* that exposed finding
+   #1: a `reasoning` string carries no `https://` URL, so the masked
+   query-rule defect surfaced. `reasoning` now runs through
+   `sanitizeForLogOutput` before being persisted (matching `toolInput`
+   handling). Added a regression test (connection string + `?api_key=…` in
+   `reasoning` redacted in the durable row).
+
+### Reviewed but NOT changed (false positives / out of scope)
+
+- **`prisma.service.ts` `verifyRlsEnabled` (round 48 rewrite)** — re-verified:
+  the query selects ALL `relkind='r'` tables in `public` and diffs the actual
+  force-RLS set against the `tenantTables` enumeration; a force-RLS table not
+  in the list still refuses to boot. No false-positive on global (non-tenant)
+  tables. Intact.
+- **`crypto.ts` aggregate byte budget / `truncate.ts` nested Map-Set /
+  `idempotency.ts` soft-failure capping / `redactSensitiveFields` (round 48)
+  / `tool-registry.ts` UNKNOWN_TOOL name sanitization (round 48)** — re-verified
+  clean this round; tenant isolation (RLS boot assertion + superuser boot
+  refusal + app-level `tenantId` filters), secret redaction across
+  REST/MCP/durable surfaces, idempotency-key charset consistency, and ReDoS
+  remain intact. No new 🔴/🟡 exploit paths beyond the two above.
+- **`create-roles.sql` dev password / `role` claim parsed-but-unenforced /
+  `taxId` returned verbatim in response DTOs / non-concurrent `CREATE INDEX` /
+  `ai_action_log.igrant_id` nullable (closed round 48)** — same documented
+  latent gaps / deferred items as rounds 45–48; no change this round.
+
+## Test Results
+```
+shared:    167 passed (4 files)   (+1 — round 49 query-rule no-URL regression)
+mcp-tools: 135 passed (4 files)   (+1 — round 49 reasoning-sanitize regression)
+database:   25 passed, 10 skipped (2 files)
+api:       322 passed (15 files)  (unchanged)
+───────────────────────────────────
+Total:     649 passed, 10 skipped
+```
+
+## Baseline (before this round)
+- `npm run typecheck` — clean across all workspaces
+- `npm run lint` — 0 errors, 0 warnings
+- `npm run test` — all passing: shared 166, mcp-tools 134, database 25 (10 RLS
+  isolation tests skipped without a live DB), api 322
 
 ## Findings & Actions (round 48)
 

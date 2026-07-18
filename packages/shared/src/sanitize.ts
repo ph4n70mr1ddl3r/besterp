@@ -149,11 +149,22 @@ export function sanitizeLogOutput(message: string): string {
     // secret would otherwise be collapsed into `[PATH]` and survive verbatim
     // in operator logs. Scrub the secret-bearing parameters first so the
     // host/path collapse then leaves nothing sensitive behind.
-    .replace(/(?<=[?&])((?:key|token|secret|password|passwd|pwd|access_token|auth|api_key|apikey|client_secret|client_id|signature|sign|otp|code|session|bearer)=)[^&\s"']+/gi, (m) => {
-      // Strip trailing punctuation ( ), ] } that a secret could be wrapped in
-      // (e.g. inside a stack trace, curl snippet, or JSON) so the boundary char
-      // is not left behind after redaction and the secret is fully scrubbed.
-      return m.replace(/^\[+|[\])}\s]+$/g, "") + "[REDACTED]";
+    .replace(/(?<=[?&])((?:key|token|secret|password|passwd|pwd|access_token|auth|api_key|apikey|client_secret|client_id|signature|sign|otp|code|session|bearer)=)([^&\s"']+)/gi, (m, name, value) => {
+      // `name` is `param=`, `value` is the bare secret (`sk_live_abc123`).
+      // The value must be REPLACED (not merely annotated) so the secret
+      // cannot survive in the output. A previous revision appended
+      // `[REDACTED]` AFTER the value (→ `api_key=sk_live_…[REDACTED]`),
+      // which left the secret itself intact in the log — a sanitizer bypass
+      // that defeated the entire purpose of this rule (exosed by round-49:
+      // a `reasoning` string carrying `?api_key=…` persisted the secret
+      // verbatim to the durable audit sink because no `https://` URL was
+      // present to trigger the subsequent `[HOST]/[PATH]` collapse that hid
+      // the leak elsewhere). Drop any leading/trailing bracket the value
+      // captured (e.g. a secret wrapped in `[…]`), then replace the
+      // value entirely.
+      const cleaned = value.replace(/^\[+|[\])}\s]+$/g, "");
+      if (cleaned === "") return `${m}[REDACTED]`;
+      return `${name}[REDACTED]`;
     })
     // Redact high-entropy bearer/secret tokens that appear outside the
     // key=value form above (e.g. `Authorization: Bearer sk_live_...` echoed in

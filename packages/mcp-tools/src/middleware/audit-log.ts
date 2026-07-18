@@ -36,10 +36,22 @@ export function auditLogMiddleware(prisma: PrismaClient): ToolMiddleware {
 }
 
 function createBaseEntry(context: { agentId?: string; conversationId?: string; reasoning?: string; userId: string; tenantId: string }, definition: { name: string }, input: unknown): Omit<AuditLogEntry, "toolOutput"> {
+  // `reasoning` originates from the AI agent / tool-call context, which is
+  // attacker-influenceable (any string may be supplied in the MCP request
+  // body). It is persisted verbatim to ai_action_log.reasoning, a durable
+  // cross-tenant audit sink, so a connection string, JWT, or api_key query
+  // param embedded in it would leak to the durable row even though every
+  // other durable sink (toolInput, toolOutput) and every agent-facing
+  // surface is sanitized. Sanitize FIRST, then trim to the length cap so a
+  // secret in the tail is still scrubbed (sanitizeForLogOutput collapses
+  // URLs/secrets regardless of position). Mirrors the toolInput handling.
+  const reasoning = context.reasoning
+    ? sanitizeForLogOutput(context.reasoning).slice(0, MAX_REASONING_LENGTH)
+    : null;
   return {
     agentId: context.agentId,
     conversationId: context.conversationId,
-    reasoning: context.reasoning?.slice(0, MAX_REASONING_LENGTH) ?? null,
+    reasoning,
     userId: context.userId,
     tenantId: context.tenantId,
     toolCalled: definition.name,

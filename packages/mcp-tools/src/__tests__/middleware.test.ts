@@ -988,6 +988,33 @@ describe("Audit Log Middleware", () => {
     expect(JSON.stringify(storedOutput)).not.toContain("sk_live_abc123");
   });
 
+  it("should sanitize secret-bearing reasoning before persisting to ai_action_log", async () => {
+    // Regression guard (round 49): `reasoning` comes from the AI agent /
+    // tool-call context (attacker-influenceable via the MCP request body) and is
+    // persisted verbatim to ai_action_log.reasoning — a durable, cross-tenant
+    // audit sink. Unlike toolInput/toolOutput (both redacted) and every
+    // agent-facing surface (all sanitized), reasoning was only length-sliced, so a
+    // connection string / JWT / `?api_key=…` embedded in it leaked to the
+    // durable row. Sanitize before persisting, mirroring toolInput handling.
+    const input = { name: "Jane Doe" };
+    const contextWithReasoning = {
+      ...mockContext,
+      reasoning: "calling from postgres://user:topsecret@db.example.com:5432/prod via ?api_key=sk_live_abc123",
+    };
+    const toolResult: ToolResult = { success: true, data: "ok" };
+
+    mockPrisma.aiActionLog.create.mockResolvedValue({ id: "log-id" });
+
+    const middleware = auditLogMiddleware(mockPrisma as any);
+    await middleware(input, contextWithReasoning as any, mockDefinition, successNext(toolResult));
+
+    const createCall = mockPrisma.aiActionLog.create.mock.calls[0];
+    const storedReasoning = createCall[0].data.reasoning as string;
+    expect(storedReasoning).toContain("[DATABASE_URL]");
+    expect(storedReasoning).not.toContain("topsecret");
+    expect(storedReasoning).not.toContain("sk_live_abc123");
+  });
+
   it("should redact snake_case sensitive fields (auth_token, session_token, client_secret, …)", async () => {
     // Regression guard: the catch-all regex used `\b` boundaries, and `_` is a
     // word character under `\w`, so `\btoken\b` could NOT match `session_token`,

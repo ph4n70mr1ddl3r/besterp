@@ -201,6 +201,24 @@ describe("sanitizeLogOutput", () => {
     expect(r).not.toContain("sk_live_abc");
   });
 
+  it("replaces (not annotates) the query-string secret value even without a URL", () => {
+    // Regression guard (round 49): the query-string rule previously APPENDED
+    // `[REDACTED]` after the secret value (`api_key=sk_live_abc123[REDACTED]`)
+    // instead of replacing the value, so the secret survived verbatim in the
+    // output. The surrounding `https://…→[HOST]/[PATH]` collapse hid this on
+    // every existing URL-bearing test (the whole URL — secret included — was
+    // folded away). But a secret-bearing query string with NO leading URL
+    // (e.g. an agent-supplied `reasoning` carrying `?api_key=…`, a bare
+    // curl-style arg, or a log line) was never collapsed and leaked the
+    // secret. The value must be fully replaced.
+    const r1 = sanitizeLogOutput("call via ?api_key=sk_live_abc123 done");
+    expect(r1).not.toContain("sk_live_abc123");
+    expect(r1).toContain("api_key=[REDACTED]");
+    const r2 = sanitizeLogOutput("see ?token=supersecretvalue in log");
+    expect(r2).not.toContain("supersecretvalue");
+    expect(r2).toContain("token=[REDACTED]");
+  });
+
   it("strips control characters and ANSI escapes even when called directly", () => {
     // sanitizeLogOutput composes the log-injection strip first, so a newline
     // injected into a credential-bearing message cannot forge log lines when

@@ -1,5 +1,45 @@
 # BestERP — Security & Architecture Fixes
 
+## Changes Applied (2026-07-18) — Code Review Round 49
+
+### 🔴 `packages/shared/src/sanitize.ts` — query-string secret rule *annotated* the secret instead of *replacing* it (live secret-leak in the core redaction primitive)
+
+**Problem:** The query-string secret rule matched the full `param=value` and
+returned `m.replace(/^\[+|[\])}\s]+$/g, "") + "[REDACTED]"`, so
+`api_key=sk_live_abc123` became `api_key=sk_live_abc123[REDACTED]` — the
+**secret text survived verbatim** in the output. Every agent-facing surface
+(REST `DomainExceptionFilter`, MCP `error-handler`/`audit-log`/`idempotency`/
+`tool-registry`) and every durable sink composes `sanitizeLogOutput`, so this
+bypassed redaction everywhere it was used. It stayed hidden through rounds 44–48
+because every existing regression test fed an `https://…?param=secret` URL, and
+the *subsequent* `(https?://)… → [HOST]/[PATH]` collapse folded the whole
+URL (secret included) away — masking the defective query rule. The leak is real
+whenever a secret-bearing query string appears **without** a leading `https://` URL
+(a bare `?api_key=…`, a `reasoning`/log line, a curl arg).
+
+**Fix:** The rule now captures the `param=` prefix and the bare value in separate
+groups and returns `param=[REDACTED]` (`api_key=sk_live_abc123` →
+`api_key=[REDACTED]`). Added a regression test that exercises the no-URL case
+(previously uncovered).
+
+### 🔴 `packages/mcp-tools/src/middleware/audit-log.ts` — `reasoning` persisted to the durable `ai_action_log` sink un-sanitized (asymmetric secret-leak)
+
+**Problem:** `reasoning` originates from the AI agent / tool-call context
+(attacker-influenceable via the MCP request body) and is written verbatim to
+`ai_action_log.reasoning`, a cross-tenant audit table. Every *other* durable sink
+(`toolInput`, `toolOutput` → both `redactSensitiveFields`) and every
+agent-facing surface run through `sanitizeForLogOutput`, but `reasoning` was only
+length-sliced to `MAX_REASONING_LENGTH` — so a connection string, JWT, or
+`?api_key=…` embedded in it leaked into the durable row. This is the same class
+of asymmetric-leak round 44/48 closed for the other sinks, now extended to
+`reasoning`. It was also the *trigger* that exposed the `sanitize.ts` defect above:
+a `reasoning` string carries no `https://` URL, so the masked query-rule defect
+surfaced.
+
+**Fix:** `reasoning` now runs through `sanitizeForLogOutput` before being
+persisted (matching the `toolInput` handling). Added a regression test
+(connection string + `?api_key=…` in `reasoning` redacted in the durable row).
+
 ## Changes Applied (2026-07-18) — Code Review Round 48
 
 ### 🔴 `packages/shared/src/sanitize.ts` — O(n²) ReDoS in the credential-URL catch-all (event-loop DoS)
