@@ -89,15 +89,23 @@ if (process.env.NODE_ENV === "production" && process.env.ALLOW_CLEANUP_PRODUCTIO
       const beforeCount = await tx.idempotencyRecord.count();
 
       let deleted = 0;
-      // Delete in batches to avoid long-running transactions and lock contention
-      // on large tables. Without batching, a single deleteMany with millions of
-      // expired rows can hold a write lock for seconds.
+      // Capture a single cutoff ONCE so every batch deletes the same point-in-
+      // time snapshot. Re-evaluating `expiresAt < now()` per batch would also
+      // delete `pending` records whose in-flight request is still executing
+      // (the request created the record with `expiresAt = now + TTL`, but a
+      // slow/retried call or clock skew can leave a just-created pending row
+      // already "expired" by a later batch's fresh timestamp) — silently
+      // breaking idempotency (a retried client then re-executes the side
+      // effect). Exclude `pending` explicitly so only terminal (completed/
+      // failed) records are reaped; a stale pending row is recovered by the
+      // runtime STALE_PENDING_THRESHOLD_MS reset, not by this job.
+      const cutoff = new Date();
       let batchDeleted: number;
       do {
         // orderBy ensures deterministic iteration so the oldest expired rows
         // are always cleaned first (helps with retention SLAs).
         const expired = await tx.idempotencyRecord.findMany({
-          where: { expiresAt: { lt: new Date() } },
+          where: { expiresAt: { lt: cutoff }, status: { not: "pending" } },
           orderBy: { expiresAt: "asc" },
           select: { idempotencyKey: true, tenantId: true },
           take: BATCH_SIZE,

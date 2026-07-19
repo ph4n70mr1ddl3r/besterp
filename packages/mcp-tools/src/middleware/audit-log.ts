@@ -100,6 +100,20 @@ async function executeAndLog(prisma: PrismaClient, backpressure: BackpressureMan
   if (result.success && result.data != null) {
     result = { ...result, data: redactSensitiveFields(result.data) };
   }
+  // `nextActions` is an agent-facing string array constructed by handlers from
+  // user input (e.g. an interpolated `roleType`). It is NOT part of `data`, so
+  // the redaction above leaves it untouched — and it is excluded from the
+  // error-handler's `context` redaction too. Sanitize every element the same
+  // way the durable/agent surfaces scrub strings, so a secret embedded in a
+  // handler-built `nextActions` entry cannot reach the agent verbatim.
+  if (Array.isArray(result.nextActions) && result.nextActions.length > 0) {
+    result = {
+      ...result,
+      nextActions: result.nextActions.map((n) =>
+        typeof n === "string" ? sanitizeForLogOutput(n) : n,
+      ),
+    };
+  }
   return result;
 }
 

@@ -105,7 +105,36 @@ describe("QueueModule", () => {
     it("should throw when no password in production", () => {
       process.env.NODE_ENV = "production";
       process.env.REDIS_HOST = "redis.example.com";
+      process.env.REDIS_PORT = "6380";
       expect(() => QueueModule.forRoot()).toThrow("Redis password is required in non-development");
+    });
+
+    it("should throw when REDIS_PORT is unset in production (fail-closed, no silent default)", () => {
+      process.env.NODE_ENV = "production";
+      process.env.REDIS_HOST = "redis.example.com";
+      delete process.env.REDIS_PORT;
+      expect(() => QueueModule.forRoot()).toThrow("Redis port is required in non-development");
+    });
+
+    it("should use TLS by default in production", () => {
+      process.env.NODE_ENV = "production";
+      process.env.REDIS_HOST = "redis.example.com";
+      process.env.REDIS_PORT = "6380";
+      process.env.REDIS_PASSWORD = "secret";
+      const module = QueueModule.forRoot() as { imports: Array<{ providers?: Array<{ useValue?: { connection?: { tls?: unknown } } }> }> };
+      const connection = module.imports[0]?.providers?.[0]?.useValue?.connection;
+      expect(connection?.tls).toEqual({ rejectUnauthorized: true });
+    });
+
+    it("should allow disabling TLS with REDIS_TLS=0", () => {
+      process.env.NODE_ENV = "production";
+      process.env.REDIS_HOST = "redis.example.com";
+      process.env.REDIS_PORT = "6380";
+      process.env.REDIS_PASSWORD = "secret";
+      process.env.REDIS_TLS = "0";
+      const module = QueueModule.forRoot() as { imports: Array<{ providers?: Array<{ useValue?: { connection?: { tls?: unknown } } }> }> };
+      const connection = module.imports[0]?.providers?.[0]?.useValue?.connection;
+      expect(connection?.tls).toBeUndefined();
     });
 
     it("should throw when REDIS_HOST is unset in production (fail-closed, no silent localhost default)", () => {

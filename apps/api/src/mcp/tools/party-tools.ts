@@ -22,6 +22,7 @@ import {
   COUNTRY_CODE_REGEX,
   isValidISODate,
   stripHtmlTags,
+  sanitizeForLogOutput,
   InvalidTypeValueError,
   MAX_PERSON_NAME_LENGTH,
   MAX_MIDDLE_NAME_LENGTH,
@@ -454,7 +455,13 @@ For idempotent writes, pass an idempotencyKey (string, max 500 chars) along with
       success: true,
       data: result,
       nextActions: [
-        `Role '${input.roleType}' assigned. Use 'get_party' to see all roles for this party.`,
+        // `input.roleType` is HTML-stripped by the Zod schema but NOT
+        // secret-sanitized (it may carry a `?api_key=…`/connection-string
+        // payload). `nextActions` is reflected to the agent verbatim and is
+        // excluded from the audit/error-handler `data` redaction, so run it
+        // through sanitizeForLogOutput to match every other agent-facing
+        // surface (the round-48 asymmetric-leak class).
+        `Role '${sanitizeForLogOutput(input.roleType)}' assigned. Use 'get_party' to see all roles for this party.`,
         "Use 'add_contact_mechanism' to add contact information.",
       ],
     };

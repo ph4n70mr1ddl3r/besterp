@@ -2,10 +2,114 @@
 
 ## Scope
 Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
-`packages/mcp-tools`, `apps/api`) conducted on 2026-07-19. This is review 51;
-round 1–50 are documented in earlier revisions of this file and `CHANGES.md`.
+`packages/mcp-tools`, `apps/api`) conducted on 2026-07-19. This is review 55;
+round 1–54 are documented in earlier revisions of this file and `CHANGES.md`.
 
-## Findings & Actions (round 51)
+## Findings & Actions (round 55)
+
+### Fixed this round
+
+1. **🟡 `party-tools.ts:457` — `nextActions` reflected unsanitized user input to
+   the agent (asymmetric secret-leak).** `add_party_role` interpolates
+   `input.roleType` (validated only by `sanitizedString` → `stripHtmlTags`, which
+   strips HTML but NOT connection strings / `?api_key=…` secrets) into a
+   `nextActions` string returned to the agent verbatim. `nextActions` is excluded
+   from the audit/error-handler `data`/context redaction, so a crafted
+   `roleType` carrying a secret reached the agent live (the round-48
+   asymmetric-leak class). The handler now runs `roleType` through
+   `sanitizeForLogOutput`, and — as defense-in-depth — the audit-log middleware's
+   success path now also sanitizes every `nextActions` element (matching the
+   `result.data` redaction), so any future handler reflecting input into
+   `nextActions` is covered. Added a regression test asserting the reflected
+   `roleType` is scrubbed.
+
+2. **🔴 `queue.module.ts:94` — Redis connection never enabled TLS, sending the
+   password and all job payloads in cleartext in non-dev.** Only `host`/`port`/
+   `password` were set; `tls` was never configured, so a network observer could
+   capture credentials and queued data. Added `resolveTls()` which enables TLS
+   (with `rejectUnauthorized: true`) by default in non-development and opt-out via
+   `REDIS_TLS=0`. `REDIS_TLS` and `REDIS_PASSWORD` are scrubbed by `sanitize.ts`
+   from logs. Added regression tests asserting TLS is present (production default)
+   and absent (`REDIS_TLS=0`).
+
+3. **🟡 `queue.module.ts:65` — `REDIS_PORT` silently defaulted to 6380 in
+   production (fail-open), inconsistent with the fail-closed `REDIS_HOST` /
+   `REDIS_PASSWORD` guards.** An unset `REDIS_PORT` in production would point the
+   app at an unintended Redis instance with no error. `resolvePort` now throws in
+   non-development when `REDIS_PORT` is unset, mirroring the host/password guards.
+   Split the existing test to assert the port guard, and added a test for it.
+
+4. **🟡 `queue.module.ts:82` — `redisRetryStrategy` swallowed the underlying
+   error after 10 retries.** A wrong password / unreachable host was retried
+   silently then died as a generic "connection failed". The strategy now logs the
+   last error's message (`redisRetryStrategy(times, err)`), surfacing
+   misconfiguration loudly (consistent with the fail-closed guards).
+
+5. **🟡 `cleanup-expired-idempotency.ts:100` — cleanup could delete in-flight
+   `pending` idempotency records, breaking idempotency guarantees.** `expiresAt <
+   new Date()` was re-evaluated every batch, so a just-created `pending` row (or
+   one whose in-flight request is still executing under a slow/retried call or
+   clock skew) could be reaped, causing a retried client to re-execute the side
+   effect. The cutoff is now captured ONCE before the loop and `pending` rows are
+   explicitly excluded from deletion (`status: { not: "pending" }`) — stale
+   pending rows are recovered by the runtime `STALE_PENDING_THRESHOLD_MS` reset,
+   not this job.
+
+6. **🟡 `discovery-tools.ts:41,96` — unbounded `entity` filter + unsanitized
+   type-table strings reflected to the agent.** `list_available_tools`' `entity`
+   had no max length (every other MCP string input enforces one); `get_type_table
+   _values` read `description`/`aiPromptHint` from the admin (RLS-bypassing)
+   client and returned them verbatim. Added `MAX_ENTITY_LENGTH` bound and ran
+   both fields through `sanitizeForLogOutput` before reflecting them.
+
+### Reviewed but NOT changed (false positives / out of scope / deferred)
+
+- **`taxId` returned under key `taxId` on the REST live response / MCP `data`:**
+   `taxId` IS in the `SENSITIVE_FIELD_NAMES` set, so it is redacted by
+   `redactSensitiveFields` (audit) AND the MCP success-path `result.data`
+   redaction AND the canonical `redactSensitiveFieldValues`. The earlier claim
+   that it leaks was a misread — no change.
+- **MCP transport JSON body size:** `main.ts:233` already sets
+   `express.json({ limit: "100kb" })`, so the "unbounded `arguments` parse"
+   concern is already mitigated at the boundary. No change.
+- **Contact-mechanism duplicate check TOCTOU race (`party.service.ts`):** a
+   genuine read-then-insert window exists at READ COMMITTED for
+   `add_contact_mechanism` (no unique constraint, unlike `party_role` which has
+   one). Logged as a deferred hardening item — adding a unique constraint /
+   SERIALIZABLE isolation is a schema change requiring migration review; out of
+   scope for this round's low-risk fixes.
+- **Audit sink silent-drop under backpressure (`audit-log.ts`):** by-design
+   "audit never breaks the tool" behaviour; noted as a future metric/alert
+   candidate, not changed this round.
+- **Superuser role for audit/idempotency writes (`rls-setup.sql`):** creating a
+   least-privilege service role is a larger migration/ops change; deferred.
+- **`create-roles.sql` hardcoded dev password / seed `taxId` literals / NULL
+   `tenant_id` backfill to `''`:** noted as latent hygiene items; the migration
+   backfill is already shipped, and the dev-role password is gated by comment.
+   No code change this round.
+- **Tenant isolation (RLS boot assertions, superuser boot refusal, app-level
+   `tenantId` filters), secret redaction across REST/MCP/durable surfaces,
+   idempotency-key charset consistency, ReDoS, and `@Public()` scope scanning**
+   remain intact and were re-verified. No new 🔴/🟡 exploit paths beyond the
+   fixes above.
+
+## Test Results
+```
+shared:    170 passed (4 files)   (unchanged)
+mcp-tools: 137 passed (4 files)   (unchanged)
+database:   25 passed, 10 skipped (2 files)
+api:       327 passed (15 files)  (+3 — round 55 queue TLS/port + party nextActions)
+─────────────────────────────────────
+Total:     659 passed, 10 skipped
+```
+
+## Baseline (before this round)
+- `npm run typecheck` — clean across all workspaces
+- `npm run lint` — 0 errors, 3 pre-existing complexity warnings (unchanged)
+- `npm run test` — all passing: shared 170, mcp-tools 137, database 25 (10 RLS
+  isolation tests skipped without a live DB), api 324
+
+## Findings & Actions (round 54)
 
 ### Fixed this round
 

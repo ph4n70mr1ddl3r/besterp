@@ -11,7 +11,12 @@ import {
   ToolDefinition,
   ToolContext,
 } from "@besterp/mcp-tools";
-import { InvalidTypeValueError } from "@besterp/shared";
+import { InvalidTypeValueError, sanitizeForLogOutput } from "@besterp/shared";
+
+/** Bounds the free-text `entity` filter so an unbounded string isn't allocated
+ * and compared against every tool's entity (consistency with every other MCP
+ * string input, which enforces a max length). */
+const MAX_ENTITY_LENGTH = 64;
 
 // Mapping from type table names to Prisma model delegate keys and ID fields.
 const TYPE_TABLE_MAP = {
@@ -38,7 +43,7 @@ Use this to discover what operations you can perform in the ERP system.
 Each tool listing includes its risk level and confirmation requirements.`,
 
     inputSchema: z.object({
-      entity: z.string().optional().describe("Filter tools by entity (e.g., 'party', 'order')"),
+      entity: z.string().max(MAX_ENTITY_LENGTH).optional().describe("Filter tools by entity (e.g., 'party', 'order')"),
     }),
 
     riskLevel: "none",
@@ -92,8 +97,12 @@ async function queryTypeTable(
   return rows.map((r) => ({
     id: (r[idField] as string | null) ?? "",
     name: (r.name as string | null) ?? "",
-    description: typeof r.description === "string" ? r.description : null,
-    aiPromptHint: typeof r.aiPromptHint === "string" ? r.aiPromptHint : null,
+    // Type-table rows are global reference data read via the admin (RLS-
+    // bypassing) client, but a stored value could still carry HTML/ANSI/URL
+    // payloads. Sanitize before reflecting to the agent to match every other
+    // agent-facing surface.
+    description: typeof r.description === "string" ? sanitizeForLogOutput(r.description) : null,
+    aiPromptHint: typeof r.aiPromptHint === "string" ? sanitizeForLogOutput(r.aiPromptHint) : null,
   }));
 }
 

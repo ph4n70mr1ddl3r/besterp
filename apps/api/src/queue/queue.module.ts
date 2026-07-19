@@ -23,7 +23,7 @@ export interface QueueModuleOptions {
 export class QueueModule {
   private static readonly logger = new Logger(QueueModule.name);
 
-  private static resolveRedisOptions(options?: Partial<QueueModuleOptions>): { host: string; port: number; password: string | undefined } {
+  private static resolveRedisOptions(options?: Partial<QueueModuleOptions>): { host: string; port: number; password: string | undefined; tls: { rejectUnauthorized: boolean } | undefined } {
     const rawHost = options?.redis?.host || process.env.REDIS_HOST;
     // Fail closed in non-development: a silently-defaulted localhost Redis in
     // production is a misconfiguration footgun — the app would connect to an
@@ -43,7 +43,23 @@ export class QueueModule {
     }
     const port = this.resolvePort(options?.redis?.port);
     const password = this.resolvePassword(options?.redis?.password);
-    return { host, port, password };
+    const tls = this.resolveTls();
+    return { host, port, password, tls };
+  }
+
+  /**
+   * Resolve whether the Redis connection must use TLS (default-on in
+   * non-development). Without TLS the password and all job payloads travel in
+   * cleartext, so a network observer can capture credentials and queued data.
+   * Opt back out only in development via REDIS_TLS=0. The connection object
+   * spreads the result, so `tls: undefined` leaves the (plain) socket as-is.
+   */
+  private static resolveTls(): { rejectUnauthorized: boolean } | undefined {
+    if (process.env.REDIS_TLS === "0") return undefined;
+    if (process.env.NODE_ENV === "development" && process.env.REDIS_TLS !== "1") {
+      return undefined;
+    }
+    return { rejectUnauthorized: true };
   }
 
   private static resolvePassword(explicitPassword?: string): string | undefined {
@@ -65,6 +81,16 @@ export class QueueModule {
   private static resolvePort(explicitPort?: number): number {
     if (explicitPort !== undefined) return this.validatePort(explicitPort);
     if (process.env.REDIS_PORT) return this.validatePort(Number.parseInt(process.env.REDIS_PORT, 10));
+    // Mirror the fail-closed posture of the host/password guards: silently
+    // defaulting to 6380 in production could point the app at an unintended
+    // Redis instance (e.g. an unrelated service on the same host) with no
+    // error. Only development keeps the fallback.
+    if (process.env.NODE_ENV !== "development") {
+      this.logger.error(
+        "REDIS_PORT not set in production — refusing to default to 6380 (would connect to a possibly unintended Redis instance)."
+      );
+      throw new Error("Redis port is required in non-development environments. Set REDIS_PORT.");
+    }
     this.logger.warn(
       "REDIS_PORT is not set — defaulting to 6380 to match .env.example. " +
       "Set REDIS_PORT explicitly to avoid connecting to the wrong Redis instance."
@@ -79,17 +105,23 @@ export class QueueModule {
     return port;
   }
 
-  private static redisRetryStrategy(times: number): number | undefined {
+  private static redisRetryStrategy(times: number, err?: Error): number | undefined {
     const MAX_RETRIES = 10;
     if (times > MAX_RETRIES) {
-      this.logger.error(`Redis connection failed after ${MAX_RETRIES} retries — aborting.`);
+      // Surface the underlying cause (auth failure, unreachable host) rather
+      // than a generic "connection failed", so a misconfiguration is diagnosed
+      // loudly instead of being retried blindly 10× then dying silently.
+      this.logger.error(
+        `Redis connection failed after ${MAX_RETRIES} retries — aborting.` +
+        (err?.message ? ` Last error: ${err.message}` : ""),
+      );
       return undefined;
     }
     return Math.min(times * 200, 5000);
   }
 
   static forRoot(options?: Partial<QueueModuleOptions>): DynamicModule {
-    const { host, port, password } = this.resolveRedisOptions(options);
+    const { host, port, password, tls } = this.resolveRedisOptions(options);
 
     const connection: {
       host: string;
@@ -98,6 +130,7 @@ export class QueueModule {
       retryStrategy: (times: number) => number | undefined;
       connectTimeout: number;
       password?: string;
+      tls?: { rejectUnauthorized: boolean };
     } = {
       host,
       port,
@@ -105,6 +138,7 @@ export class QueueModule {
       retryStrategy: (times: number) => QueueModule.redisRetryStrategy(times),
       connectTimeout: 10000,
       ...(password ? { password } : {}),
+      ...(tls ? { tls } : {}),
     };
 
     return {
