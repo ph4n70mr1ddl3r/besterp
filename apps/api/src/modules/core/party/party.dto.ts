@@ -18,7 +18,6 @@ import {
   IsNotEmpty,
   IsOptional,
   IsEnum,
-  IsDateString,
   IsEmail,
   ValidateNested,
   IsInt,
@@ -35,6 +34,7 @@ import {
 import { Type, Transform, TransformFnParams } from "class-transformer";
 import {
   stripHtmlTags,
+  isValidISODate,
   MAX_PARTY_NAME_LENGTH,
   MAX_PARTY_DESCRIPTION_LENGTH,
   MAX_PERSON_NAME_LENGTH,
@@ -64,6 +64,30 @@ import {
 
 function sanitizeTransform(): PropertyDecorator {
   return Transform(({ value }: TransformFnParams) => (typeof value === "string" ? stripHtmlTags(value.trim()) : value));
+}
+
+// ─── Date validator ─────────────────────────────────────────────
+
+/**
+ * Enforces the same strict ISO 8601 UTC (`...Z`) format the service layer
+ * requires via `isValidISODate`. class-validator's built-in `@IsDateString`
+ * accepts date-only strings like "2024-06-15", which would otherwise pass the
+ * DTO layer and then fail later at the service layer with a confusing error —
+ * so we validate the canonical format up front, matching the MCP Zod path.
+ */
+@ValidatorConstraint({ name: "isValidISODate", async: false })
+class IsValidISODateConstraint implements ValidatorConstraintInterface {
+  validate(value: unknown): boolean {
+    return typeof value === "string" && isValidISODate(value);
+  }
+
+  defaultMessage(args: ValidationArguments): string {
+    return `${(args.object as Record<string, unknown>)[args.property] ?? args.property} must be a valid ISO 8601 UTC date (e.g. 2024-06-15T00:00:00.000Z)`;
+  }
+}
+
+function IsValidISODate(): PropertyDecorator {
+  return Validate(IsValidISODateConstraint);
 }
 
 // ─── Cross-field validators ──────────────────────────────────────
@@ -131,7 +155,7 @@ export class CreatePersonDto {
   middleName?: string;
 
   @IsOptional()
-  @IsDateString()
+  @IsValidISODate()
   @MaxLength(MAX_DATE_STRING_LENGTH)
   birthDate?: string;
 
@@ -158,7 +182,7 @@ export class CreateOrganizationDto {
   taxId?: string;
 
   @IsOptional()
-  @IsDateString()
+  @IsValidISODate()
   @MaxLength(MAX_DATE_STRING_LENGTH)
   registrationDate?: string;
 }
@@ -245,7 +269,7 @@ export class AddPartyRoleDto {
   roleType!: string;
 
   @IsOptional()
-  @IsDateString()
+  @IsValidISODate()
   @MaxLength(MAX_DATE_STRING_LENGTH)
   fromDate?: string;
 }

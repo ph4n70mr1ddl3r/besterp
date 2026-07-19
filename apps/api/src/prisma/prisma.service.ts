@@ -184,10 +184,19 @@ export class PrismaService
       // superusers BYPASS all RLS policies — silently disabling tenant
       // isolation for every tenant-scoped query. Querying pg_roles catches the
       // privilege regardless of how the role is named.
-      const [privResult] = await this._appClient.$queryRaw<[{ rolsuper: boolean; rolcatupdate: boolean }]>`
-        SELECT rolsuper, rolcatupdate FROM pg_roles WHERE rolname = current_user
+      const [privResult] = await this._appClient.$queryRaw<[{ rolsuper: boolean; rolbypassrls: boolean }]>`
+        SELECT rolsuper, rolbypassrls FROM pg_roles WHERE rolname = current_user
       `;
-      const isSuperuser = privResult?.rolsuper === true || privResult?.rolcatupdate === true;
+      // rolbypassrls (BYPASSRLS) is the authoritative privilege: roles with it
+      // skip row-level-security policies entirely, so tenant isolation is
+      // silently disabled for every tenant-scoped query. rolsuper also implies
+      // BYPASSRLS, so checking both is belt-and-braces.
+      // NOTE: `rolcatupdate` was used historically but was removed from
+      // pg_roles in PostgreSQL 16, which would make this query fail and (by
+      // fail-closed design) refuse to boot on PG16+. rolbypassrls is the
+      // correct, stable column to test against.
+      const isSuperuser =
+        privResult?.rolsuper === true || privResult?.rolbypassrls === true;
       if (isSuperuser) {
         // PostgreSQL superusers BYPASS all RLS policies, so tenant isolation
         // is silently disabled for every tenant-scoped query when the app

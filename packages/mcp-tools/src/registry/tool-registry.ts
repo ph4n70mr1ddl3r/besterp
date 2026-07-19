@@ -13,7 +13,7 @@ import {
   ZodSchemaLike,
   RiskLevel,
 } from "../schema/tool-definition.js";
-import { MAX_IDEMPOTENCY_KEY_LENGTH, SAFE_IDEMPOTENCY_KEY, sanitizeForLogOutput } from "@besterp/shared";
+import { MAX_IDEMPOTENCY_KEY_LENGTH, SAFE_IDEMPOTENCY_KEY, sanitizeForLogOutput, redactSensitiveFieldValues } from "@besterp/shared";
 import { isSensitiveField } from "../middleware/sensitive-fields.js";
 
 const VALID_RISK_LEVELS: readonly RiskLevel[] = ["none", "low", "medium", "high", "critical"];
@@ -308,7 +308,10 @@ export class ToolRegistry {
       const sanitizedPath = path.map((p) => sanitizeForLogOutput(p));
       const redacted: Record<string, unknown> = {
         code: issue.code ?? "custom",
-        message: sanitizeForLogOutput(issue.message),
+        // A Zod issue message can echo the offending input verbatim (e.g.
+        // "Expected string, received {raw password}"), so run it through the
+        // deep redactor as well as the length/char sanitizer.
+        message: redactSensitiveFieldValues(sanitizeForLogOutput(issue.message)),
         path: sanitizedPath,
       };
       const sensitivePathSegments = path.filter((p) => isSensitiveField(p));
@@ -316,7 +319,7 @@ export class ToolRegistry {
       if (sensitivePathSegments.length > 0 || (isSensitiveField(lastSegment ?? "") && issue.received !== undefined)) {
         redacted.received = "[REDACTED]";
       } else if (issue.received !== undefined) {
-        redacted.received = sanitizeForLogOutput(String(issue.received));
+        redacted.received = redactSensitiveFieldValues(sanitizeForLogOutput(String(issue.received)));
       }
       return redacted;
     });
