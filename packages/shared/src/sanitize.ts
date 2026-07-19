@@ -254,7 +254,7 @@ export function sanitizeLogOutput(message: string): string {
     //      qualify as high-entropy; short tokens are left alone to avoid
     //      false positives (e.g. a product SKU `ABC123`). This mirrors the
     //      length threshold used by the JWT/bearer rules above.
-      .replace(/\b(?:AKIA|ASIA)[0-9A-Z]{16}/g, "[REDACTED_AWS_KEY]")
+    .replace(/\b(?:AKIA|ASIA)[0-9A-Z]{16}/g, "[REDACTED_AWS_KEY]")
     .replace(/\b(?:sk|rk|pk|ssk)_(?:live|test)_[A-Za-z0-9]{8,}/gi, "[REDACTED_API_KEY]")
     .replace(/\b(?:ghp|gho|ghu|ghs|ghr|glpat|glpat-|gldt|dop_v1)_[A-Za-z0-9]{16,}/g, "[REDACTED_TOKEN]")
     .replace(/\b(?:xox[baprs]-[A-Za-z0-9-]{10,})/g, "[REDACTED_SLACK_TOKEN]")
@@ -275,43 +275,43 @@ export function sanitizeLogOutput(message: string): string {
     // `custom://host`) are left untouched. Runs AFTER the scheme-specific
     // patterns so they keep their labelled output ([DATABASE_URL],
     // [REDIS_URL], …) — this only catches what they miss.
-     // The scheme prefix is length-bounded (`{1,31}`) so the greedy quantifier
-     // cannot overlap the trailing `://`/`user:pass@` match and force
-     // catastrophic backtracking (O(n²)) on a long run of letters with no
-     // `://` (event-loop-blocking ReDoS). Postgres identifiers cap at 63 bytes,
-     // 31 is ample for any real scheme and keeps the regex linear.
-     .replace(/[a-zA-Z][a-zA-Z0-9+.-]{1,31}:\/\/[^\s:/@"']+:[^\s/@"']+@[^\s"']+/g, "[REDACTED_URL]")
-     // Redact filesystem paths, but only when they are absolute (leading `/`
-     // with two or more segments, a `~/` home path, or a Windows drive root).
-     // This avoids corrupting ordinary prose such as "meet me at /home/user
-     // later" — the previous `\bat\b\s*/...` rule collapsed that to
-     // "meet me [PATH] later" and destroyed legitimate log context. A path is
-     // only redacted when it cannot be mistaken for prose: it must begin at a
-     // boundary and have at least two non-empty segments.
-      .replace(/(^|\s)(?:\/(?:[^\s'":/]+\/)+[^\s'":/]*\.[^\s'":/]+(?::\d+)?|~\/[^\s'":/]+\/[^\s'":/]*\.[^\s'":/]+(?::\d+)?|[A-Za-z]:\\[^\s'":]+(?::\d+)?)/g, "$1[PATH]")
-      // LAST: redact a GENERIC LONG HIGH-ENTROPY run that survived every
-      // rule above — this catches secrets under NON-sensitive key names
-      // (e.g. `{"config": {"value": "AKIA…"}}`, `notes: ghp_…`) which the
-      // key=value / quoted-value rules cannot see because they key on the
-      // field name, not the value shape. Runs after the URL/host/path rules
-      // so a legitimate `/path/to/file` is already collapsed to `[PATH]`
-      // and is NOT re-consumed here, and the `(?<!\[)` lookbehind stops it
-      // from re-redacting an already-inserted `[REDACTED_…]` placeholder
-      // (e.g. the Slack/GitHub prefix rules above) into `[[REDACTED_TOKEN]]`.
-      //
-      // The run MUST contain at least one uppercase letter or one of the
-      // non-hex punctuation chars (`._+/=`) so a purely-lowercase-hex string
-      // (e.g. a 32-char UUID-without-dashes `9f8d…b4a`, or a long hash) is
-      // NOT mangled — those are benign identifiers, and folding them into
-      // `[REDACTED_TOKEN]` would destroy legitimate log/audit context. The
-      // well-known prefix rules above already catch provider secrets even
-      // when they are lowercase-hex-shaped (AKIA/ASIA are uppercase;
-      // sk_live_/ghp_/glpat_ carry a distinguishing prefix), so the only
-      // tokens left for this rule are mixed-case / punctuated high-entropy
-      // values — exactly the shape a leaked credential takes. The
-      // `(?=…)` lookahead is zero-width so it does not consume characters
-      // the trailing boundary needs.
-       .replace(/(?<!\[)(^|[\s"'`{([<,;])(?![A-Za-z0-9_./+=-]*REDACTED)(?=[A-Za-z0-9_./+=-]*[A-Z._+/=])([A-Za-z0-9_./+=-]{20,})(?![A-Za-z0-9_./+=-])/g, (full, lead) => `${lead}[REDACTED_TOKEN]`);
+    // The scheme prefix is length-bounded (`{1,31}`) so the greedy quantifier
+    // cannot overlap the trailing `://`/`user:pass@` match and force
+    // catastrophic backtracking (O(n²)) on a long run of letters with no
+    // `://` (event-loop-blocking ReDoS). Postgres identifiers cap at 63 bytes,
+    // 31 is ample for any real scheme and keeps the regex linear.
+    .replace(/[a-zA-Z][a-zA-Z0-9+.-]{1,31}:\/\/[^\s:/@"']+:[^\s/@"']+@[^\s"']+/g, "[REDACTED_URL]")
+    // Redact filesystem paths, but only when they are absolute (leading `/`
+    // with two or more segments, a `~/` home path, or a Windows drive root).
+    // This avoids corrupting ordinary prose such as "meet me at /home/user
+    // later" — the previous `\bat\b\s*/...` rule collapsed that to
+    // "meet me [PATH] later" and destroyed legitimate log context. A path is
+    // only redacted when it cannot be mistaken for prose: it must begin at a
+    // boundary and have at least two non-empty segments.
+    .replace(/(^|\s)(?:\/(?:[^\s'":/]+\/)+[^\s'":/]*\.[^\s'":/]+(?::\d+)?|~\/[^\s'":/]+\/[^\s'":/]*\.[^\s'":/]+(?::\d+)?|[A-Za-z]:\\[^\s'":]+(?::\d+)?)/g, "$1[PATH]")
+    // LAST: redact a GENERIC LONG HIGH-ENTROPY run that survived every
+    // rule above — this catches secrets under NON-sensitive key names
+    // (e.g. `{"config": {"value": "AKIA…"}}`, `notes: ghp_…`) which the
+    // key=value / quoted-value rules cannot see because they key on the
+    // field name, not the value shape. Runs after the URL/host/path rules
+    // so a legitimate `/path/to/file` is already collapsed to `[PATH]`
+    // and is NOT re-consumed here, and the `(?<!\[)` lookbehind stops it
+    // from re-redacting an already-inserted `[REDACTED_…]` placeholder
+    // (e.g. the Slack/GitHub prefix rules above) into `[[REDACTED_TOKEN]]`.
+    //
+    // The run MUST contain at least one uppercase letter or one of the
+    // non-hex punctuation chars (`._+/=`) so a purely-lowercase-hex string
+    // (e.g. a 32-char UUID-without-dashes `9f8d…b4a`, or a long hash) is
+    // NOT mangled — those are benign identifiers, and folding them into
+    // `[REDACTED_TOKEN]` would destroy legitimate log/audit context. The
+    // well-known prefix rules above already catch provider secrets even
+    // when they are lowercase-hex-shaped (AKIA/ASIA are uppercase;
+    // sk_live_/ghp_/glpat_ carry a distinguishing prefix), so the only
+    // tokens left for this rule are mixed-case / punctuated high-entropy
+    // values — exactly the shape a leaked credential takes. The
+    // `(?=…)` lookahead is zero-width so it does not consume characters
+    // the trailing boundary needs.
+    .replace(/(?<!\[)(^|[\s"'`{([<,;])(?![A-Za-z0-9_./+=-]*REDACTED)(?=[A-Za-z0-9_./+=-]*[A-Z._+/=])([A-Za-z0-9_./+=-]{20,})(?![A-Za-z0-9_./+=-])/g, (full, lead) => `${lead}[REDACTED_TOKEN]`);
 }
 
 /**

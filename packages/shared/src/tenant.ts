@@ -45,7 +45,7 @@ export function validateTenantId(tenantId: string): string {
   const trimmed = tenantId.trim();
   if (trimmed.length === 0) {
     throw new InvalidTenantIdError(
-      "Tenant ID must be a non-empty string."
+      "Tenant ID must not consist solely of whitespace."
     );
   }
   if (trimmed.length > MAX_TENANT_ID_LENGTH) {

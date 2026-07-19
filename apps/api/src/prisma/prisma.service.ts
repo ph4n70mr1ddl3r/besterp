@@ -378,10 +378,10 @@ export class PrismaService
     };
     const client = createTenantClient(this._appClient, normalizedTenantId, options);
     const token = {};
-    this.tenantClientCache.set(tenantId, new WeakRef(client));
-    this.unregisterTokens.set(tenantId, token);
-    this.cacheRegistry.register(client, tenantId, token);
-    this.lastAccessed.set(tenantId, Date.now());
+    this.tenantClientCache.set(normalizedTenantId, new WeakRef(client));
+    this.unregisterTokens.set(normalizedTenantId, token);
+    this.cacheRegistry.register(client, normalizedTenantId, token);
+    this.lastAccessed.set(normalizedTenantId, Date.now());
     return client;
   }
 
