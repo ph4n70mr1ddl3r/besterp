@@ -56,6 +56,26 @@ export function validateTenantId(tenantId: string): void {
 }
 
 /**
+ * Validate that a tenant ID matches the expected format at the auth boundary.
+ * Returns the trimmed tenant ID or throws InvalidTenantIdError.
+ */
+export function validateTenantIdEnhancedForAuth(tenantId: string): string {
+  const trimmed = tenantId.trim();
+  if (trimmed.length === 0) {
+    throw new InvalidTenantIdError("Tenant ID must be a non-empty string.");
+  }
+  if (!TENANT_ID_PATTERN.test(trimmed)) {
+    const preview = trimmed.length > 20 ? `${trimmed.slice(0, 20)}...` : trimmed;
+    const sanitized = sanitizeLogMessage(preview);
+    throw new InvalidTenantIdError(
+      `Invalid tenant ID: "${sanitized}". ` +
+        "Tenant IDs may only contain alphanumeric characters, hyphens, and underscores."
+    );
+  }
+  return trimmed;
+}
+
+/**
  * Set the tenant context on a Prisma transaction client via the
  * `set_tenant_context()` PostgreSQL function.
  *
@@ -72,7 +92,7 @@ export async function setTenantContext(
   tenantId: string,
 ): Promise<void> {
   try {
-    await tx.$executeRaw`SELECT set_tenant_context(${tenantId})`;
+    await tx.$executeRaw`SELECT set_tenant_context(${tenantId}::text)`;
   } catch (e) {
     if (isDomainError(e)) throw e;
     throw new TenantContextFailedError(

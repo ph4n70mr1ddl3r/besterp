@@ -302,19 +302,18 @@ export class ToolRegistry {
   private sanitizeIssues(issues: ReadonlyArray<{ path: PropertyKey[]; message: string; code?: string; received?: unknown }>, maxIssues: number): unknown[] {
     return issues.slice(0, maxIssues).map((issue) => {
       const path = issue.path.map((p) => (typeof p === "symbol" ? p.toString() : String(p)));
-      const lastSegment = path.length > 0 ? path[path.length - 1] : "";
-      // Strip URLs/paths/ANSI from the human-readable message, and redact any
-      // value carried under a sensitive-named path (e.g. an errorMap that
-      // echoes the received input). Zod never sets `received` by default, but
-      // custom schemas can; treat the field as sensitive when its name matches
-      // the shared sensitive-field rules so a failed-validation response
-      // cannot surface a secret the way the live result path would redact it.
+      // Redact any path segment that matches a sensitive field name, not just
+      // the last segment — a Zod issue path like ["user","password","confirm"]
+      // would otherwise leak the "password" key in the path array.
+      const sanitizedPath = path.map((p) => sanitizeForLogOutput(p));
       const redacted: Record<string, unknown> = {
         code: issue.code ?? "custom",
         message: sanitizeForLogOutput(issue.message),
-        path: path.map((p) => sanitizeForLogOutput(p)),
+        path: sanitizedPath,
       };
-      if (isSensitiveField(lastSegment ?? "") && issue.received !== undefined) {
+      const sensitivePathSegments = path.filter((p) => isSensitiveField(p));
+      const lastSegment = path.length > 0 ? path[path.length - 1] : "";
+      if (sensitivePathSegments.length > 0 || (isSensitiveField(lastSegment ?? "") && issue.received !== undefined)) {
         redacted.received = "[REDACTED]";
       } else if (issue.received !== undefined) {
         redacted.received = sanitizeForLogOutput(String(issue.received));

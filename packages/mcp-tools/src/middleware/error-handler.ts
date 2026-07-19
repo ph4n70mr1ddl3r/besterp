@@ -277,7 +277,8 @@ function handleGenericError(error: unknown, definition: { name: string }, tenant
   const message = error instanceof Error ? error.message : "Unknown error";
   const safeMessage = sanitizeForLogOutput(message).slice(0, MAX_ERROR_LOG_LINE_LENGTH);
   // Log sanitized details to stderr to prevent leaking sensitive info
-  // (DB hostnames, connection strings, stack frames)
+  // (DB hostnames, connection strings, stack frames). tenantId and userId
+  // are sanitized to prevent JSON corruption if they contain `]` or `"` chars.
   process.stderr.write(
     `[MCP] [${new Date().toISOString()}] Unexpected error in '${sanitizeLogMessage(definition.name)}' (tenant=${sanitizeLogMessage(tenantId)}, user=${sanitizeLogMessage(userId)}): ${safeMessage}\n`
   );

@@ -240,6 +240,19 @@ describe("Idempotency Middleware", () => {
     expect(result.data).toBe("passed through");
   });
 
+  it("should reject when idempotencyKey is absurdly long", async () => {
+    const input = { test: "value" };
+    const contextWithKey = { ...mockContext, idempotencyKey: "x".repeat(501) };
+
+    const middleware = idempotencyMiddleware(mockPrisma as any);
+    const result = await middleware(input, contextWithKey, mockDefinition, successNext({ success: true, data: "should not reach" }));
+
+    // Should return an error, not pass through — the key exceeds the max length.
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe("INVALID_IDEMPOTENCY_KEY");
+    expect(mockPrisma.idempotencyRecord.create).not.toHaveBeenCalled();
+  });
+
   it("should pass through when prisma is null", async () => {
     const input = { test: "value" };
     const contextWithKey = { ...mockContext, idempotencyKey: "some-key" };
@@ -617,19 +630,18 @@ describe("Idempotency Middleware", () => {
     expect(allArgs).toContain("id-");
   });
 
-  it("should pass through when idempotencyKey is absurdly long (defensive pre-check)", async () => {
-    // The middleware sees the raw key BEFORE Zod validation. Without the
-    // pre-check, a 5KB junk key would create a `pending` record, Zod would
-    // then mark it `failed`, and the junk would sit in the table for 24h.
+  it("should reject when idempotencyKey is absurdly long", async () => {
+    // The middleware now returns an error instead of silently passing through,
+    // so callers get structured feedback instead of losing idempotency.
     const input = { test: "value" };
     const contextWithKey = { ...mockContext, idempotencyKey: "x".repeat(501) };
 
     const middleware = idempotencyMiddleware(mockPrisma as any);
-    const result = await middleware(input, contextWithKey, mockDefinition, successNext({ success: true, data: "passed through" }));
+    const result = await middleware(input, contextWithKey, mockDefinition, successNext({ success: true, data: "should not reach" }));
 
-    expect(result.success).toBe(true);
-    expect(result.data).toBe("passed through");
-    // No record should have been created — the middleware bailed out early.
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe("INVALID_IDEMPOTENCY_KEY");
+    // No record should have been created — the middleware rejected early.
     expect(mockPrisma.idempotencyRecord.create).not.toHaveBeenCalled();
     expect(mockPrisma.idempotencyRecord.findUnique).not.toHaveBeenCalled();
   });
@@ -666,17 +678,18 @@ describe("Idempotency Middleware", () => {
     expect(mockPrisma.idempotencyRecord.findUnique).not.toHaveBeenCalled();
   });
 
-  it("should pass through when idempotencyKey is not a string (defensive pre-check)", async () => {
+  it("should reject when idempotencyKey is not a string", async () => {
     // The key type isn't enforced at the boundary, so a buggy caller could
-    // send a number, object, or boolean. Pass through to Zod to reject
-    // rather than TypeError inside the middleware.
+    // send a number, object, or boolean. Return a structured error instead
+    // of passing through to the handler with a bogus key.
     const input = { test: "value" };
     const contextWithKey = { ...mockContext, idempotencyKey: 12345 as unknown as string };
 
     const middleware = idempotencyMiddleware(mockPrisma as any);
-    const result = await middleware(input, contextWithKey, mockDefinition, successNext({ success: true, data: "passed through" }));
+    const result = await middleware(input, contextWithKey, mockDefinition, successNext({ success: true, data: "should not reach" }));
 
-    expect(result.success).toBe(true);
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe("INVALID_IDEMPOTENCY_KEY");
     expect(mockPrisma.idempotencyRecord.create).not.toHaveBeenCalled();
   });
 

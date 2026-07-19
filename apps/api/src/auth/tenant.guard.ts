@@ -14,6 +14,7 @@ import type { JwtValidatedUser } from "./jwt.strategy.js";
 import { TenantContext } from "../common/tenant-context.js";
 import { IS_PUBLIC_KEY } from "./public.decorator.js";
 import { isPublicAllowedForHandler } from "./public-scope.js";
+import { validateTenantIdEnhancedForAuth } from "@besterp/shared";
 
 @Injectable()
 export class TenantGuard implements CanActivate {
@@ -44,17 +45,17 @@ export class TenantGuard implements CanActivate {
       );
     }
 
-    // Defense-in-depth trim. JwtStrategy already trims sub and agentId
-    // for well-formed payloads, but if a future code path bypasses the
-    // strategy (e.g., a test double or a custom AuthGuard) the values
-    // here could carry whitespace from a misconfigured token issuer.
-    // Trimming here keeps the contract honest: tenantContext fields are
-    // always canonical (no leading/trailing whitespace), so downstream
-    // equality checks (audit logs, idempotency keys, RLS) never see
-    // " user-1" and "user-1" as distinct.
-    if (typeof user.tenantId !== "string") {
+    // Defense-in-depth: validate tenant ID format at the auth boundary.
+    // JwtStrategy already validates format, but we re-check here so any
+    // future code path that bypasses the strategy (e.g., test doubles)
+    // cannot produce a malformed tenant context. The enhanced validator
+    // trims and checks the format in one call.
+    let tenantId: string;
+    try {
+      tenantId = validateTenantIdEnhancedForAuth(user.tenantId);
+    } catch {
       throw new UnauthorizedException(
-        "TenantGuard: tenantId is not a string. JWT payload is malformed."
+        "TenantGuard: tenantId failed format validation.",
       );
     }
     if (typeof user.userId !== "string") {
@@ -62,29 +63,21 @@ export class TenantGuard implements CanActivate {
         "TenantGuard: userId is not a string. JWT payload is malformed."
       );
     }
-    const tenantId = user.tenantId.trim();
     const userId = user.userId.trim();
-    if (!tenantId) {
-      throw new UnauthorizedException(
-        "TenantGuard: tenantId is empty after trimming. JWT payload is malformed."
-      );
-    }
     if (!userId) {
       throw new UnauthorizedException(
         "TenantGuard: userId is empty after trimming. JWT payload is malformed."
       );
     }
-    if (user.agentId !== undefined && user.agentId !== null) {
-      if (typeof user.agentId !== "string") {
-        throw new UnauthorizedException(
-          "TenantGuard: agentId is not a string. JWT payload is malformed."
-        );
-      }
+    if (user.agentId != null && typeof user.agentId !== "string") {
+      throw new UnauthorizedException(
+        "TenantGuard: agentId is not a string. JWT payload is malformed."
+      );
     }
     const agentId =
-      user.agentId === undefined || user.agentId === null
+      user.agentId == null
         ? undefined
-        : user.agentId.trim();
+        : user.agentId.trim() || undefined;
 
     const tenantContext: TenantContext = {
       tenantId,

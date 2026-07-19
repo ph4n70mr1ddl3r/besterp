@@ -172,7 +172,7 @@ function createBackpressureManager(prisma: PrismaClient): BackpressureManager {
         return;
       }
       let slotAcquired = false;
-      void acquireWriteSlot()
+      acquireWriteSlot()
         .then(({ acquired }) => {
           if (!acquired) return;
           slotAcquired = true;

@@ -295,7 +295,7 @@ export function sanitizeForLogOutput(message: string): string {
 const SENSITIVE_FIELD_NAMES: ReadonlySet<string> = Object.freeze(new Set([
   "password", "passwd", "pwd", "secret", "token", "api_key", "apiKey",
   "authorization", "creditcard", "credit_card", "ssn", "taxid", "tax_id",
-  "access_token", "refresh_token", "session_id", "sessionid", "sessionid",
+  "access_token", "refresh_token", "session_id", "sessionid",
   "private_key", "privatekey", "secret_key", "secretkey",
   "accesskey", "access_key", "encryption_key", "encryptionkey",
   "pin", "cc_number", "card_number", "date_of_birth", "dob",

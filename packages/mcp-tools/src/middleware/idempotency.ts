@@ -46,7 +46,16 @@ export function idempotencyMiddleware(prisma: PrismaClient): ToolMiddleware {
     const { idempotencyKey, tenantId, userId, agentId, conversationId } = context;
 
     if (!idempotencyKey || typeof idempotencyKey !== "string" || idempotencyKey.length > MAX_IDEMPOTENCY_KEY_LENGTH) {
-      return next(input, context);
+      return {
+        success: false,
+        error: {
+          code: "INVALID_IDEMPOTENCY_KEY",
+          message: idempotencyKey && typeof idempotencyKey === "string" && idempotencyKey.length > MAX_IDEMPOTENCY_KEY_LENGTH
+            ? `Idempotency key exceeds maximum length of ${MAX_IDEMPOTENCY_KEY_LENGTH} characters.`
+            : "Idempotency key is required and must be a non-empty string.",
+          suggestedTools: [definition.name],
+        },
+      };
     }
 
     // Defense-in-depth: reject keys containing control characters, newlines,
@@ -55,7 +64,16 @@ export function idempotencyMiddleware(prisma: PrismaClient): ToolMiddleware {
     // printable-ASCII tokens. A key that fails this check is almost certainly
     // a bug in the caller, not a legitimate idempotency attempt.
     if (!SAFE_IDEMPOTENCY_KEY.test(idempotencyKey)) {
-      return next(input, context);
+      const safeKey = redactKey(idempotencyKey);
+      return {
+        success: false,
+        error: {
+          code: "INVALID_IDEMPOTENCY_KEY",
+          message: `The idempotency key contains invalid characters. Keys must be printable ASCII (no control characters, newlines, or non-ASCII bytes).`,
+          suggestedTools: [definition.name],
+          context: { keyPrefix: safeKey },
+        },
+      };
     }
 
     // Parse the input through the tool's schema FIRST, then hash the
@@ -194,6 +212,8 @@ async function acquireIdempotencyRecord(
           if (pendingAge > STALE_PENDING_THRESHOLD_MS) {
             // Stale pending record — the previous request likely crashed
             // before completing. Reset to pending so this request can proceed.
+            // Only allow reset if the input hash matches to prevent a stale
+            // record from being reset for a different operation.
             if (record.inputHash !== inputHash) {
               return { existing: record, created: false };
             }

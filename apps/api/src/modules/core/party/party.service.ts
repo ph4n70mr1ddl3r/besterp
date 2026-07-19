@@ -369,10 +369,16 @@ export class PartyService {
     // Use duck-typing instead of `instanceof` to detect Prisma errors.
     // Tenant-scoped clients are created via Proxy wrapping (rls-extension.ts),
     // which can break `instanceof` checks for classes that rely on
-    // `[Symbol.hasInstance]`. Checking for the `code` property is sufficient
-    // to identify PrismaClientKnownRequestError instances.
+    // `[Symbol.hasInstance]`. Prisma error codes always start with "P"
+    // (e.g., P2002, P2025), so we gate on that prefix to avoid mistaking
+    // DomainError subclasses (which also carry a `code` property) for Prisma
+    // errors and routing them through the Prisma switch.
     if (err && typeof err === "object" && "code" in err && typeof (err as { code: unknown }).code === "string") {
       const prismaErr = err as { code: string; meta?: Record<string, unknown> };
+      if (!prismaErr.code.startsWith("P")) {
+        // Not a Prisma error — re-throw as-is so DomainErrors pass through.
+        throw err;
+      }
       switch (prismaErr.code) {
         case "P2002": {
           const field = PartyService.resolveConflictField(prismaErr);
@@ -404,6 +410,16 @@ export class PartyService {
         case "P2024": {
           throw new ConcurrencyConflictError(
             `Connection pool timeout on ${entityName} — the service is under heavy load.`,
+            { suggestedTools: [retryTool], context: { prismaCode: prismaErr.code } }
+          );
+        }
+        default: {
+          // Unknown Prisma error codes — re-throw as a generic domain error
+          // so the error code is preserved in the audit trail. Logging is
+          // deferred to the caller (the service instance) to avoid accessing
+          // `this` from a static method.
+          throw new InvalidTypeValueError(
+            `Database error (${prismaErr.code}) on ${entityName}.`,
             { suggestedTools: [retryTool], context: { prismaCode: prismaErr.code } }
           );
         }
@@ -1019,7 +1035,7 @@ export class PartyService {
     // caller sees exactly what they sent.
     if (!isValidISODate(trimmed)) {
       throw new InvalidTypeValueError(
-        `${field} is not a valid ISO 8601 date. Received: ${value}.`,
+        `${field} is not a valid ISO 8601 date. Received: ${sanitizeLogMessage(value)}.`,
         { suggestedTools: ["create_party"], context: { field, invalidValue: value } }
       );
     }
@@ -1053,8 +1069,8 @@ export class PartyService {
         fromDate: r.fromDate.toISOString(),
         thruDate: r.thruDate?.toISOString() ?? null,
       })),
-      createdAt: party.createdAt.toISOString(),
-      updatedAt: party.updatedAt.toISOString(),
+      createdAt: party.createdAt ? party.createdAt.toISOString() : null,
+      updatedAt: party.updatedAt ? party.updatedAt.toISOString() : null,
     };
   }
 }

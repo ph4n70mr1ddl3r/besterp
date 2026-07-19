@@ -54,8 +54,8 @@ export interface PartyResult {
     fromDate: string;
     thruDate: string | null;
   }>;
-  createdAt: string;
-  updatedAt: string;
+  createdAt: string | null;
+  updatedAt: string | null;
 }
 
 // ─── Search Parties ───────────────────────────────────────────────
