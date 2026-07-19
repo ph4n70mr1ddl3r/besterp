@@ -225,6 +225,42 @@ export function sanitizeLogOutput(message: string): string {
     // from ordinary prose.
     .replace(/\bBearer\s+[A-Za-z0-9._-]+/gi, "Bearer [REDACTED]")
     .replace(/\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g, "[REDACTED_JWT]")
+    // Redact HIGH-ENTROPY bearer/secret tokens that appear under a
+    // NON-sensitive key name (or as a bare value in a string leaf) — e.g. an
+    // `{"config": {"value": "AKIAIOSFODNN7EXAMPLE"}}` tool output, a
+    // `{"data": "sk_live_abc123def456"}` payload, or a `notes: ghp_xxx…`
+    // free-text field. The key=value / quoted-value rules above only catch
+    // values whose *name* is in the sensitive list, so a secret attached
+    // under a benign key name (`config`, `data`, `notes`, `value`) survives
+    // verbatim into the agent-facing error/output AND the durable
+    // cross-tenant audit row / idempotency replay — an asymmetric leak the
+    // key-name redactor cannot see because it keys on the field name, not the
+    // value shape. This rule scrubs the value by shape regardless of the
+    // surrounding key, closing the gap on every surface that runs string
+    // leaves through sanitizeForLogOutput (redactSensitiveFieldValues, the
+    // MCP redactSensitiveFields shim, the error-handler context scrubber, and
+    // the truncate _preview pass).
+    //
+    // Two layers:
+    //  (a) Prefix rules for well-known provider token formats — these are
+    //      unambiguous and matched first so `AKIA…`/`sk_live_…`/`ghp_…` are
+    //      caught even at short lengths where a generic rule would be too
+    //      greedy. Exhaustive-ish, covering the common public-cloud / SaaS
+    //      secret shapes an ERP integration might echo.
+    //  (b) A generic long high-entropy run for everything else. Bounded with a
+    //      leading boundary `(^|[\s"'`{([<,;])` and a trailing non-word
+    //      lookahead so ordinary prose (or a base64'd *public* id) is not
+    //      mangled. The run must be >= 20 chars of `[A-Za-z0-9_./+=-]` to
+    //      qualify as high-entropy; short tokens are left alone to avoid
+    //      false positives (e.g. a product SKU `ABC123`). This mirrors the
+    //      length threshold used by the JWT/bearer rules above.
+    // eslint-disable-next-line no-control-regex
+    .replace(/\b(?:AKIA|ASIA)[0-9A-Z]{16}/g, "[REDACTED_AWS_KEY]")
+    .replace(/\b(?:sk|rk|pk|ssk)_(?:live|test)_[A-Za-z0-9]{8,}/gi, "[REDACTED_API_KEY]")
+    .replace(/\b(?:ghp|gho|ghu|ghs|ghr|glpat|glpat-|gldt|dop_v1)_[A-Za-z0-9]{16,}/g, "[REDACTED_TOKEN]")
+    .replace(/\b(?:xox[baprs]-[A-Za-z0-9-]{10,})/g, "[REDACTED_SLACK_TOKEN]")
+    .replace(/\b(?:AIza)[A-Za-z0-9_-]{35}/g, "[REDACTED_GOOGLE_KEY]")
+    .replace(/\b(?:ya29\.)[A-Za-z0-9_-]{20,}/g, "[REDACTED_GOOGLE_TOKEN]")
     .replace(/(https?:\/\/)[^\s"')}]+/gi, "$1[HOST]/[PATH]")
     .replace(/(?:ftp|sftp):\/\/[^\s"')}]+/gi, "[FTP_URL]")
     .replace(/(?:ws|wss):\/\/[^\s"')}]+/gi, "[WEBSOCKET_URL]")
@@ -253,7 +289,31 @@ export function sanitizeLogOutput(message: string): string {
      // "meet me [PATH] later" and destroyed legitimate log context. A path is
      // only redacted when it cannot be mistaken for prose: it must begin at a
      // boundary and have at least two non-empty segments.
-      .replace(/(^|\s)(?:\/(?:[^\s'":/]+\/)+[^\s'":/]*\.[^\s'":/]+(?::\d+)?|~\/[^\s'":/]+\/[^\s'":/]*\.[^\s'":/]+(?::\d+)?|[A-Za-z]:\\[^\s'":]+(?::\d+)?)/g, "$1[PATH]");
+      .replace(/(^|\s)(?:\/(?:[^\s'":/]+\/)+[^\s'":/]*\.[^\s'":/]+(?::\d+)?|~\/[^\s'":/]+\/[^\s'":/]*\.[^\s'":/]+(?::\d+)?|[A-Za-z]:\\[^\s'":]+(?::\d+)?)/g, "$1[PATH]")
+      // LAST: redact a GENERIC LONG HIGH-ENTROPY run that survived every
+      // rule above — this catches secrets under NON-sensitive key names
+      // (e.g. `{"config": {"value": "AKIA…"}}`, `notes: ghp_…`) which the
+      // key=value / quoted-value rules cannot see because they key on the
+      // field name, not the value shape. Runs after the URL/host/path rules
+      // so a legitimate `/path/to/file` is already collapsed to `[PATH]`
+      // and is NOT re-consumed here, and the `(?<!\[)` lookbehind stops it
+      // from re-redacting an already-inserted `[REDACTED_…]` placeholder
+      // (e.g. the Slack/GitHub prefix rules above) into `[[REDACTED_TOKEN]]`.
+      //
+      // The run MUST contain at least one uppercase letter or one of the
+      // non-hex punctuation chars (`._+/=`) so a purely-lowercase-hex string
+      // (e.g. a 32-char UUID-without-dashes `9f8d…b4a`, or a long hash) is
+      // NOT mangled — those are benign identifiers, and folding them into
+      // `[REDACTED_TOKEN]` would destroy legitimate log/audit context. The
+      // well-known prefix rules above already catch provider secrets even
+      // when they are lowercase-hex-shaped (AKIA/ASIA are uppercase;
+      // sk_live_/ghp_/glpat_ carry a distinguishing prefix), so the only
+      // tokens left for this rule are mixed-case / punctuated high-entropy
+      // values — exactly the shape a leaked credential takes. The
+      // `(?=…)` lookahead is zero-width so it does not consume characters
+      // the trailing boundary needs.
+      // eslint-disable-next-line no-control-regex
+      .replace(/(?<!\[)(^|[\s"'`{([<,;])(?![A-Za-z0-9_./+=-]*REDACTED)(?=[A-Za-z0-9_./+=-]*[A-Z._+/=])([A-Za-z0-9_./+=-]{20,})(?![A-Za-z0-9_./+=-])/g, (full, lead, token) => `${lead}[REDACTED_TOKEN]`);
 }
 
 /**

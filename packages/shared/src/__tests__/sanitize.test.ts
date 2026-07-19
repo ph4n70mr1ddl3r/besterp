@@ -704,3 +704,58 @@ describe("redactSensitiveFieldValues", () => {
     expect(JSON.stringify(out)).not.toContain("leaf");
   });
 });
+
+describe("redactSensitiveFieldValues — bare high-entropy tokens under non-sensitive keys", () => {
+  it("redacts an AWS access key under a benign key name", () => {
+    // A secret attached under a non-sensitive key (config/value/data/notes)
+    // is invisible to the key-name redactor, but the value shape must still
+    // be scrubbed so it cannot leak into the agent output or the durable
+    // audit/idempotency sinks.
+    const out = redactSensitiveFieldValues({ config: { value: "AKIAIOSFODNN7EXAMPLE" } }) as Record<string, unknown>;
+    expect(JSON.stringify(out)).not.toContain("AKIAIOSFODNN7EXAMPLE");
+    expect(JSON.stringify(out)).toContain("[REDACTED_AWS_KEY]");
+  });
+
+  it("redacts a sk_live_ api key held in a plain string leaf", () => {
+    const out = redactSensitiveFieldValues({ data: "sk_live_abc123def456" }) as Record<string, unknown>;
+    expect(JSON.stringify(out)).not.toContain("sk_live_abc123def456");
+  });
+
+  it("redacts a GitHub token inside an array element", () => {
+    const out = redactSensitiveFieldValues(["ghp_" + "a".repeat(30)]) as unknown[];
+    expect(JSON.stringify(out)).not.toContain("ghp_");
+  });
+
+  it("does NOT redact benign identifiers (lowercase-hex UUID, prose, SKU)", () => {
+    const out = redactSensitiveFieldValues({
+      id: "9f8d7c6b5a4e3f2d1c0b9a8e7d6c5b4a",
+      note: "User login successful",
+      sku: "ABC123",
+    }) as Record<string, unknown>;
+    expect(out.id).toBe("9f8d7c6b5a4e3f2d1c0b9a8e7d6c5b4a");
+    expect(out.note).toBe("User login successful");
+    expect(out.sku).toBe("ABC123");
+  });
+});
+
+describe("sanitizeForLogOutput — bare high-entropy tokens", () => {
+  it("redacts provider secret prefixes (AWS/sk_live/GitHub/Slack/Google)", () => {
+    expect(sanitizeForLogOutput("key AKIAIOSFODNN7EXAMPLE used")).toContain("[REDACTED_AWS_KEY]");
+    expect(sanitizeForLogOutput("token sk_live_abc123def456 leaked")).toContain("[REDACTED_API_KEY]");
+    expect(sanitizeForLogOutput("auth ghp_" + "a".repeat(30) + " bearer")).toContain("[REDACTED_TOKEN]");
+    expect(sanitizeForLogOutput("slack xoxb-" + "a".repeat(20))).toContain("[REDACTED_SLACK_TOKEN]");
+  });
+
+  it("redacts a generic mixed-case high-entropy run but leaves prose/UUIDs", () => {
+    expect(sanitizeForLogOutput("value Zw9XkQ2mPpLbVnRtYuIo== stored")).toContain("[REDACTED_TOKEN]");
+    expect(sanitizeForLogOutput("uuid 9f8d7c6b5a4e3f2d1c0b9a8e7d6c5b4a is fine")).toBe(
+      "uuid 9f8d7c6b5a4e3f2d1c0b9a8e7d6c5b4a is fine",
+    );
+    expect(sanitizeForLogOutput("User login successful")).toBe("User login successful");
+  });
+
+  it("still redacts URL hosts and does not break existing patterns", () => {
+    expect(sanitizeForLogOutput("https://example.com/path?a=1")).toContain("[HOST]/[PATH]");
+    expect(sanitizeForLogOutput("postgres://u:p@h/db")).toContain("[DATABASE_URL]");
+  });
+});

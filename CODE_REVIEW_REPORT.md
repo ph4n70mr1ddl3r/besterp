@@ -2,8 +2,70 @@
 
 ## Scope
 Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
-`packages/mcp-tools`, `apps/api`) conducted on 2026-07-19. This is review 56;
-round 1–55 are documented in earlier revisions of this file and `CHANGES.md`.
+`mcp-tools`, `apps/api`) conducted on 2026-07-19. This is review 57;
+round 1–56 are documented in earlier revisions of this file and `CHANGES.md`.
+
+## Findings & Actions (round 57)
+
+### Fixed this round
+
+1. **🔴 `sanitize.ts` (`sanitizeForLogOutput`) + `truncate.ts` (`truncateValue`) —
+   bare high-entropy secrets under NON-sensitive key names leaked verbatim on
+   every surface.** The existing secret redactors (`sanitizeLogOutput`,
+   `redactSensitiveFieldValues`, the MCP `redactSensitiveFields` shim, the
+   error-handler context scrubber) all key on the *field name* for the
+   `[REDACTED]` replacement, and the URL/`key=value`/quoted-value rules only
+   fire when the param name appears in the sensitive list. A secret attached
+   under a benign key name — `{"config": {"value": "AKIAIOSFODNN7EXAMPLE"}}`,
+   `{"data": "sk_live_abc123def456"}`, `notes: ghp_…`, or an array element
+   `["sk_live_REALLEAK123"]` — therefore survived verbatim into (a) the
+   agent-facing tool output / error message, (b) the durable cross-tenant
+   `ai_action_log` row, and (c) the idempotency `result` replay. Verified by
+   exercising `redactSensitiveFieldValues` directly: all four cases returned
+   the secret unredacted. Added a value-shape bare-token pass to
+   `sanitizeForLogOutput`:
+   - prefix rules for well-known provider secret shapes (AWS `AKIA`/`ASIA`,
+     `sk|rk|pk|ssk_(live|test)_…`, GitHub `ghp_/gho_/…`, Slack `xox[baprs]-…`,
+     Google `AIza…`/`ya29.…`, Docker `dop_v1_…`);
+   - a generic run rule (`[A-Za-z0-9_./+=-]{20,}` with a mixed-case /
+     punctuation requirement) that runs LAST so legitimate `[PATH]`/URL
+     collapses are not re-consumed, and a `(?!…REDACTED)` guard so an already
+     inserted `[REDACTED_…]` placeholder is never double-wrapped; purely
+     lowercase-hex strings (32-char dashless UUIDs, hashes) are intentionally
+     spared to avoid destroying legitimate log/audit context.
+   `redactSensitiveFieldValues` (used by the audit-log middleware, idempotency
+   replay, and error-handler) already routes every string leaf through
+   `sanitizeForLogOutput`, so the fix propagates to all three surfaces with no
+   further change. Regression tests added (AWS/sk_live/GitHub/array; and a
+   benign-identifier false-positive guard for dashless UUIDs / prose / SKU).
+
+2. **🔴 `truncate.ts:71` (`truncateValue` `_preview`) — the truncation preview
+   persisted an unredacted secret into durable sinks.** `truncateValue` is the
+   final pass before a payload is written to `ai_action_log`/`idempotency_record`.
+   The payload is normally pre-redacted by key name, but a secret under a
+   non-sensitive key name that *also* exceeds the size bound lands its first
+   1 KB in the structured truncation marker's `_preview` field verbatim
+   (confirmed: `truncateValue({config:{value:"AKIA…"+x*4000}}, 1024)._preview`
+   contained `AKIAIOSFODNN7EXAMPLE`). The `_preview` is now passed through
+   `sanitizeForLogOutput` (the bare-token rule from #1) as defense-in-depth, so
+   the preview can never carry a raw secret. Regression test added.
+
+### Reviewed but NOT changed (false positives / out of scope)
+
+- **`party.service.ts` `taxId` returned in full on REST responses:** re-verified
+  — intra-tenant PII returned to authenticated members; consistent with prior
+  rounds' product-decision stance. `isSensitiveFieldName` lists `taxid` for the
+  *durable-sink/error* redactor, but success-path DTOs are intentionally not
+  redacted (round 56 report already documents this asymmetry). No change.
+- **`discovery-tools.ts` type-table `description`/`aiPromptHint` via
+  `sanitizeForLogOutput` (no HTML strip):** admin-authored global reference
+  data, not user input; reachability to an HTML renderer is nil. Noted for
+  awareness, not fixed this round.
+- **`tenant.ts:41` indentation / `validateTenantId` vs `validateTenantIdEnhanced`
+  trim divergence, `role` claim parsed-but-unenforced (no RBAC), `reasoning`
+  not HTML-stripped before audit, NULL `tenant_id` row assertion:** all
+  re-verified as latent/deferred with no new 🔴/🟡 exploit path this round,
+  consistent with prior rounds.
 
 ## Findings & Actions (round 56)
 

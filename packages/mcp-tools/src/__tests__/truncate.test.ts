@@ -54,6 +54,22 @@ describe("truncateValue", () => {
     expect(result._preview.length).toBeLessThanOrEqual(1100); // ~1 KB preview
   });
 
+  it("sanitizes a high-entropy secret out of the truncation _preview", () => {
+    // Regression: truncateValue is the last line of defense before a payload
+    // is persisted to the durable ai_action_log / idempotency `result` rows.
+    // The payload is normally pre-redacted by key name, but a secret under a
+    // NON-sensitive key name survives key-name redaction and would otherwise
+    // land verbatim in the `_preview` field of the truncation marker — an
+    // asymmetric leak into the cross-tenant audit sink. The preview must be
+    // passed through sanitizeForLogOutput so the secret is scrubbed by shape.
+    const secret = "AKIAIOSFODNN7EXAMPLE";
+    const value = { config: { value: secret + "x".repeat(4000) } };
+    const result = truncateValue(value, 1024) as { _truncated: boolean; _preview: string };
+    expect(result._truncated).toBe(true);
+    expect(result._preview).not.toContain(secret);
+    expect(result._preview).toContain("[REDACTED_AWS_KEY]");
+  });
+
   it("truncation marker carries a private discriminator so a real '_truncated' user field cannot falsely trigger replay notes", () => {
     const huge = "a".repeat(MAX_STORED_PAYLOAD_SIZE + 1000);
     const marker = truncateValue(huge);

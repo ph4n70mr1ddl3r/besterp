@@ -15,7 +15,7 @@
 //   `{ _error: "Failed to serialize value" }` — never throw from a middleware
 //   side-effect like audit/idempotency logging.
 
-import { MAX_STORED_PAYLOAD_SIZE } from "@besterp/shared";
+import { MAX_STORED_PAYLOAD_SIZE, sanitizeForLogOutput } from "@besterp/shared";
 export { MAX_STORED_PAYLOAD_SIZE };
 
 /** Preview length (bytes) when a payload is truncated. */
@@ -68,7 +68,16 @@ function truncationMarker(encoded: Uint8Array): {
     [TRUNCATION_MARKER_KEY]: true,
     _truncated: true,
     _originalSize: encoded.byteLength,
-    _preview: safeSliceUtf8(encoded, PREVIEW_BYTES),
+    // Run the preview through sanitizeForLogOutput as defense-in-depth: the
+    // value handed to truncateValue is normally pre-redacted by key name
+    // (redactSensitiveFields / redactSensitiveFieldValues), but a secret
+    // under a NON-sensitive key name (e.g. `{"config": {"value":
+    // "AKIAIOSFODNN7EXAMPLE"}}`) survives key-name redaction and would
+    // otherwise land verbatim in the durable ai_action_log / idempotency
+    // `_preview` field — an asymmetric leak into the cross-tenant audit sink.
+    // sanitizeForLogOutput scrubs high-entropy bearer/secret tokens by shape,
+    // so the preview can never carry a raw secret.
+    _preview: sanitizeForLogOutput(safeSliceUtf8(encoded, PREVIEW_BYTES)),
   };
 }
 
