@@ -48,13 +48,13 @@ if (process.env.NODE_ENV === "production" && process.env.ALLOW_CLEANUP_PRODUCTIO
     ? Number(process.env.CLEANUP_TX_TIMEOUT_MS)
     : 600_000;
 
-  // Idempotency records use a surrogate `id` (UUID) as the primary key; the
-  // (idempotencyKey, tenantId) pair is a unique constraint, not the PK. Deletion
-  // is therefore precise and safe by `id` alone — there is no risk of
-  // cross-tenant collision the way there was with a key-only composite match.
-  // A single IN (...) list also keeps the generated SQL flat instead of nesting
-  // BATCH_SIZE OR-branches, which would otherwise risk blowing past
-  // PostgreSQL's max_expression_depth (default 10000) on large batches.
+  // Idempotency records use a COMPOSITE primary key (idempotencyKey, tenantId)
+  // — there is no surrogate `id` column. Deletion must therefore target the
+  // composite key. We select the (idempotencyKey, tenantId) pair for each
+  // expired row and delete by that compound selector. (The previous revision
+  // selected/deleted by a non-existent `id` column, which would throw
+  // "Unknown field 'id'" at runtime and clean nothing.) Batching bounds
+  // transaction size and lock contention on large tables.
   const BATCH_SIZE = 5000;
 
   async function main() {
@@ -99,13 +99,17 @@ if (process.env.NODE_ENV === "production" && process.env.ALLOW_CLEANUP_PRODUCTIO
         const expired = await tx.idempotencyRecord.findMany({
           where: { expiresAt: { lt: new Date() } },
           orderBy: { expiresAt: "asc" },
-          select: { id: true },
+          select: { idempotencyKey: true, tenantId: true },
           take: BATCH_SIZE,
         });
         if (expired.length === 0) break;
 
         const del = await tx.idempotencyRecord.deleteMany({
-          where: { id: { in: expired.map((r) => r.id) } },
+          where: {
+            OR: expired.map((r) => ({
+              idempotencyKey_tenantId: { idempotencyKey: r.idempotencyKey, tenantId: r.tenantId },
+            })),
+          },
         });
         batchDeleted = del.count;
         deleted += batchDeleted;

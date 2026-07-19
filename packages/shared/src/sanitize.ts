@@ -134,7 +134,20 @@ export function sanitizeLogOutput(message: string): string {
   // block the Node event loop (DoS). The .slice(...) truncation applied by
   // callers happens AFTER this runs, so it cannot mitigate the cost.
   if (Buffer.byteLength(message, "utf8") > MAX_LOG_OUTPUT_LENGTH) {
-    message = message.slice(0, MAX_LOG_OUTPUT_LENGTH);
+    // Truncate on a CHARACTER boundary (not UTF-16 code units) so the result
+    // stays within the byte budget and is never cut mid-multi-byte character.
+    // String.prototype.slice counts UTF-16 code units, so slicing a run of
+    // CJK/emoji at the same numeric index could keep far more than 100 KB of
+    // UTF-8 bytes — defeating the DoS cap the guard exists to enforce.
+    const enc = new TextEncoder();
+    let end = 0;
+    let byteCount = 0;
+    for (; end < message.length; end++) {
+      const chBytes = enc.encode(message[end]).length;
+      if (byteCount + chBytes > MAX_LOG_OUTPUT_LENGTH) break;
+      byteCount += chBytes;
+    }
+    message = end > 0 ? message.slice(0, end) : "";
   }
   return sanitizeLogMessage(message)
     .replace(/postgres(?:ql)?:\/\/[^\s"']+/gi, "[DATABASE_URL]")
@@ -174,6 +187,21 @@ export function sanitizeLogOutput(message: string): string {
       const cleaned = value.replace(/^\[+|[\])}\s]+$/g, "");
       if (cleaned === "") return `${m}[REDACTED]`;
       return `${name}[REDACTED]`;
+    })
+    // Boundary-based variant of the rule above for secrets that appear OUTSIDE
+    // a URL query string — e.g. a plain error message `password=hunter2` or a
+    // JSON blob embedded in a string such as `{"api_key":"sk_live_abc"}`. The
+    // `?&?#;` lookbehind above does NOT match these contexts, so without this
+    // rule a secret in free text / JSON-in-text survives verbatim into
+    // operator logs, agent-facing error messages, and (for `reasoning`) the
+    // durable cross-tenant audit row. We require a non-sensitive boundary
+    // before the param name (start-of-string, whitespace, quote, `{`, `,`,
+    // `;`, `(`, `[`) so benign prose with `secret` as an English word is not
+    // mangled, while `{"password":"x"}` / `password=hunter2` are caught. The
+    // value class excludes JSON terminators and whitespace so it stops at the
+    // closing quote/bracket.
+    .replace(/(^|[\s"'{([,;])((?:key|token|id_token|access_token|secret|password|passwd|pwd|auth|api_key|apikey|client_secret|client_id|signature|sign|otp|code|session|bearer))=([^}\]\s"'`,;]+)/gi, (full, lead, name) => {
+      return `${lead}${name}=[REDACTED]`;
     })
     // Redact high-entropy bearer/secret tokens that appear outside the
     // key=value form above (e.g. `Authorization: Bearer sk_live_...` echoed in
@@ -428,7 +456,23 @@ export function redactSensitiveFieldValues(
   depth = 0,
   seen?: WeakSet<object>,
 ): unknown {
-  if (depth > MAX_REDACTION_DEPTH) return "[Too deep]";
+  if (depth > MAX_REDACTION_DEPTH) {
+    // Do NOT return the raw subtree: the per-level sensitive-key redaction loop
+    // below only runs at depth <= cap, so a secret nested deeper than the cap
+    // (e.g. `a.b…[21]…password`) would otherwise be returned verbatim —
+    // defeating the redaction contract on every agent-facing and durable
+    // surface. Still redact sensitive-named KEYS at THIS level (a secret
+    // directly under a sensitive key is caught) and otherwise collapse the
+    // oversized subtree to a placeholder so nothing leaks from below.
+    if (value != null && typeof value === "object" && !Array.isArray(value) && !(value instanceof Map) && !(value instanceof Set) && !(value instanceof WeakMap) && !(value instanceof WeakSet)) {
+      const capped: Record<string, unknown> = {};
+      for (const [key] of Object.entries(value as Record<string, unknown>)) {
+        capped[key] = isSensitiveFieldName(key) ? "[REDACTED]" : "[Too deep]";
+      }
+      return capped;
+    }
+    return "[Too deep]";
+  }
   if (typeof value === "string") return sanitizeForLogOutput(value);
   if (value === null || typeof value !== "object") return value;
   if (value instanceof WeakMap || value instanceof WeakSet) return "[WeakCollection]";

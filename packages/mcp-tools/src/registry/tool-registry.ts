@@ -13,7 +13,7 @@ import {
   ZodSchemaLike,
   RiskLevel,
 } from "../schema/tool-definition.js";
-import { MAX_IDEMPOTENCY_KEY_LENGTH, SAFE_IDEMPOTENCY_KEY, sanitizeForLogOutput, redactSensitiveFieldValues } from "@besterp/shared";
+import { MAX_IDEMPOTENCY_KEY_LENGTH, SAFE_IDEMPOTENCY_KEY, sanitizeForLogOutput, redactSensitiveFieldValues, validateTenantIdEnhancedForAuth, MAX_USER_ID_LENGTH } from "@besterp/shared";
 import { isSensitiveField } from "../middleware/sensitive-fields.js";
 
 const VALID_RISK_LEVELS: readonly RiskLevel[] = ["none", "low", "medium", "high", "critical"];
@@ -142,6 +142,17 @@ export class ToolRegistry {
    *   global[0](global[1](...tool[0](tool[1](handler))))
    */
   async execute(name: string, rawInput: unknown, context: ToolContext): Promise<ToolResult> {
+    // Auth-boundary guard: `context.tenantId` / `context.userId` are the values
+    // used to scope idempotency records, tag the durable `ai_action_log` row,
+    // and (inside handlers) set the RLS tenant context via `withTenant(...)`.
+    // Nothing else in the mcp-tools pipeline validated them, so a server that
+    // constructed `ToolContext` with an unvalidated / attacker-controlled
+    // tenantId could set an arbitrary tenant on RLS — a cross-tenant access
+    // path. Validate here, BEFORE any middleware or handler runs, and fail
+    // closed with a non-enumerating error (no tenant/id echoed to the agent).
+    const authCheck = this.validateContextIdentity(context);
+    if (authCheck) return authCheck;
+
     const entry = this.tools.get(name);
     if (!entry) {
       // Hallucination guard — suggest similar tool names
@@ -247,6 +258,42 @@ export class ToolRegistry {
     }
 
     return pipeline(rawInput, effectiveContext);
+  }
+
+  /**
+   * Validate the identity fields of a tool-execution context at the
+   * auth boundary. `tenantId` and `userId` are used to scope idempotency
+   * records, tag the durable audit row, and (inside handlers) set the RLS
+   * tenant context — so an unvalidated value here is a cross-tenant access
+   * path. Returns a failing `ToolResult` when either is malformed, or
+   * `null` when the context is acceptable. Fails closed: no tenant/id value
+   * is reflected to the agent on error.
+   */
+  private validateContextIdentity(context: ToolContext): ToolResult | null {
+    try {
+      validateTenantIdEnhancedForAuth(context.tenantId);
+    } catch {
+      return {
+        success: false,
+        error: {
+          code: "INVALID_TENANT_ID",
+          message: "The request tenant identifier is invalid. Contact the system administrator.",
+          suggestedTools: ["list_available_tools"],
+        },
+      };
+    }
+    const userId = context.userId;
+    if (typeof userId !== "string" || userId.length === 0 || userId.length > MAX_USER_ID_LENGTH || !/^[a-zA-Z0-9_-]+$/.test(userId)) {
+      return {
+        success: false,
+        error: {
+          code: "INVALID_USER_ID",
+          message: "The request user identifier is invalid. Contact the system administrator.",
+          suggestedTools: ["list_available_tools"],
+        },
+      };
+    }
+    return null;
   }
 
   /**

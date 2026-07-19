@@ -252,7 +252,12 @@ function redactMap(value: Map<unknown, unknown>, depth: number, seen: WeakSet<ob
     if (isSensitiveField(keyStr)) {
       return ["[REDACTED]", "[REDACTED]"];
     }
-    return [k, redactSensitiveFields(v, depth + 1, seen)];
+    // Mirror the canonical shared redactor: recurse the key through
+    // redactSensitiveFields (rather than returning the raw `k`) so a
+    // non-string key whose string form is sensitive, or a key carrying a
+    // nested sensitive value, is redacted consistently with the REST and
+    // error-handler surfaces — avoiding asymmetric key handling divergence.
+    return [redactSensitiveFields(k, depth + 1, seen), redactSensitiveFields(v, depth + 1, seen)];
   });
 }
 
@@ -275,7 +280,22 @@ export function redactSensitiveFields(value: unknown, depth = 0, seen?: WeakSet<
   // verbatim to ai_action_log. That is a defense-in-depth gap in a
   // security-sensitive redaction path. Mirrors the error-handler's
   // sanitizeContextValue depth guard ("[Too deep]").
-  if (depth > MAX_REDACTION_DEPTH) return "[Too deep]";
+  if (depth > MAX_REDACTION_DEPTH) {
+    // Do NOT return the raw subtree: the per-level sensitive-key redaction loop
+    // below only runs at depth <= cap, so a secret nested deeper than the cap
+    // would otherwise be persisted/replayed verbatim — a defense-in-depth gap
+    // in a security-sensitive redaction path. Still redact sensitive-named KEYS
+    // at THIS level and otherwise collapse the oversized subtree to a
+    // placeholder so nothing leaks from below.
+    if (value != null && typeof value === "object" && !Array.isArray(value) && !(value instanceof Map) && !(value instanceof Set) && !(value instanceof WeakMap) && !(value instanceof WeakSet)) {
+      const capped: Record<string, unknown> = {};
+      for (const [key] of Object.entries(value as Record<string, unknown>)) {
+        capped[key] = isSensitiveField(key) ? "[REDACTED]" : "[Too deep]";
+      }
+      return capped;
+    }
+    return "[Too deep]";
+  }
   // A terminal (string/primitive) value is returned verbatim EXCEPT strings,
   // which must still pass through sanitizeForLogOutput so a connection string,
   // JWT, or `?api_key=…` secret embedded in a tool result *value* (under a

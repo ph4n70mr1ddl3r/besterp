@@ -83,7 +83,21 @@ function isNonPrimitiveObject(value: unknown): value is Record<string, unknown> 
 }
 
 function sanitizeContextValue(value: unknown, depth = 0, seen?: WeakSet<object>): unknown {
-  if (depth > MAX_REDACTION_DEPTH) return "[Too deep]";
+  if (depth > MAX_REDACTION_DEPTH) {
+    // Do NOT return the raw subtree: the per-level sensitive-key redaction loop
+    // below only runs at depth <= cap, so a secret nested deeper than the cap
+    // would otherwise be reflected to the AI agent verbatim. Still redact
+    // sensitive-named KEYS at THIS level and otherwise collapse the oversized
+    // subtree to a placeholder so nothing leaks from below.
+    if (value != null && typeof value === "object" && !Array.isArray(value) && !(value instanceof Map) && !(value instanceof Set) && !(value instanceof WeakMap) && !(value instanceof WeakSet)) {
+      const capped: Record<string, unknown> = {};
+      for (const [key] of Object.entries(value as Record<string, unknown>)) {
+        capped[key] = isSensitiveField(key) ? "[REDACTED]" : "[Too deep]";
+      }
+      return capped;
+    }
+    return "[Too deep]";
+  }
   if (typeof value === "string") return sanitizeForLogOutput(value).slice(0, MAX_ERROR_LOG_LINE_LENGTH);
   if (Array.isArray(value)) {
     const state = trackSeen(value, seen);
