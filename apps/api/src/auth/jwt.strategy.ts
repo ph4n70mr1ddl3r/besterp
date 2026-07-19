@@ -135,7 +135,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
 
   async validate(payload: JwtPayload): Promise<JwtValidatedUser> {
     const userId = validateAndTrimRequired(payload.sub, "user ID (sub)", MAX_USER_ID_LENGTH);
-    const tenantId = validateAndTrimRequired(payload.tenantId, "tenantId", MAX_TENANT_ID_LENGTH);
+    let tenantId = validateAndTrimRequired(payload.tenantId, "tenantId", MAX_TENANT_ID_LENGTH);
 
     // Defense-in-depth: validate tenantId format at the auth boundary so a
     // forged-but-signed token carrying a malicious tenantId never reaches
@@ -147,7 +147,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     // 401 is the canonical status for bad credentials and matches the
     // behavior of the other failure modes in this method.
     try {
-      validateTenantIdEnhanced(tenantId);
+      tenantId = validateTenantIdEnhanced(tenantId);
     } catch {
       // Convert ALL exceptions to UnauthorizedException so the response
       // is always 401 (bad credentials) rather than 500 (internal error)

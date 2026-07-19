@@ -357,12 +357,12 @@ export class PrismaService
       );
     }
 
-    validateTenantIdEnhanced(tenantId);
+    const normalizedTenantId = validateTenantIdEnhanced(tenantId);
 
-    const cached = this.tenantClientCache.get(tenantId)?.deref();
+    const cached = this.tenantClientCache.get(normalizedTenantId)?.deref();
     if (cached) {
       this.cacheHits++;
-      this.lastAccessed.set(tenantId, Date.now());
+      this.lastAccessed.set(normalizedTenantId, Date.now());
       return cached;
     }
 
@@ -376,7 +376,7 @@ export class PrismaService
       maxMethodCacheSize: this.maxMethodCacheSize,
       maxDelegateCacheSize: this.maxDelegateCacheSize,
     };
-    const client = createTenantClient(this._appClient, tenantId, options);
+    const client = createTenantClient(this._appClient, normalizedTenantId, options);
     const token = {};
     this.tenantClientCache.set(tenantId, new WeakRef(client));
     this.unregisterTokens.set(tenantId, token);

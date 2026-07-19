@@ -43,6 +43,19 @@ describe("validateTenantId", () => {
     expect(() => validateTenantId("tenant.acme")).toThrow("Invalid tenant ID");
     expect(() => validateTenantId("tenant/acme")).toThrow("Invalid tenant ID");
   });
+
+  it("trims surrounding whitespace and returns the normalized id", () => {
+    // A whitespace-padded id must normalize so the RLS call path
+    // (set_tenant_context) operates on the SAME string the validator accepted.
+    // Without trim, `"tenant-acme "` would pass validation but set an RLS
+    // context that matches no stored tenant_id — an isolation bypass.
+    expect(validateTenantId("  tenant-acme  ")).toBe("tenant-acme");
+    expect(validateTenantId("\ttenant-1\n")).toBe("tenant-1");
+  });
+
+  it("rejects an id that is only whitespace", () => {
+    expect(() => validateTenantId("   ")).toThrow("Tenant ID must be a non-empty string");
+  });
 });
 
 describe("withTenant", () => {

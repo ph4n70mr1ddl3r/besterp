@@ -24,19 +24,21 @@ vi.mock("@besterp/database", () => ({
     _tenantId: tenantId,
   })),
   validateTenantIdEnhanced: vi.fn((tenantId: string) => {
+    const trimmed = tenantId.trim();
     // Mirror the real validation logic for testing
-    if (!tenantId || !/^[a-zA-Z0-9_-]+$/.test(tenantId)) {
+    if (!trimmed || !/^[a-zA-Z0-9_-]+$/.test(trimmed)) {
       throw new InvalidTypeValueError(
-        `Invalid tenant ID: "${tenantId}".`,
-        { context: { field: "tenantId", received: tenantId } }
+        `Invalid tenant ID: "${trimmed}".`,
+        { context: { field: "tenantId", received: trimmed } }
       );
     }
-    if (tenantId.length > 100) {
+    if (trimmed.length > 100) {
       throw new InvalidTypeValueError(
         "Tenant ID is too long (max 100 characters)",
-        { context: { field: "tenantId", received: tenantId, maxLength: 100 } }
+        { context: { field: "tenantId", received: trimmed, maxLength: 100 } }
       );
     }
+    return trimmed;
   }),
 }));
 

@@ -59,12 +59,13 @@ class LruCache<K, V> {
 
 /**
  * Enhanced tenant ID validation — wraps validateTenantId with a structured DomainError.
+ * Returns the trimmed tenant ID or throws InvalidTenantIdError.
  */
-export function validateTenantIdEnhanced(tenantId: string): void {
+export function validateTenantIdEnhanced(tenantId: string): string {
   // Base validation enforces /^[a-zA-Z0-9_-]+$/ which rejects
   // all special characters (semicolons, quotes, comment delimiters, etc.).
   try {
-    validateTenantId(tenantId);
+    return validateTenantId(tenantId);
   } catch (e) {
     // Preserve original DomainError with its specific code (e.g. INVALID_TENANT_ID)
     // instead of wrapping it as INVALID_TYPE_VALUE, which loses error specificity.
@@ -268,7 +269,7 @@ function createClientProxy(
 }
 
 export function createTenantClient(prisma: PrismaClient, tenantId: string, options: CreateTenantClientOptions = {}): TenantScopedClient {
-  validateTenantIdEnhanced(tenantId);
+  const normalizedTenantId = validateTenantIdEnhanced(tenantId);
   validatePrismaClientForRls(prisma);
 
   const maxMethodCacheSize = options.maxMethodCacheSize ?? 1000;
@@ -277,7 +278,7 @@ export function createTenantClient(prisma: PrismaClient, tenantId: string, optio
   const methodCache = new LruCache<string, (...args: unknown[]) => Promise<unknown>>(maxMethodCacheSize);
   const delegateCache = new LruCache<string, object>(maxDelegateCacheSize);
 
-  const transactionWrapper = createTransactionWrapper(prisma, tenantId);
+  const transactionWrapper = createTransactionWrapper(prisma, normalizedTenantId);
 
-  return createClientProxy(prisma, tenantId, methodCache, delegateCache, transactionWrapper);
+  return createClientProxy(prisma, normalizedTenantId, methodCache, delegateCache, transactionWrapper);
 }

@@ -90,14 +90,14 @@ export class McpModule implements OnModuleInit {
         { context: { field: "tenantId", receivedType: typeof overrides.tenantId } }
       );
     }
-    const tenantId = overrides.tenantId.trim();
+    let tenantId = overrides.tenantId.trim();
     if (tenantId.length === 0) {
       throw new InvalidTypeValueError(
         "McpModule.buildContext: tenantId must not be empty or whitespace-only.",
         { context: { field: "tenantId", receivedType: typeof overrides.tenantId } }
       );
     }
-    validateTenantIdEnhanced(tenantId);
+    tenantId = validateTenantIdEnhanced(tenantId);
 
     // Validate userId — prevents null/empty user IDs in audit logs.
     if (typeof overrides.userId !== "string") {

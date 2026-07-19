@@ -254,8 +254,7 @@ export function sanitizeLogOutput(message: string): string {
     //      qualify as high-entropy; short tokens are left alone to avoid
     //      false positives (e.g. a product SKU `ABC123`). This mirrors the
     //      length threshold used by the JWT/bearer rules above.
-    // eslint-disable-next-line no-control-regex
-    .replace(/\b(?:AKIA|ASIA)[0-9A-Z]{16}/g, "[REDACTED_AWS_KEY]")
+      .replace(/\b(?:AKIA|ASIA)[0-9A-Z]{16}/g, "[REDACTED_AWS_KEY]")
     .replace(/\b(?:sk|rk|pk|ssk)_(?:live|test)_[A-Za-z0-9]{8,}/gi, "[REDACTED_API_KEY]")
     .replace(/\b(?:ghp|gho|ghu|ghs|ghr|glpat|glpat-|gldt|dop_v1)_[A-Za-z0-9]{16,}/g, "[REDACTED_TOKEN]")
     .replace(/\b(?:xox[baprs]-[A-Za-z0-9-]{10,})/g, "[REDACTED_SLACK_TOKEN]")
@@ -312,8 +311,7 @@ export function sanitizeLogOutput(message: string): string {
       // values — exactly the shape a leaked credential takes. The
       // `(?=…)` lookahead is zero-width so it does not consume characters
       // the trailing boundary needs.
-      // eslint-disable-next-line no-control-regex
-      .replace(/(?<!\[)(^|[\s"'`{([<,;])(?![A-Za-z0-9_./+=-]*REDACTED)(?=[A-Za-z0-9_./+=-]*[A-Z._+/=])([A-Za-z0-9_./+=-]{20,})(?![A-Za-z0-9_./+=-])/g, (full, lead, token) => `${lead}[REDACTED_TOKEN]`);
+       .replace(/(?<!\[)(^|[\s"'`{([<,;])(?![A-Za-z0-9_./+=-]*REDACTED)(?=[A-Za-z0-9_./+=-]*[A-Z._+/=])([A-Za-z0-9_./+=-]{20,})(?![A-Za-z0-9_./+=-])/g, (full, lead) => `${lead}[REDACTED_TOKEN]`);
 }
 
 /**

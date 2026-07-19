@@ -21,24 +21,39 @@ type PrismaTransactionClient = Prisma.TransactionClient;
 const TENANT_ID_PATTERN = /^[a-zA-Z0-9_-]+$/;
 
 /**
- * Validates a tenant ID to prevent SQL injection.
+ * Validates a tenant ID to prevent SQL injection and normalises it (trim).
  *
  * Defense-in-depth: the actual SQL call uses parameterized queries via
  * set_tenant_context(), but we validate the format upfront to catch
  * obviously invalid tenant IDs early with a clear error message.
+ *
+ * The function TRIMS the tenant ID before validating and RETURNS the trimmed
+ * value so callers (withTenant, setTenantContext) operate on the same string
+ * the validator accepted. Without this, a whitespace-padded tenant ID
+ * (`"tenant-acme "`) would pass validation but then be set verbatim via
+ * `set_tenant_context('tenant-acme '::text)`, producing an RLS context that
+ * matches no stored `tenant_id` — an isolation bypass / data-invisibility
+ * gap. The auth boundary's `validateTenantIdEnhancedForAuth` already trims;
+ * this makes the RLS call path consistent with it.
  */
-export function validateTenantId(tenantId: string): void {
+export function validateTenantId(tenantId: string): string {
   if (typeof tenantId !== "string" || tenantId.length === 0) {
     throw new InvalidTenantIdError(
       "Tenant ID must be a non-empty string."
     );
   }
-  if (tenantId.length > MAX_TENANT_ID_LENGTH) {
+  const trimmed = tenantId.trim();
+  if (trimmed.length === 0) {
+    throw new InvalidTenantIdError(
+      "Tenant ID must be a non-empty string."
+    );
+  }
+  if (trimmed.length > MAX_TENANT_ID_LENGTH) {
     throw new InvalidTenantIdError(
       `Tenant ID is too long (max ${MAX_TENANT_ID_LENGTH} characters).`
     );
   }
-   if (!TENANT_ID_PATTERN.test(tenantId)) {
+   if (!TENANT_ID_PATTERN.test(trimmed)) {
     // Sanitize: show only first 20 chars to prevent log injection and
     // information disclosure from untrusted input. The tenant ID is
     // attacker-influenced at the auth boundary, so strip control characters
@@ -46,13 +61,14 @@ export function validateTenantId(tenantId: string): void {
     // error message — otherwise CR/LF or terminal-escape payloads reach
     // operator logs verbatim (the same log-injection class sanitized
     // everywhere else).
-    const rawPreview = tenantId.length > 20 ? `${tenantId.slice(0, 20)}...` : tenantId;
+    const rawPreview = trimmed.length > 20 ? `${trimmed.slice(0, 20)}...` : trimmed;
     const preview = sanitizeLogMessage(rawPreview);
     throw new InvalidTenantIdError(
       `Invalid tenant ID: "${preview}". ` +
         "Tenant IDs may only contain alphanumeric characters, hyphens, and underscores."
     );
   }
+  return trimmed;
 }
 
 /**
@@ -91,8 +107,14 @@ export async function setTenantContext(
   tx: { $executeRaw: PrismaClient["$executeRaw"] },
   tenantId: string,
 ): Promise<void> {
+  // Always re-validate (and trim) here so every RLS-context call site — direct
+  // withTenant callers AND the rls-extension proxy — operates on the exact
+  // normalized tenant ID the validator accepts. A raw, untrimmed value reaching
+  // set_tenant_context() would set an RLS context that matches no stored
+  // tenant_id (isolation bypass / data invisibility).
+  const normalizedTenantId = validateTenantId(tenantId);
   try {
-    await tx.$executeRaw`SELECT set_tenant_context(${tenantId}::text)`;
+    await tx.$executeRaw`SELECT set_tenant_context(${normalizedTenantId}::text)`;
   } catch (e) {
     if (isDomainError(e)) throw e;
     throw new TenantContextFailedError(
@@ -145,9 +167,9 @@ export async function withTenant<T>(
       "withTenant: 'fn' must be a function receiving the transaction client."
     );
   }
-  validateTenantId(tenantId);
+  const normalizedTenantId = validateTenantId(tenantId);
   return prisma.$transaction(async (tx) => {
-    await setTenantContext(tx, tenantId);
+    await setTenantContext(tx, normalizedTenantId);
     return fn(tx);
   }, {
     timeout: options?.timeout ?? DEFAULT_TRANSACTION_TIMEOUT_MS,
