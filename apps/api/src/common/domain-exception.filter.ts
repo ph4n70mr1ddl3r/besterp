@@ -157,7 +157,7 @@ export class DomainExceptionFilter implements ExceptionFilter {
         // DomainError path do, so a REST client cannot extract a secret that
         // an AI agent would not see.
         safeBody.message = stripHtmlTags(sanitizeForLogOutput(res.message));
-      } else       if (Array.isArray(res.message)) {
+      } else if (Array.isArray(res.message)) {
         // ValidationPipe errors carry an array of per-field detail strings
         // like "field must be shorter than or equal to 500 characters" or
         // "field must be an enum value". Strip user-supplied values (the

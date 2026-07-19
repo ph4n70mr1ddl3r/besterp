@@ -2,8 +2,54 @@
 
 ## Scope
 Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
-`mcp-tools`, `apps/api`) conducted on 2026-07-19. This is review 57;
+`mcp-tools`, `apps/api`) conducted on 2026-07-19. This is review 61;
 round 1–56 are documented in earlier revisions of this file and `CHANGES.md`.
+
+## Findings & Actions (round 61)
+
+### Fixed this round
+
+1. **🟢 `tenant.guard.ts:85` — dead `agentId === ""` check.** `agentId` is already
+   computed as `user.agentId.trim() || undefined` on lines 77-80, so it can never be
+   an empty string at this point. The `=== ""` comparison is unreachable dead code.
+   Removed the redundant check.
+
+2. **🟢 `domain-exception.filter.ts:160` — excessive whitespace in `else if`.**
+   `} else       if (Array.isArray(res.message)) {` had irregular spacing between
+   `else` and `if`, obscuring the control flow. Normalized to standard `} else if (...)`
+   formatting.
+
+3. **🟢 `.env.example` — missing documented env vars.** Added `JWT_ISSUER`, `JWT_AUDIENCE`,
+   `REDIS_TLS`, `BUILD_NUMBER`, `BUILD_DATE`, `HARD_EXIT_TIMEOUT_MS`,
+   `PRISMA_MAX_METHOD_CACHE_SIZE`, and `PRISMA_MAX_DELEGATE_CACHE_SIZE` which were
+   referenced in source but not documented in the example env file.
+
+### Reviewed but NOT changed (false positives / out of scope)
+
+- **`party.service.ts` 1076 lines — exceeds 120-line function warning:** re-verified as
+  a large but coherent service; refactoring into smaller units is a future effort, not
+  a security/correctness issue this round.
+- **`rls-extension.ts` model-level `$transaction` bypass:** re-verified — callers invoke
+  `$transaction` on the client proxy (line 237), not on model delegates. The model
+  delegate's `$transaction` is inherited from the original Prisma client and would not
+  carry tenant context, but no code path in the codebase calls it on a model delegate.
+  Noted as a latent risk if someone writes `proxy.party.$transaction(...)` directly.
+- **`prisma.service.ts` WeakRef/FinalizationRegistry race condition:** re-verified as
+  theoretical — JS is single-threaded and the GC callback fires between tick boundaries,
+  making practical races unlikely. The guard on line 45 (`ref.deref()`) already prevents
+  double-eviction.
+- **`jwt.strategy.ts` module-level secret cache / `tenant.guard.ts` redundant userId validation:**
+  re-verified as defensive redundancy, not a bug. No change this round.
+
+## Test Results
+```
+shared:    140 passed (4 files)   (unchanged)
+mcp-tools: 138 passed (4 files)   (unchanged)
+database:   25 passed, 10 skipped (2 files)  (unchanged)
+api:       328 passed (15 files)  (unchanged)
+────────────────────────────────────
+Total:     631 passed, 10 skipped
+```
 
 ## Findings & Actions (round 57)
 

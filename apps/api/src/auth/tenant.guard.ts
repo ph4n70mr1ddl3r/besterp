@@ -82,7 +82,7 @@ export class TenantGuard implements CanActivate {
     const tenantContext: TenantContext = {
       tenantId,
       userId,
-      agentId: agentId === "" ? undefined : agentId,
+      agentId,
     };
 
     request.tenantContext = tenantContext;
