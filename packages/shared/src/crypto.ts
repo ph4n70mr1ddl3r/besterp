@@ -48,7 +48,7 @@ function sortMap(value: Map<unknown, unknown>, ancestors: Set<object>, depth: nu
     const prepared = entries
       .map(([k, v]) => ({
         v,
-        kSorted: sortKeysDeep(k, ancestors, depth + 1),
+        kSorted: sortKeysDeep(k, ancestors, depth + 1, budget),
         kStr: "", // populated below
       }));
     for (const entry of prepared) {

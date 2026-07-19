@@ -54,7 +54,7 @@ describe("validateTenantId", () => {
   });
 
   it("rejects an id that is only whitespace", () => {
-    expect(() => validateTenantId("   ")).toThrow("Tenant ID must be a non-empty string");
+    expect(() => validateTenantId("   ")).toThrow("Tenant ID must not consist solely of whitespace");
   });
 });
 

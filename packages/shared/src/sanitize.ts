@@ -299,19 +299,34 @@ export function sanitizeLogOutput(message: string): string {
     // from re-redacting an already-inserted `[REDACTED_…]` placeholder
     // (e.g. the Slack/GitHub prefix rules above) into `[[REDACTED_TOKEN]]`.
     //
-    // The run MUST contain at least one uppercase letter or one of the
-    // non-hex punctuation chars (`._+/=`) so a purely-lowercase-hex string
-    // (e.g. a 32-char UUID-without-dashes `9f8d…b4a`, or a long hash) is
-    // NOT mangled — those are benign identifiers, and folding them into
-    // `[REDACTED_TOKEN]` would destroy legitimate log/audit context. The
-    // well-known prefix rules above already catch provider secrets even
-    // when they are lowercase-hex-shaped (AKIA/ASIA are uppercase;
-    // sk_live_/ghp_/glpat_ carry a distinguishing prefix), so the only
-    // tokens left for this rule are mixed-case / punctuated high-entropy
-    // values — exactly the shape a leaked credential takes. The
-    // `(?=…)` lookahead is zero-width so it does not consume characters
-    // the trailing boundary needs.
-    .replace(/(?<!\[)(^|[\s"'`{([<,;])(?![A-Za-z0-9_./+=-]*REDACTED)(?=[A-Za-z0-9_./+=-]*[A-Z._+/=])([A-Za-z0-9_./+=-]{20,})(?![A-Za-z0-9_./+=-])/g, (full, lead) => `${lead}[REDACTED_TOKEN]`);
+    // Two-pass approach avoids the ReDoS of the previous triple-lookaround
+    // regex (three overlapping lookarounds on the same character class with
+    // `{20,}` unbounded quantifier caused catastrophic backtracking on long
+    // strings with no match). Pass 1: match any run of 20+ chars from the
+    // token charset. Pass 2: post-filter for uppercase/punctuation presence
+    // so purely lowercase-hex strings (dashless UUIDs, hashes) and
+    // all-lowercase runs (obviously benign prose) are spared.
+    .replace(/[A-Za-z0-9_./+=-]{20,}/g, (match) => {
+      // Already-redacted placeholders are not re-consumed.
+      if (match.includes("REDACTED")) return match;
+      // Purely lowercase runs (prose, repeated chars) are benign.
+      if (/^[a-z]+$/.test(match)) return match;
+      // Purely lowercase-hex (dashless UUIDs, hashes) are benign identifiers.
+      if (/^[a-f0-9]+$/.test(match)) return match;
+      // UUIDs (hyphenated hex) are benign identifiers.
+      if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(match)) return match;
+      // Benign phrases: mixed-case but containing common English words or
+      // separators (hyphens, underscores) with no uppercase+digit combo
+      // that would indicate a secret shape.
+      if (/^[a-zA-Z0-9_-]+$/.test(match) && !/[A-Z][0-9]/.test(match)) {
+        // Must contain at least one uppercase letter AND one of ._+/=
+        // (typical secret shapes) to qualify as high-entropy.
+        const hasUpper = /[A-Z]/.test(match);
+        const hasPunct = /[._+=/]/.test(match);
+        if (!(hasUpper && hasPunct)) return match;
+      }
+      return "[REDACTED_TOKEN]";
+    });
 }
 
 /**

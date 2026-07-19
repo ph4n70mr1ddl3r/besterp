@@ -6,6 +6,11 @@
 //
 // The `validate()` method returns the value that gets attached to
 // `req.user`, which the TenantGuard then uses to build TenantContext.
+//
+// Optional: JWT_ISSUER env var enforces the token issuer claim. Tokens
+// from an unexpected issuer are rejected. JWT_AUDIENCE similarly
+// validates the `aud` claim. Both are off by default to avoid breaking
+// existing deployments.
 
 import { Injectable, Logger, UnauthorizedException } from "@nestjs/common";
 import { PassportStrategy } from "@nestjs/passport";
@@ -126,10 +131,14 @@ export function resetJwtSecretCache(): void {
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
   constructor() {
+    const issuer = process.env.JWT_ISSUER;
+    const audience = process.env.JWT_AUDIENCE;
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
       secretOrKey: resolveJwtSecret(),
+      ...(issuer ? { issuer } : {}),
+      ...(audience ? { audience } : {}),
     });
   }
 

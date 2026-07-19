@@ -6,7 +6,7 @@
 
 import { Injectable, Logger, OnModuleInit } from "@nestjs/common";
 import { PrismaService } from "./prisma/prisma.service.js";
-import { sanitizeForLogOutput } from "@besterp/shared";
+import { sanitizeForLogOutput, sanitizeLogMessage } from "@besterp/shared";
 import * as fs from "node:fs/promises";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -172,8 +172,8 @@ export class HealthService implements OnModuleInit {
       // disclosure about the container/server layout.
       warning: this.packageInfoError ?? undefined,
       build: {
-        number: process.env.BUILD_NUMBER,
-        date: process.env.BUILD_DATE,
+        number: process.env.BUILD_NUMBER ? sanitizeLogMessage(process.env.BUILD_NUMBER).slice(0, 50) : undefined,
+        date: process.env.BUILD_DATE ? sanitizeLogMessage(process.env.BUILD_DATE).slice(0, 30) : undefined,
       },
     };
   }

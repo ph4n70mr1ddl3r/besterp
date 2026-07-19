@@ -259,13 +259,16 @@ async function acquireIdempotencyRecord(
         );
         return { existingRecord: null, recordCreated: false, unavailable: true };
       }
-      return { existingRecord: null, recordCreated: false };
+      // P2034 on the last attempt — let the loop exhaust so the caller
+      // gets IDEMPOTENCY_CONTENTION (not SERVICE_UNAVAILABLE).
+      // Fall through to the loop-end return.
+      continue;
     }
   }
   // Exhausted all retries — surface contention rather than a silent fallthrough.
   // The for-loop always returns via try/catch, but TS needs an unconditional
   // return after the loop for flow analysis (TS2366).
-  return { existingRecord: null, recordCreated: false };
+  return { existingRecord: null, recordCreated: false, unavailable: false };
 }
 
 function handleExistingRecord(

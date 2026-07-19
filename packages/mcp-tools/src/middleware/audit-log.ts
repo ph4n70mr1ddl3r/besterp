@@ -9,17 +9,10 @@
 // never break the tool).
 
 import { PrismaClient, Prisma } from "@prisma/client";
-import { getErrorCode, sanitizeLogMessage, sanitizeForLogOutput, MAX_REASONING_LENGTH, MAX_SOFT_FAILURE_MESSAGE_SIZE } from "@besterp/shared";
+import { getErrorCode, sanitizeLogMessage, sanitizeForLogOutput, MAX_REASONING_LENGTH, MAX_SOFT_FAILURE_MESSAGE_SIZE, MAX_REDACTION_DEPTH } from "@besterp/shared";
 import { ToolMiddleware, ToolContext, ToolResult } from "../schema/tool-definition.js";
 import { truncateValue, capString, MAX_STORED_PAYLOAD_SIZE } from "./truncate.js";
 import { isSensitiveField } from "./sensitive-fields.js";
-
-/** Maximum depth for recursive sensitive field redaction. Kept identical to
- * `MAX_REDACTION_DEPTH` in `@besterp/shared` (the canonical REST redactor)
- * so the two "must-match" redactors cannot diverge and silently drop data
- * from `ai_action_log` / the idempotency sink for legitimately deep
- * (11–20 level) payloads while the REST surface still preserves them. */
-const MAX_REDACTION_DEPTH = 20;
 
 /** Maximum concurrent audit log writes to prevent memory pressure under DB slowdown. */
 const MAX_CONCURRENT_AUDIT_WRITES = 100;
