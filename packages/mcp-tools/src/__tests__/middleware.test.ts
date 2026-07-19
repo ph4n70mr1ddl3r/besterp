@@ -253,6 +253,21 @@ describe("Idempotency Middleware", () => {
     expect(mockPrisma.idempotencyRecord.create).not.toHaveBeenCalled();
   });
 
+  it("should reject an empty-string idempotency key (present but invalid)", async () => {
+    // An empty string is a PRESENT key (distinct from a missing key, which is a
+    // no-op pass-through per ADR-004) and must be rejected rather than silently
+    // creating a blank-key record.
+    const input = { test: "value" };
+    const contextWithKey = { ...mockContext, idempotencyKey: "" };
+
+    const middleware = idempotencyMiddleware(mockPrisma as any);
+    const result = await middleware(input, contextWithKey, mockDefinition, successNext({ success: true, data: "should not reach" }));
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe("INVALID_IDEMPOTENCY_KEY");
+    expect(mockPrisma.idempotencyRecord.create).not.toHaveBeenCalled();
+  });
+
   it("should pass through when prisma is null", async () => {
     const input = { test: "value" };
     const contextWithKey = { ...mockContext, idempotencyKey: "some-key" };

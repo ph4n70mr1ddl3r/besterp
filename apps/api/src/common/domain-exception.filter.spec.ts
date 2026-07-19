@@ -225,6 +225,25 @@ describe("DomainExceptionFilter", () => {
       expect((body.message as string)).toContain("[DATABASE_URL]");
     });
 
+    it("strips HTML tags from a string HttpException message in production", () => {
+      // Regression: the HttpException string-message branch must apply the same
+      // stripHtmlTags hardening as the DomainError path, otherwise a markup
+      // payload (stored-XSS in any HTML renderer) reaches REST clients verbatim.
+      process.env.NODE_ENV = "production";
+      const ctx = createMockHost();
+      const error = new HttpException(
+        { statusCode: 400, error: "BadInput", message: "<script>alert(1)</script><img src=x onerror=alert(2)>" },
+        HttpStatus.BAD_REQUEST,
+      );
+
+      filter.catch(error, ctx.host);
+
+      expect(ctx.captured.sentStatus).toBe(400);
+      const body = ctx.captured.body as Record<string, unknown>;
+      expect((body.message as string)).not.toContain("<script>");
+      expect((body.message as string)).not.toContain("<img");
+    });
+
     it("passes the full response through in non-production", () => {
       process.env.NODE_ENV = "development";
       const ctx = createMockHost();

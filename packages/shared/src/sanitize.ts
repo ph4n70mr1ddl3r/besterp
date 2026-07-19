@@ -203,6 +203,21 @@ export function sanitizeLogOutput(message: string): string {
     .replace(/(^|[\s"'{([,;])((?:key|token|id_token|access_token|secret|password|passwd|pwd|auth|api_key|apikey|client_secret|client_id|signature|sign|otp|code|session|bearer))=([^}\]\s"'`,;]+)/gi, (full, lead, name) => {
       return `${lead}${name}=[REDACTED]`;
     })
+    // Variant of the boundary rule above for secrets wrapped in QUOTES, e.g.
+    // `{"api_key":"sk_live_abc123"}` / `password="hunter2"`. The value class of
+    // the rule above excludes `"`/`'`, so a quoted secret survived verbatim into
+    // operator logs, agent-facing error messages, and (for `reasoning`) the
+    // durable cross-tenant audit row — an asymmetric leak vs. the bare-form rule
+    // that catches `password=hunter2`. Capture the quoted value and replace it
+    // with `[REDACTED]` so the secret text cannot survive in the output. Two
+    // shapes are covered: the JSON object form `"api_key":"value"` (colon +
+    // quoted value, key optionally wrapped in quotes) AND the free-text form
+    // `password="value"` (equals + quoted value). The leading boundary
+    // (whitespace/quote/`{`/`,`/`;`/`(`) is required so benign prose is not
+    // mangled, mirroring the bare-form rule.
+    .replace(/(^|[\s"'{([;,?])"?((?:key|token|id_token|access_token|secret|password|passwd|pwd|auth|api_key|apikey|client_secret|client_id|signature|sign|otp|code|session|bearer))"?[:=]("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')/gi, (full, lead, name) => {
+      return `${lead}${name}=[REDACTED]`;
+    })
     // Redact high-entropy bearer/secret tokens that appear outside the
     // key=value form above (e.g. `Authorization: Bearer sk_live_...` echoed in
     // an auth-failure error, or a bare JWT). The JWT pattern is conservative:

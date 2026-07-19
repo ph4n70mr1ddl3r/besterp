@@ -2,8 +2,93 @@
 
 ## Scope
 Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
-`packages/mcp-tools`, `apps/api`) conducted on 2026-07-19. This is review 55;
-round 1–54 are documented in earlier revisions of this file and `CHANGES.md`.
+`packages/mcp-tools`, `apps/api`) conducted on 2026-07-19. This is review 56;
+round 1–55 are documented in earlier revisions of this file and `CHANGES.md`.
+
+## Findings & Actions (round 56)
+
+### Fixed this round
+
+1. **🔴 `sanitize.ts` (boundary-variant secret rule) — quoted-JSON secrets
+   (`{"api_key":"sk_live_abc123"}`, `password="hunter2"`) were never redacted.** The
+   boundary-variant rule's value class excluded `"`/`'`, so any secret wrapped in
+   quotes survived verbatim. Because `sanitizeForLogOutput` is the sanitizer applied
+   to every error message, tool-output string leaf, audit `reasoning`, and operator
+   log line, a driver/handler error echoing a user-supplied config blob or a
+   `received` JSON payload (`{"password":"…"}`) persisted the secret verbatim across
+   **all** agent/REST/durable surfaces — an asymmetric leak vs. the bare-form rule
+   that catches `password=hunter2`. Added a quoted-value variant that covers both the
+   JSON object form (`"api_key":"value"`) and the free-text form (`password="value"`)
+   (and `?token="…"` via a widened leading boundary). Regression tests added
+   (double-quoted JSON value, double-quoted `password=`, single-quoted value,
+   query-string quoted form all redacted).
+
+2. **🟡 `errors.ts:39` (`DomainError.toJSON`) — `context` was reflected verbatim,
+   skipping key-name redaction.** `toJSON` is the canonical structured serializer
+   used for audit logs and idempotency records, but it returned `context` raw while
+   every other durable/agent surface runs it through `redactSensitiveFieldValues`.
+   A secret attached under a sensitive-named context key (e.g. `password`, `apiKey`)
+   reached the durable sinks unredacted. `toJSON` now redacts `context` via the
+   shared `redactSensitiveFieldValues`, closing the divergence from the REST
+   `DomainExceptionFilter.sanitizeContext` path and the MCP `redactSensitiveFields`
+   surface. Regression test added (sensitive-named context values redacted).
+
+3. **🔴 `idempotency.ts:48` — missing idempotency key regressed to a hard error
+   (contract break introduced in round 52).** The guard folded the missing-key case
+   into the validation error, so any caller that omits an idempotency key — the
+   documented ADR-004 no-op pass-through — received `INVALID_IDEMPOTENCY_KEY` and the
+   tool never executed. An existing regression test (`should pass through when no
+   idempotency key`) was failing as a result. Restored the contract: a missing key is
+   a no-op pass-through; only a present-but-invalid key (wrong type, empty, or over
+   length) is rejected. Added an explicit empty-string rejection test. Test count
+   moved 137→138 (the previously-failing test now passes) in `mcp-tools`.
+
+4. **🟡 `domain-exception.filter.ts:159,188` — `HttpException` string `message` and
+   `error` branches omitted `stripHtmlTags`.** The `DomainError` path applies
+   `stripHtmlTags`, but the parallel `HttpException` string branches returned only
+   `sanitizeForLogOutput`, so a markup payload (`<script>…</script>`) reached REST
+   clients verbatim (stored-XSS in any HTML renderer). Both string branches now wrap
+   the value in `stripHtmlTags` (matching the `DomainError` path's XSS hardening).
+   Regression test added (`<script>`/`<img onerror>` stripped from message).
+
+5. **🟡 `domain-exception.filter.ts:95` — the 500-context operator log line leaked
+   values under sensitive-named keys.** `handleDomainError` logged
+   `sanitizeForLogOutput(JSON.stringify(context))`, which redacts only URL/token
+   *patterns* and does NOT redact values under sensitive-named *keys*. The same
+   `context` is correctly redacted in the response body (`sanitizeContext`), so the
+   secret was redacted for clients but leaked into operator logs — an asymmetric path
+   the MCP surface does not have. The log line now serializes the *redacted* context
+   (`redactSensitiveFieldValues`).
+
+### Reviewed but NOT changed (false positives / out of scope)
+
+- **`taxId` returned verbatim in `PartyResult`/`SearchPartiesResult` (intra-tenant
+  PII):** re-verified — it is tenant-owned data returned to authenticated members, no
+  cross-tenant leak; consistent with how other tenant PII is treated (product
+  decision). Noted again because round 55's report asserted it is redacted on the
+  MCP success path — that assertion was **incorrect**: `redactSensitiveFieldValues`
+  is applied only to error contexts and durable sinks, never to successful response
+  DTOs. The report's "misread / no change" conclusion for `taxId` should be read as
+  "still a deferred product decision," not "already redacted."
+- **`role` claim parsed but never enforced / `create-roles.sql` dev password / seed
+  `taxId` literals / `NULL tenant_id` backfill (shipped round 48) / contact-mechanism
+  TOCTOU race / audit sink silent-drop under backpressure / superuser role for
+  audit+idempotency writes / non-concurrent `CREATE INDEX` / duplicate
+  `party_role_active_unique` index definition** — all re-verified as latent/deferred
+  with no new 🔴/🟡 exploit path this round.
+- **Tenant isolation (RLS boot assertions, superuser boot refusal, app-level
+  `tenantId` filters), secret redaction across REST/MCP/durable surfaces, idempotency
+  key charset consistency, ReDoS, and `@Public()` scope scanning** remain intact.
+
+## Test Results
+```
+shared:    175 passed (4 files)   (+5 — round 56 quoted-JSON + toJSON-context regressions)
+mcp-tools: 138 passed (4 files)   (+1 — round 56 idempotency missing-key fix; previously-failing test now green)
+database:   25 passed, 10 skipped (2 files)
+api:       328 passed (15 files)  (+1 — round 56 HttpException HTML-strip regression)
+───────────────────────────────────
+Total:     666 passed, 10 skipped
+```
 
 ## Findings & Actions (round 55)
 

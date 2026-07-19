@@ -609,6 +609,36 @@ describe("sanitizeLogOutput — broadened query-string secret params", () => {
   });
 });
 
+describe("sanitizeLogOutput — quoted-JSON secrets in free text", () => {
+  it("redacts a quoted secret value in embedded JSON", () => {
+    // A secret wrapped in double quotes (as JSON serializes string values) was
+    // previously left verbatim because the boundary rule's value class stopped
+    // at the quote. Every error message, durable `reasoning` row, and operator
+    // log line that flows through sanitizeForLogOutput is affected.
+    const r = sanitizeForLogOutput('config applied {"api_key":"sk_live_abc123"} ok');
+    expect(r).not.toContain("sk_live_abc123");
+    expect(r).toContain("[REDACTED]");
+  });
+
+  it("redacts a quoted password in free text", () => {
+    const r = sanitizeForLogOutput('login failed password="hunter2" retry');
+    expect(r).not.toContain("hunter2");
+    expect(r).toContain("[REDACTED]");
+  });
+
+  it("redacts a single-quoted secret value", () => {
+    const r = sanitizeForLogOutput("token='sk_live_xyz789' used");
+    expect(r).not.toContain("sk_live_xyz789");
+    expect(r).toContain("[REDACTED]");
+  });
+
+  it("redacts a quoted secret in a query string (e.g. ?token=\"…\")", () => {
+    const r = sanitizeForLogOutput('request ?token="sk_live_quoted" now');
+    expect(r).not.toContain("sk_live_quoted");
+    expect(r).toContain("[REDACTED]");
+  });
+});
+
 describe("isSensitiveFieldName", () => {
   it("detects common sensitive field names", () => {
     for (const k of ["password", "apiKey", "api_key", "secret", "token", "clientSecret", "accessToken", "newPassword", "user_passphrase"]) {

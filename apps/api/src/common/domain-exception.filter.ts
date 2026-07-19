@@ -92,7 +92,7 @@ export class DomainExceptionFilter implements ExceptionFilter {
     const status = domainErrorToStatus(exception);
     if (status === 500) {
       this.logger.error(
-        `Unknown DomainError code '${exception.code}' — add a mapping in domainErrorToStatus(). Defaulting to 500. Context: ${sanitizeForLogOutput(JSON.stringify(exception.context))}. Suggested tools: ${JSON.stringify(exception.suggestedTools)}.`
+        `Unknown DomainError code '${exception.code}' — add a mapping in domainErrorToStatus(). Context: ${sanitizeForLogOutput(JSON.stringify(redactSensitiveFieldValues(exception.context)))}. Suggested tools: ${JSON.stringify(exception.suggestedTools)}.`
       );
     } else {
       this.logger.warn(
@@ -156,7 +156,7 @@ export class DomainExceptionFilter implements ExceptionFilter {
         // message. Scrub it the same way the array-validation branch and the
         // DomainError path do, so a REST client cannot extract a secret that
         // an AI agent would not see.
-        safeBody.message = sanitizeForLogOutput(res.message);
+        safeBody.message = stripHtmlTags(sanitizeForLogOutput(res.message));
       } else       if (Array.isArray(res.message)) {
         // ValidationPipe errors carry an array of per-field detail strings
         // like "field must be shorter than or equal to 500 characters" or
@@ -185,7 +185,7 @@ export class DomainExceptionFilter implements ExceptionFilter {
       } else {
         safeBody.message = status === 400 ? "Validation failed" : "Request error";
       }
-      if (typeof res.error === "string") safeBody.error = sanitizeForLogOutput(res.error);
+      if (typeof res.error === "string") safeBody.error = stripHtmlTags(sanitizeForLogOutput(res.error));
       response.status(status).json(safeBody);
       return;
     }

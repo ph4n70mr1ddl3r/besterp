@@ -45,14 +45,23 @@ export function idempotencyMiddleware(prisma: PrismaClient): ToolMiddleware {
 
     const { idempotencyKey, tenantId, userId, agentId, conversationId } = context;
 
-    if (!idempotencyKey || typeof idempotencyKey !== "string" || idempotencyKey.length > MAX_IDEMPOTENCY_KEY_LENGTH) {
+    // A missing idempotency key is a no-op pass-through (ADR-004): the
+    // middleware simply does not provide idempotency guarantees for that call.
+    // Only PRESENT-but-invalid keys (wrong type, over-length, empty, or
+    // containing illegal characters) are rejected. Round 52 inadvertently
+    // folded the missing-key check into the validation guard, which broke every
+    // caller that omits the key — restore the contract.
+    if (idempotencyKey === undefined || idempotencyKey === null) {
+      return next(input, context);
+    }
+    if (typeof idempotencyKey !== "string" || idempotencyKey.length === 0 || idempotencyKey.length > MAX_IDEMPOTENCY_KEY_LENGTH) {
       return {
         success: false,
         error: {
           code: "INVALID_IDEMPOTENCY_KEY",
-          message: idempotencyKey && typeof idempotencyKey === "string" && idempotencyKey.length > MAX_IDEMPOTENCY_KEY_LENGTH
-            ? `Idempotency key exceeds maximum length of ${MAX_IDEMPOTENCY_KEY_LENGTH} characters.`
-            : "Idempotency key is required and must be a non-empty string.",
+          message: typeof idempotencyKey !== "string" || idempotencyKey.length === 0
+            ? "Idempotency key is required and must be a non-empty string."
+            : `Idempotency key exceeds maximum length of ${MAX_IDEMPOTENCY_KEY_LENGTH} characters.`,
           suggestedTools: [definition.name],
         },
       };

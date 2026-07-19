@@ -217,6 +217,21 @@ describe("DomainError subclasses", () => {
     expect(error.toJSON().cause).toBeUndefined();
   });
 
+  it("DomainError toJSON redacts sensitive-named context values", () => {
+    // toJSON is the canonical structured serializer used for audit logs and
+    // idempotency records, so a secret under a sensitive-named key must not
+    // reach those durable sinks verbatim.
+    const error = new DomainError("TEST", "msg", {
+      context: { password: "hunter2", apiKey: "sk_live_abc123", note: "benign" },
+    });
+    const json = error.toJSON();
+    expect(json.context).toEqual({
+      password: "[REDACTED]",
+      apiKey: "[REDACTED]",
+      note: "benign",
+    });
+  });
+
   it("isDomainError returns true for DomainError instances", () => {
     expect(isDomainError(new DomainError("C", "m"))).toBe(true);
     expect(isDomainError(new EntityNotFoundError("m"))).toBe(true);
