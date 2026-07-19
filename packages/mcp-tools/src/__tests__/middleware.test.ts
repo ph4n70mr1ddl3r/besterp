@@ -1758,4 +1758,74 @@ describe("Error Handler Middleware", () => {
     expect(result.error?.code).toBe("WEAK_SET");
     expect(result.error?.context?.weakData).toBe("[WeakCollection]");
   });
+
+  it("should not over-redact deep-but-legitimate context trees (depth cap aligned with canonical 20)", async () => {
+    // Regression guard (round 51): the error-handler previously used a depth
+    // cap of 10 while the canonical shared redactor and the audit-log both use
+    // 20. A DomainError.context tree 11–20 levels deep was silently replaced
+    // with "[Too deep]" on the MCP agent-facing surface while the REST surface
+    // preserved it — data loss on the agent path. The error-handler now
+    // delegates to the shared MAX_REDACTION_DEPTH so both surfaces agree.
+    //
+    // Note: sanitizeContextValueForToolResult → sanitizeContextValue(value, 0)
+    // → sanitizeObject iterates entries calling sanitizeContextValue(v, depth+1),
+    // so the first nesting level starts at depth 1. A 20-deep tree (level0…level19)
+    // reaches depth 20 at level19, which is NOT > 20, so it is preserved.
+    const domainError = new DomainError(
+      "DEEP_CONTEXT",
+      "Deep context",
+      {
+        context: {
+          level0: {
+            level1: {
+              level2: {
+                level3: {
+                  level4: {
+                    level5: {
+                      level6: {
+                        level7: {
+                          level8: {
+                            level9: {
+                              level10: {
+                                level11: {
+                                  level12: {
+                                    level13: {
+                                      level14: {
+                                        level15: {
+                                          level16: {
+                                            level17: {
+                                              level18: {
+                                                level19: "deep-value",
+                                              },
+                                            },
+                                          },
+                                        },
+                                      },
+                                    },
+                                  },
+                                },
+                              },
+                            },
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    );
+
+    const result = await errorHandlerMiddleware({}, mockContext, mockDefinition, throwingNext(domainError));
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe("DEEP_CONTEXT");
+    const ctx = result.error?.context as Record<string, unknown> | undefined;
+    // Depth 20 must be preserved (the cap is exclusive: depth > 20 → "[Too deep]")
+    expect(ctx).toBeDefined();
+    expect(ctx!.level0.level1.level2.level3.level4.level5.level6.level7.level8.level9.level10.level11.level12.level13.level14.level15.level16.level17.level18.level19).toBe("deep-value");
+  });
 });

@@ -12,9 +12,16 @@ import {
   sanitizeLogMessage,
   sanitizeForLogOutput,
   pluralize,
+  MAX_REDACTION_DEPTH,
 } from "@besterp/shared";
 import { ToolMiddleware, ToolResult } from "../schema/tool-definition.js";
 import { isSensitiveField } from "./sensitive-fields.js";
+
+// ─── Depth guard ─────────────────────────────────────────────────
+// Uses the canonical MAX_REDACTION_DEPTH from @besterp/shared so the
+// error-handler cannot diverge from the audit-log / shared redactor and
+// silently drop data from deep-but-legitimate DomainError.context trees.
+// Keeping the local alias makes the import dependency explicit.
 
 function extractPrismaError(error: unknown): { code: string | undefined; meta: { target?: string | string[] } | undefined } {
   if (error != null && typeof error === "object") {
@@ -36,8 +43,6 @@ function extractPrismaError(error: unknown): { code: string | undefined; meta: {
 
 /** Maximum length for a single error message in the error handler stderr log. */
 const MAX_ERROR_LOG_LINE_LENGTH = 500;
-
-const MAX_SANITIZE_DEPTH = 10;
 
 function trackSeen(value: object, seen?: WeakSet<object>): { seen: WeakSet<object>; circular: boolean } {
   const s = seen ?? new WeakSet();
@@ -78,7 +83,7 @@ function isNonPrimitiveObject(value: unknown): value is Record<string, unknown> 
 }
 
 function sanitizeContextValue(value: unknown, depth = 0, seen?: WeakSet<object>): unknown {
-  if (depth > MAX_SANITIZE_DEPTH) return "[Too deep]";
+  if (depth > MAX_REDACTION_DEPTH) return "[Too deep]";
   if (typeof value === "string") return sanitizeForLogOutput(value).slice(0, MAX_ERROR_LOG_LINE_LENGTH);
   if (Array.isArray(value)) {
     const state = trackSeen(value, seen);

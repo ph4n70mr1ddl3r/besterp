@@ -2,8 +2,56 @@
 
 ## Scope
 Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
-`packages/mcp-tools`, `apps/api`) conducted on 2026-07-18. This is review 50;
-round 1–49 are documented in earlier revisions of this file and `CHANGES.md`.
+`packages/mcp-tools`, `apps/api`) conducted on 2026-07-19. This is review 51;
+round 1–50 are documented in earlier revisions of this file and `CHANGES.md`.
+
+## Findings & Actions (round 51)
+
+### Fixed this round
+
+1. **🟡 `error-handler.ts:40` — MCP `sanitizeContextValue` depth cap (10) diverged from the canonical shared redactor (20).**
+   `MAX_SANITIZE_DEPTH = 10` caused the error-handler to return `"[Too deep]"` for
+   `DomainError.context` trees 11–20 levels deep, while the REST canonical redactor
+   (`redactSensitiveFieldValues`, `MAX_REDACTION_DEPTH = 20`) and the audit-log
+   redactor (`MAX_REDACTION_DEPTH = 20`) preserved those trees. A legitimately deep
+   diagnostic context was silently dropped on the MCP agent-facing surface — data
+   loss, not a secret leak, but a consistency gap between the two "must-match"
+   redactors. Changed the error-handler to import and use the shared `MAX_REDACTION_DEPTH`
+   constant, eliminating the local `MAX_SANITIZE_DEPTH = 10` constant. Added a
+   regression test (a 21-level deep context tree is fully preserved on the agent
+   surface).
+
+### Reviewed but NOT changed (false positives / out of scope)
+
+- **`role` claim parsed but unenforced / `taxId` returned verbatim /
+  dev DB password / non-concurrent `CREATE INDEX` / `ai_action_log.tenant_id`
+  nullable** — same documented latent gaps & deferred items as rounds 45–50;
+  no change this round.
+- **`prisma.service.ts` RLS boot assertions, `rls-extension.ts` context
+  reset, `discovery-tools` global reference data, `secret-strength` zero-entropy
+  heuristic (does not catch 2-char repeats like `abab…`), `searchParties`
+  `mode:"insensitive"` substring DoS** — re-verified clean / accepted as
+  defense-in-depth or product decisions this round; tenant isolation (RLS boot
+  assertion + superuser boot refusal + app-level `tenantId` filters), secret
+  redaction across REST/MCP/durable surfaces, idempotency-key charset
+  consistency, and ReDoS remain intact. No new 🔴/🟡 exploit paths beyond the
+  one fix above.
+
+## Test Results
+```
+shared:    170 passed (4 files)   (unchanged)
+mcp-tools: 137 passed (4 files)   (+1 — round 51 depth-alignment regression)
+database:   25 passed, 10 skipped (2 files)
+api:       324 passed (15 files)  (unchanged)
+─────────────────────────────────────
+Total:     656 passed, 10 skipped
+```
+
+## Baseline (before this round)
+- `npm run typecheck` — clean across all workspaces
+- `npm run lint` — 0 errors, 0 warnings
+- `npm run test` — all passing: shared 170, mcp-tools 136, database 25 (10 RLS
+  isolation tests skipped without a live DB), api 324
 
 ## Findings & Actions (round 50)
 
