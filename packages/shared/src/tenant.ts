@@ -80,6 +80,11 @@ export function validateTenantIdEnhancedForAuth(tenantId: string): string {
   if (trimmed.length === 0) {
     throw new InvalidTenantIdError("Tenant ID must be a non-empty string.");
   }
+  if (trimmed.length > MAX_TENANT_ID_LENGTH) {
+    throw new InvalidTenantIdError(
+      `Tenant ID is too long (max ${MAX_TENANT_ID_LENGTH} characters).`
+    );
+  }
   if (!TENANT_ID_PATTERN.test(trimmed)) {
     const preview = trimmed.length > 20 ? `${trimmed.slice(0, 20)}...` : trimmed;
     const sanitized = sanitizeLogMessage(preview);

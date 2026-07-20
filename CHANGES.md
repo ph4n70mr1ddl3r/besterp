@@ -1,5 +1,54 @@
 # BestERP — Security & Architecture Fixes
 
+## Changes Applied (2026-07-20) — Code Review Round 64
+
+### 🟡 `packages/shared/src/tenant.ts` — `validateTenantIdEnhancedForAuth` omitted the `MAX_TENANT_ID_LENGTH` check present in `validateTenantId`
+**Problem:** `validateTenantId` rejects IDs longer than `MAX_TENANT_ID_LENGTH` (100), but the
+auth-boundary variant `validateTenantIdEnhancedForAuth` did not. A 200-char tenant ID passed the
+auth boundary, then threw `InvalidTenantIdError` later inside `withTenant`→`validateTenantId`,
+surfacing a confusing error and an asymmetric validation path (the two functions are documented as
+needing to agree).
+**Fix:** Added the same length guard to `validateTenantIdEnhancedForAuth`. Regression test added.
+
+### 🟡 `packages/mcp-tools/src/registry/tool-registry.ts` — `agentId`/`conversationId` persisted to cross-tenant durable sinks without validation
+**Problem:** `validateContextIdentity` validated only `tenantId`/`userId`. `agentId`/`conversationId`
+flow straight from `context` into both the `ai_action_log` row and the `idempotency_record`, with no
+length/character validation. Because they are attacker-influenceable and written to cross-tenant
+durable tables, a malicious/oversized value was stored verbatim, bypassing the validation applied to
+`tenantId`/`userId`.
+**Fix:** Added `validateOptionalIdentityField` checking the same `/^[a-zA-Z0-9_-]+$/` pattern and
+`MAX_AGENT_ID_LENGTH`/`MAX_CONVERSATION_ID_LENGTH` bounds (fail closed, no value reflected). Regression
+tests added.
+
+### 🟡 `packages/shared/src/sanitize.ts` — high-entropy redactor left mixed-case alphanumeric secrets unredacted
+**Problem:** The generic high-entropy pass required uppercase **and** punctuation to redact a 20+ char
+run, so a long mixed-case alphanumeric token with no punctuation (e.g. `AbCdEfGhIj…0123456789`) and a
+longercase letter+digit token survived verbatim into agent-facing error/output and the durable audit
+row. Separately, the bare-form boundary rule over-redacted benign `code=200` / `session=abc123`.
+**Fix:** The letter+digit mix now also qualifies a run as secret-shaped; bare `code=`/`session=` were
+removed from the free-text boundary rules (keeping `otp_code`/`session_id` via the quoted/key paths).
+Regression tests added.
+
+### 🟡 `packages/shared/src/crypto.ts` — `sortSet` threw on `BigInt`/`undefined` elements instead of normalizing them
+**Problem:** `sortSet` ran `JSON.stringify()` on the *raw* element before the budget check, so a `Set`
+containing a `BigInt` (or undefined-bearing structure) threw a raw `TypeError` ("Do not know how to
+serialize a BigInt") rather than the structured `InvalidTypeValueError` every other container
+guarantees.
+**Fix:** `sortSet` now stringifies the already-normalized element (`sortKeysDeep` result, which maps
+`BigInt`→`"BigInt:…"` and `undefined`→`null`) for both budgeting and sorting. Regression tests added.
+
+### 🟡 `packages/database/spikes/spike-rls.ts` — spike cleanup silently fell back to the RLS-scoped app role
+**Problem:** Cleanup used `process.env.DATABASE_ADMIN_URL || process.env.DATABASE_URL`. When
+`DATABASE_ADMIN_URL` was unset, the app role (no tenant context set) saw 0 rows under RLS, so every
+delete removed *nothing* and left `spike-*` data behind on every run, polluting the test database.
+**Fix:** The admin datasource is now required and the spike fails fast if `DATABASE_ADMIN_URL` is
+unset, mirroring the seed/cleanup scripts.
+
+### 🟢 `packages/shared/src/errors.ts` — dead `try/catch` in `serializeCause`
+**Problem:** `serializeCause` wrapped logic that cannot throw (`cause instanceof Error`,
+`cause.message`) in a `try/catch` returning an unreachable `"[Error serializing cause]"` placeholder.
+**Fix:** Removed the unreachable `try/catch` (behavior unchanged).
+
 ## Changes Applied (2026-07-18) — Code Review Round 50
 
 ### 🔴 `packages/mcp-tools/src/registry/tool-registry.ts` — Zod validation `message` returned to the AI agent was NOT secret-sanitized (asymmetric secret-leak)

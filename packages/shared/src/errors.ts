@@ -74,13 +74,9 @@ export class DomainError extends Error {
  * `context` values — callers must never attach secrets as `cause`.
  */
 function serializeCause(cause: unknown): unknown {
-  try {
-    if (cause === undefined || cause === null) return cause;
-    if (cause instanceof Error) return cause.message;
-    return "[Non-error cause]";
-  } catch {
-    return "[Error serializing cause]";
-  }
+  if (cause === undefined || cause === null) return cause;
+  if (cause instanceof Error) return cause.message;
+  return "[Non-error cause]";
 }
 
 // NOTE: not named ErrorOptions to avoid shadowing the global ErrorOptions

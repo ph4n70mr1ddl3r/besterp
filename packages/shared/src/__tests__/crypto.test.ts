@@ -418,4 +418,20 @@ describe("hashInput", () => {
     expect(() => hashInput(modestSet)).not.toThrow();
     expect(hashInput(modestSet)).toMatch(/^[a-f0-9]{64}$/);
   });
+
+  it("should hash a Set containing BigInt/undefined without throwing", () => {
+    // Regression: sortSet ran JSON.stringify() on the RAW element, so a Set
+    // containing a BigInt threw "Do not know how to serialize a BigInt" rather
+    // than normalizing it like every other container. sortKeysDeep converts
+    // BigInt→"BigInt:…" and undefined→null, so now it hashes deterministically.
+    const bigIntSet = new Set([1n, 2n, 3n]);
+    expect(() => hashInput(bigIntSet)).not.toThrow();
+    expect(hashInput(bigIntSet)).toMatch(/^[a-f0-9]{64}$/);
+    // Deterministic: same elements yield same hash regardless of insertion order.
+    expect(hashInput(new Set([3n, 1n, 2n]))).toBe(hashInput(bigIntSet));
+
+    const mixedSet = new Set([1, "a", undefined, { k: 2 }, null]);
+    expect(() => hashInput(mixedSet)).not.toThrow();
+    expect(hashInput(mixedSet)).toMatch(/^[a-f0-9]{64}$/);
+  });
 });

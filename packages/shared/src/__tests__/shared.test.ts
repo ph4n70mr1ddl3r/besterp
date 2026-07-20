@@ -3,7 +3,7 @@
 // hashInput tests are in crypto.test.ts (comprehensive coverage).
 
 import { describe, it, expect } from "vitest";
-import { validateTenantId, withTenant } from "../tenant.js";
+import { validateTenantId, validateTenantIdEnhancedForAuth, withTenant } from "../tenant.js";
 import { COUNTRY_CODE_REGEX, EMAIL_REGEX, UUID_REGEX, isValidISODate } from "../validation.js";
 import {
   ConcurrencyConflictError,
@@ -55,6 +55,32 @@ describe("validateTenantId", () => {
 
   it("rejects an id that is only whitespace", () => {
     expect(() => validateTenantId("   ")).toThrow("Tenant ID must not consist solely of whitespace");
+  });
+});
+
+describe("validateTenantIdEnhancedForAuth", () => {
+  it("accepts valid, in-bounds tenant IDs", () => {
+    expect(validateTenantIdEnhancedForAuth("tenant-acme")).toBe("tenant-acme");
+    expect(validateTenantIdEnhancedForAuth("  tenant-acme  ")).toBe("tenant-acme");
+  });
+
+  it("rejects empty / whitespace-only IDs", () => {
+    expect(() => validateTenantIdEnhancedForAuth("")).toThrow("non-empty string");
+    expect(() => validateTenantIdEnhancedForAuth("   ")).toThrow("non-empty string");
+  });
+
+  it("rejects invalid characters", () => {
+    expect(() => validateTenantIdEnhancedForAuth("tenant acme")).toThrow("Invalid tenant ID");
+    expect(() => validateTenantIdEnhancedForAuth("tenant@acme")).toThrow("Invalid tenant ID");
+  });
+
+  it("rejects IDs exceeding MAX_TENANT_ID_LENGTH", () => {
+    // Aligns with validateTenantId — the two auth-boundary validators must
+    // agree, otherwise a too-long ID passes here and throws a confusing
+    // InvalidTenantIdError later inside withTenant.
+    const tooLong = "t".repeat(101);
+    expect(tooLong.length).toBeGreaterThan(100);
+    expect(() => validateTenantIdEnhancedForAuth(tooLong)).toThrow("too long");
   });
 });
 

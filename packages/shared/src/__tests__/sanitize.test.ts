@@ -758,4 +758,25 @@ describe("sanitizeForLogOutput — bare high-entropy tokens", () => {
     expect(sanitizeForLogOutput("https://example.com/path?a=1")).toContain("[HOST]/[PATH]");
     expect(sanitizeForLogOutput("postgres://u:p@h/db")).toContain("[DATABASE_URL]");
   });
+
+  it("redacts a long mixed-case alphanumeric token with no punctuation (secret shape)", () => {
+    // Previously let through: uppercase + digits but no ._+=/ punctuation.
+    expect(sanitizeForLogOutput("token AbCdEfGhIjKlMnOpQrStUvWxYz0123456789 leaked")).toContain("[REDACTED_TOKEN]");
+  });
+
+  it("redacts a long lowercase base64-ish alphanumeric token (letter+digit mix)", () => {
+    // Not pure-hex (has letters+digits) and >= 20 chars → secret-shaped.
+    expect(sanitizeForLogOutput("secret a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6 leaked")).toContain("[REDACTED_TOKEN]");
+  });
+
+  it("does not redact bare code=/session= free-text (HTTP status, benign session id)", () => {
+    expect(sanitizeForLogOutput("status code=200 ok")).toBe("status code=200 ok");
+    expect(sanitizeForLogOutput("HTTP session=abc123xyz active")).toBe("HTTP session=abc123xyz active");
+  });
+
+  it("still redacts sensitive key=value pairs (password/token/otp)", () => {
+    expect(sanitizeForLogOutput("password=hunter2 retry")).toContain("password=[REDACTED]");
+    expect(sanitizeForLogOutput("token=supersecretvalue in log")).toContain("token=[REDACTED]");
+    expect(sanitizeForLogOutput("otp=123456 confirmed")).toContain("otp=[REDACTED]");
+  });
 });

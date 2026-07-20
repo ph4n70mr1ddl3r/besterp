@@ -13,7 +13,7 @@ import {
   ZodSchemaLike,
   RiskLevel,
 } from "../schema/tool-definition.js";
-import { MAX_IDEMPOTENCY_KEY_LENGTH, SAFE_IDEMPOTENCY_KEY, sanitizeForLogOutput, redactSensitiveFieldValues, validateTenantIdEnhancedForAuth, MAX_USER_ID_LENGTH } from "@besterp/shared";
+import { MAX_IDEMPOTENCY_KEY_LENGTH, SAFE_IDEMPOTENCY_KEY, sanitizeForLogOutput, redactSensitiveFieldValues, validateTenantIdEnhancedForAuth, MAX_USER_ID_LENGTH, MAX_AGENT_ID_LENGTH, MAX_CONVERSATION_ID_LENGTH } from "@besterp/shared";
 import { isSensitiveField } from "../middleware/sensitive-fields.js";
 
 const VALID_RISK_LEVELS: readonly RiskLevel[] = ["none", "low", "medium", "high", "critical"];
@@ -289,6 +289,38 @@ export class ToolRegistry {
         error: {
           code: "INVALID_USER_ID",
           message: "The request user identifier is invalid. Contact the system administrator.",
+          suggestedTools: ["list_available_tools"],
+        },
+      };
+    }
+    // `agentId`/`conversationId` are persisted verbatim into the cross-tenant
+    // durable idempotency + audit sinks, so an unvalidated/oversized/attacker-
+    // controlled value would bloat those rows and bypass the validation that
+    // tenantId/userId receive. They are optional, but when present they must
+    // match the same character/length contract as the other identity fields.
+    const idFieldError = this.validateOptionalIdentityField(context.agentId, "agentId", MAX_AGENT_ID_LENGTH)
+      ?? this.validateOptionalIdentityField(context.conversationId, "conversationId", MAX_CONVERSATION_ID_LENGTH);
+    if (idFieldError) return idFieldError;
+    return null;
+  }
+
+  /**
+   * Validate an optional agent/conversation identity field against the same
+   * character set and length bounds as tenantId/userId. Returns a failing
+   * ToolResult when malformed, or null when absent/acceptable.
+   */
+  private validateOptionalIdentityField(
+    value: string | undefined,
+    field: string,
+    maxLength: number,
+  ): ToolResult | null {
+    if (value === undefined) return null;
+    if (typeof value !== "string" || value.length === 0 || value.length > maxLength || !/^[a-zA-Z0-9_-]+$/.test(value)) {
+      return {
+        success: false,
+        error: {
+          code: "INVALID_CONTEXT_ID",
+          message: `The ${field} is invalid. Contact the system administrator.`,
           suggestedTools: ["list_available_tools"],
         },
       };

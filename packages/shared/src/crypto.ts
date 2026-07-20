@@ -82,6 +82,12 @@ function sortSet(value: Set<unknown>, ancestors: Set<object>, depth: number, bud
     // strings previously hashed successfully, emitting a ~3 MB buffer).
     const sorted = Array.from(value).map((v) => sortKeysDeep(v, ancestors, depth + 1, budget));
     const prepared = sorted.map((v) => {
+      // Stringify the ALREADY-normalized element (`v` from sortKeysDeep),
+      // never the raw element. sortKeysDeep converts BigInt/`undefined`/
+      // non-finite numbers to serializable forms, so a Set containing `1n`
+      // or `{ a: undefined }` no longer throws "Do not know how to serialize
+      // a BigInt" — the structured InvalidTypeValueError path (and a
+      // deterministic hash) applies instead.
       const str = JSON.stringify(v);
       chargeKeyBytes(str, budget);
       return { v, str };

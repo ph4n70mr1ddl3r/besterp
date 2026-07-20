@@ -200,7 +200,7 @@ export function sanitizeLogOutput(message: string): string {
     // mangled, while `{"password":"x"}` / `password=hunter2` are caught. The
     // value class excludes JSON terminators and whitespace so it stops at the
     // closing quote/bracket.
-    .replace(/(^|[\s"'{([,;])((?:key|token|id_token|access_token|secret|password|passwd|pwd|auth|api_key|apikey|client_secret|client_id|signature|sign|otp|code|session|bearer))=([^}\]\s"'`,;]+)/gi, (full, lead, name) => {
+    .replace(/(^|[\s"'{([,;])((?:key|token|id_token|access_token|secret|password|passwd|pwd|auth|api_key|apikey|client_secret|client_id|signature|sign|otp|bearer))=([^}\]\s"'`,;]+)/gi, (full, lead, name) => {
       return `${lead}${name}=[REDACTED]`;
     })
     // Variant of the boundary rule above for secrets wrapped in QUOTES, e.g.
@@ -215,7 +215,7 @@ export function sanitizeLogOutput(message: string): string {
     // `password="value"` (equals + quoted value). The leading boundary
     // (whitespace/quote/`{`/`,`/`;`/`(`) is required so benign prose is not
     // mangled, mirroring the bare-form rule.
-    .replace(/(^|[\s"'{([;,?])"?((?:key|token|id_token|access_token|secret|password|passwd|pwd|auth|api_key|apikey|client_secret|client_id|signature|sign|otp|code|session|bearer))"?[:=]("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')/gi, (full, lead, name) => {
+    .replace(/(^|[\s"'{([;,?])"?((?:key|token|id_token|access_token|secret|password|passwd|pwd|auth|api_key|apikey|client_secret|client_id|signature|sign|otp|bearer))"?[:=]("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')/gi, (full, lead, name) => {
       return `${lead}${name}=[REDACTED]`;
     })
     // Redact high-entropy bearer/secret tokens that appear outside the
@@ -315,15 +315,22 @@ export function sanitizeLogOutput(message: string): string {
       if (/^[a-f0-9]+$/.test(match)) return match;
       // UUIDs (hyphenated hex) are benign identifiers.
       if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(match)) return match;
-      // Benign phrases: mixed-case but containing common English words or
-      // separators (hyphens, underscores) with no uppercase+digit combo
-      // that would indicate a secret shape.
-      if (/^[a-zA-Z0-9_-]+$/.test(match) && !/[A-Z][0-9]/.test(match)) {
-        // Must contain at least one uppercase letter AND one of ._+/=
-        // (typical secret shapes) to qualify as high-entropy.
+      // Benign phrases: long mixed-case alnum that looks like ordinary prose
+      // or an identifier (e.g. a camelCase variable, a hyphenated slug). A
+      // secret-shaped value usually carries either punctuation (. _ + / =)
+      // OR a mix of letters AND digits at length >= 20. Require one of:
+      //   - an uppercase letter AND a punctuation char (typical secret shape), or
+      //   - BOTH letters AND digits (an alnum token with no prose-like word
+      //     structure), which catches long lowercase base64 / alphanumeric
+      //     secrets that contain no punctuation (the prior rule let these
+      //     through verbatim).
+      if (/^[a-zA-Z0-9_-]+$/.test(match)) {
         const hasUpper = /[A-Z]/.test(match);
         const hasPunct = /[._+=/]/.test(match);
-        if (!(hasUpper && hasPunct)) return match;
+        const hasLetter = /[a-zA-Z]/.test(match);
+        const hasDigit = /[0-9]/.test(match);
+        const isLetterDigitMix = hasLetter && hasDigit;
+        if (!(hasUpper && hasPunct) && !isLetterDigitMix) return match;
       }
       return "[REDACTED_TOKEN]";
     });

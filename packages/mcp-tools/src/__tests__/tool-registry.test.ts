@@ -114,6 +114,46 @@ describe("ToolRegistry", () => {
       expect(serialized).toContain("[HOST]/[PATH]");
     });
 
+    it("should reject an invalid agentId before executing the handler", async () => {
+      // agentId/conversationId are persisted verbatim into the cross-tenant
+      // durable idempotency + audit sinks, so they must be validated at the
+      // auth boundary like tenantId/userId (not reflected, fail closed).
+      const result = await registry.execute("list_available_tools", {}, {
+        ...mockContext,
+        agentId: "bad agent id!",
+      });
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe("INVALID_CONTEXT_ID");
+      expect(JSON.stringify(result.error)).not.toContain("bad agent id!");
+    });
+
+    it("should reject an invalid conversationId before executing the handler", async () => {
+      const result = await registry.execute("list_available_tools", {}, {
+        ...mockContext,
+        conversationId: "x".repeat(201),
+      });
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe("INVALID_CONTEXT_ID");
+    });
+
+    it("should accept valid optional agentId/conversationId and reach the handler", async () => {
+      const handler = vi.fn().mockResolvedValue({ success: true, data: {} });
+      registry.register({
+        name: "noop",
+        description: "No-op tool",
+        inputSchema: z.object({}),
+        riskLevel: "none",
+        handler,
+      });
+      const result = await registry.execute("noop", {}, {
+        ...mockContext,
+        agentId: "agent-9",
+        conversationId: "conv-42",
+      });
+      expect(result.success).toBe(true);
+      expect(handler).toHaveBeenCalled();
+    });
+
     it("should execute a tool with valid Zod input", async () => {
       const handler = vi.fn().mockResolvedValue({ success: true, data: { name: "result" } });
       registry.register({
