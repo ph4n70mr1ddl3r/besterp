@@ -187,6 +187,56 @@ describe("PrismaService", () => {
         });
       await expect(service.onModuleInit()).rejects.toThrow(/tenant isolation unverified/);
     });
+
+    it("boots successfully when global reference tables lack RLS but all tenant tables have force RLS", async () => {
+      // Regression guard: verifyRlsEnabled must only require RLS on the
+      // enumerated tenant tables. Global reference tables (party_type, role_type,
+      // contact_mechanism_type) are intentionally NOT RLS-enforced and would
+      // previously be flagged as "missing", causing a false boot failure.
+      const service = new PrismaService();
+      let call = 0;
+      (service.appClient as unknown as { $queryRaw: () => Promise<unknown> }).$queryRaw = vi
+        .fn()
+        .mockImplementation(async () => {
+          call += 1;
+          if (call === 1) return [{ role: "besterp_app" }];
+          if (call === 2) return [{ rolsuper: false, rolbypassrls: false }];
+          return [
+            { relname: "party_type", relrowsecurity: false, relforcerowsecurity: false },
+            { relname: "role_type", relrowsecurity: false, relforcerowsecurity: false },
+            { relname: "contact_mechanism_type", relrowsecurity: false, relforcerowsecurity: false },
+            { relname: "party", relrowsecurity: true, relforcerowsecurity: true },
+            { relname: "contact_mechanism", relrowsecurity: true, relforcerowsecurity: true },
+            { relname: "party_contact_mechanism", relrowsecurity: true, relforcerowsecurity: true },
+            { relname: "party_role", relrowsecurity: true, relforcerowsecurity: true },
+            { relname: "ai_action_log", relrowsecurity: true, relforcerowsecurity: true },
+            { relname: "idempotency_record", relrowsecurity: true, relforcerowsecurity: true },
+            { relname: "person", relrowsecurity: true, relforcerowsecurity: true },
+            { relname: "organization", relrowsecurity: true, relforcerowsecurity: true },
+            { relname: "postal_address", relrowsecurity: true, relforcerowsecurity: true },
+            { relname: "telecom_number", relrowsecurity: true, relforcerowsecurity: true },
+            { relname: "email_address", relrowsecurity: true, relforcerowsecurity: true },
+          ];
+        });
+      await expect(service.onModuleInit()).resolves.toBeUndefined();
+    });
+
+    it("still refuses to boot when a tenant table is missing force RLS", async () => {
+      const service = new PrismaService();
+      let call = 0;
+      (service.appClient as unknown as { $queryRaw: () => Promise<unknown> }).$queryRaw = vi
+        .fn()
+        .mockImplementation(async () => {
+          call += 1;
+          if (call === 1) return [{ role: "besterp_app" }];
+          if (call === 2) return [{ rolsuper: false, rolbypassrls: false }];
+          return [
+            { relname: "party_type", relrowsecurity: false, relforcerowsecurity: false },
+            { relname: "party", relrowsecurity: true, relforcerowsecurity: false },
+          ];
+        });
+      await expect(service.onModuleInit()).rejects.toThrow(/Row-Level Security is NOT/);
+    });
   });
 
   describe("onModuleInit error logging", () => {

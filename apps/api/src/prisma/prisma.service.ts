@@ -281,7 +281,15 @@ export class PrismaService
       // tenant isolation for that data cannot be verified. Refuse to boot
       // rather than silently assuming it's fine.
       const notFound = tenantTables.filter((t) => !found.has(t));
-      const missing = rows.filter((r) => !r.relrowsecurity || !r.relforcerowsecurity);
+      // Only tenant-scoped tables (those in tenantTables) are expected to have
+      // RLS + FORCE applied. Global reference tables (party_type, role_type,
+      // contact_mechanism_type, …) are intentionally NOT RLS-enforced — they are
+      // shared vocabulary read via the admin client. Filtering `missing` over
+      // the FULL set of public tables would wrongly flag those global tables and
+      // cause a false "RLS NOT enabled" boot failure on every deployment.
+      const missing = rows.filter(
+        (r) => tenantTables.includes(r.relname) && (!r.relrowsecurity || !r.relforcerowsecurity),
+      );
       // A force-RLS table in the database that is NOT in tenantTables means a
       // new tenant table was added to rls-setup.sql (and applied) but this
       // authoritative list was not updated — its tenant isolation goes

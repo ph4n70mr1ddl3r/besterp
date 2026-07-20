@@ -5,6 +5,62 @@ Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database
 `mcp-tools`, `apps/api`) conducted on 2026-07-19. This is review 61;
 round 1–56 are documented in earlier revisions of this file and `CHANGES.md`.
 
+## Findings & Actions (round 63)
+
+### Fixed this round
+
+1. **🔴 `prisma.service.ts` ~line 284 `verifyRlsEnabled` — false boot failure on
+   global reference tables.** The `missing` computation filtered `rows` (every table in
+   `public`) for `!relrowsecurity || !relforcerowsecurity`. Global reference tables
+   (`party_type`, `role_type`, `contact_mechanism_type`, …) are intentionally **not**
+   RLS-enforced — they are shared vocabulary read via the admin (RLS-bypassing) client and
+   `rls-setup.sql` does not apply RLS to them. The old check therefore flagged every one of
+   those global tables as "missing", producing a `Row-Level Security is NOT enabled`
+   message and a **hard boot refusal on every real deployment**. The bug was latent because
+   the existing test suite only mocked `$queryRaw` failure paths and never exercised the
+   success path with global tables present. Fixed by restricting `missing` to the
+   enumerated tenant tables (`tenantTables.includes(r.relname)`), so global tables are
+   correctly ignored while genuine gaps on tenant tables still fail closed. Added two
+   regression tests: one proving boot succeeds when globals lack RLS but all tenant tables
+   have force RLS, and one proving it still refuses when a tenant table is missing force RLS.
+
+### Reviewed but NOT changed (false positives / out of scope)
+
+- **`party.service.ts` (1076 lines) — full re-read:** re-verified correct. All entry
+  paths validate `tenantId`/`partyId`/subtypes, sanitize HTML, and scope queries by
+  `tenantId` at the app layer (defense-in-depth over RLS). `fromDate`/`thruDate` nullability
+  matches the Prisma schema (non-null `fromDate` → no `toISOString()` crash). Email/phone
+  duplicate checks are correctly party-scoped.
+- **`party.dto.ts` / `party-tools.ts` — full re-read:** class-validator DTOs and Zod
+  schemas are in sync (same regexes, same min/max lengths, same HTML-strip transforms,
+  same subtype exclusivity). Cross-surface consistency confirmed.
+- **`main.ts` — full re-read:** body-parser error middleware, catch-all 500 handler,
+  CORS-header mirror, `@Public()` scope verification, env validation, and graceful-shutdown
+  handlers all correct and secret-scrubbed.
+- **`audit-log.ts` — full re-read:** depth-cap redaction, `seen` cycle guard, Map/Set
+  conversion, agent-facing `nextActions` scrub, and backpressure drop-on-timeout all
+  correct.
+- **`rls-extension.ts` — full re-read:** `LruCache` eviction, blocked raw-SQL/`$` methods,
+  batch-`$transaction` rejection, and `set_tenant_context` injection all correct.
+- **`crypto.ts` (`hashInput`/`sortKeysDeep`) — full re-read:** circular-ref, depth, and
+  aggregate/per-string byte budgets all correctly enforced; Weak collection rejection and
+  prototype-pollution-safe `Object.create(null)` confirmed.
+- **`seed.ts` — full re-read:** `NODE_ENV` normalization + `production`/`staging` refusal +
+  `ALLOW_SEED=1` opt-in correctly prevents seeding test tenants into real databases.
+- **`cleanup-expired-idempotency.ts` — full re-read:** advisory-lock serialization,
+  pending-record exclusion, composite-key batched delete, and production opt-in guard all
+  correct.
+
+## Test Results
+```
+shared:    140 passed (4 files)   (unchanged)
+mcp-tools: 138 passed (4 files)   (unchanged)
+database:   25 passed, 10 skipped (2 files)  (unchanged)
+api:       376 passed (15 files)  (+2 new regression tests)
+────────────────────────────────────
+Total:     679 passed, 10 skipped
+```
+
 ## Findings & Actions (round 61)
 
 ### Fixed this round
