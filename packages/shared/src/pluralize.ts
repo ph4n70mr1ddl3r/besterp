@@ -37,6 +37,9 @@ function preserveCasing(input: string, plural: string): string {
   // single-character case falls through to the leading-capital rule below.
   if (input.length > 1 && input === input.toUpperCase()) return plural.toUpperCase();
   // First-letter-capitalized input (e.g. "Party", "Y") → Title-case plural.
+  // A single-character input is excluded from the all-caps branch above,
+  // so this condition is equivalent to `first === first.toUpperCase()`
+  // for single chars. Using the explicit dual form avoids ambiguity.
   const first = input.charAt(0);
   if (first !== first.toLowerCase() && first === first.toUpperCase()) {
     return plural.charAt(0).toUpperCase() + plural.slice(1);

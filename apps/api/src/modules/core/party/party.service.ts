@@ -194,16 +194,16 @@ export class PartyService {
   }
 
   private validateCreatePartySubtype(partyType: string, personData: unknown, orgData: unknown): void {
-    if (partyType === "PERSON" && !personData) {
+    if (partyType === "PERSON" && personData == null) {
       throw new MissingSubtypeDataError("When partyType is PERSON, the 'person' object with firstName and lastName is required.", { suggestedTools: ["create_party"], context: { partyType, missingField: "person" } });
     }
-    if (partyType === "ORGANIZATION" && !orgData) {
+    if (partyType === "ORGANIZATION" && orgData == null) {
       throw new MissingSubtypeDataError("When partyType is ORGANIZATION, the 'organization' object with legalName is required.", { suggestedTools: ["create_party"], context: { partyType, missingField: "organization" } });
     }
-    if (partyType === "PERSON" && orgData) {
+    if (partyType === "PERSON" && orgData != null) {
       throw new InvalidTypeValueError("When partyType is PERSON, 'organization' data must not be provided. Only 'person' data is expected.", { suggestedTools: ["create_party"], context: { partyType, unexpectedField: "organization" } });
     }
-    if (partyType === "ORGANIZATION" && personData) {
+    if (partyType === "ORGANIZATION" && personData != null) {
       throw new InvalidTypeValueError("When partyType is ORGANIZATION, 'person' data must not be provided. Only 'organization' data is expected.", { suggestedTools: ["create_party"], context: { partyType, unexpectedField: "person" } });
     }
   }
