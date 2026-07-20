@@ -1,5 +1,21 @@
 # BestERP — Security & Architecture Fixes
 
+## Changes Applied (2026-07-20) — Code Review Round 66
+
+### 🟡 `apps/api/src/mcp/mcp.module.ts` — `reasoning` not sanitized with `sanitizeForLogOutput` at the auth boundary
+**Problem:** Round 65 added boundary sanitization to `userId`/`agentId`/`conversationId` via
+`sanitizeForLogOutput(stripHtmlTags(...))` but left `reasoning` with only `stripHtmlTags(...)`.
+A connection string / `?api_key=…` embedded in `reasoning` was scrubbed only by the downstream
+`auditLogMiddleware.createBaseEntry` pass, so the documented "all four durable fields get the same
+treatment" contract (and the defense-in-depth layering the sibling fields have) did not hold for
+`reasoning`. The durable `ai_action_log.reasoning` sink was still covered downstream, so this was an
+asymmetry / defense-in-depth gap rather than a live leak — but relying on a single downstream pass for
+one of the four persisted fields is fragile.
+**Fix:** `buildContext` now runs `reasoning` through `sanitizeForLogOutput(stripHtmlTags(...))` at the
+boundary, matching `userId`/`agentId`/`conversationId` exactly. The downstream `createBaseEntry` pass
+remains as defense-in-depth (idempotent). Regression test added (secret shapes in `reasoning` redacted
+at the boundary, not solely downstream).
+
 ## Changes Applied (2026-07-20) — Code Review Round 65
 
 ### 🟡 `packages/shared/src/sanitize.ts` — round 64 removed `code`/`session` from the quoted-value secret rule, reopening an asymmetric leak

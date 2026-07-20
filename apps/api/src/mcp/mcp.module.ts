@@ -161,7 +161,14 @@ export class McpModule implements OnModuleInit {
     // stripHtmlTags here closes the XSS path for all four fields uniformly.
     const safeAgentId = agentId !== undefined ? sanitizeForLogOutput(stripHtmlTags(agentId)) : undefined;
     const safeConversationId = conversationId !== undefined ? sanitizeForLogOutput(stripHtmlTags(conversationId)) : undefined;
-    const safeReasoning = reasoning !== undefined ? stripHtmlTags(reasoning) : undefined;
+    // `reasoning` is persisted to the cross-tenant `ai_action_log` durable sink
+    // (via auditLogMiddleware → createBaseEntry) and is also scrubbed there with
+    // sanitizeForLogOutput. Apply the SAME boundary treatment here so the
+    // documented contract holds for all four durable fields (userId, agentId,
+    // conversationId, reasoning) — a connection string / `?api_key=…` embedded in
+    // `reasoning` is stripped at the earliest point rather than relying solely on
+    // the downstream scrub. This matches safeAgentId / safeConversationId above.
+    const safeReasoning = reasoning !== undefined ? sanitizeForLogOutput(stripHtmlTags(reasoning)) : undefined;
 
     return {
       tenantId,

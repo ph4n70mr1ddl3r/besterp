@@ -5,6 +5,45 @@ Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database
 `mcp-tools`, `apps/api`) conducted on 2026-07-19. This is review 61;
 round 1–56 are documented in earlier revisions of this file and `CHANGES.md`.
 
+## Findings & Actions (round 66)
+
+### Fixed this round
+
+1. **🟡 `mcp.module.ts:buildContext` — `reasoning` skipped `sanitizeForLogOutput` at the auth
+   boundary (asymmetric with its three sibling durable fields).** Round 65 added boundary
+   sanitization to `userId`/`agentId`/`conversationId` via `sanitizeForLogOutput(stripHtmlTags(...))`
+   but left `reasoning` with only `stripHtmlTags(...)`. A connection string / `?api_key=…` embedded in
+   `reasoning` was therefore scrubbed only by the downstream `auditLogMiddleware.createBaseEntry`
+   pass, so the documented "all four durable fields get the same treatment" contract did not hold for
+   `reasoning`. The downstream pass still covered the durable `ai_action_log.reasoning` sink, so this
+   was an asymmetry / defense-in-depth gap rather than a live leak — but relying on a single downstream
+   pass for one of the four persisted fields is fragile. `buildContext` now runs `reasoning` through
+   `sanitizeForLogOutput(stripHtmlTags(...))` at the boundary, matching the sibling fields exactly; the
+   downstream `createBaseEntry` pass remains as defense-in-depth (idempotent). Regression test added.
+
+### Reviewed but NOT changed (false positives / deferred)
+
+- **Lint complexity warnings (4 functions exceed `max-complexity: 15`):** `audit-log.redactSensitiveFields`
+  (23), `error-handler.sanitizeContextValue` (23), `sanitize.redactSensitiveFieldValues` (21), and the
+  `idempotency` acquire arrow (17). These are security-critical redactors/middlewares whose complexity
+  is irreducible without fragmenting the single-source-of-truth traversal logic (which would risk
+  surface divergence — the exact class of bug rounds 49/56/65 fixed). The warnings are pre-existing and
+  intentional; left as-is. No change.
+- **Tenant isolation (RLS boot assertions, superuser/role boot refusal, app-level `tenantId` filters),
+  secret redaction across REST/MCP/durable surfaces, idempotency-key charset consistency, ReDoS
+  guards, and `hashInput` DoS budgets** remain intact and were re-verified. No new exploit paths found
+   this round beyond the single `reasoning` boundary gap above.
+
+## Test Results (round 66)
+```
+shared:    195 passed (4 files)   (unchanged)
+mcp-tools: 143 passed (4 files)   (unchanged)
+database:   26 passed, 10 skipped (2 files)  (unchanged)
+api:       332 passed (15 files)  (+1 — round 66 reasoning boundary sanitization regression)
+───────────────────────────────────
+Total:     696 passed, 10 skipped
+```
+
 ## Findings & Actions (round 65)
 
 ### Fixed this round

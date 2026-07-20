@@ -175,6 +175,25 @@ describe("McpModule", () => {
       expect(ctx.reasoning).not.toContain("<iframe>");
     });
 
+    it("should redact secret shapes in reasoning at the boundary (not just downstream)", () => {
+      // `reasoning` is persisted to the cross-tenant ai_action_log durable sink.
+      // A connection string / `?api_key=…` embedded in reasoning must be scrubbed
+      // at the auth boundary, exactly like userId/agentId/conversationId — not
+      // rely solely on the downstream createBaseEntry sanitizeForLogOutput pass.
+      const ctx = mcpModule.buildContext({
+        tenantId: "tenant-1",
+        userId: "user-1",
+        reasoning: "connect to postgres://u:p@db:5432/x?api_key=sk_live_abc123",
+      });
+      expect(ctx.reasoning).not.toContain("sk_live_abc123");
+      expect(ctx.reasoning).not.toContain("postgres://");
+      // The postgres:// URL is collapsed to [DATABASE_URL] and the trailing
+      // ?api_key=… query secret is scrubbed — neither survives verbatim,
+      // proving the boundary sanitizeForLogOutput now covers `reasoning`.
+      expect(ctx.reasoning).not.toContain("api_key");
+      expect(ctx.reasoning).toMatch(/\[DATABASE_URL\]|\[REDACTED\]/);
+    });
+
     it("should reject whitespace-only agentId", () => {
       expect(() =>
         mcpModule.buildContext({
