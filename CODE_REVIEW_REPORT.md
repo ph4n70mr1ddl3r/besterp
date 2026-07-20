@@ -2,8 +2,70 @@
 
 ## Scope
 Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
-`mcp-tools`, `apps/api`) conducted on 2026-07-19. This is review 61;
-round 1–56 are documented in earlier revisions of this file and `CHANGES.md`.
+`mcp-tools`, `apps/api`) conducted on 2026-07-20. This is review 67;
+round 1–66 are documented in earlier revisions of this file and `CHANGES.md`.
+
+## Findings & Actions (round 67)
+
+### Fixed this round
+
+1. **🟡 `errors.ts:serializeCause` — `DomainError.toJSON` sanitized `message` and
+   `context` but serialized `cause.message` verbatim.** `toJSON` is the canonical
+   structured serializer for the durable `ai_action_log` and `idempotency_record`
+   sinks (round 56/65/66 route errors through it), and `message`/`context` are both
+   scrubbed via `sanitizeForLogOutput`/`redactSensitiveFieldValues`. But an attached
+   `cause` (the common pattern in `prisma.service.ts`, which does
+   `new Error(msg, { cause: roleErr })`) is a Prisma/driver `Error` whose `message`
+   routinely embeds a DB hostname, connection string, or SQL — and `serializeCause`
+   returned `cause.message` **raw**. A `DomainError` carrying such a cause would
+   therefore leak the secret into the durable row verbatim while its own `message`
+   was scrubbed — the exact asymmetric-leak class rounds 56/65 closed for every
+   other field. `cause` now runs through `sanitizeForLogOutput` (matching
+   `message`); non-`Error` causes still return the safe `[Non-error cause]`
+   placeholder. Regression tests added (secret-bearing cause redacted; non-error
+   cause stays a placeholder).
+
+2. **🟢 `health.service.ts:getVersion` — anonymous `/version` reflected an
+   unsanitized init-error `warning` to unauthenticated callers.** `getVersion` is
+   `@Public()` (no JWT), so its non-production body is reachable by anyone. The
+   `warning` field surfaced `packageInfoError` verbatim, which can contain the
+   container's filesystem layout (e.g. `ENOENT … open '/srv/app/dist/package.json'`)
+   — mild infrastructure fingerprinting inconsistent with the fail-closed
+   hardening already applied to `name`/`version`/`build` on this same endpoint
+   (round 45). The `warning` is now scrubbed via `sanitizeForLogOutput`. Regression
+   test added (filesystem path redacted for anonymous callers).
+
+### Reviewed but NOT changed (false positives / deferred)
+
+- **`party.service.ts` `taxId` returned in `PartyResult`/`SearchPartiesResult`
+  (intra-tenant PII):** re-verified by an independent read — the live MCP agent path
+  is redacted by `audit-log.ts` `redactSensitiveFields(data)` (line 94), and the
+  REST dev `context` is redacted by `DomainExceptionFilter.sanitizeContext`. The
+  round-56 report's corrected "deferred product decision, not already redacted"
+  stance stands; no change.
+- **`party.service.ts` uses `sanitizeLogMessage` (not `sanitizeForLogOutput`) in its
+  `logger.log` calls:** these values (`name`, `roleType`, `contactMechanism type`)
+  are already HTML-stripped and length-validated and never carry raw secrets; this
+  matches the service's "log, not echo" role. No change.
+- **Tenant isolation (RLS boot assertions, superuser boot refusal, app-level
+  `tenantId` filters), secret redaction across REST/MCP/durable surfaces,
+  idempotency-key charset consistency, ReDoS, and `@Public()` scope scanning** remain
+  intact and were re-verified. No new 🔴/🟡 exploit paths found this round beyond the
+  two fixes above.
+- **MCP transport JWT validation (`tenantId` trust-the-caller):** the only MCP
+  transport is the in-process tool registry; no JWT-validating transport exists to
+  wire today. The auth-boundary validation in `tool-registry.validateContextIdentity`
+  + `buildContext` still holds. Deferred (consistent with round 65).
+
+## Test Results (round 67)
+```
+shared:    197 passed (4 files)   (+2 — round 67 toJSON cause redaction regressions)
+mcp-tools: 143 passed (4 files)   (unchanged)
+database:   26 passed, 10 skipped (2 files)  (unchanged)
+api:       333 passed (15 files)  (+1 — round 67 version warning sanitization regression)
+───────────────────────────────────
+Total:     699 passed, 10 skipped
+```
 
 ## Findings & Actions (round 66)
 

@@ -138,5 +138,21 @@ describe("HealthService", () => {
       expect(result.version).not.toBe("redacted");
       expect(result.name).not.toBe("redacted");
     });
+
+    it("should sanitize filesystem paths in the warning for anonymous /version callers", async () => {
+      // The /version endpoint is anonymous (@Public()), so an init error
+      // message (which can leak the container's filesystem layout, e.g.
+      // "/app/dist/package.json not found") must not be reflected verbatim to
+      // unauthenticated callers. It is scrubbed via sanitizeForLogOutput.
+      vi.stubEnv("NODE_ENV", "staging");
+      const service = new HealthService(createMockPrisma());
+      // Force the init error path with a bad package.json location set.
+      Object.defineProperty(service, "packageInfoError", {
+        value: "ENOENT: no such file or directory, open '/srv/app/dist/package.json'",
+        configurable: true,
+      });
+      const result = await service.getVersion();
+      expect(JSON.stringify(result.warning)).not.toContain("/srv/app/dist");
+    });
   });
 });

@@ -82,7 +82,15 @@ export class DomainError extends Error {
  */
 function serializeCause(cause: unknown): unknown {
   if (cause === undefined || cause === null) return cause;
-  if (cause instanceof Error) return cause.message;
+  if (cause instanceof Error) {
+    // `cause.message` routinely carries infrastructure detail (Prisma/driver
+    // errors embed DB hostnames, connection strings, and SQL). `toJSON` is the
+    // canonical serializer for durable sinks (audit logs, idempotency records),
+    // so a raw `cause.message` would leak a secret verbatim into those sinks —
+    // while `message` and `context` are already sanitized above. Sanitize the
+    // cause message the same way to close the asymmetric-leak path.
+    return sanitizeForLogOutput(cause.message);
+  }
   return "[Non-error cause]";
 }
 

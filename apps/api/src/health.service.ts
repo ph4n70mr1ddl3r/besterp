@@ -169,8 +169,10 @@ export class HealthService implements OnModuleInit {
       name: this.packageInfo.name,
       environment: process.env.NODE_ENV || "development",
       // Suppress filesystem-path errors in production to avoid information
-      // disclosure about the container/server layout.
-      warning: this.packageInfoError ?? undefined,
+      // disclosure about the container/server layout. Even in non-production,
+      // scrub file paths / connection strings from the message so an
+      // anonymous /version caller cannot learn infrastructure details.
+      warning: this.packageInfoError ? sanitizeForLogOutput(this.packageInfoError) : undefined,
       build: {
         number: process.env.BUILD_NUMBER ? sanitizeLogMessage(process.env.BUILD_NUMBER).slice(0, 50) : undefined,
         date: process.env.BUILD_DATE ? sanitizeLogMessage(process.env.BUILD_DATE).slice(0, 30) : undefined,

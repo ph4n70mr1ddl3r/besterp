@@ -167,6 +167,26 @@ describe("ConcurrencyConflictError", () => {
     expect(json.name).toBe("ConcurrencyConflictError");
     expect(json.message).toBe("stale version");
   });
+
+  it("sanitizes a secret-bearing cause message in toJSON (durable-sink leak)", () => {
+    // A Prisma/driver error is routinely attached as `cause`; its message can
+    // embed a connection string / SQL. toJSON is the canonical serializer for
+    // audit logs + idempotency records, so the cause message must be scrubbed
+    // the same way `message` and `context` already are.
+    const root = new Error("connect ECONNREFUSED postgres://user:secretpass@db.internal:5432/app");
+    const error = new ConcurrencyConflictError("operation failed", { cause: root });
+    const json = error.toJSON();
+    expect(JSON.stringify(json.cause)).not.toContain("secretpass");
+    expect(JSON.stringify(json.cause)).toContain("[DATABASE_URL]");
+  });
+
+  it("does not sanitize a non-error cause (returns safe placeholder)", () => {
+    const error = new ConcurrencyConflictError("operation failed", {
+      cause: { raw: "postgres://user:secretpass@db.internal" },
+    });
+    const json = error.toJSON();
+    expect(json.cause).toBe("[Non-error cause]");
+  });
 });
 
 describe("getErrorCode", () => {

@@ -1,5 +1,17 @@
 # BestERP — Security & Architecture Fixes
 
+## Changes Applied (2026-07-20) — Code Review Round 67
+
+### 🟡 `packages/shared/src/errors.ts` — `DomainError.toJSON` serialized `cause.message` without sanitization (asymmetric durable-sink leak)
+
+**Problem:** `toJSON` scrubs `message` via `sanitizeForLogOutput` and `context` via `redactSensitiveFieldValues`, but `serializeCause` returned an attached `Error` cause's `message` verbatim. `cause` is frequently a Prisma/driver error (e.g. `prisma.service.ts` does `new Error(msg, { cause: roleErr })`) whose message embeds a DB hostname / connection string / SQL. Because `toJSON` is the canonical serializer for the durable `ai_action_log` and `idempotency_record` sinks, that infrastructure detail leaked into the durable row while `message` was scrubbed — the same asymmetric-leak class rounds 56/65 closed for `message`/`context`.
+**Fix:** `serializeCause` now runs the `Error` cause's message through `sanitizeForLogOutput` (matching `message`); non-`Error` causes still return the safe `[Non-error cause]` placeholder. Regression tests added (secret-bearing cause redacted; non-error cause unchanged).
+
+### 🟢 `apps/api/src/health.service.ts` — anonymous `/version` reflected an unsanitized init-error `warning`
+
+**Problem:** `getVersion()` is `@Public()` (no JWT), so its non-production body is reachable by anyone. It surfaced `packageInfoError` verbatim in `warning`, which can contain the container's filesystem layout (e.g. `ENOENT … open '/srv/app/dist/package.json'`) — mild infrastructure fingerprinting inconsistent with the fail-closed hardening already applied to `name`/`version`/`build` on this endpoint (round 45).
+**Fix:** `warning` is now scrubbed via `sanitizeForLogOutput`. Regression test added.
+
 ## Changes Applied (2026-07-20) — Code Review Round 66
 
 ### 🟡 `apps/api/src/mcp/mcp.module.ts` — `reasoning` not sanitized with `sanitizeForLogOutput` at the auth boundary
