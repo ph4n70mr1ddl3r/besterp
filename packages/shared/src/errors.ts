@@ -1,4 +1,4 @@
-import { redactSensitiveFieldValues } from "./sanitize.js";
+import { redactSensitiveFieldValues, sanitizeForLogOutput } from "./sanitize.js";
 
 // Custom domain error classes for BestERP.
 //
@@ -42,12 +42,19 @@ export class DomainError extends Error {
     return {
       name: this.name,
       code: this.code,
-      message: this.message,
+      // `message` routinely echoes user-supplied input (connection strings,
+      // `?api_key=…`). Sanitize it here for defense-in-depth so any caller that
+      // serializes a DomainError via `JSON.stringify(error)` (the canonical
+      // structured serializer for audit logs / idempotency records) cannot leak
+      // a secret verbatim — matching what the REST `DomainExceptionFilter` and
+      // the MCP `error-handler` already apply to `error.message` before
+      // reflecting/persisting it. `code` is a short allowlisted constant, safe.
+      message: sanitizeForLogOutput(this.message),
       suggestedTools: this.suggestedTools,
       // Redact values stored under sensitive-named keys (password, apiKey, …)
       // and sanitize every string leaf before serialization. toJSON is the
       // canonical structured serializer used for audit logs, idempotency
-      // records, and any other place errors are serialized — so a secret
+      // records, and any other context where errors are serialized — so a secret
       // attached under a sensitive-named context key must not reach those
       // durable sinks verbatim. This keeps toJSON consistent with the REST
       // DomainExceptionFilter.sanitizeContext path and the MCP

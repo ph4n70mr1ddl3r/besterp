@@ -637,6 +637,20 @@ describe("sanitizeLogOutput — quoted-JSON secrets in free text", () => {
     expect(r).not.toContain("sk_live_quoted");
     expect(r).toContain("[REDACTED]");
   });
+
+  it("redacts quoted session/code secrets even when too short for the high-entropy rule", () => {
+    // `session` and `code` are sensitive field names but round 64 removed them
+    // from the quoted-value rule to avoid re-mangling benign free-text such as
+    // `status code=200 ok`. The QUOTED form (JSON-in-text) must still redact
+    // them — a short opaque token below the 20-char high-entropy threshold must
+    // not leak verbatim into the agent-facing/durable surfaces.
+    const r1 = sanitizeForLogOutput('{"session":"abc123xyz"}');
+    expect(r1).not.toContain("abc123xyz");
+    expect(r1).toContain("[REDACTED]");
+    const r2 = sanitizeForLogOutput('{"code":"XYZ789"}');
+    expect(r2).not.toContain("XYZ789");
+    expect(r2).toContain("[REDACTED]");
+  });
 });
 
 describe("isSensitiveFieldName", () => {

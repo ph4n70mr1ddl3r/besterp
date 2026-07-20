@@ -215,7 +215,7 @@ export function sanitizeLogOutput(message: string): string {
     // `password="value"` (equals + quoted value). The leading boundary
     // (whitespace/quote/`{`/`,`/`;`/`(`) is required so benign prose is not
     // mangled, mirroring the bare-form rule.
-    .replace(/(^|[\s"'{([;,?])"?((?:key|token|id_token|access_token|secret|password|passwd|pwd|auth|api_key|apikey|client_secret|client_id|signature|sign|otp|bearer))"?[:=]("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')/gi, (full, lead, name) => {
+    .replace(/(^|[\s"'{([;,?])"?((?:key|token|id_token|access_token|secret|password|passwd|pwd|auth|api_key|apikey|client_secret|client_id|signature|sign|otp|code|session|bearer))"?[:=]("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')/gi, (full, lead, name) => {
       return `${lead}${name}=[REDACTED]`;
     })
     // Redact high-entropy bearer/secret tokens that appear outside the

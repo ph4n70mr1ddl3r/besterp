@@ -5,6 +5,82 @@ Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database
 `mcp-tools`, `apps/api`) conducted on 2026-07-19. This is review 61;
 round 1–56 are documented in earlier revisions of this file and `CHANGES.md`.
 
+## Findings & Actions (round 65)
+
+### Fixed this round
+
+1. **🟡 `sanitize.ts` (quoted-value rule) — round 64 reopened an asymmetric secret leak for
+   `session`/`code` by removing them from the quoted-value rule.** Round 64 removed `code|session`
+   from the quoted-value boundary rule to stop benign free-text `status code=200 ok` from being
+   mangled. But the *quoted* JSON form (`{"session":"abc123xyz"}`, `{"code":"XYZ789"}`) was also
+   dropped, so short opaque tokens below the 20-char high-entropy threshold leaked verbatim into
+   agent-facing error/output and the durable cross-tenant `ai_action_log`/`idempotency_record`
+   rows. `session`/`code` remain sensitive field names (`SENSITIVE_FIELD_NAMES`), and the key-name
+   redactor + the query-string rule both still redact them — only the value-shape quoted rule had
+   been weakened, so it was the asymmetric gap rounds 44/48/49/56 exist to prevent. Re-added
+   `code|session` to the **quoted-value** rule only (line 218), leaving the bare-form free-text
+   rule (the round-64 prose fix) untouched. Regression test added (quoted `session`/`code` redacted
+   at short lengths).
+
+2. **🟡 `mcp.module.ts:buildContext` — MCP identity/context fields persisted to the cross-tenant
+   durable `ai_action_log` sink without HTML/secret sanitization.** `userId`/`agentId`/
+   `conversationId`/`reasoning` flow into `ai_action_log` via `auditLogMiddleware(this.prisma.admin)`.
+   Only `reasoning` was sanitized downstream (round 49); the three identity fields were stored
+   verbatim, so an attacker-influenced `<script>`/`<img onerror>` payload or a `?api_key=…` reached
+   the durable row unstripped/unredacted. `buildContext` now runs `userId`/`agentId`/
+   `conversationId` through `sanitizeForLogOutput(stripHtmlTags(...))` and `reasoning` through
+   `stripHtmlTags(...)` at the boundary, mirroring the downstream `reasoning` treatment. Regression
+   test added.
+
+3. **🟡 `errors.ts:DomainError.toJSON` — `message` serialized without sanitization.** `toJSON`
+   redacts `context` via `redactSensitiveFieldValues` but returned `message` raw. `message` routinely
+   echoes user-supplied input (connection strings, `?api_key=…`), so any caller serializing the
+   error via `JSON.stringify(error)` (the canonical durable-sink serializer) could leak the secret
+   verbatim — inconsistent with the REST `DomainExceptionFilter`/`error-handler`, which sanitize
+   `error.message`. `toJSON` now sanitizes `message` via `sanitizeForLogOutput` (defense-in-depth;
+   `code` is a short allowlisted constant, left as-is). Regression test added.
+
+4. **🟢 `rls-extension.ts:createModelDelegateProxy` — `$transaction` on a model delegate silently
+   bypassed tenant context.** The model-delegate proxy returned the underlying delegate's
+   `$transaction` (not in `DATA_METHODS`), which runs without `set_tenant_context` and thus bypasses
+   RLS — a latent footgun if a contributor wrote `proxy.party.$transaction(...)`. The proxy now
+   rejects `$transaction` on a model delegate, directing callers to the client-level `$transaction`.
+   Regression test added.
+
+### Reviewed but NOT changed (false positives / deferred)
+
+- **`mcp.module.ts` `buildContext` never driven by a JWT-validating transport (`tenantId`
+  trust-the-caller):** the only MCP transport is the tool registry populated in `onModuleInit`; no
+  transport extracts/validates a JWT and binds `tenantId` to the authenticated principal before
+  `buildContext`. The `tenantId` validation exists, but it is trust-the-caller unless a future
+  transport passes the *verified-JWT* tenantId. Deferred — there is no transport to wire today;
+  flagged so the future transport must inject the JWT-validated tenantId, not accept a caller-supplied
+  one. No code change this round.
+- **`party.service.ts` `taxId` returned verbatim on REST+MCP success DTOs:** re-verified — intra-tenant
+  PII returned to authenticated members, no cross-tenant leak; consistent with the long-standing
+  deferred product decision. The report's round-55/56 text inconsistency (one entry wrongly claims
+  `taxId` is already redacted on the success path) is corrected by this note.
+- **`sanitize.ts` lowercase `[a-f0-9]` letter+digit mix (e.g. `a1b2c3d4…`) not redacted by the generic
+  high-entropy rule (line 315 spares pure `[a-f0-9]` runs):** intentional trade-off (round 57) to
+  preserve dashless-UUID/hash log context; a pure-lowercase-hex+digit token is treated as a benign
+  identifier. Accepted; the key-name and prefix rules still catch named/known-shape secrets. No change.
+- **`rls-extension.ts` shared-pool context reset / `crypto.ts` aggregate budget rounding /
+  non-concurrent `CREATE INDEX` / `ai_action_log.tenant_id` nullable / `create-roles.sql` dev
+  password:** all re-verified as latent/deferred with no new 🔴/🟡 exploit path this round.
+- **Tenant isolation (RLS boot assertions, superuser boot refusal, app-level `tenantId` filters),
+  secret redaction across REST/MCP/durable surfaces, idempotency-key charset consistency, and ReDoS**
+  remain intact and were re-verified. No new exploit paths beyond the four fixes above.
+
+## Test Results
+```
+shared:    195 passed (4 files)   (+2 — round 65 quoted session/code + toJSON message regressions)
+mcp-tools: 143 passed (4 files)   (unchanged)
+database:   26 passed, 10 skipped (2 files)  (+1 — round 65 model-delegate $transaction guard)
+api:       331 passed (15 files)  (+1 — round 65 MCP identity-field sanitization regression)
+───────────────────────────────────
+Total:     695 passed, 10 skipped
+```
+
 ## Findings & Actions (round 63)
 
 ### Fixed this round

@@ -153,6 +153,28 @@ describe("McpModule", () => {
       expect(ctx.userId).toBe("user-1");
     });
 
+    it("should strip HTML and sanitize secrets from identity/context fields before persistence", () => {
+      // userId/agentId/conversationId/reasoning are persisted verbatim to the
+      // cross-tenant ai_action_log durable sink, so attacker-influenced values
+      // must be HTML-stripped (stored-XSS) and have connection-string / secret
+      // shapes redacted at the boundary — mirroring the downstream reasoning
+      // sanitization.
+      const ctx = mcpModule.buildContext({
+        tenantId: "tenant-1",
+        userId: '<script>alert(1)</script>u?api_key=sk_live_abc123',
+        agentId: 'a<img src=x onerror=alert(1)>',
+        conversationId: 'c"password=hunter2"',
+        reasoning: 'r<iframe src=evil>',
+      });
+      expect(ctx.userId).not.toContain("<script>");
+      expect(ctx.userId).not.toContain("sk_live_abc123");
+      expect(ctx.userId).toContain("[REDACTED]");
+      expect(ctx.agentId).not.toContain("<img");
+      expect(ctx.conversationId).not.toContain("hunter2");
+      expect(ctx.conversationId).toContain("[REDACTED]");
+      expect(ctx.reasoning).not.toContain("<iframe>");
+    });
+
     it("should reject whitespace-only agentId", () => {
       expect(() =>
         mcpModule.buildContext({

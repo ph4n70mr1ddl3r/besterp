@@ -192,6 +192,21 @@ function createModelDelegateProxy(
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       if (typeof method !== "string") return (modelTarget as any)[method];
 
+      // `$transaction` is NOT supported on a model delegate: the only
+      // tenant-context-carrying transaction wrapper lives on the client proxy
+      // (see createClientProxy). A `$transaction` reached here runs WITHOUT
+      // `set_tenant_context` and thus silently bypasses RLS. Reject it
+      // explicitly so a future caller cannot write cross-tenant — checked
+      // before the function/non-function early-return below because Prisma does
+      // not actually expose `$transaction` on model delegates, so `originalFn`
+      // would otherwise be `undefined` and slip through.
+      if (method === "$transaction") {
+        throw new Error(
+          `Cannot call '$transaction' on the '${modelName}' model delegate of a tenant-scoped client. ` +
+          `Use the client-level '$transaction' so tenant context is applied.`
+        );
+      }
+
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const originalFn = (modelTarget as any)[method];
       if (typeof originalFn !== "function") return originalFn;

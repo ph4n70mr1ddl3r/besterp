@@ -20,7 +20,7 @@ import {
   OnModuleInit,
 } from "@nestjs/common";
 import { validateTenantIdEnhanced } from "@besterp/database";
-import { InvalidTypeValueError, MAX_USER_ID_LENGTH, MAX_IDEMPOTENCY_KEY_LENGTH, SAFE_IDEMPOTENCY_KEY, MAX_AGENT_ID_LENGTH, MAX_CONVERSATION_ID_LENGTH, MAX_REASONING_LENGTH } from "@besterp/shared";
+import { InvalidTypeValueError, MAX_USER_ID_LENGTH, MAX_IDEMPOTENCY_KEY_LENGTH, SAFE_IDEMPOTENCY_KEY, MAX_AGENT_ID_LENGTH, MAX_CONVERSATION_ID_LENGTH, MAX_REASONING_LENGTH, stripHtmlTags, sanitizeForLogOutput } from "@besterp/shared";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { PrismaModule } from "../prisma/prisma.module.js";
 import { PartyService } from "../modules/core/party/party.service.js";
@@ -120,6 +120,13 @@ export class McpModule implements OnModuleInit {
         { context: { field: "userId", length: userId.length, maxLength: MAX_USER_ID_LENGTH } }
       );
     }
+    // `userId` is attacker-influenced and persisted verbatim to the cross-tenant
+    // `ai_action_log` durable sink (via auditLogMiddleware). Strip HTML/script
+    // payloads (stored-XSS if ever rendered) and sanitize connection-string /
+    // secret shapes before they reach the durable row — matching the defense
+    // already applied to `reasoning` downstream. `agentId`/`conversationId`
+    // below share the same durable sink and get the same treatment.
+    userId = sanitizeForLogOutput(stripHtmlTags(userId));
 
     // Validate and normalise optional string fields — trim whitespace and
     // enforce length limits. We store the TRIMMED values so that downstream
@@ -145,14 +152,24 @@ export class McpModule implements OnModuleInit {
     // reasoning validates identically to the other optional string fields, so
     // delegate to validateOptionalField instead of a bespoke duplicate.
     const reasoning = validateOptionalField("reasoning", overrides.reasoning, MAX_REASONING_LENGTH);
+    // These identity/context fields are persisted to the cross-tenant
+    // `ai_action_log` durable sink (via auditLogMiddleware). Strip HTML/script
+    // payloads and sanitize connection-string / secret shapes at the boundary so
+    // they cannot reach the durable row verbatim — mirroring the `userId`
+    // treatment above and the downstream `reasoning` sanitization. `reasoning`
+    // already runs through sanitizeForLogOutput in audit-log; the extra
+    // stripHtmlTags here closes the XSS path for all four fields uniformly.
+    const safeAgentId = agentId !== undefined ? sanitizeForLogOutput(stripHtmlTags(agentId)) : undefined;
+    const safeConversationId = conversationId !== undefined ? sanitizeForLogOutput(stripHtmlTags(conversationId)) : undefined;
+    const safeReasoning = reasoning !== undefined ? stripHtmlTags(reasoning) : undefined;
 
     return {
       tenantId,
       userId,
-      agentId,
-      conversationId,
+      agentId: safeAgentId,
+      conversationId: safeConversationId,
       idempotencyKey,
-      reasoning,
+      reasoning: safeReasoning,
       services: {
         partyService: this.partyService,
       },

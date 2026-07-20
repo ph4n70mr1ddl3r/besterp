@@ -1,5 +1,45 @@
 # BestERP — Security & Architecture Fixes
 
+## Changes Applied (2026-07-20) — Code Review Round 65
+
+### 🟡 `packages/shared/src/sanitize.ts` — round 64 removed `code`/`session` from the quoted-value secret rule, reopening an asymmetric leak
+**Problem:** Round 64 removed `code|session` from the quoted-value boundary rule to fix benign
+free-text like `status code=200 ok`. But the *quoted* JSON form (`{"session":"abc123xyz"}`,
+`{"code":"XYZ789"}`) was also dropped. Those values are only re-caught by the generic high-entropy
+rule when ≥20 chars; a short opaque token below that threshold leaked verbatim into agent-facing
+error/output and the durable cross-tenant `ai_action_log`/`idempotency_record` rows — exactly the
+asymmetric secret-leak class rounds 44/48/49/56 closed. The bare-form (free-text) rule was the one
+that needed the `code`/`session` removal; the quoted form is structured, not prose, and should keep
+redacting them.
+**Fix:** Re-added `code|session` to the quoted-value rule only (line 218), leaving the bare-form rule
+(round 64's prose fix) untouched. Regression test added (quoted `session`/`code` redacted even at
+short lengths).
+
+### 🟡 `apps/api/src/mcp/mcp.module.ts` — MCP identity/context fields persisted to cross-tenant durable sink without HTML/secret sanitization
+**Problem:** `userId`/`agentId`/`conversationId`/`reasoning` flow into the cross-tenant `ai_action_log`
+row via `auditLogMiddleware`. Only `reasoning` was sanitized downstream (round 49); `userId`/
+`agentId`/`conversationId` were stored verbatim, so an attacker-influenced `<script>`/`<img onerror>`
+(payload) or `?api_key=…` reached the durable row unstripped/unredacted.
+**Fix:** `buildContext` now runs `userId`/`agentId`/`conversationId` through `sanitizeForLogOutput(
+stripHtmlTags(...))` and `reasoning` through `stripHtmlTags(...)` at the boundary, mirroring the
+downstream `reasoning` treatment. Regression test added.
+
+### 🟡 `packages/shared/src/errors.ts` — `DomainError.toJSON` serialized `message` without sanitization
+**Problem:** `toJSON` redacts `context` via `redactSensitiveFieldValues` but returned `message` raw.
+`message` routinely echoes user-supplied input (connection strings, `?api_key=…`), so any caller
+serializing the error via `JSON.stringify(error)` (the canonical durable-sink serializer) could leak
+the secret verbatim, inconsistent with the REST `DomainExceptionFilter`/`error-handler` which
+sanitize `error.message`.
+**Fix:** `toJSON` now sanitizes `message` via `sanitizeForLogOutput` (defense-in-depth; `code` is a
+short allowlisted constant, left as-is). Regression test added.
+
+### 🟢 `packages/database/src/rls-extension.ts` — `$transaction` on a model delegate silently bypassed tenant context
+**Problem:** `proxy.party.$transaction(...)` returned the underlying delegate's function (not in
+`DATA_METHODS`), which runs without `set_tenant_context` and thus bypasses RLS. A latent footgun for
+any future contributor expecting delegate-level transactions to be scoped.
+**Fix:** The model-delegate proxy now rejects `$transaction` explicitly, directing callers to the
+client-level `$transaction`. Regression test added.
+
 ## Changes Applied (2026-07-20) — Code Review Round 64
 
 ### 🟡 `packages/shared/src/tenant.ts` — `validateTenantIdEnhancedForAuth` omitted the `MAX_TENANT_ID_LENGTH` check present in `validateTenantId`

@@ -271,6 +271,17 @@ describe("DomainError subclasses", () => {
     });
   });
 
+  it("DomainError toJSON sanitizes a secret-bearing message", () => {
+    // `message` routinely echoes user-supplied input (connection strings,
+    // `?api_key=…`). Sanitize it on the toJSON path so any caller serializing
+    // the error via JSON.stringify cannot leak the secret verbatim into durable
+    // sinks.
+    const error = new DomainError("TEST", "connect failed postgres://u:p@host/db");
+    const json = error.toJSON();
+    expect(json.message).not.toContain("postgres://u:p@host/db");
+    expect(json.message).toContain("[DATABASE_URL]");
+  });
+
   it("isDomainError returns true for DomainError instances", () => {
     expect(isDomainError(new DomainError("C", "m"))).toBe(true);
     expect(isDomainError(new EntityNotFoundError("m"))).toBe(true);

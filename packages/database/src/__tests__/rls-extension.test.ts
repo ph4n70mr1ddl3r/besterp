@@ -250,6 +250,17 @@ describe("RLS Extension", () => {
       );
     });
 
+    it("should reject $transaction on a model delegate (RLS bypass guard)", () => {
+      // A $transaction called on a model delegate (`client.party.$transaction`)
+      // would run WITHOUT set_tenant_context and silently bypass RLS. The model
+      // delegate proxy must reject it so the only tenant-context-carrying
+      // transaction path is the client-level one.
+      const client = createTenantClient(mockPrisma, "tenant-1");
+      expect(() => (client.party as any).$transaction).toThrow(
+        /Cannot call '\$transaction' on the 'party' model delegate/
+      );
+    });
+
     it("should reject batch transactions on tenant-scoped client", () => {
       const client = createTenantClient(mockPrisma, "tenant-1");
 
