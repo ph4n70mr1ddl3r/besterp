@@ -238,6 +238,21 @@ describe("Party MCP Tools", () => {
       );
     });
 
+    it("should strip HTML from the name filter (matches REST path)", async () => {
+      // The MCP search `name` must be HTML-stripped just like the REST
+      // SearchPartiesDto (@sanitizeTransform), so a markup payload cannot
+      // reach the service/log path intact.
+      await registry.execute(
+        "search_parties",
+        { name: "<script>alert(1)</script>Acme" },
+        createContext({ partyService: mockPartyService }),
+      );
+
+      expect(mockPartyService.searchParties).toHaveBeenCalledWith(
+        expect.objectContaining({ name: "Acme", tenantId: "tenant-1" })
+      );
+    });
+
     it("should search with partyType filter", async () => {
       await registry.execute("search_parties", { partyType: "ORGANIZATION" }, createContext({ partyService: mockPartyService }));
 

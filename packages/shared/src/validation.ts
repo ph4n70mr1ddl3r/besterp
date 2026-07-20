@@ -29,12 +29,14 @@ export const UUID_REGEX: RegExp =
  * - Zod schemas in party-tools.ts (via .email() — kept aligned by tests)
  * - DTOs in party.dto.ts (via class-validator's @IsEmail — kept aligned by tests)
  */
-export const EMAIL_REGEX: RegExp = /^(?!\.)(?!.*\.\.)[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+(?<!\.)@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$/;
+export const EMAIL_REGEX: RegExp = /^(?!\.)(?!.*\.\.)[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+(?<!\.)@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*\.[a-zA-Z0-9]{2,}(?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$/;
 
 /**
  * E.164 country code validation — `+` followed by 1 to 3 digits, first digit
- * non-zero. Covers all real country codes (e.g. +1, +44, +81, +86) while
- * rejecting invalid codes like +0 or +01.
+ * non-zero. Rejects obviously invalid codes like +0 or +01, and (since these
+ * values are stored/formatted, not used for routing) accepts the full 1–3 digit
+ * range including some non-assigned codes (e.g. +999). Callers that need strict
+ * validation against the real +1…+998 E.164 range should use an allow-list.
  *
  * Used by PartyService.addContactMechanism (telecom type).
  */

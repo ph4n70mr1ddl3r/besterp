@@ -5,6 +5,7 @@
 import { describe, it, expect } from "vitest";
 import { validateTenantId, validateTenantIdEnhancedForAuth, withTenant } from "../tenant.js";
 import { COUNTRY_CODE_REGEX, EMAIL_REGEX, UUID_REGEX, isValidISODate } from "../validation.js";
+import { JWT_EXPIRES_IN_REGEX } from "../constants.js";
 import {
   ConcurrencyConflictError,
   DomainError,
@@ -141,6 +142,38 @@ describe("UUID_REGEX / EMAIL_REGEX sanity check", () => {
   it("EMAIL_REGEX matches a simple address", () => {
     expect(EMAIL_REGEX.test("user@example.com")).toBe(true);
     expect(EMAIL_REGEX.test("not-an-email")).toBe(false);
+  });
+  it("EMAIL_REGEX rejects a single-character TLD", () => {
+    // A one-letter TLD ("b.c") is not a valid public suffix and must be
+    // rejected so malformed addresses cannot enter email_address storage.
+    expect(EMAIL_REGEX.test("user@b.c")).toBe(false);
+    expect(EMAIL_REGEX.test("a@x.y")).toBe(false);
+    expect(EMAIL_REGEX.test("user@example.c")).toBe(false);
+    // A legitimate 2+ char TLD still matches.
+    expect(EMAIL_REGEX.test("user@example.io")).toBe(true);
+  });
+});
+
+describe("JWT_EXPIRES_IN_REGEX (token lifetime)", () => {
+  it("accepts well-formed positive durations", () => {
+    expect(JWT_EXPIRES_IN_REGEX.test("24h")).toBe(true);
+    expect(JWT_EXPIRES_IN_REGEX.test("60m")).toBe(true);
+    expect(JWT_EXPIRES_IN_REGEX.test("7d")).toBe(true);
+    expect(JWT_EXPIRES_IN_REGEX.test("1s")).toBe(true);
+    expect(JWT_EXPIRES_IN_REGEX.test("9999999999d")).toBe(true);
+  });
+  it("rejects degenerate and unbounded durations", () => {
+    // Zero/instant expiry would invalidate every token immediately; an
+    // unbounded magnitude would produce an effectively non-expiring token.
+    expect(JWT_EXPIRES_IN_REGEX.test("0s")).toBe(false);
+    expect(JWT_EXPIRES_IN_REGEX.test("0d")).toBe(false);
+    expect(JWT_EXPIRES_IN_REGEX.test("007d")).toBe(false);
+    expect(JWT_EXPIRES_IN_REGEX.test("999999999999999999d")).toBe(false);
+    // Format-only mistakes are still rejected.
+    expect(JWT_EXPIRES_IN_REGEX.test("24")).toBe(false);
+    expect(JWT_EXPIRES_IN_REGEX.test("h")).toBe(false);
+    expect(JWT_EXPIRES_IN_REGEX.test("1x")).toBe(false);
+    expect(JWT_EXPIRES_IN_REGEX.test("")).toBe(false);
   });
 });
 

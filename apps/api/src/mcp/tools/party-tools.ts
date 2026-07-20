@@ -357,8 +357,11 @@ Returns full party details. Use this to inspect a specific party's information.`
 // ─── Tool: search_parties ─────────────────────────────────────────
 
 /** Optional trimmed string that rejects whitespace-only input (for search filters).
- *  Trims and normalises empty/whitespace-only input to undefined (widens to
- *  "return all"), which is the correct semantics for optional search filters.
+ *  Trims, strips HTML/script payloads, and normalises empty/whitespace-only input
+ *  to undefined (widens to "return all"), which is the correct semantics for
+ *  optional search filters. The HTML strip matches the REST `SearchPartiesDto`
+ *  `@sanitizeTransform()` path so the two input surfaces cannot diverge on
+ *  sanitization (a value could otherwise reach a log line carrying raw markup).
  *  Uses a single transform for trim+emptiness (no `.refine()` after `.pipe()`)
  *  to keep the schema composable and avoid nested refinement error paths. */
 function optionalFilteredString(max: number) {
@@ -366,7 +369,7 @@ function optionalFilteredString(max: number) {
     .optional()
     .transform(s => {
       if (s === undefined) return undefined;
-      const trimmed = s.trim();
+      const trimmed = stripHtmlTags(s.trim());
       return trimmed.length === 0 ? undefined : trimmed;
     })
     .pipe(z.string().max(max).optional());

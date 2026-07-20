@@ -1,5 +1,19 @@
 # BestERP — Security & Architecture Fixes
 
+## Changes Applied (2026-07-20) — Code Review Round 68
+
+### 🟡 `packages/shared/src/constants.ts` — `JWT_EXPIRES_IN_REGEX` accepted degenerate/non-expiring token lifetimes
+**Problem:** The regex `^\d+[smhd]$` only checked format, with no lower or upper bound. `JWT_EXPIRES_IN=0s` passed `validateEnvironment` (main.ts) and would expire every token instantly, while `JWT_EXPIRES_IN=999999999999999999d` passed and produced an effectively non-expiring token — silently defeating short-lived JWTs in production. `JWT_SECRET` strength and other auth config are validated, but the lifetime knob was left unconstrained.
+**Fix:** `JWT_EXPIRES_IN_REGEX` now requires a non-zero leading digit and caps the magnitude at 10 digits (`^[1-9]\d{0,9}[smhd]$`). `validateEnvironment` already fails closed on a non-matching value, so both degenerate cases are now rejected at boot. Added regression tests (rejects `0s`, `007d`, `999999999999999999d`, format-only mistakes; accepts `24h`/`60m`/`7d`/`1s`).
+
+### 🟡 `apps/api/src/mcp/tools/party-tools.ts` — MCP `search_parties` `name`/`roleType` filters not HTML-stripped (asymmetric with REST path)
+**Problem:** The REST `SearchPartiesDto` runs `name`/`roleType` through `@sanitizeTransform()` (stripHtmlTags + trim), but the MCP `searchPartiesSchema` used `optionalFilteredString`, whose transform only trimmed — it never called `stripHtmlTags`. A markup payload (`<script>…</script>Acme`) submitted via the MCP tool therefore reached the service/log path intact, diverging from the REST surface. Low runtime risk (search values are not persisted or echoed back), but an inconsistent sanitization boundary the prior rounds otherwise keep symmetric.
+**Fix:** `optionalFilteredString` now runs `stripHtmlTags(s.trim())`, matching the REST `@sanitizeTransform()` behavior. Added a regression test asserting a markup `name` filter is stripped to its text before reaching the service.
+
+### 🟢 `packages/shared/src/validation.ts` — `EMAIL_REGEX` accepted single-character TLDs
+**Problem:** The label regex permitted a one-letter final label, so `user@b.c` / `a@x.y` validated as legal email addresses and could enter `email_address` storage despite not being valid public suffixes.
+**Fix:** `EMAIL_REGEX` now requires the final TLD label to be at least 2 characters (`\.[a-zA-Z0-9]{2,}`), while still allowing single-label subdomains (e.g. `user@example.com`). Added regression tests (rejects `user@b.c`/`a@x.y`; accepts `user@example.com`/`user@example.io`). Also corrected the `COUNTRY_CODE_REGEX` doc comment to stop overclaiming it covers only real E.164 codes (values remain stored/formatted, not routed).
+
 ## Changes Applied (2026-07-20) — Code Review Round 67
 
 ### 🟡 `packages/shared/src/errors.ts` — `DomainError.toJSON` serialized `cause.message` without sanitization (asymmetric durable-sink leak)

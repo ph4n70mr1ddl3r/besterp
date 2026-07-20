@@ -2,8 +2,72 @@
 
 ## Scope
 Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
-`mcp-tools`, `apps/api`) conducted on 2026-07-20. This is review 67;
-round 1–66 are documented in earlier revisions of this file and `CHANGES.md`.
+`mcp-tools`, `apps/api`) conducted on 2026-07-20. This is review 68;
+round 1–67 are documented in earlier revisions of this file and `CHANGES.md`.
+
+## Findings & Actions (round 68)
+
+### Fixed this round
+
+1. **🟡 `constants.ts:JWT_EXPIRES_IN_REGEX` — the token-lifetime regex accepted
+   degenerate / non-expiring values.** `^\d+[smhd]$` enforced only format, so
+   `JWT_EXPIRES_IN=0s` (instant-expiry, breaks all auth) and
+   `JWT_EXPIRES_IN=999999999999999999d` (effectively non-expiring, defeats
+   short-lived JWTs) both passed `validateEnvironment` (`main.ts`) and booted.
+   The `JWT_SECRET` strength and other auth knobs are validated, but the lifetime
+   was left unconstrained. The regex now requires a non-zero leading digit and
+   caps the magnitude at 10 digits (`^[1-9]\d{0,9}[smhd]$`); `validateEnvironment`
+   fails closed on a non-match, so both degenerate cases are now rejected at boot.
+   Regression tests added.
+
+2. **🟡 `apps/api/src/mcp/tools/party-tools.ts` — MCP `search_parties` `name`/
+   `roleType` filters were not HTML-stripped, diverging from the REST path.**
+   The REST `SearchPartiesDto` runs `name`/`roleType` through `@sanitizeTransform()`
+   (`stripHtmlTags` + trim), but the MCP `optionalFilteredString` transform only
+   trimmed. A markup payload reached the service/log path intact on the MCP
+   surface — an inconsistent sanitization boundary (the prior rounds otherwise
+   keep every other field symmetric across the two surfaces).
+   `optionalFilteredString` now runs `stripHtmlTags(s.trim())`, matching the REST
+   `@sanitizeTransform()` behavior. Regression test added.
+
+3. **🟢 `validation.ts:EMAIL_REGEX` — single-character TLDs (`user@b.c`) were
+   accepted as valid.** The final label could be one letter, so malformed
+   addresses entered `email_address` storage. The regex now requires the final
+   TLD label to be ≥ 2 chars (`\.[a-zA-Z0-9]{2,}`), still allowing single-label
+   subdomains. Also corrected the `COUNTRY_CODE_REGEX` doc comment, which
+   overclaimed it covered only real E.164 codes (values are stored/formatted, not
+   routed). Regression tests added.
+
+### Reviewed but NOT changed (false positives / deferred)
+
+- **`error-handler.ts` `sanitizeContextValue` — object *keys* are not run through
+   `sanitizeForLogOutput`** and the 500-char agent cap is character- (not
+   byte-) based: keys are app-constructed and idempotency-replay keys are
+   internal, so this is not exploitable; the canonical shared `redactSensitiveFieldValues`
+   exhibits the identical key handling (consistent, not a regression). No change.
+- **`tool-registry.ts` `sanitizeIssues` — Zod issue `path` segments reveal a
+   sensitive field *name* (e.g. `["password"]`)** to the agent (the value is
+   redacted). Field names are schema, not secret values; `sanitizeForLogOutput`
+   would not strip a bare `"password"`. Logged as a low-severity info-disclosure
+   item; not changed this round.
+- **`COUNTRY_CODE_REGEX` accepting `+999`**: validation-only (stored/formatted, not
+   used for routing). Left as-is; documented the actual behavior in the comment.
+- **Redactor consistency (`audit-log.redactSensitiveFields` vs shared
+   `redactSensitiveFieldValues` vs `error-handler.sanitizeContextValue`),
+   idempotency concurrency (Serializable txn, no TOCTOU), tenant isolation (RLS
+   boot assertions + app-level `tenantId` filters), secret redaction across
+   REST/MCP/durable surfaces, and ReDoS** remain intact and were re-verified by
+   independent reads this round. No new 🔴/🟡 exploit paths beyond the three fixes.
+
+## Test Results (round 68)
+```
+shared:    200 passed (4 files)   (+5 — round 68 JWT-expiry + email-TLD regressions)
+mcp-tools: 143 passed (4 files)   (+1 — round 68 search HTML-strip regression)
+database:   26 passed, 10 skipped (2 files)  (unchanged)
+api:       334 passed (15 files)  (unchanged)
+──────────────────────────────────
+Total:     703 passed, 10 skipped
+```
 
 ## Findings & Actions (round 67)
 

@@ -156,5 +156,10 @@ export const MAX_SOFT_FAILURE_MESSAGE_SIZE = 4096;
 
 // ─── Auth Config ──────────────────────────────────────────────
 
-/** Regex for validating JWT_EXPIRES_IN duration format (e.g., "24h", "60m", "7d"). */
-export const JWT_EXPIRES_IN_REGEX = /^\d+[smhd]$/;
+/** Regex for validating JWT_EXPIRES_IN duration format (e.g., "24h", "60m", "7d").
+ *  Rejects a leading zero and caps the magnitude (`[1-9]\d{0,9}`) so degenerate
+ *  values cannot be configured. A bare `0s` would expire every token immediately;
+ *  an unbounded `999999999999999999d` would produce an effectively non-expiring
+ *  token — both defeat the purpose of a short-lived JWT. `validateEnvironment`
+ *  (main.ts) tests this pattern before booting, so the cap is enforced there. */
+export const JWT_EXPIRES_IN_REGEX = /^[1-9]\d{0,9}[smhd]$/;
