@@ -379,6 +379,12 @@ export class PartyService {
         // Not a Prisma error — re-throw as-is so DomainErrors pass through.
         throw err;
       }
+      // Tighten the match: Prisma error codes follow the format P + 4 digits
+      // (e.g. P2002, P2034). This prevents a future DomainError whose code
+      // starts with "P" from being misrouted through the Prisma switch.
+      if (!/^[P]\d{4}$/.test(prismaErr.code)) {
+        throw err;
+      }
       switch (prismaErr.code) {
         case "P2002": {
           const field = PartyService.resolveConflictField(prismaErr);
@@ -564,7 +570,7 @@ export class PartyService {
       partyRoleId: role.partyRoleId,
       partyId: role.partyId,
       roleTypeName: role.roleType.name,
-      fromDate: role.fromDate.toISOString(),
+      fromDate: role.fromDate?.toISOString() ?? "",
       thruDate: role.thruDate?.toISOString() ?? null,
     };
   }
@@ -633,10 +639,11 @@ export class PartyService {
           where: { partyId, roleTypeId, thruDate: null, party: { tenantId } },
         });
         if (existingRole) {
+          const fromDate = existingRole.fromDate?.toISOString() ?? "";
           throw new DuplicateEntityError(
-            `Party '${partyId}' already has active role '${trimmedRoleType}'. Existing role started on ${existingRole.fromDate.toISOString()}. ` +
+            `Party '${partyId}' already has active role '${trimmedRoleType}'. Existing role started on ${fromDate}. ` +
             `To change a party's role, first end the current role by setting a thruDate, then re-call add_party_role.`,
-            { suggestedTools: ["get_party"], context: { partyId, roleType: trimmedRoleType, existingRoleId: existingRole.partyRoleId, existingRoleDate: existingRole.fromDate.toISOString() } }
+            { suggestedTools: ["get_party"], context: { partyId, roleType: trimmedRoleType, existingRoleId: existingRole.partyRoleId, existingRoleDate: fromDate } }
           );
         }
 
@@ -1066,7 +1073,7 @@ export class PartyService {
       roles: (party.roles ?? []).map((r) => ({
         partyRoleId: r.partyRoleId,
         roleTypeName: r.roleType?.name ?? "UNKNOWN",
-        fromDate: r.fromDate.toISOString(),
+        fromDate: r.fromDate?.toISOString() ?? "",
         thruDate: r.thruDate?.toISOString() ?? null,
       })),
       createdAt: party.createdAt ? party.createdAt.toISOString() : null,

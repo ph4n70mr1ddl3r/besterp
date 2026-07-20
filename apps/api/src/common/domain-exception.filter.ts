@@ -211,6 +211,11 @@ export class DomainExceptionFilter implements ExceptionFilter {
     const isDev = process.env.NODE_ENV === "development";
     const responseMessage = isDev && exception instanceof Error
       ? stripHtmlTags(sanitizeForLogOutput(exception.message))
+          // Strip internal file paths that could leak implementation details.
+          // A Prisma/driver error message may embed an absolute path like
+          // `/opt/app/node_modules/@prisma/client/runtime/edge.js` which aids
+          // an attacker in fingerprinting the deployment. Collapse to [PATH].
+          .replace(/(?:\/(?:[^\s"']+\/)*)([^\s"']+\.(?:js|ts))/g, "[PATH]")
       : "Internal server error";
     response.status(500).json({
       statusCode: 500,

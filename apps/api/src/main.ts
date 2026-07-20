@@ -106,13 +106,13 @@ function setupGracefulShutdown(app: INestApplication): void {
 
     try {
       await app.close();
-      clearTimeout(hardExitTimer);
       process.exit(0);
     } catch (closeErr) {
       const errorDetail = closeErr instanceof Error ? closeErr.stack ?? closeErr.message : String(closeErr);
       logger.error(`Error during graceful shutdown: ${sanitizeForLogOutput(errorDetail)}`);
-      clearTimeout(hardExitTimer);
       process.exit(1);
+    } finally {
+      clearTimeout(hardExitTimer);
     }
   }
 

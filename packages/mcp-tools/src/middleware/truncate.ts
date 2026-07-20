@@ -57,7 +57,14 @@ function safeSliceUtf8(encoded: Uint8Array, byteLimit: number): string {
  */
 const TRUNCATION_MARKER_KEY = "__besterp_trunc";
 
-/** Structured marker stored in place of an oversized payload. */
+/** Structured marker stored in place of an oversized payload.
+ *
+ * Note: Symbol/Function normalisation returns `{ _error: "..." }` which is
+ * NOT a truncation marker (no `__besterp_trunc` key), so `isTruncationMarker`
+ * correctly returns `false` for those paths. The `_error` marker is a
+ * serialisation-failure indicator, not a truncation indicator — consumers
+ * that check `isTruncationMarker` will never misidentify it as truncated data.
+ */
 function truncationMarker(encoded: Uint8Array): {
   __besterp_trunc: true;
   _truncated: true;

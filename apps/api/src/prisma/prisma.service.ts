@@ -41,6 +41,8 @@ export class PrismaService
     // firing, a NEW client for the same tenantId may have been created and cached.
     // Only delete the cache entry if the WeakRef for this tenantId is actually
     // dead — if a new client exists, its WeakRef would still be alive.
+    // The _destroyed guard (checked above) prevents this from operating on
+    // cleared maps during shutdown.
     const ref = this.tenantClientCache.get(tenantId);
     if (ref && ref.deref()) return;
     this.tenantClientCache.delete(tenantId);
@@ -191,10 +193,6 @@ export class PrismaService
       // skip row-level-security policies entirely, so tenant isolation is
       // silently disabled for every tenant-scoped query. rolsuper also implies
       // BYPASSRLS, so checking both is belt-and-braces.
-      // NOTE: `rolcatupdate` was used historically but was removed from
-      // pg_roles in PostgreSQL 16, which would make this query fail and (by
-      // fail-closed design) refuse to boot on PG16+. rolbypassrls is the
-      // correct, stable column to test against.
       const isSuperuser =
         privResult?.rolsuper === true || privResult?.rolbypassrls === true;
       if (isSuperuser) {
