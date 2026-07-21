@@ -89,9 +89,15 @@ export class PrismaService
 
   async onModuleInit() {
     if (!process.env.DATABASE_URL) {
-      throw new Error(
-        "DATABASE_URL environment variable is not set. " +
-        "The app client requires DATABASE_URL to connect as the RLS-enforced role."
+      if (process.env.NODE_ENV === "production") {
+        throw new Error(
+          "DATABASE_URL environment variable is not set. " +
+          "The app client requires DATABASE_URL to connect as the RLS-enforced role."
+        );
+      }
+      this.logger.warn(
+        "DATABASE_URL is not set — database operations will fail. " +
+        "Set DATABASE_URL before running the API."
       );
     }
     if (!process.env.DATABASE_ADMIN_URL) {

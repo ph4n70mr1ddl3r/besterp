@@ -69,7 +69,7 @@ Each tool listing includes its risk level and confirmation requirements.`,
 
 // ─── Tool: get_type_table_values ──────────────────────────────────
 
-type TypeTableRow = { id: string; name: string; description: string | null; aiPromptHint: string | null };
+type TypeTableRow = { id: string | null; name: string | null; description: string | null; aiPromptHint: string | null };
 
 async function queryTypeTable(
   prisma: PrismaClient,
@@ -95,8 +95,8 @@ async function queryTypeTable(
     select: { [idField]: true, name: true, description: true, aiPromptHint: true },
   });
   return rows.map((r) => ({
-    id: (r[idField] as string | null) ?? "",
-    name: (r.name as string | null) ?? "",
+    id: r[idField] as string | null,
+    name: r.name as string | null,
     // Type-table rows are global reference data read via the admin (RLS-
     // bypassing) client, but a stored value could still carry HTML/ANSI/URL
     // payloads. Sanitize before reflecting to the agent to match every other
