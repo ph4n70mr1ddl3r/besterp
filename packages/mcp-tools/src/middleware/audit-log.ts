@@ -9,10 +9,9 @@
 // never break the tool).
 
 import { PrismaClient, Prisma } from "@prisma/client";
-import { getErrorCode, sanitizeLogMessage, sanitizeForLogOutput, MAX_REASONING_LENGTH, MAX_SOFT_FAILURE_MESSAGE_SIZE, MAX_REDACTION_DEPTH } from "@besterp/shared";
+import { getErrorCode, sanitizeLogMessage, sanitizeForLogOutput, MAX_REASONING_LENGTH, MAX_SOFT_FAILURE_MESSAGE_SIZE, redactSensitiveFieldValues } from "@besterp/shared";
 import { ToolMiddleware, ToolContext, ToolResult } from "../schema/tool-definition.js";
 import { truncateValue, capString, MAX_STORED_PAYLOAD_SIZE } from "./truncate.js";
-import { isSensitiveField } from "./sensitive-fields.js";
 
 /** Maximum concurrent audit log writes to prevent memory pressure under DB slowdown. */
 const MAX_CONCURRENT_AUDIT_WRITES = 100;
@@ -237,78 +236,20 @@ async function logAction(prisma: PrismaClient, entry: AuditLogEntry): Promise<vo
       tenantId: entry.tenantId,
       toolCalled: entry.toolCalled,
       toolInput: toolInput as unknown as Prisma.InputJsonValue,
-      toolOutput: truncateValue(redactSensitiveFields(entry.toolOutput), MAX_STORED_PAYLOAD_SIZE) as unknown as Prisma.InputJsonValue | undefined,
+      toolOutput: truncateValue(redactSensitiveFieldValues(entry.toolOutput), MAX_STORED_PAYLOAD_SIZE) as unknown as Prisma.InputJsonValue | undefined,
       reasoning: entry.reasoning ?? null,
     },
   });
 }
 
-function redactMap(value: Map<unknown, unknown>, depth: number, seen: WeakSet<object>): unknown {
-  // Convert to array of [key, value] pairs: Map is not JSON-native, so
-  // returning a Map would be serialised as {} by JSON.stringify, silently
-  // dropping the data from the audit record. An array of entries survives
-  // serialisation and preserves the iterable semantics.
-  return [...value.entries()].map(([k, v]) => {
-    // Coerce the key to a string (mirroring the canonical shared
-    // `redactSensitiveFields`): a non-string Map key whose `toString()`
-    // yields a sensitive name must be redacted too, otherwise the MCP
-    // surface and the REST canonical redactor disagree (the REST side
-    // uses `String(k)`). Redacting the key only — the value is still
-    // recursed into so any string leaf underneath is scrubbed.
-    const keyStr = typeof k === "string" ? k : String(k);
-    if (isSensitiveField(keyStr)) {
-      return ["[REDACTED]", "[REDACTED]"];
-    }
-    // Mirror the canonical shared redactor: recurse the key through
-    // redactSensitiveFields (rather than returning the raw `k`) so a
-    // non-string key whose string form is sensitive, or a key carrying a
-    // nested sensitive value, is redacted consistently with the REST and
-    // error-handler surfaces — avoiding asymmetric key handling divergence.
-    return [redactSensitiveFields(k, depth + 1, seen), redactSensitiveFields(v, depth + 1, seen)];
-  });
-}
-
-function redactSet(value: Set<unknown>, depth: number, seen: WeakSet<object>): unknown {
-  // Convert to array: same JSON-serialisation rationale as Map above.
-  return [...value].map((v) => redactSensitiveFields(v, depth + 1, seen));
-}
-
-function isTerminal(value: unknown): boolean {
-  return value === null || value === undefined || typeof value !== "object"
-    || value instanceof Date || value instanceof RegExp;
-}
-
-function handleDepthLimit(value: unknown): unknown {
-  if (value != null && typeof value === "object" && !Array.isArray(value) && !(value instanceof Map) && !(value instanceof Set) && !(value instanceof WeakMap) && !(value instanceof WeakSet)) {
-    const capped: Record<string, unknown> = {};
-    for (const [key] of Object.entries(value as Record<string, unknown>)) {
-      capped[key] = isSensitiveField(key) ? "[REDACTED]" : "[Too deep]";
-    }
-    return capped;
-  }
-  return "[Too deep]";
-}
-
-function redactCollection(value: unknown, depth: number, seen: WeakSet<object>): unknown {
-  if (seen.has(value as object)) return "[Circular]";
-  seen.add(value as object);
-  if (Array.isArray(value)) return value.map((item) => redactSensitiveFields(item, depth + 1, seen));
-  if (value instanceof WeakMap || value instanceof WeakSet) return "[WeakCollection]";
-  if (value instanceof Map) return redactMap(value, depth, seen);
-  if (value instanceof Set) return redactSet(value, depth, seen);
-  const result: Record<string, unknown> = Object.create(null);
-  for (const [key, val] of Object.entries(value as Record<string, unknown>)) {
-    result[key] = isSensitiveField(key) ? "[REDACTED]" : redactSensitiveFields(val, depth + 1, seen);
-  }
-  return result;
-}
-
-export function redactSensitiveFields(value: unknown, depth = 0, seen?: WeakSet<object>): unknown {
-  if (depth > MAX_REDACTION_DEPTH) {
-    return handleDepthLimit(value);
-  }
-  if (typeof value === "string") return sanitizeForLogOutput(value);
-  if (isTerminal(value)) return value;
-  seen = seen ?? new WeakSet();
-  return redactCollection(value, depth, seen);
+/**
+ * Redact sensitive fields in audit-log payloads.
+ *
+ * Delegates to the canonical shared `redactSensitiveFieldValues` so the MCP
+ * audit surface cannot diverge from the REST canonical redactor. The shared
+ * redactor handles Map/Set conversion, cycle detection, depth capping, and
+ * key-based redaction — keeping this middleware a thin passthrough.
+ */
+export function redactSensitiveFields(value: unknown): unknown {
+  return redactSensitiveFieldValues(value);
 }

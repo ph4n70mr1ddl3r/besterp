@@ -434,7 +434,8 @@ export class PrismaService
       }
     }
 
-    // Evict all stale entries first
+    // Evict all stale entries first — remove from ALL tracking maps so dead
+    // WeakRef entries and their timestamps don't accumulate indefinitely.
     for (const key of staleKeys) {
       this.removeTenantClient(key);
     }

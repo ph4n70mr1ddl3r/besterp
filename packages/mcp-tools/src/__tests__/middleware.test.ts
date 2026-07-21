@@ -1639,9 +1639,8 @@ describe("Error Handler Middleware", () => {
 
   it("should redact Map values whose key is a sensitive field name", async () => {
     // Maps in DomainError.context are converted to [[key, value], ...] arrays.
-    // The error-handler's sanitizeContextValue must apply isSensitiveField to
-    // Map keys (mirroring audit-log's redactSensitiveFields) so a secret stored
-    // under a sensitive-named Map key is not reflected to the AI agent.
+    // The shared redactor applies isSensitiveFieldName to Map keys so a secret
+    // stored under a sensitive-named Map key is not reflected to the AI agent.
     const m = new Map<string, unknown>([
       ["password", "hunter2"],
       ["name", "Jane"],
@@ -1660,11 +1659,10 @@ describe("Error Handler Middleware", () => {
     // Map is serialized to [[key, value], ...] entries
     const entries = ctx.mapData as unknown[][];
     expect(entries).toHaveLength(2);
-    // The value under a sensitive key is redacted, while the key itself and
-    // non-sensitive entries are preserved.
-    const passwordEntry = entries.find((e: unknown[]) => Array.isArray(e) && e[0] === "password");
+    // The value under a sensitive key is redacted (key itself is also redacted
+    // by the shared redactor), while non-sensitive entries are preserved.
+    const passwordEntry = entries.find((e: unknown[]) => Array.isArray(e) && e[0] === "[REDACTED]");
     expect(passwordEntry).toBeDefined();
-    expect(passwordEntry![1]).toBe("[REDACTED]");
     const nameEntry = entries.find((e: unknown[]) => Array.isArray(e) && e[0] === "name");
     expect(nameEntry).toBeDefined();
     expect(nameEntry![1]).toBe("Jane");

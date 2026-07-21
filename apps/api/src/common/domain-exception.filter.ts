@@ -192,7 +192,7 @@ export class DomainExceptionFilter implements ExceptionFilter {
 
     response.status(status).json(
       typeof exceptionResponse === "string"
-        ? { statusCode: status, message: exceptionResponse }
+        ? { statusCode: status, message: stripHtmlTags(sanitizeForLogOutput(exceptionResponse)) }
         : exceptionResponse
     );
   }

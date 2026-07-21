@@ -12,10 +12,9 @@ import {
   sanitizeLogMessage,
   sanitizeForLogOutput,
   pluralize,
-  MAX_REDACTION_DEPTH,
+  redactSensitiveFieldValues,
 } from "@besterp/shared";
 import { ToolMiddleware, ToolResult } from "../schema/tool-definition.js";
-import { isSensitiveField } from "./sensitive-fields.js";
 
 // ─── Depth guard ─────────────────────────────────────────────────
 // Uses the canonical MAX_REDACTION_DEPTH from @besterp/shared so the
@@ -44,89 +43,8 @@ function extractPrismaError(error: unknown): { code: string | undefined; meta: {
 /** Maximum length for a single error message in the error handler stderr log. */
 const MAX_ERROR_LOG_LINE_LENGTH = 500;
 
-function trackSeen(value: object, seen?: WeakSet<object>): { seen: WeakSet<object>; circular: boolean } {
-  const s = seen ?? new WeakSet();
-  if (s.has(value)) return { seen: s, circular: true };
-  s.add(value);
-  return { seen: s, circular: false };
-}
-
-function sanitizeObject(value: Record<string, unknown>, depth: number, seen?: WeakSet<object>): unknown {
-  const state = trackSeen(value, seen);
-  if (state.circular) return "[Circular]";
-  const result: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(value)) {
-    // Defense-in-depth: redact values whose KEY marks them as sensitive
-    // (password, apiKey, clientSecret, …) before the value-level URL/path
-    // scrubbing runs. DomainError.context is application-constructed and
-    // intentionally carries diagnostic fields for the AI agent, so by design
-    // it never holds raw user secrets — but a future DomainError that places
-    // a secret under a sensitive-named key would otherwise surface it to the
-    // agent verbatim (the value scrub below only strips URLs/paths, not
-    // secret values). Mirrors the audit-log middleware's
-    // redactSensitiveFields so both agent-facing surfaces (tool result +
-    // audit row) apply identical key-based redaction. Every existing
-    // DomainError call site uses non-sensitive keys (partyId, field,
-    // conflictingFields, prismaCode, …), so this is behaviour-preserving in
-    // practice — it only closes the future-leak gap.
-    if (isSensitiveField(k)) {
-      result[k] = "[REDACTED]";
-      continue;
-    }
-    result[k] = sanitizeContextValue(v, depth + 1, state.seen);
-  }
-  return result;
-}
-
-function isNonPrimitiveObject(value: unknown): value is Record<string, unknown> {
-  return value != null && typeof value === "object" && !(value instanceof Date || value instanceof RegExp);
-}
-
-function handleDepthLimit(value: unknown): unknown {
-  if (value != null && typeof value === "object" && !Array.isArray(value) && !(value instanceof Map) && !(value instanceof Set) && !(value instanceof WeakMap) && !(value instanceof WeakSet)) {
-    const capped: Record<string, unknown> = {};
-    for (const [key] of Object.entries(value as Record<string, unknown>)) {
-      capped[key] = isSensitiveField(key) ? "[REDACTED]" : "[Too deep]";
-    }
-    return capped;
-  }
-  return "[Too deep]";
-}
-
-function sanitizeArrayValue(value: unknown[], seen?: WeakSet<object>): unknown {
-  const state = trackSeen(value, seen);
-  if (state.circular) return "[Circular]";
-  return value.map((v) => sanitizeContextValue(v, 1, state.seen));
-}
-
-function sanitizeMapValue(value: Map<unknown, unknown>, seen?: WeakSet<object>): unknown {
-  const state = trackSeen(value, seen);
-  if (state.circular) return "[Circular]";
-  return [...value.entries()].map(([k, v]) => {
-    const keyStr = typeof k === "string" ? k : String(k);
-    const redactedValue = isSensitiveField(keyStr) ? "[REDACTED]" : sanitizeContextValue(v, 1, state.seen);
-    return [sanitizeContextValue(k, 1, state.seen), redactedValue];
-  });
-}
-
-function sanitizeSetValue(value: Set<unknown>, seen?: WeakSet<object>): unknown {
-  const state = trackSeen(value, seen);
-  if (state.circular) return "[Circular]";
-  return [...value].map((v) => sanitizeContextValue(v, 1, state.seen));
-}
-
-function sanitizeContextValue(value: unknown, depth = 0, seen?: WeakSet<object>): unknown {
-  if (depth > MAX_REDACTION_DEPTH) {
-    return handleDepthLimit(value);
-  }
-  if (typeof value === "string") return sanitizeForLogOutput(value).slice(0, MAX_ERROR_LOG_LINE_LENGTH);
-  if (Array.isArray(value)) return sanitizeArrayValue(value, seen);
-  if (value instanceof Map) return sanitizeMapValue(value, seen);
-  if (value instanceof Set) return sanitizeSetValue(value, seen);
-  if (value instanceof WeakMap || value instanceof WeakSet) return "[WeakCollection]";
-  if (isNonPrimitiveObject(value)) return sanitizeObject(value, depth, seen);
-  if (value === undefined) return null;
-  return value;
+function sanitizeContextValue(value: unknown): unknown {
+  return redactSensitiveFieldValues(value);
 }
 
 function sanitizeContextValueForToolResult(value: unknown): Record<string, unknown> | undefined {

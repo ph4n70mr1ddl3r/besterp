@@ -4,27 +4,20 @@
 // - JwtStrategy (Passport) for token validation
 // - JwtAuthGuard as a global guard (all endpoints require JWT unless @Public)
 // - TenantGuard as a global guard (extracts tenant context from JWT)
+//
+// JWT_EXPIRES_IN validation is performed strictly at startup in main.ts's
+// validateEnvironment() which exits the process on invalid values. This module
+// trusts that validation and uses the value directly — no duplicate guard
+// needed here, and doing so avoids the inconsistency where dev would silently
+// fall back to "24h" while production crashes.
 
 import { Module } from "@nestjs/common";
 import { JwtModule } from "@nestjs/jwt";
 import { PassportModule } from "@nestjs/passport";
 import type { SignOptions } from "jsonwebtoken";
-import { JWT_EXPIRES_IN_REGEX } from "@besterp/shared";
 import { JwtStrategy, resolveJwtSecret } from "./jwt.strategy.js";
 
-// JWT_EXPIRES_IN is validated strictly at startup in main.ts's validateEnvironment()
-// (which exits the process on invalid values). Module-level validation is intentionally
-// limited to a warning: ESM static imports are evaluated before main.ts runs, so a
-// throw here would crash with an uncaught generic Error instead of the clean log +
-// process.exit(1). jsonwebtoken silently falls back to its own default on invalid
-// values rather than throwing, so we warn here to surface misconfigurations early.
 const rawJwtExpiresIn = process.env.JWT_EXPIRES_IN || "24h";
-if (process.env.JWT_EXPIRES_IN && !JWT_EXPIRES_IN_REGEX.test(process.env.JWT_EXPIRES_IN)) {
-  console.warn(
-    `[AuthModule] JWT_EXPIRES_IN "${process.env.JWT_EXPIRES_IN}" is invalid. ` +
-    "Must be a duration string like '24h', '60m', '7d'. Falling back to '24h'."
-  );
-}
 const jwtExpiresIn: SignOptions["expiresIn"] = rawJwtExpiresIn as SignOptions["expiresIn"];
 
 @Module({
