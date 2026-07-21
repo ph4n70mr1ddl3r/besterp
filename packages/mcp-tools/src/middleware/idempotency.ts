@@ -211,6 +211,17 @@ async function acquireIdempotencyRecord(
         }
 
         if (record.status === "pending") {
+          // Guard against null createdAt — the Prisma schema allows it, and a
+          // null value would throw TypeError on .getTime(). Treat a null-createdAt
+          // as a brand-new record so the caller can proceed (the next acquire
+          // attempt will create a fresh row).
+          if (!record.createdAt) {
+            await tx.idempotencyRecord.update({
+              where: { idempotencyKey_tenantId: { idempotencyKey, tenantId } },
+              data: { status: "pending", inputHash, expiresAt: new Date(Date.now() + IDEMPOTENCY_TTL_MS), error: Prisma.DbNull },
+            });
+            return { existing: null, created: true };
+          }
           const pendingAge = Date.now() - record.createdAt.getTime();
           if (pendingAge > STALE_PENDING_THRESHOLD_MS) {
             // Stale pending record — the previous request likely crashed
@@ -301,6 +312,19 @@ function handleExistingRecord(
 
   if (existing.status === "pending") {
     if (existing.inputHash !== inputHash) {
+      // Guard against null createdAt — the Prisma schema allows it, and a
+      // null value would throw TypeError on .getTime(). Treat it as a stale
+      // record so the caller gets KEY_MISMATCH and can retry with a new key.
+      if (!existing.createdAt) {
+        return {
+          success: false,
+          error: {
+            code: "IDEMPOTENCY_KEY_MISMATCH",
+            message: `Idempotency key '${redactKey(idempotencyKey)}' has a corrupted pending record (missing createdAt). Retry with a new idempotency key.`,
+            suggestedTools: [toolName],
+          },
+        };
+      }
       const pendingAge = Date.now() - existing.createdAt.getTime();
       if (pendingAge > STALE_PENDING_THRESHOLD_MS) {
         return {

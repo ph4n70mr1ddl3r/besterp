@@ -918,20 +918,20 @@ export class PartyService {
       contactMechanismType: cm.contactMechanismType.name,
       partyId,
       postalAddress: cm.postalAddress ? {
-        addressLine1: cm.postalAddress.addressLine1,
-        addressLine2: cm.postalAddress.addressLine2 ?? undefined,
-        city: cm.postalAddress.city,
-        stateProvince: cm.postalAddress.stateProvince ?? undefined,
-        postalCode: cm.postalAddress.postalCode ?? undefined,
-        country: cm.postalAddress.country,
+        addressLine1: stripHtmlTags(cm.postalAddress.addressLine1),
+        addressLine2: cm.postalAddress.addressLine2 ? stripHtmlTags(cm.postalAddress.addressLine2) : undefined,
+        city: stripHtmlTags(cm.postalAddress.city),
+        stateProvince: cm.postalAddress.stateProvince ? stripHtmlTags(cm.postalAddress.stateProvince) : undefined,
+        postalCode: cm.postalAddress.postalCode ? stripHtmlTags(cm.postalAddress.postalCode) : undefined,
+        country: stripHtmlTags(cm.postalAddress.country),
       } : null,
       telecomNumber: cm.telecomNumber ? {
-        countryCode: cm.telecomNumber.countryCode ?? undefined,
-        areaCode: cm.telecomNumber.areaCode,
-        lineNumber: cm.telecomNumber.lineNumber,
-        extension: cm.telecomNumber.extension ?? undefined,
+        countryCode: cm.telecomNumber.countryCode ? stripHtmlTags(cm.telecomNumber.countryCode) : undefined,
+        areaCode: stripHtmlTags(cm.telecomNumber.areaCode),
+        lineNumber: stripHtmlTags(cm.telecomNumber.lineNumber),
+        extension: cm.telecomNumber.extension ? stripHtmlTags(cm.telecomNumber.extension) : undefined,
       } : null,
-      emailAddress: cm.emailAddress ? { email: cm.emailAddress.email } : null,
+      emailAddress: cm.emailAddress ? { email: stripHtmlTags(cm.emailAddress.email) } : null,
     };
   }
 
@@ -1058,25 +1058,11 @@ export class PartyService {
   private static toPartyResult(party: PartyWithIncludes): PartyResult {
     return {
       partyId: party.partyId,
-      name: party.name,
+      name: stripHtmlTags(party.name),
       partyType: party.partyType?.name ?? "UNKNOWN",
-      description: party.description ?? null,
-      person: party.person
-        ? {
-            firstName: party.person.firstName,
-            lastName: party.person.lastName,
-            middleName: party.person.middleName,
-            birthDate: party.person.birthDate?.toISOString() ?? null,
-            gender: party.person.gender,
-          }
-        : null,
-      organization: party.organization
-        ? {
-            legalName: party.organization.legalName,
-            taxId: party.organization.taxId,
-            registrationDate: party.organization.registrationDate?.toISOString() ?? null,
-          }
-        : null,
+      description: party.description ? stripHtmlTags(party.description) : null,
+      person: party.person ? this.toPersonResult(party.person) : null,
+      organization: party.organization ? this.toOrgResult(party.organization) : null,
       roles: (party.roles ?? []).map((r) => ({
         partyRoleId: r.partyRoleId,
         roleTypeName: r.roleType?.name ?? "UNKNOWN",
@@ -1085,6 +1071,24 @@ export class PartyService {
       })),
       createdAt: party.createdAt ? party.createdAt.toISOString() : null,
       updatedAt: party.updatedAt ? party.updatedAt.toISOString() : null,
+    };
+  }
+
+  private static toPersonResult(p: { firstName: string; lastName: string; middleName: string | null; birthDate: Date | null; gender: string | null }): PartyResult["person"] {
+    return {
+      firstName: stripHtmlTags(p.firstName),
+      lastName: stripHtmlTags(p.lastName),
+      middleName: p.middleName ? stripHtmlTags(p.middleName) : null,
+      birthDate: p.birthDate?.toISOString() ?? null,
+      gender: p.gender ? stripHtmlTags(p.gender) : null,
+    };
+  }
+
+  private static toOrgResult(o: { legalName: string; taxId: string | null; registrationDate: Date | null }): PartyResult["organization"] {
+    return {
+      legalName: stripHtmlTags(o.legalName),
+      taxId: o.taxId ? stripHtmlTags(o.taxId) : null,
+      registrationDate: o.registrationDate?.toISOString() ?? null,
     };
   }
 }

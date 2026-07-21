@@ -34,6 +34,7 @@ import {
 import { Type, Transform, TransformFnParams } from "class-transformer";
 import {
   stripHtmlTags,
+  sanitizeForLogOutput,
   sanitizeLogMessage,
   isValidISODate,
   MAX_PARTY_NAME_LENGTH,
@@ -310,7 +311,7 @@ export class PostalAddressDto {
   @MaxLength(MAX_POSTAL_CODE_LENGTH)
   postalCode?: string;
 
-  @Transform(({ value }: TransformFnParams) => (typeof value === "string" ? stripHtmlTags(value.trim().toUpperCase()) : value))
+  @Transform(({ value }: TransformFnParams) => (typeof value === "string" ? sanitizeForLogOutput(stripHtmlTags(value.trim().toUpperCase())) : value))
   @IsString()
   @IsNotEmpty()
   @MinLength(MIN_COUNTRY_CODE_LENGTH)

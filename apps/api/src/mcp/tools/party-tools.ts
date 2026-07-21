@@ -229,7 +229,7 @@ const postalAddressSchema = z.object({
   stateProvince: optionalFilteredString(MAX_STATE_PROVINCE_LENGTH).describe("State or province"),
   postalCode: optionalFilteredString(MAX_POSTAL_CODE_LENGTH).describe("Postal/ZIP code"),
   country: z.string()
-    .transform(s => stripHtmlTags(s.trim().toUpperCase()))
+    .transform(s => sanitizeForLogOutput(stripHtmlTags(s.trim().toUpperCase())))
     .pipe(z.string().min(MIN_COUNTRY_CODE_LENGTH).max(MAX_COUNTRY_CODE_LENGTH))
     .describe("Country code (e.g., US, DE, JP)"),
 });

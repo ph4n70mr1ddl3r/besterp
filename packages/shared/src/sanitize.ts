@@ -442,11 +442,19 @@ const SENSITIVE_FIELD_NAME_PATTERN =
 /**
  * Split a field name into tokens at snake_case, kebab-case, and camelCase
  * boundaries (e.g. `clientSecret` → [`client`, `Secret`],
- * `access_token` → [`access`, `token`]).
+ * `access_token` → [`access`, `token`], `api-key` → [`api`, `key`]).
  */
 function splitFieldNameTokens(key: string): string[] {
-  const matches = key.match(/[a-z0-9]+|[A-Z][a-z]*/g);
-  return matches ? matches.filter((t) => t.length > 0) : [];
+  // Split on kebab/hyphen boundaries first, then on camelCase boundaries.
+  // Without the hyphen split, kebab-case names like `api-key` would tokenize
+  // to ["api-key"] (single token) and miss the sensitive "key" token.
+  const hyphenSplit = key.split("-");
+  const tokens: string[] = [];
+  for (const part of hyphenSplit) {
+    const matches = part.match(/[a-z0-9]+|[A-Z][a-z]*/g);
+    if (matches) tokens.push(...matches);
+  }
+  return tokens.filter((t) => t.length > 0);
 }
 
 /** Public tokeniser used by consumers (e.g. the MCP `sensitive-fields` shim). */
