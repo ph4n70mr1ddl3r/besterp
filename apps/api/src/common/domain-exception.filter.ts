@@ -92,7 +92,7 @@ export class DomainExceptionFilter implements ExceptionFilter {
     const status = domainErrorToStatus(exception);
     if (status === 500) {
       this.logger.error(
-        `Unknown DomainError code '${exception.code}' — add a mapping in domainErrorToStatus(). Context: ${sanitizeForLogOutput(JSON.stringify(redactSensitiveFieldValues(exception.context)))}. Suggested tools: ${JSON.stringify(exception.suggestedTools)}.`
+        `Unknown DomainError code '${exception.code}' — add a mapping in domainErrorToStatus(). Context: ${JSON.stringify(redactSensitiveFieldValues(exception.context))}. Suggested tools: ${JSON.stringify(exception.suggestedTools)}.`
       );
     } else {
       this.logger.warn(

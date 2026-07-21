@@ -72,7 +72,7 @@ export class HealthService implements OnModuleInit {
         raw = await fs.readFile(p, "utf-8");
         break;
       } catch {
-        this.logger.debug(`package.json not found at: ${p}`);
+        this.logger.debug(`package.json not found at: ${sanitizeLogMessage(p)}`);
       }
     }
     if (!raw) {
