@@ -167,7 +167,7 @@ function sanitizedString(min: number, max: number) {
 
 /** Optional trimmed string that rejects whitespace-only input.
  *  Trims, strips HTML/script payloads, and normalises empty/whitespace-only input
- *  to undefined. Used by both `optionalSanitizedString` and for search filters. */
+ *  to undefined. Used for optional fields and search filters. */
 function optionalFilteredString(max: number) {
   return z.string()
     .optional()
@@ -177,14 +177,6 @@ function optionalFilteredString(max: number) {
       return trimmed.length === 0 ? undefined : trimmed;
     })
     .pipe(z.string().max(max).optional());
-}
-
-/** Optional string: trims, strips HTML, enforces max length.
-   *  Empty, whitespace-only, or HTML-only input → undefined (the transform
-   *  captures the trimmed value once and checks it, so " " and "<script>"
-   *  never reach the pipe). */
-function optionalSanitizedString(max: number) {
-  return optionalFilteredString(max);
 }
 
 /** Optional ISO 8601 date: trims, validates format, enforces max length. */
@@ -219,23 +211,23 @@ function uuidParam(description: string) {
 const personSchema = z.object({
   firstName: sanitizedString(1, MAX_PERSON_NAME_LENGTH).describe("First/given name"),
   lastName: sanitizedString(1, MAX_PERSON_NAME_LENGTH).describe("Last/family name"),
-  middleName: optionalSanitizedString(MAX_MIDDLE_NAME_LENGTH).describe("Middle name"),
+  middleName: optionalFilteredString(MAX_MIDDLE_NAME_LENGTH).describe("Middle name"),
   birthDate: optionalIsoDate().describe("Date of birth (ISO 8601)"),
-  gender: optionalSanitizedString(MAX_GENDER_LENGTH).describe("Gender"),
+  gender: optionalFilteredString(MAX_GENDER_LENGTH).describe("Gender"),
 });
 
 const organizationSchema = z.object({
   legalName: sanitizedString(1, MAX_LEGAL_NAME_LENGTH).describe("Legal/registered name of the organization"),
-  taxId: optionalSanitizedString(MAX_TAX_ID_LENGTH).describe("Tax identification number"),
+  taxId: optionalFilteredString(MAX_TAX_ID_LENGTH).describe("Tax identification number"),
   registrationDate: optionalIsoDate().describe("Date of registration (ISO 8601)"),
 });
 
 const postalAddressSchema = z.object({
   addressLine1: sanitizedString(1, MAX_ADDRESS_LINE_LENGTH).describe("Street address line 1"),
-  addressLine2: optionalSanitizedString(MAX_ADDRESS_LINE_LENGTH).describe("Street address line 2"),
+  addressLine2: optionalFilteredString(MAX_ADDRESS_LINE_LENGTH).describe("Street address line 2"),
   city: sanitizedString(1, MAX_CITY_LENGTH).describe("City"),
-  stateProvince: optionalSanitizedString(MAX_STATE_PROVINCE_LENGTH).describe("State or province"),
-  postalCode: optionalSanitizedString(MAX_POSTAL_CODE_LENGTH).describe("Postal/ZIP code"),
+  stateProvince: optionalFilteredString(MAX_STATE_PROVINCE_LENGTH).describe("State or province"),
+  postalCode: optionalFilteredString(MAX_POSTAL_CODE_LENGTH).describe("Postal/ZIP code"),
   country: z.string()
     .transform(s => stripHtmlTags(s.trim().toUpperCase()))
     .pipe(z.string().min(MIN_COUNTRY_CODE_LENGTH).max(MAX_COUNTRY_CODE_LENGTH))
@@ -250,7 +242,7 @@ const telecomNumberSchema = z.object({
     .describe("E.164 country code (e.g., '+1', '+44'). The service layer applies a default of '+1' if omitted."),
   areaCode: sanitizedString(1, MAX_AREA_CODE_LENGTH).describe("Area code"),
   lineNumber: sanitizedString(1, MAX_LINE_NUMBER_LENGTH).describe("Phone line number"),
-  extension: optionalSanitizedString(MAX_EXTENSION_LENGTH).describe("Extension"),
+  extension: optionalFilteredString(MAX_EXTENSION_LENGTH).describe("Extension"),
 });
 
 const emailAddressSchema = z.object({
@@ -271,7 +263,7 @@ const emailAddressSchema = z.object({
 const createPartySchema = z.object({
   partyType: z.enum(["PERSON", "ORGANIZATION"]).describe("Type of party to create"),
   name: sanitizedString(1, MAX_PARTY_NAME_LENGTH).describe("Display name for the party (1-500 characters)"),
-  description: optionalSanitizedString(MAX_PARTY_DESCRIPTION_LENGTH).describe("Optional description (max 1000 characters)"),
+  description: optionalFilteredString(MAX_PARTY_DESCRIPTION_LENGTH).describe("Optional description (max 1000 characters)"),
   person: personSchema.optional().describe("Person details (required when partyType is PERSON)"),
   organization: organizationSchema.optional().describe("Organization details (required when partyType is ORGANIZATION)"),
 }).superRefine((data, ctx) => {
