@@ -200,7 +200,7 @@ export function sanitizeLogOutput(message: string): string {
     // mangled, while `{"password":"x"}` / `password=hunter2` are caught. The
     // value class excludes JSON terminators and whitespace so it stops at the
     // closing quote/bracket.
-    .replace(/(^|[\s"'{([,;])((?:key|token|id_token|access_token|secret|password|passwd|pwd|auth|api_key|apikey|client_secret|client_id|signature|sign|otp|bearer))=([^}\]\s"'`,;]+)/gi, (full, lead, name) => {
+    .replace(/(^|[\s"'{([,;])((?:key|token|id_token|access_token|secret|password|passwd|pwd|auth|api_key|apikey|client_secret|client_id|signature|sign|otp|bearer))=([^}\]\s"'`,;]+)/gi, (_, lead, name) => {
       return `${lead}${name}=[REDACTED]`;
     })
     // Variant of the boundary rule above for secrets wrapped in QUOTES, e.g.
@@ -215,7 +215,7 @@ export function sanitizeLogOutput(message: string): string {
     // `password="value"` (equals + quoted value). The leading boundary
     // (whitespace/quote/`{`/`,`/`;`/`(`) is required so benign prose is not
     // mangled, mirroring the bare-form rule.
-    .replace(/(^|[\s"'{([;,?])"?((?:key|token|id_token|access_token|secret|password|passwd|pwd|auth|api_key|apikey|client_secret|client_id|signature|sign|otp|code|session|bearer))"?[:=]("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')/gi, (full, lead, name) => {
+    .replace(/(^|[\s"'{([;,?])"?((?:key|token|id_token|access_token|secret|password|passwd|pwd|auth|api_key|apikey|client_secret|client_id|signature|sign|otp|code|session|bearer))"?[:=]("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')/gi, (_, lead, name) => {
       return `${lead}${name}=[REDACTED]`;
     })
     // Redact high-entropy bearer/secret tokens that appear outside the

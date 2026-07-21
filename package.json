@@ -19,7 +19,7 @@
     "db:reset": "npm run reset --workspace=@besterp/database",
     "db:cleanup": "tsx packages/database/scripts/cleanup-expired-idempotency.ts",
     "spike:rls": "npm run spike:rls --workspace=@besterp/database",
-    "spike:mcp": "npm run spike:agent --workspace=@besterp/mcp-tools"
+    "spike:agent": "npm run spike:agent --workspace=@besterp/mcp-tools"
   },
   "engines": {
     "node": ">=20.0.0"

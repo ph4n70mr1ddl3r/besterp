@@ -375,7 +375,7 @@ function handleExistingRecord(
 async function executeAndUpdate(
   prisma: PrismaClient, idempotencyKey: string, tenantId: string,
   input: unknown, context: ToolContext,
-  definition: { name: string },
+  _definition: { name: string },
   next: (input: unknown, context: ToolContext) => Promise<ToolResult>,
 ): Promise<ToolResult> {
   let toolResult: ToolResult;

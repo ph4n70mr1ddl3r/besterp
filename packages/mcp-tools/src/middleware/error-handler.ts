@@ -169,7 +169,7 @@ interface PrismaErrorResult {
 type ErrorFactory = (entityName: string, entityPlural: string, definition: { name: string }, prismaMeta: { target?: string | string[] } | undefined) => PrismaErrorResult | null;
 
 const PRISMA_ERROR_HANDLERS: Record<string, ErrorFactory> = {
-  P2002(entityName, entityPlural, definition, prismaMeta) {
+  P2002(_entityName, entityPlural, definition, prismaMeta) {
     // meta.target is a schema-derived field/column name, but it is
     // user-influenced in compound-constraint scenarios and is echoed to the
     // agent (and into context.conflictingFields). Sanitize it like every

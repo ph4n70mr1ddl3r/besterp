@@ -618,7 +618,18 @@ export class PartyService {
         { suggestedTools: ["add_party_role"], context: { field: "fromDate", invalidValue: trimmed } }
       );
     }
-    return new Date(trimmed);
+    const parsed = new Date(trimmed);
+    // Belt-and-suspenders: isValidISODate already ensures parseability via
+    // Date.parse, but a future validation path that bypasses it would store
+    // an Invalid Date corrupt timestamp silently (matching the birthDate
+    // guard on line 305).
+    if (isNaN(parsed.getTime())) {
+      throw new InvalidTypeValueError(
+        `fromDate produced an invalid Date`,
+        { suggestedTools: ["add_party_role"], context: { field: "fromDate", invalidValue: trimmed } }
+      );
+    }
+    return parsed;
   }
 
   private async addPartyRoleTransaction(

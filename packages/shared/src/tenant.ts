@@ -53,7 +53,7 @@ export function validateTenantId(tenantId: string): string {
       `Tenant ID is too long (max ${MAX_TENANT_ID_LENGTH} characters).`
     );
   }
-   if (!TENANT_ID_PATTERN.test(trimmed)) {
+  if (!TENANT_ID_PATTERN.test(trimmed)) {
     // Sanitize: show only first 20 chars to prevent log injection and
     // information disclosure from untrusted input. The tenant ID is
     // attacker-influenced at the auth boundary, so strip control characters
