@@ -317,7 +317,7 @@ export class PrismaService
       }
       this.logger.debug("RLS verified enabled (and forced) on tenant tables");
     } catch (rlsErr) {
-      if (rlsErr instanceof Error && rlsErr.message.includes("Row-Level Security is NOT enabled")) {
+      if (rlsErr instanceof Error && rlsErr.message.includes("Row-Level Security is NOT fully enabled")) {
         throw rlsErr;
       }
       // The verification query itself failed. Fail closed: an unverifiable RLS
