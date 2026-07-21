@@ -402,7 +402,7 @@ export function sanitizeLogMessage(s: string): string {
  * (ANSI escapes, newlines) and sensitive connection strings or paths.
  */
 export function sanitizeForLogOutput(message: string): string {
-  return sanitizeLogOutput(sanitizeLogMessage(message));
+  return sanitizeLogOutput(message);
 }
 
 /**
