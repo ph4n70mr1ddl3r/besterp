@@ -339,7 +339,6 @@ export class PartyService {
       }, { timeout: TX_TIMEOUT_MS });
     } catch (err) {
       PartyService.handleTransactionError(err, "create_party", "create_party", "party");
-      throw err; // Unreachable — handleTransactionError always throws. Defense-in-depth for future refactors.
     }
   }
 
@@ -528,7 +527,6 @@ export class PartyService {
       ]);
     } catch (err) {
       PartyService.handleTransactionError(err, "search_parties", "search_parties", "party");
-      throw err; // Unreachable — handleTransactionError always throws. Defense-in-depth for future refactors.
     }
 
     return {
@@ -654,7 +652,6 @@ export class PartyService {
       }, { timeout: TX_TIMEOUT_MS });
     } catch (err) {
       PartyService.handleTransactionError(err, "add_party_role", "get_party", "party role");
-      throw err; // Unreachable — handleTransactionError always throws. Defense-in-depth for future refactors.
     }
   }
 
@@ -872,7 +869,6 @@ export class PartyService {
       }, { timeout: TX_TIMEOUT_MS });
     } catch (err) {
       PartyService.handleTransactionError(err, "add_contact_mechanism", "add_contact_mechanism", "contact mechanism");
-      throw err; // Unreachable — handleTransactionError always throws. Defense-in-depth for future refactors.
     }
   }
 

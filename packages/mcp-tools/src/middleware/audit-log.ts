@@ -278,42 +278,18 @@ function isTerminal(value: unknown): boolean {
     || value instanceof Date || value instanceof RegExp;
 }
 
-export function redactSensitiveFields(value: unknown, depth = 0, seen?: WeakSet<object>): unknown {
-  // Depth guard: once we exceed MAX_REDACTION_DEPTH, stop descending and
-  // return a placeholder. Returning the raw value here (the previous
-  // behaviour, via the depth clause in isTerminal) would bypass the
-  // key-name redaction loop below — so a sensitive field buried deeper
-  // than the cap (e.g. `password` 11 levels down) would be persisted
-  // verbatim to ai_action_log. That is a defense-in-depth gap in a
-  // security-sensitive redaction path. Mirrors the error-handler's
-  // sanitizeContextValue depth guard ("[Too deep]").
-  if (depth > MAX_REDACTION_DEPTH) {
-    // Do NOT return the raw subtree: the per-level sensitive-key redaction loop
-    // below only runs at depth <= cap, so a secret nested deeper than the cap
-    // would otherwise be persisted/replayed verbatim — a defense-in-depth gap
-    // in a security-sensitive redaction path. Still redact sensitive-named KEYS
-    // at THIS level and otherwise collapse the oversized subtree to a
-    // placeholder so nothing leaks from below.
-    if (value != null && typeof value === "object" && !Array.isArray(value) && !(value instanceof Map) && !(value instanceof Set) && !(value instanceof WeakMap) && !(value instanceof WeakSet)) {
-      const capped: Record<string, unknown> = {};
-      for (const [key] of Object.entries(value as Record<string, unknown>)) {
-        capped[key] = isSensitiveField(key) ? "[REDACTED]" : "[Too deep]";
-      }
-      return capped;
+function handleDepthLimit(value: unknown): unknown {
+  if (value != null && typeof value === "object" && !Array.isArray(value) && !(value instanceof Map) && !(value instanceof Set) && !(value instanceof WeakMap) && !(value instanceof WeakSet)) {
+    const capped: Record<string, unknown> = {};
+    for (const [key] of Object.entries(value as Record<string, unknown>)) {
+      capped[key] = isSensitiveField(key) ? "[REDACTED]" : "[Too deep]";
     }
-    return "[Too deep]";
+    return capped;
   }
-  // A terminal (string/primitive) value is returned verbatim EXCEPT strings,
-  // which must still pass through sanitizeForLogOutput so a connection string,
-  // JWT, or `?api_key=…` secret embedded in a tool result *value* (under a
-  // non-sensitive key) is scrubbed before it reaches the agent, the
-  // ai_action_log durable row, or an idempotency replay. Without this the MCP
-  // redactor diverged from the canonical REST redactor
-  // (shared `redactSensitiveFieldValues`), which scrubs every string leaf —
-  // an asymmetric secret-leak path (round 48).
-  if (typeof value === "string") return sanitizeForLogOutput(value);
-  if (isTerminal(value)) return value;
-  seen = seen ?? new WeakSet();
+  return "[Too deep]";
+}
+
+function redactCollection(value: unknown, depth: number, seen: WeakSet<object>): unknown {
   if (seen.has(value as object)) return "[Circular]";
   seen.add(value as object);
   if (Array.isArray(value)) return value.map((item) => redactSensitiveFields(item, depth + 1, seen));
@@ -325,4 +301,14 @@ export function redactSensitiveFields(value: unknown, depth = 0, seen?: WeakSet<
     result[key] = isSensitiveField(key) ? "[REDACTED]" : redactSensitiveFields(val, depth + 1, seen);
   }
   return result;
+}
+
+export function redactSensitiveFields(value: unknown, depth = 0, seen?: WeakSet<object>): unknown {
+  if (depth > MAX_REDACTION_DEPTH) {
+    return handleDepthLimit(value);
+  }
+  if (typeof value === "string") return sanitizeForLogOutput(value);
+  if (isTerminal(value)) return value;
+  seen = seen ?? new WeakSet();
+  return redactCollection(value, depth, seen);
 }

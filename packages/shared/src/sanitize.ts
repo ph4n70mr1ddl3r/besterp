@@ -546,36 +546,37 @@ function redactPlainObject(value: Record<string, unknown>, depth: number, seen: 
   return out;
 }
 
+function handleDepthLimit(value: unknown): unknown {
+  if (value != null && typeof value === "object" && !Array.isArray(value) && !(value instanceof Map) && !(value instanceof Set) && !(value instanceof WeakMap) && !(value instanceof WeakSet)) {
+    const capped: Record<string, unknown> = {};
+    for (const [key] of Object.entries(value as Record<string, unknown>)) {
+      capped[key] = isSensitiveFieldName(key) ? "[REDACTED]" : "[Too deep]";
+    }
+    return capped;
+  }
+  return "[Too deep]";
+}
+
+function redactTypedObject(value: object, depth: number, seen: WeakSet<object>): unknown {
+  if (value instanceof WeakMap || value instanceof WeakSet) return "[WeakCollection]";
+  if (Array.isArray(value)) return redactArray(value, depth, seen);
+  if (value instanceof Map) return redactMap(value, depth, seen);
+  if (value instanceof Set) return redactSet(value, depth, seen);
+  return redactPlainObject(value as Record<string, unknown>, depth, seen);
+}
+
 export function redactSensitiveFieldValues(
   value: unknown,
   depth = 0,
   seen?: WeakSet<object>,
 ): unknown {
   if (depth > MAX_REDACTION_DEPTH) {
-    // Do NOT return the raw subtree: the per-level sensitive-key redaction loop
-    // below only runs at depth <= cap, so a secret nested deeper than the cap
-    // (e.g. `a.b…[21]…password`) would otherwise be returned verbatim —
-    // defeating the redaction contract on every agent-facing and durable
-    // surface. Still redact sensitive-named KEYS at THIS level (a secret
-    // directly under a sensitive key is caught) and otherwise collapse the
-    // oversized subtree to a placeholder so nothing leaks from below.
-    if (value != null && typeof value === "object" && !Array.isArray(value) && !(value instanceof Map) && !(value instanceof Set) && !(value instanceof WeakMap) && !(value instanceof WeakSet)) {
-      const capped: Record<string, unknown> = {};
-      for (const [key] of Object.entries(value as Record<string, unknown>)) {
-        capped[key] = isSensitiveFieldName(key) ? "[REDACTED]" : "[Too deep]";
-      }
-      return capped;
-    }
-    return "[Too deep]";
+    return handleDepthLimit(value);
   }
   if (typeof value === "string") return sanitizeForLogOutput(value);
   if (value === null || typeof value !== "object") return value;
-  if (value instanceof WeakMap || value instanceof WeakSet) return "[WeakCollection]";
   const s = seen ?? new WeakSet<object>();
-  if (Array.isArray(value)) return redactArray(value, depth, s);
-  if (value instanceof Map) return redactMap(value, depth, s);
-  if (value instanceof Set) return redactSet(value, depth, s);
-  return redactPlainObject(value as Record<string, unknown>, depth, s);
+  return redactTypedObject(value, depth, s);
 }
 
 /**

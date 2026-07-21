@@ -82,47 +82,47 @@ function isNonPrimitiveObject(value: unknown): value is Record<string, unknown> 
   return value != null && typeof value === "object" && !(value instanceof Date || value instanceof RegExp);
 }
 
+function handleDepthLimit(value: unknown): unknown {
+  if (value != null && typeof value === "object" && !Array.isArray(value) && !(value instanceof Map) && !(value instanceof Set) && !(value instanceof WeakMap) && !(value instanceof WeakSet)) {
+    const capped: Record<string, unknown> = {};
+    for (const [key] of Object.entries(value as Record<string, unknown>)) {
+      capped[key] = isSensitiveField(key) ? "[REDACTED]" : "[Too deep]";
+    }
+    return capped;
+  }
+  return "[Too deep]";
+}
+
+function sanitizeArrayValue(value: unknown[], seen?: WeakSet<object>): unknown {
+  const state = trackSeen(value, seen);
+  if (state.circular) return "[Circular]";
+  return value.map((v) => sanitizeContextValue(v, 1, state.seen));
+}
+
+function sanitizeMapValue(value: Map<unknown, unknown>, seen?: WeakSet<object>): unknown {
+  const state = trackSeen(value, seen);
+  if (state.circular) return "[Circular]";
+  return [...value.entries()].map(([k, v]) => {
+    const keyStr = typeof k === "string" ? k : String(k);
+    const redactedValue = isSensitiveField(keyStr) ? "[REDACTED]" : sanitizeContextValue(v, 1, state.seen);
+    return [sanitizeContextValue(k, 1, state.seen), redactedValue];
+  });
+}
+
+function sanitizeSetValue(value: Set<unknown>, seen?: WeakSet<object>): unknown {
+  const state = trackSeen(value, seen);
+  if (state.circular) return "[Circular]";
+  return [...value].map((v) => sanitizeContextValue(v, 1, state.seen));
+}
+
 function sanitizeContextValue(value: unknown, depth = 0, seen?: WeakSet<object>): unknown {
   if (depth > MAX_REDACTION_DEPTH) {
-    // Do NOT return the raw subtree: the per-level sensitive-key redaction loop
-    // below only runs at depth <= cap, so a secret nested deeper than the cap
-    // would otherwise be reflected to the AI agent verbatim. Still redact
-    // sensitive-named KEYS at THIS level and otherwise collapse the oversized
-    // subtree to a placeholder so nothing leaks from below.
-    if (value != null && typeof value === "object" && !Array.isArray(value) && !(value instanceof Map) && !(value instanceof Set) && !(value instanceof WeakMap) && !(value instanceof WeakSet)) {
-      const capped: Record<string, unknown> = {};
-      for (const [key] of Object.entries(value as Record<string, unknown>)) {
-        capped[key] = isSensitiveField(key) ? "[REDACTED]" : "[Too deep]";
-      }
-      return capped;
-    }
-    return "[Too deep]";
+    return handleDepthLimit(value);
   }
   if (typeof value === "string") return sanitizeForLogOutput(value).slice(0, MAX_ERROR_LOG_LINE_LENGTH);
-  if (Array.isArray(value)) {
-    const state = trackSeen(value, seen);
-    if (state.circular) return "[Circular]";
-    return value.map((v) => sanitizeContextValue(v, depth + 1, state.seen));
-  }
-  if (value instanceof Map) {
-    const state = trackSeen(value, seen);
-    if (state.circular) return "[Circular]";
-    return [...value.entries()].map(([k, v]) => {
-      // Mirror audit-log's redactSensitiveFields: redact the value when the
-      // key is itself a sensitive-field name, so a secret stored under a
-      // Map/Set key (e.g. new Map([["password", "hunter2"]])) is not reflected
-      // to the AI agent. Plain-object keys already get this treatment in
-      // sanitizeObject; Map keys previously did not.
-      const keyStr = typeof k === "string" ? k : String(k);
-      const redactedValue = isSensitiveField(keyStr) ? "[REDACTED]" : sanitizeContextValue(v, depth + 1, state.seen);
-      return [sanitizeContextValue(k, depth + 1, state.seen), redactedValue];
-    });
-  }
-  if (value instanceof Set) {
-    const state = trackSeen(value, seen);
-    if (state.circular) return "[Circular]";
-    return [...value].map((v) => sanitizeContextValue(v, depth + 1, state.seen));
-  }
+  if (Array.isArray(value)) return sanitizeArrayValue(value, seen);
+  if (value instanceof Map) return sanitizeMapValue(value, seen);
+  if (value instanceof Set) return sanitizeSetValue(value, seen);
   if (value instanceof WeakMap || value instanceof WeakSet) return "[WeakCollection]";
   if (isNonPrimitiveObject(value)) return sanitizeObject(value, depth, seen);
   if (value === undefined) return null;

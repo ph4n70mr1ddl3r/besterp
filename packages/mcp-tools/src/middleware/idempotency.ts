@@ -18,7 +18,7 @@
 import { PrismaClient, Prisma, IdempotencyRecord } from "@prisma/client";
 import { createHash } from "node:crypto";
 import { hashInput, getErrorCode, sanitizeLogMessage, sanitizeForLogOutput, ConcurrencyConflictError, MAX_SOFT_FAILURE_MESSAGE_SIZE, IDEMPOTENCY_TTL_MS, MAX_IDEMPOTENCY_KEY_LENGTH, SAFE_IDEMPOTENCY_KEY, IDEMPOTENCY_MAX_RETRIES, IDEMPOTENCY_RETRY_BASE_DELAY_MS } from "@besterp/shared";
-import { ToolMiddleware, ToolResult, ToolContext } from "../schema/tool-definition.js";
+import { ToolMiddleware, ToolResult, ToolContext, ZodSchemaLike } from "../schema/tool-definition.js";
 import { truncateValue, MAX_STORED_PAYLOAD_SIZE, capString, isTruncationMarker } from "./truncate.js";
 import { redactSensitiveFields } from "./audit-log.js";
 
@@ -36,6 +36,81 @@ const STALE_PENDING_THRESHOLD_MS = 60_000;
  *
  * @param prisma - Admin PrismaClient (superuser, bypasses RLS for idempotency records)
  */
+function validateIdempotencyKey(key: unknown, toolName: string): { valid: false; error: ToolResult } | { valid: true; key: string } {
+  if (key === undefined || key === null) {
+    return { valid: true, key: "" };
+  }
+  if (typeof key !== "string" || key.length === 0 || key.length > MAX_IDEMPOTENCY_KEY_LENGTH) {
+    return {
+      valid: false,
+      error: {
+        success: false,
+        error: {
+          code: "INVALID_IDEMPOTENCY_KEY",
+          message: typeof key !== "string" || key.length === 0
+            ? "Idempotency key is required and must be a non-empty string."
+            : `Idempotency key exceeds maximum length of ${MAX_IDEMPOTENCY_KEY_LENGTH} characters.`,
+          suggestedTools: [toolName],
+        },
+      },
+    };
+  }
+  if (!SAFE_IDEMPOTENCY_KEY.test(key)) {
+    const safeKey = redactKey(key);
+    return {
+      valid: false,
+      error: {
+        success: false,
+        error: {
+          code: "INVALID_IDEMPOTENCY_KEY",
+          message: "The idempotency key contains invalid characters. Keys must be printable ASCII (no control characters, newlines, or non-ASCII bytes).",
+          suggestedTools: [toolName],
+          context: { keyPrefix: safeKey },
+        },
+      },
+    };
+  }
+  return { valid: true, key };
+}
+
+function computeInputHash(input: unknown, definition: { name: string; inputSchema: ZodSchemaLike }): string | symbol {
+  const parseResult = definition.inputSchema.safeParse(input);
+  if (!parseResult.success) {
+    return Symbol("skip");
+  }
+  try {
+    return hashInput(parseResult.data);
+  } catch {
+    logIdempotencyWarn(
+      `Skipping idempotency for '${definition.name}': input cannot be hashed (circular reference or unserializable type)`
+    );
+    return Symbol("skip");
+  }
+}
+
+function handleRecordUnavailable(toolName: string): ToolResult {
+  return {
+    success: false,
+    error: {
+      code: "SERVICE_UNAVAILABLE",
+      message: "Idempotency service is temporarily unavailable. The operation cannot be retried at this time — retry the same request later (not with a new key).",
+      suggestedTools: [toolName],
+    },
+  };
+}
+
+function handleRecordContention(key: string, toolName: string): ToolResult {
+  const safeKey = redactKey(key);
+  return {
+    success: false,
+    error: {
+      code: "IDEMPOTENCY_CONTENTION",
+      message: `Could not acquire idempotency record for '${safeKey}' after ${IDEMPOTENCY_MAX_RETRIES} attempts. Please retry with a new idempotency key.`,
+      suggestedTools: [toolName],
+    },
+  };
+}
+
 export function idempotencyMiddleware(prisma: PrismaClient): ToolMiddleware {
   return async (input, context, definition, next) => {
     if (!prisma?.idempotencyRecord) {
@@ -45,110 +120,29 @@ export function idempotencyMiddleware(prisma: PrismaClient): ToolMiddleware {
 
     const { idempotencyKey, tenantId, userId, agentId, conversationId } = context;
 
-    // A missing idempotency key is a no-op pass-through (ADR-004): the
-    // middleware simply does not provide idempotency guarantees for that call.
-    // Only PRESENT-but-invalid keys (wrong type, over-length, empty, or
-    // containing illegal characters) are rejected. Round 52 inadvertently
-    // folded the missing-key check into the validation guard, which broke every
-    // caller that omits the key — restore the contract.
-    if (idempotencyKey === undefined || idempotencyKey === null) {
-      return next(input, context);
-    }
-    if (typeof idempotencyKey !== "string" || idempotencyKey.length === 0 || idempotencyKey.length > MAX_IDEMPOTENCY_KEY_LENGTH) {
-      return {
-        success: false,
-        error: {
-          code: "INVALID_IDEMPOTENCY_KEY",
-          message: typeof idempotencyKey !== "string" || idempotencyKey.length === 0
-            ? "Idempotency key is required and must be a non-empty string."
-            : `Idempotency key exceeds maximum length of ${MAX_IDEMPOTENCY_KEY_LENGTH} characters.`,
-          suggestedTools: [definition.name],
-        },
-      };
-    }
+    const keyResult = validateIdempotencyKey(idempotencyKey, definition.name);
+    if (!keyResult.valid) return keyResult.error;
+    if (!keyResult.key) return next(input, context);
 
-    // Defense-in-depth: reject keys containing control characters, newlines,
-    // or non-ASCII bytes. Such keys could corrupt log output (log injection)
-    // or database storage. Keys are typically UUIDs, ULIDs, or hashes — all
-    // printable-ASCII tokens. A key that fails this check is almost certainly
-    // a bug in the caller, not a legitimate idempotency attempt.
-    if (!SAFE_IDEMPOTENCY_KEY.test(idempotencyKey)) {
-      const safeKey = redactKey(idempotencyKey);
-      return {
-        success: false,
-        error: {
-          code: "INVALID_IDEMPOTENCY_KEY",
-          message: `The idempotency key contains invalid characters. Keys must be printable ASCII (no control characters, newlines, or non-ASCII bytes).`,
-          suggestedTools: [definition.name],
-          context: { keyPrefix: safeKey },
-        },
-      };
-    }
+    const hashResult = computeInputHash(input, definition);
+    if (typeof hashResult === "symbol") return next(input, context);
+    const inputHash = hashResult as string;
 
-    // Parse the input through the tool's schema FIRST, then hash the
-    // transformed/normalized data. This ensures semantically identical inputs
-    // (e.g., "name" and " name  " after Zod's .trim() transform) produce
-    // the same hash, preventing false IDEMPOTENCY_KEY_MISMATCH errors on
-    // retries with normalized input.
-    //
-    // If validation fails, skip idempotency entirely — the handler will return
-    // INVALID_INPUT without executing any side effects. Storing a hash of the
-    // raw (un-normalised) invalid input would cause a false
-    // IDEMPOTENCY_KEY_MISMATCH on a subsequent retry with valid (normalised)
-    // input, because the hash of the raw input differs from the hash of the
-    // Zod-transformed valid input.
-    const parseResult = definition.inputSchema.safeParse(input);
-    if (!parseResult.success) {
-      return next(input, context);
-    }
-    const hashedInput = parseResult.data;
-
-    let inputHash: string;
-    try {
-      inputHash = hashInput(hashedInput);
-    } catch {
-      // Circular references or unserializable input — skip idempotency
-      // rather than crashing the entire tool pipeline. Log a warning so
-      // operators can identify tools that consistently produce unhashable input.
-      logIdempotencyWarn(
-        `Skipping idempotency for '${definition.name}': input cannot be hashed (circular reference or unserializable type)`
-      );
-      return next(input, context);
-    }
-
-    const { existingRecord, recordCreated, unavailable } = await acquireIdempotencyRecord(prisma, idempotencyKey, tenantId, userId, agentId, conversationId, definition.name, inputHash);
+    const { existingRecord, recordCreated, unavailable } = await acquireIdempotencyRecord(
+      prisma, keyResult.key, tenantId, userId, agentId, conversationId, definition.name, inputHash,
+    );
 
     if (!recordCreated && !existingRecord) {
-      if (unavailable) {
-        // Infrastructure failure (connection, auth) — retrying with a new
-        // idempotency key won't help. Surface a distinct error so the AI
-        // agent knows the service is temporarily unavailable.
-        return {
-          success: false,
-          error: {
-            code: "SERVICE_UNAVAILABLE",
-            message: `Idempotency service is temporarily unavailable. The operation cannot be retried at this time — retry the same request later (not with a new key).`,
-            suggestedTools: [definition.name],
-          },
-        };
-      }
-      // Serialization contention (P2034) — suggest a new key.
-      const safeKey = redactKey(idempotencyKey);
-      return {
-        success: false,
-        error: {
-          code: "IDEMPOTENCY_CONTENTION",
-          message: `Could not acquire idempotency record for '${safeKey}' after ${IDEMPOTENCY_MAX_RETRIES} attempts. Please retry with a new idempotency key.`,
-          suggestedTools: [definition.name],
-        },
-      };
+      return unavailable
+        ? handleRecordUnavailable(definition.name)
+        : handleRecordContention(keyResult.key, definition.name);
     }
 
     if (existingRecord) {
-      return handleExistingRecord(existingRecord, inputHash, idempotencyKey, definition.name);
+      return handleExistingRecord(existingRecord, inputHash, keyResult.key, definition.name);
     }
 
-    return executeAndUpdate(prisma, idempotencyKey, tenantId, input, context, definition, next);
+    return executeAndUpdate(prisma, keyResult.key, tenantId, input, context, definition, next);
   };
 }
 

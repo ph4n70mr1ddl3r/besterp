@@ -165,22 +165,26 @@ function sanitizedString(min: number, max: number) {
     .pipe(z.string().min(min).max(max));
 }
 
+/** Optional trimmed string that rejects whitespace-only input.
+ *  Trims, strips HTML/script payloads, and normalises empty/whitespace-only input
+ *  to undefined. Used by both `optionalSanitizedString` and for search filters. */
+function optionalFilteredString(max: number) {
+  return z.string()
+    .optional()
+    .transform(s => {
+      if (s === undefined) return undefined;
+      const trimmed = stripHtmlTags(s.trim());
+      return trimmed.length === 0 ? undefined : trimmed;
+    })
+    .pipe(z.string().max(max).optional());
+}
+
 /** Optional string: trims, strips HTML, enforces max length.
    *  Empty, whitespace-only, or HTML-only input → undefined (the transform
    *  captures the trimmed value once and checks it, so " " and "<script>"
    *  never reach the pipe). */
 function optionalSanitizedString(max: number) {
-  return z.string()
-    .optional()
-    .transform(s => {
-      if (s === undefined) return undefined;
-      const trimmed = s.trim();
-      if (!trimmed) return undefined;
-      const sanitized = stripHtmlTags(trimmed);
-      if (!sanitized) return undefined;
-      return sanitized;
-    })
-    .pipe(z.string().max(max).optional());
+  return optionalFilteredString(max);
 }
 
 /** Optional ISO 8601 date: trims, validates format, enforces max length. */
@@ -356,25 +360,6 @@ Returns full party details. Use this to inspect a specific party's information.`
 
 // ─── Tool: search_parties ─────────────────────────────────────────
 
-/** Optional trimmed string that rejects whitespace-only input (for search filters).
- *  Trims, strips HTML/script payloads, and normalises empty/whitespace-only input
- *  to undefined (widens to "return all"), which is the correct semantics for
- *  optional search filters. The HTML strip matches the REST `SearchPartiesDto`
- *  `@sanitizeTransform()` path so the two input surfaces cannot diverge on
- *  sanitization (a value could otherwise reach a log line carrying raw markup).
- *  Uses a single transform for trim+emptiness (no `.refine()` after `.pipe()`)
- *  to keep the schema composable and avoid nested refinement error paths. */
-function optionalFilteredString(max: number) {
-  return z.string()
-    .optional()
-    .transform(s => {
-      if (s === undefined) return undefined;
-      const trimmed = stripHtmlTags(s.trim());
-      return trimmed.length === 0 ? undefined : trimmed;
-    })
-    .pipe(z.string().max(max).optional());
-}
-
 const searchPartiesSchema = z.object({
   name: optionalFilteredString(MAX_PARTY_NAME_LENGTH).describe("Filter by name (case-insensitive partial match)"),
   partyType: z.enum(["PERSON", "ORGANIZATION"]).optional().describe("Filter by party type"),
@@ -405,7 +390,7 @@ Use this to find customers, suppliers, or any party by name, type, or role.`,
       tenantId: context.tenantId,
     });
     const morePages = result.hasMore
-      ? ` Use offset ${result.offset + result.limit} to see more results.`
+      ? ` Use offset ${Math.min(result.offset + result.limit, result.total)} to see more results.`
       : "";
     return {
       success: true,
