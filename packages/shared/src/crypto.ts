@@ -22,7 +22,7 @@ import { InvalidTypeValueError } from "./errors.js";
  */
 function checkCircular(value: object, ancestors: Set<object>): void {
   if (ancestors.has(value)) {
-    throw new Error("Circular reference detected in hash input");
+    throw new InvalidTypeValueError("Circular reference detected in hash input");
   }
 }
 
@@ -198,7 +198,7 @@ const MAX_HASH_STRING_BYTES = 100_000;
  * count looks moderate.
  */
 function checkStringBounds(value: string, budget?: { bytes: number }): void {
-  const len = Buffer.byteLength(value, "utf8");
+  const len = new TextEncoder().encode(value).length;
   if (budget) {
     budget.bytes += len;
     if (budget.bytes > MAX_HASH_TOTAL_BYTES) {
@@ -229,7 +229,7 @@ function checkStringBounds(value: string, budget?: { bytes: number }): void {
  */
 function chargeKeyBytes(value: string, budget?: { bytes: number }): void {
   if (!budget) return;
-  budget.bytes += Buffer.byteLength(value, "utf8") + 2;
+  budget.bytes += new TextEncoder().encode(value).length + 2;
   if (budget.bytes > MAX_HASH_TOTAL_BYTES) {
     throw new InvalidTypeValueError(
       `Input exceeds aggregate serialized size limit of ${MAX_HASH_TOTAL_BYTES} bytes. ` +
@@ -303,39 +303,46 @@ function sortPrimitive(value: unknown): unknown {
  * Handles problematic types like BigInt, Symbol, undefined values,
  * Maps, and Sets.
  */
-function countKeys(value: unknown): number {
+function countKeys(value: unknown, ancestors?: Set<object>): number {
   if (value === null || value === undefined || typeof value !== "object") return 0;
-  if (Array.isArray(value)) {
-    let count = value.length;
-    for (const item of value) count += countKeys(item);
+  ancestors = ancestors ?? new Set<object>();
+  if (ancestors.has(value)) return 0;
+  ancestors.add(value);
+  try {
+    if (Array.isArray(value)) {
+      let count = value.length;
+      for (const item of value) count += countKeys(item, ancestors);
+      return count;
+    }
+    if (value instanceof Map) {
+      let count = value.size;
+      for (const v of value.values()) count += countKeys(v, ancestors);
+      return count;
+    }
+    if (value instanceof Set) {
+      let count = value.size;
+      for (const v of value) count += countKeys(v, ancestors);
+      return count;
+    }
+    const entries = Object.entries(value as Record<string, unknown>);
+    let count = entries.length;
+    for (const [, v] of entries) count += countKeys(v, ancestors);
     return count;
+  } finally {
+    ancestors.delete(value);
   }
-  if (value instanceof Map) {
-    let count = value.size;
-    for (const v of value.values()) count += countKeys(v);
-    return count;
-  }
-  if (value instanceof Set) {
-    let count = value.size;
-    for (const v of value) count += countKeys(v);
-    return count;
-  }
-  const entries = Object.entries(value as Record<string, unknown>);
-  let count = entries.length;
-  for (const [, v] of entries) count += countKeys(v);
-  return count;
 }
 
 export function hashInput(input: unknown): string {
   try {
-    const budget = { bytes: 0 };
-    const canonical = sortKeysDeep(input, undefined, 0, budget);
-    const keyCount = countKeys(canonical);
+    const keyCount = countKeys(input);
     if (keyCount > MAX_HASH_KEYS) {
       throw new InvalidTypeValueError(
         `Input has too many keys (${keyCount}, max ${MAX_HASH_KEYS}). Refusing to hash to prevent DoS.`
       );
     }
+    const budget = { bytes: 0 };
+    const canonical = sortKeysDeep(input, undefined, 0, budget);
     const serialized = JSON.stringify(canonical);
     return crypto
       .createHash("sha256")

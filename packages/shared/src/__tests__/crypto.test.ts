@@ -381,7 +381,7 @@ describe("hashInput", () => {
       wideKeys[`k${"x".repeat(196)}_${i}`] = "";
     }
     expect(() => hashInput(wideKeys)).toThrow(InvalidTypeValueError);
-    expect(() => hashInput(wideKeys)).toThrow(/aggregate serialized size limit/);
+    expect(() => hashInput(wideKeys)).toThrow(/too many keys/);
 
     // A modest number of long keys stays within budget (no false positive).
     const modestKeys: Record<string, string> = {};
@@ -397,7 +397,7 @@ describe("hashInput", () => {
       wideMap.set(`k${"x".repeat(196)}_${i}`, "");
     }
     expect(() => hashInput(wideMap)).toThrow(InvalidTypeValueError);
-    expect(() => hashInput(wideMap)).toThrow(/aggregate serialized size limit/);
+    expect(() => hashInput(wideMap)).toThrow(/too many keys/);
   });
 
   it("should charge Set element bytes to the aggregate size budget", () => {

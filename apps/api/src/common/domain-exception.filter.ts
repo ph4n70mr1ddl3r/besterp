@@ -123,6 +123,7 @@ export class DomainExceptionFilter implements ExceptionFilter {
       // secret-disclosure gap that the parallel MCP surface did not have.
       ...(status === 500 && !isDev
         ? { message: "An unexpected error occurred" }
+        // sanitizeForLogOutput redacts URLs/secrets; stripHtmlTags adds XSS defense.
         : { message: stripHtmlTags(sanitizeForLogOutput(exception.message)) }),
     };
     if (isDev && exception.suggestedTools.length > 0) {
@@ -215,7 +216,7 @@ export class DomainExceptionFilter implements ExceptionFilter {
           // A Prisma/driver error message may embed an absolute path like
           // `/opt/app/node_modules/@prisma/client/runtime/edge.js` which aids
           // an attacker in fingerprinting the deployment. Collapse to [PATH].
-          .replace(/(?:\/(?:[^\s"']+\/)*)([^\s"']+\.(?:js|ts))/g, "[PATH]")
+          .replace(/(?:\/(?:[^\s"']+\/)*)([^\s"']+\.(?:js|ts|json|env|yaml|yml|sql|pem|key|cert|config|conf|toml))/g, "[PATH]")
       : "Internal server error";
     response.status(500).json({
       statusCode: 500,

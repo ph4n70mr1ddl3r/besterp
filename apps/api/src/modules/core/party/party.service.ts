@@ -39,7 +39,6 @@ import {
   COUNTRY_CODE_REGEX,
   isValidISODate,
   stripHtmlTags,
-  sanitizeLogMessage,
   sanitizeForLogOutput,
   MAX_PARTY_NAME_LENGTH,
   MAX_PARTY_DESCRIPTION_LENGTH,
@@ -440,8 +439,7 @@ export class PartyService {
     // errors and routing them through the Prisma switch.
     const code = PartyService.getPrismaErrorCode(err);
     if (!code) throw err;
-    if (!code.startsWith("P")) throw err;
-    if (!/^[P]\d{4}$/.test(code)) throw err;
+    if (!/^P\d{4}$/.test(code)) throw err;
 
     return PartyService.throwMappedPrismaError(code, err as { code: string; meta?: Record<string, unknown> }, retryTool, suggestTool, entityName);
   }
@@ -525,7 +523,7 @@ export class PartyService {
     // to disagree, but this is acceptable for search pagination (worst case:
     // off-by-one in `hasMore`). Parallelizing removes a needless serialization
     // and halves the latency of this endpoint.
-    let total: number;
+    let total = 0;
     let items: PartyWithIncludes[] = [];
     try {
       [total, items] = await Promise.all([
@@ -1062,7 +1060,7 @@ export class PartyService {
     // caller sees exactly what they sent.
     if (!isValidISODate(trimmed)) {
       throw new InvalidTypeValueError(
-        `${field} is not a valid ISO 8601 date. Received: ${sanitizeLogMessage(value)}.`,
+        `${field} is not a valid ISO 8601 date. Received: ${sanitizeForLogOutput(value)}.`,
         { suggestedTools: ["create_party"], context: { field, invalidValue: value } }
       );
     }

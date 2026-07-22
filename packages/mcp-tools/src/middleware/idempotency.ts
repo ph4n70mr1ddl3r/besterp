@@ -73,10 +73,12 @@ function validateIdempotencyKey(key: unknown, toolName: string): { valid: false;
   return { valid: true, key };
 }
 
+const SKIP_HASH = Symbol("skipIdempotencyHash");
+
 function computeInputHash(input: unknown, definition: { name: string; inputSchema: ZodSchemaLike }): string | symbol {
   const parseResult = definition.inputSchema.safeParse(input);
   if (!parseResult.success) {
-    return Symbol("skip");
+    return SKIP_HASH;
   }
   try {
     return hashInput(parseResult.data);
@@ -84,7 +86,7 @@ function computeInputHash(input: unknown, definition: { name: string; inputSchem
     logIdempotencyWarn(
       `Skipping idempotency for '${definition.name}': input cannot be hashed (circular reference or unserializable type)`
     );
-    return Symbol("skip");
+    return SKIP_HASH;
   }
 }
 
@@ -514,6 +516,13 @@ async function updateIdempotencyRecordWithRetry(
       // Both call sites in executeAndUpdate wrap this in try/catch, so a normal
       // return here is behaviour-preserving while avoiding
       // IDEMPOTENCY_MAX_RETRIES wasted attempts + backoff latency.
+      // P2025: the idempotency record was TTL-cleaned or manually deleted
+      // between acquire and update. The operation already ran successfully,
+      // but the result cannot be persisted. A future retry with the same key
+      // will NOT find a completed record and WILL re-execute — idempotency
+      // is defeated for this key. This is a documented edge case of the TTL
+      // cleanup model; high-value operations may need re-acquire+update in a
+      // single transaction.
       if (code === "P2025") {
         const p2025Detail = updateErr instanceof Error ? updateErr.message : String(updateErr);
         logIdempotencyWarn(

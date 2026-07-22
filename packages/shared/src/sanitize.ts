@@ -40,7 +40,7 @@ export function stripHtmlTags(input: string): string {
   // ~400 KB — far above the intended 100 KB budget. Measuring code units
   // would let a crafted multi-byte string slip past the cap and then balloon
   // further inside the decode loop (entity decoding can expand length).
-  if (Buffer.byteLength(input, "utf8") > MAX_INPUT_LENGTH) {
+  if (new TextEncoder().encode(input).length > MAX_INPUT_LENGTH) {
     throw new InvalidTypeValueError(
       `stripHtmlTags: input exceeds maximum allowed length. ` +
       `This may indicate a DoS attempt via deeply nested HTML encoding.`
@@ -133,7 +133,7 @@ export function sanitizeLogOutput(message: string): string {
   // value could trigger O(n²) backtracking in the URL catch-all regex below and
   // block the Node event loop (DoS). The .slice(...) truncation applied by
   // callers happens AFTER this runs, so it cannot mitigate the cost.
-  if (Buffer.byteLength(message, "utf8") > MAX_LOG_OUTPUT_LENGTH) {
+  if (new TextEncoder().encode(message).length > MAX_LOG_OUTPUT_LENGTH) {
     // Truncate on a CHARACTER boundary (not UTF-16 code units) so the result
     // stays within the byte budget and is never cut mid-multi-byte character.
     // String.prototype.slice counts UTF-16 code units, so slicing a run of
@@ -386,7 +386,7 @@ export function sanitizeLogMessage(s: string): string {
     // These can manipulate terminal display to hide injected log content or
     // create misleading log entries (e.g., U+202E RIGHT-TO-LEFT OVERRIDE).
     // eslint-disable-next-line no-misleading-character-class
-    .replace(/[\u200B\u200C\u200D\u2060\u2066-\u2069\u202A-\u202E\uFEFF]/g, "")
+    .replace(/[\u200B\u200C\u200D\u200E\u200F\u2060\u2066-\u2069\u202A-\u202E\u061C\uFEFF]/g, "")
     .replace(/[\r\n\t\x00-\x08\x0b\x0c\x0e-\x1f\x7f\x80-\x9f]/g, "_");
   /* eslint-enable no-control-regex */
 }

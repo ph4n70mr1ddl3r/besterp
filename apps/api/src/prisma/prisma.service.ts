@@ -72,6 +72,31 @@ export class PrismaService
     });
 
     // App client uses the non-superuser URL for RLS-enforced operations
+    if (!process.env.DATABASE_URL) {
+      if (process.env.NODE_ENV === "production") {
+        throw new Error(
+          "DATABASE_URL environment variable is not set. " +
+          "The app client requires DATABASE_URL to connect as the RLS-enforced role."
+        );
+      }
+      this.logger.warn(
+        "DATABASE_URL is not set — database operations will fail. " +
+        "Set DATABASE_URL before running the API."
+      );
+    }
+    if (!process.env.DATABASE_ADMIN_URL) {
+      if (process.env.NODE_ENV === "production") {
+        throw new Error(
+          "DATABASE_ADMIN_URL environment variable is not set. " +
+          "The admin client requires DATABASE_ADMIN_URL to connect as a superuser " +
+          "role for cross-tenant audit/idempotency operations."
+        );
+      }
+      this.logger.warn(
+        "DATABASE_ADMIN_URL is not set — admin operations will fail. " +
+        "Set DATABASE_ADMIN_URL before running the API."
+      );
+    }
     this._appClient = new PrismaClient({
       datasourceUrl: process.env.DATABASE_URL, // must be the besterp_app role
       log: [
@@ -88,27 +113,7 @@ export class PrismaService
   }
 
   async onModuleInit() {
-    if (!process.env.DATABASE_URL) {
-      if (process.env.NODE_ENV === "production") {
-        throw new Error(
-          "DATABASE_URL environment variable is not set. " +
-          "The app client requires DATABASE_URL to connect as the RLS-enforced role."
-        );
-      }
-      this.logger.warn(
-        "DATABASE_URL is not set — database operations will fail. " +
-        "Set DATABASE_URL before running the API."
-      );
-    }
-    if (!process.env.DATABASE_ADMIN_URL) {
-      if (process.env.NODE_ENV === "production") {
-        throw new Error(
-          "DATABASE_ADMIN_URL must be set in production. " +
-          "The admin client requires a superuser connection to bypass RLS for " +
-          "audit logs, idempotency records, and cross-tenant operations."
-        );
-      }
-      // In dev, warn so the operator notices the fallback.
+    if (!process.env.DATABASE_ADMIN_URL && process.env.NODE_ENV !== "production") {
       this.logger.warn(
         "DATABASE_ADMIN_URL is not set — admin client falls back to DATABASE_URL. " +
         "Audit logs and idempotency records (which use the admin client to bypass RLS) " +

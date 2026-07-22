@@ -82,6 +82,12 @@ function getPartyService(ctx: ToolContext) {
       { context: { field: "partyService" } }
     );
   }
+  if (typeof (svc as PartyServices["partyService"]).getParty !== "function") {
+    throw new InvalidTypeValueError(
+      "PartyService in ToolContext.services is missing required methods",
+      { context: { field: "partyService" } }
+    );
+  }
   return svc as PartyServices["partyService"];
 }
 

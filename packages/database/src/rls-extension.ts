@@ -33,8 +33,8 @@ class LruCache<K, V> {
   }
 
   get(key: K): V | undefined {
-    if (this.map.has(key)) {
-      const value = this.map.get(key)!;
+    const value = this.map.get(key);
+    if (value !== undefined) {
       this.map.delete(key);
       this.map.set(key, value);
       return value;
@@ -188,8 +188,11 @@ function createModelDelegateProxy(
       throw new Error(`Cannot delete '${String(modelProp)}' on model '${modelName}' of a tenant-scoped client.`);
     },
     get(modelTarget, method: string | symbol) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      if (typeof method !== "string") return (modelTarget as any)[method];
+      if (typeof method !== "string") {
+        throw new Error(
+          `Cannot access non-string property '${String(method)}' on model '${modelName}' of a tenant-scoped client — symbol access bypasses RLS.`
+        );
+      }
 
       // `$transaction` is NOT supported on a model delegate: the only
       // tenant-context-carrying transaction wrapper lives on the client proxy

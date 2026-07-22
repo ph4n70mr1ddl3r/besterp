@@ -59,7 +59,11 @@ export class DomainError extends Error {
       // durable sinks verbatim. This keeps toJSON consistent with the REST
       // DomainExceptionFilter.sanitizeContext path and the MCP
       // redactSensitiveFields surface.
+      // redactSensitiveFieldValues is idempotent; the filter also redacts,
+      // making this defense-in-depth for the durable-sink serialization path.
       context: redactSensitiveFieldValues(this.context) as Record<string, ContextValue>,
+      // Only serializes the immediate cause's message (not the cause chain) to
+      // prevent leaking internal error chains. See serializeCause for details.
       cause: serializeCause(this.cause),
     };
   }

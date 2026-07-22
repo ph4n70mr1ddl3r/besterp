@@ -349,6 +349,7 @@ export class EmailAddressDto {
   @Transform(({ value }: TransformFnParams) =>
     typeof value === "string" ? stripHtmlTags(value.trim().toLowerCase()) : value
   )
+  @IsString()
   @IsEmail()
   @IsNotEmpty()
   @MaxLength(MAX_EMAIL_LENGTH)
