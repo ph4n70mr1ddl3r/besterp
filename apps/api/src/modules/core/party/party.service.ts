@@ -240,23 +240,23 @@ export class PartyService {
     if (!personData) return undefined;
     const trimmedMiddleName = personData.middleName?.trim();
     const trimmedGender = personData.gender?.trim();
-    const trimmedBirthDate = personData.birthDate?.trim();
+    const trimmedBirthDate = personData.birthDate?.trim() || undefined;
     return {
       firstName: stripHtmlTags((personData.firstName ?? "").trim()),
       lastName: stripHtmlTags((personData.lastName ?? "").trim()),
       middleName: trimmedMiddleName ? stripHtmlTags(trimmedMiddleName) || undefined : undefined,
       gender: trimmedGender ? stripHtmlTags(trimmedGender) || undefined : undefined,
-      birthDate: trimmedBirthDate ?? undefined,
+      birthDate: trimmedBirthDate,
     };
   }
 
   private sanitizeOrganization(orgData: CreatePartyInput["organization"]): CreatePartyInput["organization"] | undefined {
     if (!orgData) return undefined;
-    const trimmedRegistrationDate = orgData.registrationDate?.trim();
+    const trimmedRegistrationDate = orgData.registrationDate?.trim() || undefined;
     return {
       legalName: stripHtmlTags((orgData.legalName ?? "").trim()),
       taxId: orgData.taxId ? stripHtmlTags(orgData.taxId.trim()) || undefined : undefined,
-      registrationDate: trimmedRegistrationDate ?? undefined,
+      registrationDate: trimmedRegistrationDate,
     };
   }
 
