@@ -246,7 +246,7 @@ export class PartyService {
       lastName: stripHtmlTags((personData.lastName ?? "").trim()),
       middleName: trimmedMiddleName ? stripHtmlTags(trimmedMiddleName) || undefined : undefined,
       gender: trimmedGender ? stripHtmlTags(trimmedGender) || undefined : undefined,
-      birthDate: trimmedBirthDate,
+      birthDate: trimmedBirthDate ? stripHtmlTags(trimmedBirthDate) || undefined : undefined,
     };
   }
 
@@ -256,7 +256,7 @@ export class PartyService {
     return {
       legalName: stripHtmlTags((orgData.legalName ?? "").trim()),
       taxId: orgData.taxId ? stripHtmlTags(orgData.taxId.trim()) || undefined : undefined,
-      registrationDate: trimmedRegistrationDate,
+      registrationDate: trimmedRegistrationDate ? stripHtmlTags(trimmedRegistrationDate) || undefined : undefined,
     };
   }
 

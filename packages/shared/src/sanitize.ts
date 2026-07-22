@@ -392,14 +392,15 @@ export function sanitizeLogMessage(s: string): string {
 }
 
 /**
- * Compose sanitizeLogMessage (log injection prevention) with sanitizeLogOutput
- * (sensitive URL/path redaction). Apply log-injection sanitization FIRST so
- * control characters and ANSI escapes are removed before the URL/path regexes
- * run against the clean text.
+ * Sanitize a message for safe output in logs, error responses, and durable
+ * sinks. Delegates to sanitizeLogOutput, which internally applies log-injection
+ * prevention (sanitizeLogMessage) FIRST so control characters and ANSI escapes
+ * are removed before the URL/path redaction regexes run against the clean text.
  *
- * Use this in error handlers, shutdown routines, and any context where an
- * unknown or user-controlled message could contain both log-injection payloads
- * (ANSI escapes, newlines) and sensitive connection strings or paths.
+ * This is the canonical public API for sanitizing messages that may contain
+ * both log-injection payloads (ANSI escapes, newlines) and sensitive connection
+ * strings or paths. Use it in error handlers, shutdown routines, and any
+ * context where user-controlled or unknown messages are surfaced.
  */
 export function sanitizeForLogOutput(message: string): string {
   return sanitizeLogOutput(message);
