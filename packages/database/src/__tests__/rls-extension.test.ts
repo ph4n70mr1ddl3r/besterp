@@ -7,7 +7,7 @@ import {
   validateTenantIdEnhanced,
   validatePrismaClientForRls
 } from "../rls-extension.js";
-import { DomainError, InvalidTypeValueError } from "@besterp/shared";
+import { DomainError, InvalidTenantIdError, InvalidTypeValueError } from "@besterp/shared";
 
 describe("RLS Extension", () => {
   describe("validateTenantIdEnhanced", () => {
@@ -45,7 +45,7 @@ describe("RLS Extension", () => {
 
     it("should reject tenant IDs that are too long", () => {
       const longId = "a".repeat(101);
-      expect(() => validateTenantIdEnhanced(longId)).toThrow(DomainError);
+      expect(() => validateTenantIdEnhanced(longId)).toThrow(InvalidTenantIdError);
     });
 
     it("should reject tenant IDs with dangerous patterns", () => {

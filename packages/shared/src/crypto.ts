@@ -259,8 +259,7 @@ function dispatchContainer(
   if (Array.isArray(value)) return sortArray(value, ancestors, depth, b);
   if (value instanceof Map) return sortMap(value, ancestors, depth, b);
   if (value instanceof Set) return sortSet(value, ancestors, depth, b);
-  if (typeof value === "object") return sortObject(value, ancestors, depth, b);
-  return sortPrimitive(value);
+  return sortObject(value, ancestors, depth, b);
 }
 
 function sortKeysDeep(value: unknown, ancestors?: Set<object>, depth = 0, budget?: { bytes: number }): unknown {

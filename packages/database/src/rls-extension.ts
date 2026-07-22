@@ -52,7 +52,6 @@ class LruCache<K, V> {
     this.map.set(key, value);
   }
 
-  get size(): number { return this.map.size; }
 }
 
 // ─── Enhanced Validation Functions ────────────────────────────────

@@ -40,6 +40,7 @@ import {
   isValidISODate,
   stripHtmlTags,
   sanitizeLogMessage,
+  sanitizeForLogOutput,
   MAX_PARTY_NAME_LENGTH,
   MAX_PARTY_DESCRIPTION_LENGTH,
   MAX_PERSON_NAME_LENGTH,
@@ -166,7 +167,7 @@ export class PartyService {
 
     const party = await this.createPartyTransaction(db, trimmedTenantId, trimmedPartyType, sanitizedName, sanitizedDescription, sanitizedPerson, sanitizedOrg);
 
-    this.logger.log(`Created ${trimmedPartyType} party: ${sanitizeLogMessage(sanitizedName)} (${party.partyId})`);
+    this.logger.log(`Created ${trimmedPartyType} party: ${sanitizeForLogOutput(sanitizedName)} (${party.partyId})`);
     return PartyService.toPartyResult(party);
   }
 
@@ -358,6 +359,62 @@ export class PartyService {
       ?? "unknown";
   }
 
+  /** Extract the error code from a Prisma-like error or return undefined. */
+  private static getPrismaErrorCode(err: unknown): string | undefined {
+    if (err && typeof err === "object" && "code" in err && typeof (err as { code: unknown }).code === "string") {
+      return (err as { code: string }).code;
+    }
+    return undefined;
+  }
+
+  /** Map a validated Prisma error code to a DomainError. Throws the mapped error. */
+  private static throwMappedPrismaError(
+    code: string, err: { code: string; meta?: Record<string, unknown> },
+    retryTool: string, suggestTool: string, entityName: string,
+  ): never {
+    switch (code) {
+      case "P2002": {
+        const field = PartyService.resolveConflictField(err);
+        throw new DuplicateEntityError(
+          `A ${entityName} with the same ${field} already exists in this tenant.`,
+          { suggestedTools: [suggestTool], context: { prismaCode: "P2002", conflictingField: field } }
+        );
+      }
+      case "P2003": {
+        const constraint = PartyService.resolveConstraintName(err);
+        throw new InvalidTypeValueError(
+          `Referenced ${entityName} does not exist (constraint: ${constraint}).`,
+          { suggestedTools: [suggestTool], context: { prismaCode: "P2003", constraint } }
+        );
+      }
+      case "P2025": {
+        throw new EntityNotFoundError(
+          `${entityName} not found for this operation.`,
+          { suggestedTools: [retryTool, suggestTool], context: { prismaCode: "P2025" } }
+        );
+      }
+      case "P2028":
+      case "P2034": {
+        throw new ConcurrencyConflictError(
+          `Transaction conflict or timeout on ${entityName} — please retry.`,
+          { suggestedTools: [retryTool], context: { prismaCode: code } }
+        );
+      }
+      case "P2024": {
+        throw new ConcurrencyConflictError(
+          `Connection pool timeout on ${entityName} — the service is under heavy load.`,
+          { suggestedTools: [retryTool], context: { prismaCode: code } }
+        );
+      }
+      default: {
+        throw new InvalidTypeValueError(
+          `Database error (${code}) on ${entityName}.`,
+          { suggestedTools: [retryTool], context: { prismaCode: code } }
+        );
+      }
+    }
+  }
+
   /** Map Prisma transaction errors to DomainErrors. Throws the mapped error. */
   private static handleTransactionError(
     err: unknown,
@@ -365,6 +422,15 @@ export class PartyService {
     suggestTool: string,
     entityName = "record",
   ): never {
+    // Belt-and-suspenders: if err is null/undefined/non-object, wrap it so
+    // downstream callers always receive a proper Error (never a thrown null).
+    if (err == null || typeof err !== "object") {
+      throw new InvalidTypeValueError(
+        "Database operation failed with an unexpected error type.",
+        { context: { type: err === null ? "null" : typeof err } }
+      );
+    }
+
     // Use duck-typing instead of `instanceof` to detect Prisma errors.
     // Tenant-scoped clients are created via Proxy wrapping (rls-extension.ts),
     // which can break `instanceof` checks for classes that rely on
@@ -372,65 +438,12 @@ export class PartyService {
     // (e.g., P2002, P2025), so we gate on that prefix to avoid mistaking
     // DomainError subclasses (which also carry a `code` property) for Prisma
     // errors and routing them through the Prisma switch.
-    if (err && typeof err === "object" && "code" in err && typeof (err as { code: unknown }).code === "string") {
-      const prismaErr = err as { code: string; meta?: Record<string, unknown> };
-      if (!prismaErr.code.startsWith("P")) {
-        // Not a Prisma error — re-throw as-is so DomainErrors pass through.
-        throw err;
-      }
-      // Tighten the match: Prisma error codes follow the format P + 4 digits
-      // (e.g. P2002, P2034). This prevents a future DomainError whose code
-      // starts with "P" from being misrouted through the Prisma switch.
-      if (!/^[P]\d{4}$/.test(prismaErr.code)) {
-        throw err;
-      }
-      switch (prismaErr.code) {
-        case "P2002": {
-          const field = PartyService.resolveConflictField(prismaErr);
-          throw new DuplicateEntityError(
-            `A ${entityName} with the same ${field} already exists in this tenant.`,
-            { suggestedTools: [suggestTool], context: { prismaCode: "P2002", conflictingField: field } }
-          );
-        }
-        case "P2003": {
-          const constraint = PartyService.resolveConstraintName(prismaErr);
-          throw new InvalidTypeValueError(
-            `Referenced ${entityName} does not exist (constraint: ${constraint}).`,
-            { suggestedTools: [suggestTool], context: { prismaCode: "P2003", constraint } }
-          );
-        }
-        case "P2025": {
-          throw new EntityNotFoundError(
-            `${entityName} not found for this operation.`,
-            { suggestedTools: [retryTool, suggestTool], context: { prismaCode: "P2025" } }
-          );
-        }
-        case "P2028":
-        case "P2034": {
-          throw new ConcurrencyConflictError(
-            `Transaction conflict or timeout on ${entityName} — please retry.`,
-            { suggestedTools: [retryTool], context: { prismaCode: prismaErr.code } }
-          );
-        }
-        case "P2024": {
-          throw new ConcurrencyConflictError(
-            `Connection pool timeout on ${entityName} — the service is under heavy load.`,
-            { suggestedTools: [retryTool], context: { prismaCode: prismaErr.code } }
-          );
-        }
-        default: {
-          // Unknown Prisma error codes — re-throw as a generic domain error
-          // so the error code is preserved in the audit trail. Logging is
-          // deferred to the caller (the service instance) to avoid accessing
-          // `this` from a static method.
-          throw new InvalidTypeValueError(
-            `Database error (${prismaErr.code}) on ${entityName}.`,
-            { suggestedTools: [retryTool], context: { prismaCode: prismaErr.code } }
-          );
-        }
-      }
-    }
-    throw err;
+    const code = PartyService.getPrismaErrorCode(err);
+    if (!code) throw err;
+    if (!code.startsWith("P")) throw err;
+    if (!/^[P]\d{4}$/.test(code)) throw err;
+
+    return PartyService.throwMappedPrismaError(code, err as { code: string; meta?: Record<string, unknown> }, retryTool, suggestTool, entityName);
   }
 
   // ─── Get Party ────────────────────────────────────────────────
@@ -513,7 +526,7 @@ export class PartyService {
     // off-by-one in `hasMore`). Parallelizing removes a needless serialization
     // and halves the latency of this endpoint.
     let total: number;
-    let items: PartyWithIncludes[];
+    let items: PartyWithIncludes[] = [];
     try {
       [total, items] = await Promise.all([
         db.party.count({ where }),
@@ -563,7 +576,7 @@ export class PartyService {
 
     const role = await this.addPartyRoleTransaction(db, trimmedTenantId, partyId, roleTypeRecord.roleTypeId, trimmedRoleType, roleFromDate);
 
-    this.logger.log(`Added role '${sanitizeLogMessage(trimmedRoleType)}' to party ${partyId} (ID: ${role.partyRoleId})`);
+    this.logger.log(`Added role '${sanitizeForLogOutput(trimmedRoleType)}' to party ${partyId} (ID: ${role.partyRoleId})`);
     return {
       partyRoleId: role.partyRoleId,
       partyId: role.partyId,
@@ -691,7 +704,7 @@ export class PartyService {
 
     const contactMechanism = await this.createContactMechanismTransaction(db, trimmedTenantId, partyId, trimmedCmType, cmType.contactMechanismTypeId, postalAddress, telecomNumber, normalizedEmail);
 
-    this.logger.log(`Added ${sanitizeLogMessage(trimmedCmType)} to party ${partyId} (ID: ${contactMechanism.contactMechanismId})`);
+    this.logger.log(`Added ${sanitizeForLogOutput(trimmedCmType)} to party ${partyId} (ID: ${contactMechanism.contactMechanismId})`);
     return PartyService.formatContactResult(contactMechanism, partyId);
   }
 
