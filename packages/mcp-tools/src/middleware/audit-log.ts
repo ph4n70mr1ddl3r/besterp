@@ -161,6 +161,9 @@ function createBackpressureManager(prisma: PrismaClient): BackpressureManager {
       return;
     }
     activeWrites--;
+    // Guard against double-release edge case: if activeWrites went below 0
+    // due to a race, clamp to 0 to prevent the writeQueue drain from stalling.
+    if (activeWrites < 0) activeWrites = 0;
     if (writeQueue.length > 0) {
       const next = writeQueue.shift()!;
       clearTimeout(next.timer);

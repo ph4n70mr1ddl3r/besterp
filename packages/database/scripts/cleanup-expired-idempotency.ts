@@ -128,7 +128,7 @@ async function main() {
       });
       batchDeleted = del.count;
       deleted += batchDeleted;
-    } while (batchDeleted === BATCH_SIZE);
+    } while (expired.length === BATCH_SIZE);
 
     const afterCount = await tx.idempotencyRecord.count();
     try {

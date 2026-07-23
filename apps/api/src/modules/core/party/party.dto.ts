@@ -103,6 +103,9 @@ function IsValidISODate(): PropertyDecorator {
 class PartySubtypeMatchConstraint implements ValidatorConstraintInterface {
   validate(_value: unknown, args: ValidationArguments): boolean {
     const obj = args.object as CreatePartyDto;
+    // Guard against unknown partyType values that bypass @IsEnum (e.g. from
+    // forged requests or future subtype additions not yet handled here).
+    if (obj.partyType !== "PERSON" && obj.partyType !== "ORGANIZATION") return false;
     if (obj.partyType === "PERSON" && !obj.person) return false;
     if (obj.partyType === "ORGANIZATION" && !obj.organization) return false;
     return true;

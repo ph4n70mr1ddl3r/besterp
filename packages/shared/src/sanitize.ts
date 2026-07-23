@@ -24,7 +24,7 @@ import { InvalidTypeValueError } from "./errors.js";
  * @param input - The raw string to sanitize
  * @returns Sanitized string with HTML tags removed
  */
-const MAX_SANITIZE_ITERATIONS = 10;
+const MAX_SANITIZE_ITERATIONS = 20;
 /** Maximum input length to prevent DoS via deeply nested encoded strings. */
 const MAX_INPUT_LENGTH = 100_000;
 

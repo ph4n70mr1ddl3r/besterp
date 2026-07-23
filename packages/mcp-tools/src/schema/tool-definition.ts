@@ -28,7 +28,7 @@ export type RiskLevel = "none" | "low" | "medium" | "high" | "critical";
 export interface ZodSchemaLike {
   safeParse(input: unknown):
     | { success: true; data: unknown }
-    | { success: false; error: { issues: Array<{ path: PropertyKey[]; message: string }> } };
+    | { success: false; error: { issues: Array<{ path: PropertyKey[]; message: string; code?: string; received?: unknown }> } };
 }
 
 // ─── Service Types ────────────────────────────────────────────────
