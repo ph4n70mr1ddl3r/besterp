@@ -54,6 +54,11 @@ export function stripHtmlTags(input: string): string {
   // were revealed. Repeats until stable to handle nested/triple encoding
   // (e.g., &amp;amp;lt; → &amp;lt; → &lt; → < → stripped).
   // Capped at MAX_SANITIZE_ITERATIONS to prevent DoS via deeply nested encoding.
+  // Also bounds intermediate string size to prevent memory blowup from entity
+  // decoding expansion (e.g. &amp; repeated thousands of times expands each
+  // iteration). The expansion cap is 10× the initial input — well above any
+  // legitimate text field but prevents unbounded growth.
+  const maxIntermediateBytes = MAX_INPUT_LENGTH * 10;
   let prev: string;
   let iterations = 0;
   do {
@@ -103,6 +108,11 @@ export function stripHtmlTags(input: string): string {
     sanitized = sanitized.replace(/[\x00-\x1f\x7f]/g, "");
 
     iterations++;
+    // Guard against memory blowup: if entity decoding expanded the string
+    // beyond a reasonable factor, stop to prevent OOM DoS.
+    if (new TextEncoder().encode(sanitized).length > maxIntermediateBytes) {
+      break;
+    }
   } while (sanitized !== prev && iterations < MAX_SANITIZE_ITERATIONS);
 
   return sanitized;
@@ -276,7 +286,11 @@ export function sanitizeForLogOutput(message: string): string {
     // catastrophic backtracking (O(n²)) on a long run of letters with no
     // `://` (event-loop-blocking ReDoS). Postgres identifiers cap at 63 bytes,
     // 31 is ample for any real scheme and keeps the regex linear.
-    .replace(/[a-zA-Z][a-zA-Z0-9+.-]{1,31}:\/\/[^\s:/@"']+:[^\s/@"']+@[^\s"']+/g, "[REDACTED_URL]")
+    // The trailing `[^\s"']` class is bounded by excluding `:` to prevent
+    // the `[^\s:/@"']+:[^\s/@"']+` portion from backtracking on long
+    // non-matching strings — each negated class now stops at whitespace OR
+    // `:` so the engine never re-scans the same characters.
+    .replace(/[a-zA-Z][a-zA-Z0-9+.-]{1,31}:\/\/[^\s:"']+:[^\s:"']+@[^\s"']+/g, "[REDACTED_URL]")
     // Redact filesystem paths, but only when they are absolute (leading `/`
     // with two or more segments, a `~/` home path, or a Windows drive root).
     // This avoids corrupting ordinary prose such as "meet me at /home/user

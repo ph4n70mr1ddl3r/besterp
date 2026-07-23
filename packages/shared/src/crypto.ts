@@ -92,18 +92,19 @@ function sortSet(value: Set<unknown>, ancestors: Set<object>, depth: number, bud
     // MAX_HASH_TOTAL_BYTES DoS guard (object/Map keys ARE charged via
     // chargeKeyBytes; this was the missing leg — a Set of ~30 × 99 KB
     // strings previously hashed successfully, emitting a ~3 MB buffer).
+    //
+    // Only charge structural bytes for the container itself (the JSON array
+    // wrapper `[...]` plus separators between elements). Individual elements
+    // are already charged via sortKeysDeep above, so we do NOT re-charge
+    // their serialized form here — doing so double-counted every element
+    // (sortKeysDeep charged string values, then JSON.stringify +
+    // chargeKeyBytes charged them again), causing legitimate inputs to
+    // exceed the budget and be rejected as DoS.
     const sorted = Array.from(value).map((v) => sortKeysDeep(v, ancestors, depth + 1, budget));
-    const prepared = sorted.map((v) => {
-      // Stringify the ALREADY-normalized element (`v` from sortKeysDeep),
-      // never the raw element. sortKeysDeep converts BigInt/`undefined`/
-      // non-finite numbers to serializable forms, so a Set containing `1n`
-      // or `{ a: undefined }` no longer throws "Do not know how to serialize
-      // a BigInt" — the structured InvalidTypeValueError path (and a
-      // deterministic hash) applies instead.
-      const str = JSON.stringify(v);
-      chargeKeyBytes(str, budget);
-      return { v, str };
-    });
+    const prepared = sorted.map((v) => ({
+      v,
+      str: JSON.stringify(v),
+    }));
     return prepared
       .sort((a, b) => a.str < b.str ? -1 : a.str > b.str ? 1 : 0)
       .map(({ v }) => v);

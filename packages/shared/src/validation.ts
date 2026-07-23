@@ -53,7 +53,7 @@ export const COUNTRY_CODE_REGEX: RegExp = /^\+[1-9]\d{0,2}$/;
  *
  * Enforces valid calendar ranges:
  * - Month: 01-12
- * - Day: 01-31 (with month-specific limits enforced by isValidISODate)
+ * - Day: 01-31 (month-specific limits enforced by isValidISODate at runtime)
  *
  * Used by:
  * - Zod schemas in party-tools.ts (birthDate, registrationDate, fromDate)

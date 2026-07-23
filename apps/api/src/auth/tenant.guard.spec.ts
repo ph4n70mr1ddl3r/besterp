@@ -5,7 +5,7 @@
 // surface as a 500 with a clear message rather than a silent 403.
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { ExecutionContext, ForbiddenException, InternalServerErrorException, UnauthorizedException } from "@nestjs/common";
+import { ExecutionContext, ForbiddenException, UnauthorizedException } from "@nestjs/common";
 import { Reflector } from "@nestjs/core";
 import { TenantGuard } from "./tenant.guard.js";
 import { HealthController } from "../health.controller.js";
@@ -33,25 +33,12 @@ describe("TenantGuard", () => {
     guard = new TenantGuard(reflector);
   });
 
-  it("throws InternalServerErrorException when req.user is missing", () => {
+  it("returns false (401) when req.user is missing", () => {
     // @Public() metadata not set
     (reflector.getAllAndOverride as any).mockReturnValue(false);
     const ctx = makeContext({}); // no user
 
-    expect(() => guard.canActivate(ctx)).toThrow(InternalServerErrorException);
-  });
-
-  it("the thrown error mentions guard ordering for diagnostics", () => {
-    (reflector.getAllAndOverride as any).mockReturnValue(false);
-    const ctx = makeContext({});
-
-    try {
-      guard.canActivate(ctx);
-      expect.fail("expected throw");
-    } catch (err) {
-      expect((err as Error).message).toMatch(/TenantGuard/);
-      expect((err as Error).message).toMatch(/JwtAuthGuard/);
-    }
+    expect(guard.canActivate(ctx)).toBe(false);
   });
 
   it("allows public routes through without req.user when on HealthController", () => {

@@ -67,7 +67,7 @@ describe("validateTenantIdEnhancedForAuth", () => {
 
   it("rejects empty / whitespace-only IDs", () => {
     expect(() => validateTenantIdEnhancedForAuth("")).toThrow("non-empty string");
-    expect(() => validateTenantIdEnhancedForAuth("   ")).toThrow("non-empty string");
+    expect(() => validateTenantIdEnhancedForAuth("   ")).toThrow("whitespace");
   });
 
   it("rejects invalid characters", () => {

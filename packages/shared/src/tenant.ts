@@ -5,10 +5,9 @@
 // The validated pattern wraps SET LOCAL + query in the same $transaction.
 //
 // SECURITY: Uses the set_tenant_context() PostgreSQL function (defined in
-// rls-setup.sql) called via Prisma's tagged template $executeRaw, which
-// sends the tenant ID as a parameterized query ($1). This eliminates the
-// SQL injection surface area of string interpolation. validateTenantId()
-// is retained as defense-in-depth.
+// rls-setup.sql) via Prisma's parameterized $executeRaw with $1 binding.
+// This eliminates the SQL injection surface area of string interpolation.
+// validateTenantId() is retained as defense-in-depth.
 
 import type { PrismaClient, Prisma } from "@prisma/client";
 import { isDomainError, TenantContextFailedError, InvalidTenantIdError } from "./errors.js";
@@ -76,26 +75,10 @@ export function validateTenantId(tenantId: string): string {
 /**
  * Validate that a tenant ID matches the expected format at the auth boundary.
  * Returns the trimmed tenant ID or throws InvalidTenantIdError.
+ * Delegates to {@link validateTenantId} for shared logic.
  */
 export function validateTenantIdEnhancedForAuth(tenantId: string): string {
-  const trimmed = tenantId.trim();
-  if (trimmed.length === 0) {
-    throw new InvalidTenantIdError("Tenant ID must be a non-empty string.");
-  }
-  if (trimmed.length > MAX_TENANT_ID_LENGTH) {
-    throw new InvalidTenantIdError(
-      `Tenant ID is too long (max ${MAX_TENANT_ID_LENGTH} characters).`
-    );
-  }
-  if (!TENANT_ID_PATTERN.test(trimmed)) {
-    const preview = trimmed.length > 20 ? `${trimmed.slice(0, 20)}...` : trimmed;
-    const sanitized = sanitizeLogMessage(preview);
-    throw new InvalidTenantIdError(
-      `Invalid tenant ID: "${sanitized}". ` +
-        "Tenant IDs may only contain alphanumeric characters, hyphens, and underscores."
-    );
-  }
-  return trimmed;
+  return validateTenantId(tenantId);
 }
 
 /**
@@ -111,7 +94,7 @@ export function validateTenantIdEnhancedForAuth(tenantId: string): string {
  * @param tenantId - validated tenant ID
  */
 export async function setTenantContext(
-  tx: { $executeRaw: PrismaClient["$executeRaw"] },
+  tx: { $executeRawUnsafe: (query: string, ...values: unknown[]) => Promise<unknown> },
   tenantId: string,
 ): Promise<void> {
   // Always re-validate (and trim) here so every RLS-context call site — direct
@@ -121,11 +104,10 @@ export async function setTenantContext(
   // tenant_id (isolation bypass / data invisibility).
   const normalizedTenantId = validateTenantId(tenantId);
   try {
-    // Prisma's $executeRaw tagged template does NOT parameterize embedded
-    // expressions — it interpolates them directly into the SQL string. We
-    // rely on validateTenantId's /^[a-zA-Z0-9_-]+$/ guard for safety, and
-    // retain the regex validation here as defense-in-depth.
-    await tx.$executeRaw`SELECT set_tenant_context(${normalizedTenantId}::text)`;
+    // Prisma's $executeRawUnsafe with array params parameterizes the value via
+    // $1 binding, preventing SQL injection. The regex validation in
+    // validateTenantId() is retained as defense-in-depth for early failure.
+    await tx.$executeRawUnsafe("SELECT set_tenant_context($1::text)", normalizedTenantId);
   } catch (e) {
     if (isDomainError(e)) throw e;
     throw new TenantContextFailedError(

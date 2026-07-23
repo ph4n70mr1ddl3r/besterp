@@ -147,6 +147,7 @@ describe("RLS Extension", () => {
       mockPrisma.$transaction.mockImplementationOnce(async (fn) => {
         const tx = {
           $executeRaw: vi.fn().mockResolvedValue(undefined),
+          $executeRawUnsafe: vi.fn().mockResolvedValue(undefined),
           party: { findMany: vi.fn().mockResolvedValue([{ partyId: "p1" }]) },
         };
         return fn(tx);
@@ -163,6 +164,7 @@ describe("RLS Extension", () => {
       mockPrisma.$transaction.mockImplementationOnce(async (fn) => {
         const tx = {
           $executeRaw: vi.fn().mockResolvedValue(undefined),
+          $executeRawUnsafe: vi.fn().mockResolvedValue(undefined),
           partyRole: { create: vi.fn().mockResolvedValue({ partyRoleId: "123", partyId: "party-123", roleTypeId: "role-123", fromDate: new Date(), thruDate: null }) },
         };
         return fn(tx);
@@ -185,6 +187,7 @@ describe("RLS Extension", () => {
       mockPrisma.$transaction.mockImplementationOnce(async (fn) => {
         const tx = {
           $executeRaw: vi.fn().mockResolvedValue(undefined),
+          $executeRawUnsafe: vi.fn().mockResolvedValue(undefined),
           party: { findMany: vi.fn().mockResolvedValue([]) },
           partyRole: { create: vi.fn().mockResolvedValue({}) },
         };

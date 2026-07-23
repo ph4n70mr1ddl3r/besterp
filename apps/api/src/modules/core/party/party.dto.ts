@@ -18,7 +18,6 @@ import {
   IsNotEmpty,
   IsOptional,
   IsEnum,
-  IsEmail,
   ValidateNested,
   IsInt,
   Min,
@@ -36,6 +35,7 @@ import {
   stripHtmlTags,
   sanitizeLogMessage,
   isValidISODate,
+  EMAIL_REGEX,
   MAX_PARTY_NAME_LENGTH,
   MAX_PARTY_DESCRIPTION_LENGTH,
   MAX_PERSON_NAME_LENGTH,
@@ -91,6 +91,27 @@ class IsValidISODateConstraint implements ValidatorConstraintInterface {
 
 function IsValidISODate(): PropertyDecorator {
   return Validate(IsValidISODateConstraint);
+}
+
+/**
+ * Custom email validator using `EMAIL_REGEX` from shared — stricter than
+ * class-validator's built-in `@IsEmail()` so DTO validation matches the
+ * service-layer validation used by MCP tools.
+ */
+@ValidatorConstraint({ name: "isStrictEmail", async: false })
+class IsStrictEmailConstraint implements ValidatorConstraintInterface {
+  validate(value: unknown): boolean {
+    if (typeof value !== "string") return false;
+    return EMAIL_REGEX.test(value);
+  }
+
+  defaultMessage(_args: ValidationArguments): string {
+    return "Invalid email address format";
+  }
+}
+
+function IsStrictEmail(): PropertyDecorator {
+  return Validate(IsStrictEmailConstraint);
 }
 
 // ─── Cross-field validators ──────────────────────────────────────
@@ -313,7 +334,8 @@ export class PostalAddressDto {
   @MaxLength(MAX_POSTAL_CODE_LENGTH)
   postalCode?: string;
 
-  @Transform(({ value }: TransformFnParams) => (typeof value === "string" ? stripHtmlTags(value.trim().toUpperCase()) : value))
+  @sanitizeTransform()
+  @Transform(({ value }: TransformFnParams) => (typeof value === "string" ? value.toUpperCase() : value))
   @IsString()
   @IsNotEmpty()
   @MinLength(MIN_COUNTRY_CODE_LENGTH)
@@ -353,7 +375,7 @@ export class EmailAddressDto {
     typeof value === "string" ? stripHtmlTags(value.trim().toLowerCase()) : value
   )
   @IsString()
-  @IsEmail()
+  @IsStrictEmail()
   @IsNotEmpty()
   @MaxLength(MAX_EMAIL_LENGTH)
   email!: string;
