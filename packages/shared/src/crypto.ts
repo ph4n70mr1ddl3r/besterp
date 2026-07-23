@@ -321,31 +321,55 @@ function countKeys(value: unknown, ancestors?: Set<object>): number {
   if (ancestors.has(value)) return 0;
   ancestors.add(value);
   try {
-    if (Array.isArray(value)) {
-      let count = value.length;
-      for (const item of value) count += countKeys(item, ancestors);
-      return count;
-    }
-    if (value instanceof Map) {
-      let count = value.size;
-      for (const [k, v] of value) {
-        count += countKeys(k, ancestors);
-        count += countKeys(v, ancestors);
-      }
-      return count;
-    }
-    if (value instanceof Set) {
-      let count = value.size;
-      for (const v of value) count += countKeys(v, ancestors);
-      return count;
-    }
-    const entries = Object.entries(value as Record<string, unknown>);
-    let count = entries.length;
-    for (const [, v] of entries) count += countKeys(v, ancestors);
-    return count;
+    if (Array.isArray(value)) return countArrayKeys(value, ancestors);
+    if (value instanceof Map) return countMapKeys(value, ancestors);
+    if (value instanceof Set) return countSetKeys(value, ancestors);
+    if (value instanceof Error) return countErrorKeys(value, ancestors);
+    return countObjectKeys(value as Record<string, unknown>, ancestors);
   } finally {
     ancestors.delete(value);
   }
+}
+
+function countArrayKeys(value: unknown[], ancestors: Set<object>): number {
+  let count = value.length;
+  for (const item of value) count += countKeys(item, ancestors);
+  return count;
+}
+
+function countMapKeys(value: Map<unknown, unknown>, ancestors: Set<object>): number {
+  let count = value.size;
+  for (const [k, v] of value) {
+    count += countKeys(k, ancestors);
+    count += countKeys(v, ancestors);
+  }
+  return count;
+}
+
+function countSetKeys(value: Set<unknown>, ancestors: Set<object>): number {
+  let count = value.size;
+  for (const v of value) count += countKeys(v, ancestors);
+  return count;
+}
+
+function countErrorKeys(value: Error, ancestors: Set<object>): number {
+  // Count the keys on the Error object itself (name, message, ...), then
+  // recurse through cause so a deep cause chain is accurately counted —
+  // otherwise an input like { cause: Error(cause: Error(cause: …)) }
+  // undercounts and passes MAX_HASH_KEYS while sortKeysDeep still walks
+  // the full chain, risking stack overflow before the depth guard fires.
+  let count = Object.keys(value).length;
+  if (value.cause != null && typeof value.cause === "object") {
+    count += countKeys(value.cause, ancestors);
+  }
+  return count;
+}
+
+function countObjectKeys(value: Record<string, unknown>, ancestors: Set<object>): number {
+  const entries = Object.entries(value);
+  let count = entries.length;
+  for (const [, v] of entries) count += countKeys(v, ancestors);
+  return count;
 }
 
 export function hashInput(input: unknown): string {

@@ -16,7 +16,9 @@ import { MAX_TENANT_ID_LENGTH } from "./constants.js";
 import { sanitizeLogMessage } from "./sanitize.js";
 
 /** Prisma's interactive transaction client with all model delegates. */
-type PrismaTransactionClient = Prisma.TransactionClient;
+type TxClient = Prisma.TransactionClient;
+
+
 
 const TENANT_ID_PATTERN = /^[a-zA-Z0-9_-]+$/;
 
@@ -119,6 +121,10 @@ export async function setTenantContext(
   // tenant_id (isolation bypass / data invisibility).
   const normalizedTenantId = validateTenantId(tenantId);
   try {
+    // Prisma's $executeRaw tagged template does NOT parameterize embedded
+    // expressions — it interpolates them directly into the SQL string. We
+    // rely on validateTenantId's /^[a-zA-Z0-9_-]+$/ guard for safety, and
+    // retain the regex validation here as defense-in-depth.
     await tx.$executeRaw`SELECT set_tenant_context(${normalizedTenantId}::text)`;
   } catch (e) {
     if (isDomainError(e)) throw e;
@@ -159,7 +165,7 @@ const DEFAULT_TRANSACTION_TIMEOUT_MS = 30_000;
 export async function withTenant<T>(
   prisma: PrismaClient,
   tenantId: string,
-  fn: (tx: PrismaTransactionClient) => Promise<T>,
+  fn: (tx: TxClient) => Promise<T>,
   options?: { timeout?: number; isolationLevel?: Prisma.TransactionIsolationLevel }
 ): Promise<T> {
   if (!prisma || typeof prisma.$transaction !== "function") {

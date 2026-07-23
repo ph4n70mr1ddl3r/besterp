@@ -20,8 +20,17 @@
 import type { PrismaClient, Prisma } from "@prisma/client";
 import { validateTenantId, InvalidTypeValueError, isDomainError, setTenantContext } from "@besterp/shared";
 
+// ─── Blocked methods — single source of truth ─────────────────────
+// These names must stay in sync with the TenantScopedClient type alias.
+// If a method is omitted from the type, it should also be added here.
+
 /** A PrismaClient-like interface with automatic RLS tenant context injection. */
 export type TenantScopedClient = Omit<PrismaClient, "$connect" | "$disconnect" | "$extends" | "$queryRaw" | "$queryRawTyped" | "$executeRaw" | "$executeRawTyped" | "$queryRawUnsafe" | "$executeRawUnsafe">;
+
+const BLOCKED_RAW_SQL_METHODS = new Set([
+  "$queryRaw", "$queryRawTyped", "$executeRaw", "$executeRawTyped",
+  "$queryRawUnsafe", "$executeRawUnsafe",
+]);
 
 // ─── LRU Cache ────────────────────────────────────────────────────
 
@@ -101,11 +110,8 @@ const DATA_METHODS = new Set([
 /** Operations that should never be called on a tenant-scoped proxy. */
 const BLOCKED_CLIENT_METHODS = new Set(["$connect", "$disconnect", "$extends"]);
 
-/** Raw SQL operations that bypass RLS scoping. */
-const BLOCKED_RAW_SQL = new Set([
-  "$queryRaw", "$queryRawTyped", "$executeRaw", "$executeRawTyped",
-  "$queryRawUnsafe", "$executeRawUnsafe",
-]);
+/** Raw SQL operations that bypass RLS scoping (mirrors TenantScopedClient type exclusion). */
+const BLOCKED_RAW_SQL = BLOCKED_RAW_SQL_METHODS;
 
 /**
  * Create a tenant-scoped Prisma client.

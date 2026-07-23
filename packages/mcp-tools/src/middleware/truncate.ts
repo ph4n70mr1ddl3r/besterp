@@ -220,7 +220,7 @@ function safeParse(serialized: string): unknown | undefined {
  * Check whether a UTF-8 encoded byte array exceeds `effectiveMax` bytes,
  * returning a truncation marker if so, or `null` if the value fits.
  */
-function checkOversized(encoded: Uint8Array, effectiveMax: number): { _truncated: true; _originalSize: number; _preview: string } | null {
+function checkOversized(encoded: Uint8Array, effectiveMax: number): ReturnType<typeof truncationMarker> | null {
   return encoded.byteLength > effectiveMax ? truncationMarker(encoded) : null;
 }
 

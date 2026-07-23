@@ -159,6 +159,7 @@ export class HealthService implements OnModuleInit {
       return {
         version: "redacted",
         name: "redacted",
+        environment: undefined,
         warning: undefined,
         build: undefined,
       };

@@ -81,6 +81,16 @@ async function queryTypeTable(
   // inputSchema on the tool already restricts typeName to known values
   // (compile-time safety), and the runtime check below catches any
   // misspelled or missing delegate.
+  // Runtime assertion: delegateKey must be a known key of TYPE_TABLE_MAP.
+  // The Zod enum on the tool input should already enforce this, but the
+  // cast below suppresses TypeScript's type safety — assert at runtime
+  // so a schema change or typo is caught before dynamic property access.
+  if (!(delegateKey in TYPE_TABLE_MAP)) {
+    throw new InvalidTypeValueError(
+      `Unknown delegate key '${delegateKey}'. Ensure the model exists in the Prisma schema.`,
+      { context: { field: "delegateKey", received: delegateKey } }
+    );
+  }
   const raw = (prisma as unknown as Record<string, unknown>)[delegateKey];
   if (!raw || typeof raw !== "object" || typeof (raw as Record<string, unknown>).findMany !== "function") {
     throw new InvalidTypeValueError(

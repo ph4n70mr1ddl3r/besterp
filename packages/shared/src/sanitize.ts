@@ -589,6 +589,7 @@ export function safeFromCodePoint(codePoint: number): string {
   // Explicitly check lone surrogates first: String.fromCodePoint() stopped
   // throwing for these in ES2024, but we must still replace them to prevent
   // invalid Unicode from reaching the database.
+  if (Number.isNaN(codePoint)) return "\uFFFD";
   if (codePoint >= 0xD800 && codePoint <= 0xDFFF) {
     return "\uFFFD";
   }

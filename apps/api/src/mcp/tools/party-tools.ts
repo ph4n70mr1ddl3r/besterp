@@ -445,8 +445,10 @@ For idempotent writes, pass an idempotencyKey (string, max 500 chars) along with
         // payload). `nextActions` is reflected to the agent verbatim and is
         // excluded from the audit/error-handler `data` redaction, so run it
         // through sanitizeForLogOutput to match every other agent-facing
-        // surface (the round-48 asymmetric-leak class).
-        `Role '${sanitizeForLogOutput(input.roleType)}' assigned. Use 'get_party' to see all roles for this party.`,
+        // surface (the round-48 asymmetric-leak class). stripHtmlTags is
+        // applied as defense-in-depth so any HTML that survived the Zod
+        // transform (e.g. via a bypassed validator) is also stripped.
+        `Role '${sanitizeForLogOutput(stripHtmlTags(input.roleType))}' assigned. Use 'get_party' to see all roles for this party.`,
         "Use 'add_contact_mechanism' to add contact information.",
       ],
     };

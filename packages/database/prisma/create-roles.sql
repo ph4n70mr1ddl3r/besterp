@@ -12,11 +12,15 @@
 --   ALTER ROLE besterp_app WITH PASSWORD '<strong-random-password>';
 -- or pass it through a secrets manager / migration tool.
 
--- Create the application role
+-- Create the application role.
+-- PASSWORD must be set via ALTER ROLE before deploying to non-dev environments.
+-- See the NOTE comment near the bottom of this file for the production command.
 DO $$
 BEGIN
   IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'besterp_app') THEN
-    CREATE ROLE besterp_app WITH LOGIN PASSWORD 'besterp_app_dev' NOINHERIT;
+    -- Placeholder password — MUST be replaced with a strong random value via
+    // ALTER ROLE before first use outside local development.
+    CREATE ROLE besterp_app WITH LOGIN PASSWORD 'CHANGE_ME_USE_ALTER_ROLE' NOINHERIT;
   END IF;
 END
 $$;
