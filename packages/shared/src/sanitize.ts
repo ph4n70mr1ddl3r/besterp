@@ -93,7 +93,7 @@ export function stripHtmlTags(input: string): string {
     // char after < to avoid treating plain text like "< >" as a tag)
     sanitized = sanitized.replace(/<[^\s>][^>]*>/g, "");
     // Strip incomplete/orphaned opening tags (missing closing >)
-    sanitized = sanitized.replace(/<[a-zA-Z][^>]*$/gm, "");
+    sanitized = sanitized.replace(/<[a-zA-Z][^>]*/, "");
 
     // Strip C0 control characters (U+0000–U+001F, which subsumes null
     // bytes from entity decoding like &#x00; → \0) and DEL (U+007F) that

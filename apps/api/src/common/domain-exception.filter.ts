@@ -147,6 +147,10 @@ export class DomainExceptionFilter implements ExceptionFilter {
     // any other value would otherwise return raw error bodies (information
     // disclosure). Only the explicit development environment is permissive.
     const isDev = process.env.NODE_ENV === "development";
+    if (typeof exceptionResponse === "string") {
+      response.status(status).json({ statusCode: status, message: stripHtmlTags(sanitizeForLogOutput(exceptionResponse)) });
+      return;
+    }
     if (!isDev && typeof exceptionResponse === "object" && exceptionResponse !== null) {
       const res = exceptionResponse as Record<string, unknown>;
       // Keep only safe, client-facing fields; drop validation details, stack, etc.
@@ -191,11 +195,14 @@ export class DomainExceptionFilter implements ExceptionFilter {
       return;
     }
 
-    response.status(status).json(
-      typeof exceptionResponse === "string"
-        ? { statusCode: status, message: stripHtmlTags(sanitizeForLogOutput(exceptionResponse)) }
-        : exceptionResponse
-    );
+    // By this point exceptionResponse is null or a non-object primitive.
+    // In dev, reflect it for debugging; in production use a safe generic body
+    // so internal fields (stack traces, validation internals, etc.) cannot leak.
+    if (!isDev) {
+      response.status(status).json({ statusCode: status });
+      return;
+    }
+    response.status(status).json(exceptionResponse ?? { statusCode: status });
   }
 
   private handleUnexpectedError(exception: unknown, response: Response): void {

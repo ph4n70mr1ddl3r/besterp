@@ -110,9 +110,6 @@ const DATA_METHODS = new Set([
 /** Operations that should never be called on a tenant-scoped proxy. */
 const BLOCKED_CLIENT_METHODS = new Set(["$connect", "$disconnect", "$extends"]);
 
-/** Raw SQL operations that bypass RLS scoping (mirrors TenantScopedClient type exclusion). */
-const BLOCKED_RAW_SQL = BLOCKED_RAW_SQL_METHODS;
-
 /**
  * Create a tenant-scoped Prisma client.
  *
@@ -264,7 +261,7 @@ function createClientProxy(
       if (BLOCKED_CLIENT_METHODS.has(prop)) {
         throw new Error(`Cannot call '${prop}' on a tenant-scoped client. Use the base PrismaClient directly.`);
       }
-      if (BLOCKED_RAW_SQL.has(prop)) {
+      if (BLOCKED_RAW_SQL_METHODS.has(prop)) {
         throw new Error(`Cannot call '${prop}' on a tenant-scoped client. Raw SQL (including unsafe variants) bypasses RLS. Use the base PrismaClient.`);
       }
       if (prop.startsWith("$")) {
