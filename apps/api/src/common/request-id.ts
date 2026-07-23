@@ -48,7 +48,9 @@ export function resolveRequestId(raw: unknown): string {
   // rather than guessing which entry to trust.
   if (typeof raw !== "string") return randomUUID();
   const value = raw.trim();
-  if (value.length === 0 || value.length > MAX_REQUEST_ID_LENGTH) return randomUUID();
+  // SAFE_REQUEST_ID enforces printable ASCII + length 1–128, so the
+  // regex alone handles both empty and oversized inputs — the explicit
+  // length check is not duplicated here.
   if (!SAFE_REQUEST_ID.test(value)) return randomUUID();
   return value;
 }

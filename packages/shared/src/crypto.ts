@@ -53,10 +53,14 @@ function sortMap(value: Map<unknown, unknown>, ancestors: Set<object>, depth: nu
       }));
     for (const entry of prepared) {
       entry.kStr = JSON.stringify(entry.kSorted);
-      // The key serializes as `"kStr"` on the wire; charge its quoted length to
-      // the aggregate budget (object keys are charged in sortPlainObject, Map
-      // keys were previously exempt — a wide Map of long keys escaped the guard).
-      chargeKeyBytes(entry.kStr, budget);
+      // Charge the key bytes to the aggregate budget. For string keys, pass
+      // the raw sorted key (not the JSON-stringified form) so chargeKeyBytes
+      // can add the correct JSON quote overhead (+2). Passing the already-
+      // quoted JSON.stringify result would add 2 more bytes on top of the
+      // existing quotes, double-counting by 2 per string key.
+      // For non-string keys, the JSON-stringified form has no outer quotes,
+      // so pass it through (matching the original behaviour).
+      chargeKeyBytes(typeof entry.kSorted === "string" ? entry.kSorted : entry.kStr, budget);
     }
     const sortedEntries = prepared
       .sort((a, b) => a.kStr < b.kStr ? -1 : a.kStr > b.kStr ? 1 : 0);
