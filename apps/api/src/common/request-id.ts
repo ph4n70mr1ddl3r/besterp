@@ -30,7 +30,7 @@ export const MAX_REQUEST_ID_LENGTH = 128;
  * format (UUID, ULID, base64, traceparent, `:`-delimited spans) while
  * rejecting everything that could corrupt a header or a log line.
  */
-const SAFE_REQUEST_ID = /^[!-~]{1,128}$/;
+const SAFE_REQUEST_ID = new RegExp(`^[!-~]{1,${MAX_REQUEST_ID_LENGTH}}$`);
 
 /**
  * Resolve a correlation request ID from the raw `x-request-id` header value.

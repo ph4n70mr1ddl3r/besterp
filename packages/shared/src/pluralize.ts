@@ -25,7 +25,6 @@ const IRREGULAR_PLURALS: Record<string, string> = {
   self: "selves",
   elf: "elves",
   sheaf: "sheaves",
-  entity: "entities",
 };
 
 function preserveCasing(input: string, plural: string): string {

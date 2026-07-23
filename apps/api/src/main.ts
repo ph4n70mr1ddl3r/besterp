@@ -89,7 +89,8 @@ function validateEnvironment(): void {
 }
 
 function setupGracefulShutdown(app: INestApplication): void {
-  const HARD_EXIT_TIMEOUT_MS = Number(process.env.HARD_EXIT_TIMEOUT_MS) || 10_000;
+  const rawTimeout = Number(process.env.HARD_EXIT_TIMEOUT_MS);
+  const HARD_EXIT_TIMEOUT_MS = Number.isFinite(rawTimeout) ? rawTimeout : 10_000;
   let shuttingDown = false;
 
   async function gracefulShutdown(label: string, detail: unknown): Promise<void> {
@@ -209,10 +210,12 @@ async function bootstrap() {
 
   app.setGlobalPrefix("api");
 
+  // Helmet security headers — register as early as possible so error
+  // responses from subsequent middleware also carry security headers.
+  app.use(helmet());
+
   const allowedOrigins = parseAllowedOrigins();
   configureCors(app, allowedOrigins);
-
-  app.use(helmet());
 
   // Request ID middleware for correlation across logs, traces, and audit.
   // Derives the ID from the `x-request-id` header when it is a safe printable

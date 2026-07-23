@@ -139,12 +139,13 @@ export function sanitizeForLogOutput(message: string): string {
     const enc = new TextEncoder();
     let end = 0;
     let byteCount = 0;
-    for (; end < message.length; end++) {
-      const chBytes = enc.encode(message[end]).length;
+    const chars = [...message];
+    for (; end < chars.length; end++) {
+      const chBytes = enc.encode(chars[end]).length;
       if (byteCount + chBytes > MAX_LOG_OUTPUT_LENGTH) break;
       byteCount += chBytes;
     }
-    message = end > 0 ? message.slice(0, end) : "";
+    message = end > 0 ? chars.slice(0, end).join("") : "";
   }
   return sanitizeLogMessage(message)
     .replace(/postgres(?:ql)?:\/\/[^\s"']+/gi, "[DATABASE_URL]")
@@ -168,7 +169,7 @@ export function sanitizeForLogOutput(message: string): string {
     // `?`/`&`/`#` is still matched by the `#`/`?`/`&` lookbehind because
     // `;` is not a lookbehind char — guarded below by widening the value
     // class exclusions only (see `[^&;\s"']`).
-    .replace(/(?<=[?&#;])((?:key|token|id_token|access_token|secret|password|passwd|pwd|auth|api_key|apikey|client_secret|client_id|signature|sign|otp|code|session|bearer)=)([^&;\s"']+)/gi, (m, name, value) => {
+    .replace(/(?<=[?&#;])((?:key|token|id_token|access_token|secret|password|passwd|pwd|auth|api_key|apikey|client_secret|client_id|signature|sign|otp|code|session|bearer)=)([^&;\s"']+)/gi, (_m, name) => {
       // `name` is `param=`, `value` is the bare secret (`sk_live_abc123`).
       // The value must be REPLACED (not merely annotated) so the secret
       // cannot survive in the output. A previous revision appended
@@ -181,8 +182,6 @@ export function sanitizeForLogOutput(message: string): string {
       // the leak elsewhere). Drop any leading/trailing bracket the value
       // captured (e.g. a secret wrapped in `[…]`), then replace the
       // value entirely.
-      const cleaned = value.replace(/^\[+|[\])}\s]+$/g, "");
-      if (cleaned === "") return `${m}[REDACTED]`;
       return `${name}[REDACTED]`;
     })
     // Boundary-based variant of the rule above for secrets that appear OUTSIDE
@@ -337,7 +336,7 @@ export function sanitizeForLogOutput(message: string): string {
  * Strip newlines, carriage returns, tabs, and ANSI escape sequences from strings
  * to prevent log injection via user-controlled messages.
  */
-export function sanitizeLogMessage(s: string): string {
+export function sanitizeLogMessage(message: string): string {
   // Strip newlines, carriage returns, tabs, and ANSI escape sequences to
   // prevent log injection via user-controlled messages. ANSI escapes can
   // manipulate terminal output (e.g., clearing screen, changing colors).
@@ -374,7 +373,7 @@ export function sanitizeLogMessage(s: string): string {
   // rarely interpret C1 controls over plain socket connections, but stripping
   // them eliminates the vector entirely.
   /* eslint-disable no-control-regex */
-  return s
+  return message
     // CSI: ESC [ parameter-bytes (0x30–0x3F) final-byte (0x40–0x7E)
     .replace(/\x1b\[[\x30-\x3F]*[\x40-\x7E]/g, "")
     .replace(/\x1b[\]_X^P][\s\S]*?(?:\x1b\\|\x07)/g, "")

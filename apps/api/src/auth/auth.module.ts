@@ -17,7 +17,7 @@ import { PassportModule } from "@nestjs/passport";
 import type { SignOptions } from "jsonwebtoken";
 import { JwtStrategy, resolveJwtSecret } from "./jwt.strategy.js";
 
-const rawJwtExpiresIn = process.env.JWT_EXPIRES_IN || "24h";
+const rawJwtExpiresIn = process.env.JWT_EXPIRES_IN ?? "24h";
 const jwtExpiresIn: SignOptions["expiresIn"] = rawJwtExpiresIn as SignOptions["expiresIn"];
 
 @Module({

@@ -53,14 +53,22 @@ function sortMap(value: Map<unknown, unknown>, ancestors: Set<object>, depth: nu
       }));
     for (const entry of prepared) {
       entry.kStr = JSON.stringify(entry.kSorted);
-      // Charge the key bytes to the aggregate budget. For string keys, pass
-      // the raw sorted key (not the JSON-stringified form) so chargeKeyBytes
-      // can add the correct JSON quote overhead (+2). Passing the already-
-      // quoted JSON.stringify result would add 2 more bytes on top of the
-      // existing quotes, double-counting by 2 per string key.
-      // For non-string keys, the JSON-stringified form has no outer quotes,
-      // so pass it through (matching the original behaviour).
-      chargeKeyBytes(typeof entry.kSorted === "string" ? entry.kSorted : entry.kStr, budget);
+      // Charge the key bytes to the aggregate budget. For string keys,
+      // checkStringBounds already charged the key value via sortKeysDeep;
+      // chargeKeyBytes here adds the JSON quote overhead (+2) for the
+      // serialized form. For non-string keys, pass the JSON-stringified
+      // form which has no outer quotes.
+      if (typeof entry.kSorted !== "string") {
+        chargeKeyBytes(entry.kStr, budget);
+      } else {
+        budget.bytes += 2;
+        if (budget.bytes > MAX_HASH_TOTAL_BYTES) {
+          throw new InvalidTypeValueError(
+            `Input exceeds aggregate serialized size limit of ${MAX_HASH_TOTAL_BYTES} bytes. ` +
+            `Refusing to hash to prevent denial of service.`
+          );
+        }
+      }
     }
     const sortedEntries = prepared
       .sort((a, b) => a.kStr < b.kStr ? -1 : a.kStr > b.kStr ? 1 : 0);

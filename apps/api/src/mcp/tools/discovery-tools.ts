@@ -11,7 +11,7 @@ import {
   ToolDefinition,
   ToolContext,
 } from "@besterp/mcp-tools";
-import { InvalidTypeValueError, sanitizeForLogOutput } from "@besterp/shared";
+import { InvalidTypeValueError, sanitizeForLogOutput, stripHtmlTags } from "@besterp/shared";
 
 /** Bounds the free-text `entity` filter so an unbounded string isn't allocated
  * and compared against every tool's entity (consistency with every other MCP
@@ -53,7 +53,8 @@ Each tool listing includes its risk level and confirmation requirements.`,
     handler: async (input: { entity?: string }, _context: ToolContext) => {
       let tools = registry.getDiscoveryInfo();
       if (input.entity) {
-        tools = tools.filter((t) => t.entity === input.entity);
+        const filter = input.entity.toLowerCase();
+        tools = tools.filter((t) => (t.entity ?? "").toLowerCase() === filter);
       }
       return {
         success: true,
@@ -101,8 +102,8 @@ async function queryTypeTable(
     // bypassing) client, but a stored value could still carry HTML/ANSI/URL
     // payloads. Sanitize before reflecting to the agent to match every other
     // agent-facing surface.
-    description: typeof r.description === "string" ? sanitizeForLogOutput(r.description) : null,
-    aiPromptHint: typeof r.aiPromptHint === "string" ? sanitizeForLogOutput(r.aiPromptHint) : null,
+    description: typeof r.description === "string" ? sanitizeForLogOutput(stripHtmlTags(r.description)) : null,
+    aiPromptHint: typeof r.aiPromptHint === "string" ? sanitizeForLogOutput(stripHtmlTags(r.aiPromptHint)) : null,
   }));
 }
 

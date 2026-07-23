@@ -17,10 +17,9 @@
 
 import { PrismaClient, Prisma, IdempotencyRecord } from "@prisma/client";
 import { createHash } from "node:crypto";
-import { hashInput, getErrorCode, sanitizeLogMessage, sanitizeForLogOutput, ConcurrencyConflictError, MAX_SOFT_FAILURE_MESSAGE_SIZE, IDEMPOTENCY_TTL_MS, MAX_IDEMPOTENCY_KEY_LENGTH, SAFE_IDEMPOTENCY_KEY, IDEMPOTENCY_MAX_RETRIES, IDEMPOTENCY_RETRY_BASE_DELAY_MS } from "@besterp/shared";
+import { hashInput, getErrorCode, sanitizeLogMessage, sanitizeForLogOutput, redactSensitiveFieldValues, MAX_SOFT_FAILURE_MESSAGE_SIZE, IDEMPOTENCY_TTL_MS, MAX_IDEMPOTENCY_KEY_LENGTH, SAFE_IDEMPOTENCY_KEY, IDEMPOTENCY_MAX_RETRIES, IDEMPOTENCY_RETRY_BASE_DELAY_MS } from "@besterp/shared";
 import { ToolMiddleware, ToolResult, ToolContext, ZodSchemaLike } from "../schema/tool-definition.js";
 import { truncateValue, MAX_STORED_PAYLOAD_SIZE, capString, isTruncationMarker } from "./truncate.js";
-import { redactSensitiveFields } from "./audit-log.js";
 
 /**
  * Threshold after which a "pending" idempotency record is considered stale.
@@ -303,7 +302,7 @@ function handleExistingRecord(
       // record persisted by a code path that skipped redaction must never be
       // replayed to the agent verbatim. The audit log uses the same
       // redactSensitiveFields, so the two sinks stay consistent.
-      data: redactSensitiveFields(data),
+      data: redactSensitiveFieldValues(data) as Record<string, unknown> | undefined,
       replayed: true,
       nextActions: [
         `This is a replay of a previous '${toolName}' call. No action needed.`,
@@ -481,7 +480,7 @@ async function updateIdempotencyRecordWithRetry(
           // verbatim — an asymmetric secret-leak path. Truncation runs after
           // redaction so a "[REDACTED]" placeholder is never re-expanded.
           result: toolResult.data != null
-            ? (truncateValue(redactSensitiveFields(toolResult.data), MAX_STORED_PAYLOAD_SIZE) as unknown as Prisma.InputJsonValue)
+            ? (truncateValue(redactSensitiveFieldValues(toolResult.data), MAX_STORED_PAYLOAD_SIZE) as unknown as Prisma.InputJsonValue)
             : Prisma.DbNull,
           error: isSoftFailure
             ? {
@@ -535,13 +534,8 @@ async function updateIdempotencyRecordWithRetry(
         continue;
       }
       const detail = updateErr instanceof Error ? updateErr.message : String(updateErr);
-      logIdempotencyWarn(`Failed to update idempotency record '${redactKey(idempotencyKey)}' after ${IDEMPOTENCY_MAX_RETRIES} attempts: ${sanitizeForLogOutput(detail)}`);
-      throw new ConcurrencyConflictError(
-        `Idempotency record could not be updated after ${IDEMPOTENCY_MAX_RETRIES} attempts. ` +
-        `The operation may have succeeded but subsequent retries will receive REQUEST_IN_PROGRESS. ` +
-        `Detail: ${sanitizeForLogOutput(detail)}`,
-        { cause: updateErr },
-      );
+      logIdempotencyWarn(`Failed to update idempotency record '${redactKey(idempotencyKey)}' after ${IDEMPOTENCY_MAX_RETRIES} attempts — result still returned: ${sanitizeForLogOutput(detail)}`);
+      return;
     }
   }
 }

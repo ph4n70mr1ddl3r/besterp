@@ -43,12 +43,8 @@ function extractPrismaError(error: unknown): { code: string | undefined; meta: {
 /** Maximum length for a single error message in the error handler stderr log. */
 const MAX_ERROR_LOG_LINE_LENGTH = 500;
 
-function sanitizeContextValue(value: unknown): unknown {
-  return redactSensitiveFieldValues(value);
-}
-
 function sanitizeContextValueForToolResult(value: unknown): Record<string, unknown> | undefined {
-  const sanitized = sanitizeContextValue(value);
+  const sanitized = redactSensitiveFieldValues(value);
   if (sanitized === null || sanitized === undefined) return undefined;
   if (typeof sanitized === "object" && sanitized !== null) {
     const obj = sanitized as Record<string, unknown>;
@@ -62,12 +58,10 @@ function handleDomainError(error: DomainError, definition: { name: string }): To
   return {
     success: false,
     error: {
-      code: error.code,
-      // DomainError.message frequently embeds user-supplied values (malformed
-      // dates, received fields). Those are only .trim()'d upstream, so they may
-      // carry sensitive-looking content (URLs, connection strings) or HTML that
-      // would otherwise be reflected to the AI agent verbatim. Sanitize
-      // consistently with every other agent-facing / durable error surface.
+      // error.code is a free-form string that a custom DomainError subclass
+      // could set to a sensitive value. Sanitize it consistently with every
+      // other agent-facing field so a crafted code is not reflected verbatim.
+      code: sanitizeForLogOutput(error.code),
       message: sanitizeForLogOutput(error.message),
       suggestedTools: error.suggestedTools.length > 0 ? error.suggestedTools : [definition.name, "list_available_tools"],
       context: sanitizeContextValueForToolResult(error.context),

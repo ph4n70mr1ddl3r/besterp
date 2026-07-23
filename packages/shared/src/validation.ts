@@ -66,7 +66,7 @@ export const ISO_DATE_REGEX: RegExp =
  * Days in each month. Index 0 is unused; month 1 = January.
  * February is set to 29; a separate leap-year check catches non-leap Feb 29.
  */
-const DAYS_IN_MONTH = [0, 31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+const DAYS_IN_MONTH = Object.freeze([0, 31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]);
 
 /**
  * Validate that a string is a parseable ISO 8601 date.
@@ -74,7 +74,7 @@ const DAYS_IN_MONTH = [0, 31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
  * Also enforces month-specific day limits (e.g. Feb 30 is rejected).
  */
 export function isValidISODate(value: string): boolean {
-  if (!ISO_DATE_REGEX.test(value) || isNaN(new Date(value).getTime())) {
+  if (!ISO_DATE_REGEX.test(value) || Number.isNaN(new Date(value).getTime())) {
     return false;
   }
   // Reject years outside a reasonable business range.
