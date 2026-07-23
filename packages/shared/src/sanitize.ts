@@ -95,11 +95,8 @@ export function stripHtmlTags(input: string): string {
     // Strip incomplete/orphaned opening tags (missing closing >)
     sanitized = sanitized.replace(/<[a-zA-Z][^>]*$/gm, "");
 
-    // Strip null bytes that may have been introduced by entity decoding
-    // (e.g. &#x00; → \0).
-    sanitized = sanitized.replace(/\0/g, "");
-
-    // Strip C0 control characters (U+0000–U+001F) and DEL (U+007F) that
+    // Strip C0 control characters (U+0000–U+001F, which subsumes null
+    // bytes from entity decoding like &#x00; → \0) and DEL (U+007F) that
     // may have been introduced by entity decoding (e.g. &#x7F; → DEL).
     // These can corrupt log output and terminal displays.
     // eslint-disable-next-line no-control-regex

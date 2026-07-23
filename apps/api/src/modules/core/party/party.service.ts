@@ -499,7 +499,7 @@ export class PartyService {
     // Build where clause after validation to ensure tenantId is validated first
     const where: Prisma.PartyWhereInput = { tenantId: trimmedTenantId };
 
-    const trimmedName = this.requireNonEmptyFilter(name, "name", ["search_parties"]);
+    const trimmedName = PartyService.requireNonEmptyFilter(name, "name", ["search_parties"]);
     if (trimmedName) {
       // Use contains for flexible partial matching (case-insensitive).
       // Trim whitespace to avoid useless LIKE '%  %' queries.
@@ -507,12 +507,12 @@ export class PartyService {
       where.name = { contains: trimmedName, mode: "insensitive" };
     }
 
-    const trimmedPartyType = this.requireNonEmptyFilter(partyType, "partyType", ["search_parties"]);
+    const trimmedPartyType = PartyService.requireNonEmptyFilter(partyType, "partyType", ["search_parties"]);
     if (trimmedPartyType) {
       where.partyType = { name: { equals: trimmedPartyType, mode: "insensitive" } };
     }
 
-    const trimmedRoleType = this.requireNonEmptyFilter(roleType, "roleType", ["search_parties", "get_type_table_values"]);
+    const trimmedRoleType = PartyService.requireNonEmptyFilter(roleType, "roleType", ["search_parties", "get_type_table_values"]);
     if (trimmedRoleType) {
       where.roles = { some: { roleType: { name: { equals: trimmedRoleType, mode: "insensitive" } } } };
     }
@@ -951,12 +951,12 @@ export class PartyService {
   /** Validate and trim an optional search filter. Returns trimmed value or undefined.
    *  Rejects whitespace-only input — a caller who types "   " probably meant
    *  a real filter, and silently widening the query to "return all" is a footgun. */
-  private requireNonEmptyFilter(
-    value: string | undefined,
+  private static requireNonEmptyFilter(
+    value: string | undefined | null,
     fieldName: string,
     suggestedTools: string[],
   ): string | undefined {
-    if (value === undefined) return undefined;
+    if (value === undefined || value === null) return undefined;
     const trimmed = value.trim();
     if (trimmed.length === 0) {
       throw new InvalidTypeValueError(
