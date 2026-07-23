@@ -200,12 +200,20 @@ export class PrismaService
       const [privResult] = await this._appClient.$queryRaw<[{ rolsuper: boolean; rolbypassrls: boolean }]>`
         SELECT rolsuper, rolbypassrls FROM pg_roles WHERE rolname = current_user
       `;
+      // Fail closed: if pg_roles returned no rows (transient outage, schema
+      // drift, or the role was dropped mid-query), we cannot verify the role
+      // is not a superuser. Refuse to boot rather than assuming non-superuser.
+      if (!privResult) {
+        const msg = `Could not determine database role privileges — pg_roles returned no rows for current_user. Cannot verify RLS enforcement.`;
+        this.logger.error(msg);
+        throw new Error(msg);
+      }
       // rolbypassrls (BYPASSRLS) is the authoritative privilege: roles with it
       // skip row-level-security policies entirely, so tenant isolation is
       // silently disabled for every tenant-scoped query. rolsuper also implies
       // BYPASSRLS, so checking both is belt-and-braces.
       const isSuperuser =
-        privResult?.rolsuper === true || privResult?.rolbypassrls === true;
+        privResult.rolsuper === true || privResult.rolbypassrls === true;
       if (isSuperuser) {
         // PostgreSQL superusers BYPASS all RLS policies, so tenant isolation
         // is silently disabled for every tenant-scoped query when the app

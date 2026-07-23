@@ -61,7 +61,7 @@ export class DomainError extends Error {
       // redactSensitiveFields surface.
       // redactSensitiveFieldValues is idempotent; the filter also redacts,
       // making this defense-in-depth for the durable-sink serialization path.
-      context: redactSensitiveFieldValues(this.context) as Record<string, ContextValue>,
+      context: redactSensitiveFieldValues(this.context),
       // Only serializes the immediate cause's message (not the cause chain) to
       // prevent leaking internal error chains. See serializeCause for details.
       cause: serializeCause(this.cause),
@@ -94,6 +94,12 @@ function serializeCause(cause: unknown): unknown {
     // while `message` and `context` are already sanitized above. Sanitize the
     // cause message the same way to close the asymmetric-leak path.
     return sanitizeForLogOutput(cause.message);
+  }
+  // Non-Error causes (objects, arrays, etc.) may contain useful diagnostic
+  // info. Run them through redactSensitiveFieldValues to preserve structure
+  // while redacting secrets, rather than discarding with a placeholder.
+  if (typeof cause === "object") {
+    return redactSensitiveFieldValues(cause);
   }
   return "[Non-error cause]";
 }

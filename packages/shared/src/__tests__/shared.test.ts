@@ -213,9 +213,17 @@ describe("ConcurrencyConflictError", () => {
     expect(JSON.stringify(json.cause)).toContain("[DATABASE_URL]");
   });
 
-  it("does not sanitize a non-error cause (returns safe placeholder)", () => {
+  it("redacts secrets in non-Error object cause while preserving structure", () => {
     const error = new ConcurrencyConflictError("operation failed", {
       cause: { raw: "postgres://user:secretpass@db.internal" },
+    });
+    const json = error.toJSON();
+    expect(json.cause).toEqual({ raw: "[DATABASE_URL]" });
+  });
+
+  it("returns safe placeholder for non-Error, non-object cause", () => {
+    const error = new ConcurrencyConflictError("operation failed", {
+      cause: "just a string",
     });
     const json = error.toJSON();
     expect(json.cause).toBe("[Non-error cause]");
@@ -295,13 +303,11 @@ describe("DomainError subclasses", () => {
     expect(json.cause).toBe("root cause");
   });
 
-  it("DomainError toJSON handles non-Error cause without leaking its data", () => {
-    // A non-Error cause (e.g. an attached object) must NOT be stringified into
-    // durable sinks (audit logs, idempotency records), since a custom class's
-    // toString() can embed sensitive field data. It is replaced with a safe
-    // placeholder instead.
+  it("DomainError toJSON redacts secrets in non-Error object cause while preserving structure", () => {
+    // Non-Error object causes are now run through redactSensitiveFieldValues
+    // to preserve diagnostic structure while redacting secret values.
     const error = new DomainError("TEST", "msg", { cause: { secret: "leak" } as any });
-    expect(error.toJSON().cause).toBe("[Non-error cause]");
+    expect(error.toJSON().cause).toEqual({ secret: "[REDACTED]" });
   });
 
   it("DomainError toJSON handles null cause", () => {

@@ -52,12 +52,12 @@ function domainErrorToStatus(error: DomainError): number {
  * redaction the MCP error-handler applies to the same DomainError.context for
  * AI agents — and guards against container cycles.
  */
-function sanitizeContext(context: Record<string, ContextValue>): Record<string, ContextValue> {
+function sanitizeContext(context: Record<string, ContextValue>): unknown {
   // Redact the whole context tree at once so key-based redaction can see the
   // field names (a per-entry walk would lose the key by the time the value
   // reached the redactor). redactSensitiveFieldValues sanitizes every string
   // leaf and redacts values under sensitive-named keys, and guards cycles.
-  return redactSensitiveFieldValues(context) as Record<string, ContextValue>;
+  return redactSensitiveFieldValues(context);
 }
 
 @Catch()

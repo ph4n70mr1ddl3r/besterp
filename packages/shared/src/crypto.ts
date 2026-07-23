@@ -316,7 +316,10 @@ function countKeys(value: unknown, ancestors?: Set<object>): number {
     }
     if (value instanceof Map) {
       let count = value.size;
-      for (const v of value.values()) count += countKeys(v, ancestors);
+      for (const [k, v] of value) {
+        count += countKeys(k, ancestors);
+        count += countKeys(v, ancestors);
+      }
       return count;
     }
     if (value instanceof Set) {

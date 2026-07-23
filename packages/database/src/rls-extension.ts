@@ -249,8 +249,11 @@ function createClientProxy(
       throw new Error(`Cannot delete '${String(prop)}' on a tenant-scoped client. Use the base PrismaClient directly.`);
     },
     get(target, prop: string | symbol) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      if (typeof prop !== "string") return (target as any)[prop];
+      if (typeof prop !== "string") {
+        throw new Error(
+          `Cannot access non-string property '${String(prop)}' on a tenant-scoped client — symbol/number access bypasses RLS. Use string property names.`
+        );
+      }
       if (prop === "$transaction") return transactionWrapper;
       if (BLOCKED_CLIENT_METHODS.has(prop)) {
         throw new Error(`Cannot call '${prop}' on a tenant-scoped client. Use the base PrismaClient directly.`);

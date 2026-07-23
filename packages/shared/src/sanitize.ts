@@ -127,7 +127,7 @@ export function stripHtmlTags(input: string): string {
  */
 const MAX_LOG_OUTPUT_LENGTH = 100_000;
 
-export function sanitizeLogOutput(message: string): string {
+export function sanitizeForLogOutput(message: string): string {
   // Defensive length cap (mirrors the guard in stripHtmlTags). Without it, a
   // long attacker-influenced error message / tool output / validation `received`
   // value could trigger O(n²) backtracking in the URL catch-all regex below and
@@ -215,7 +215,7 @@ export function sanitizeLogOutput(message: string): string {
     // `password="value"` (equals + quoted value). The leading boundary
     // (whitespace/quote/`{`/`,`/`;`/`(`) is required so benign prose is not
     // mangled, mirroring the bare-form rule.
-    .replace(/(^|[\s"'{([;,?])"?((?:key|token|id_token|access_token|secret|password|passwd|pwd|auth|api_key|apikey|client_secret|client_id|signature|sign|otp|code|session|bearer))"?[:=]("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')/gi, (_, lead, name) => {
+    .replace(/(^|[\s"'{([;,?])"?((?:key|token|id_token|access_token|secret|password|passwd|pwd|auth|api_key|apikey|client_secret|client_id|signature|sign|otp|code|session|bearer))"?\s*[:=]\s*("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')/gi, (_, lead, name) => {
       return `${lead}${name}=[REDACTED]`;
     })
     // Redact high-entropy bearer/secret tokens that appear outside the
@@ -392,18 +392,11 @@ export function sanitizeLogMessage(s: string): string {
 }
 
 /**
- * Sanitize a message for safe output in logs, error responses, and durable
- * sinks. Delegates to sanitizeLogOutput, which internally applies log-injection
- * prevention (sanitizeLogMessage) FIRST so control characters and ANSI escapes
- * are removed before the URL/path redaction regexes run against the clean text.
- *
- * This is the canonical public API for sanitizing messages that may contain
- * both log-injection payloads (ANSI escapes, newlines) and sensitive connection
- * strings or paths. Use it in error handlers, shutdown routines, and any
- * context where user-controlled or unknown messages are surfaced.
+ * Alias for {@link sanitizeForLogOutput} — kept for backwards compatibility.
+ * New code should use sanitizeForLogOutput directly.
  */
-export function sanitizeForLogOutput(message: string): string {
-  return sanitizeLogOutput(message);
+export function sanitizeLogOutput(message: string): string {
+  return sanitizeForLogOutput(message);
 }
 
 /**
