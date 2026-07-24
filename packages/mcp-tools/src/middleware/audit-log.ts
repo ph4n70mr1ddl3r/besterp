@@ -181,6 +181,9 @@ function createBackpressureManager(prisma: PrismaClient): BackpressureManager {
         return;
       }
       let slotAcquired = false;
+      // Top-level .catch prevents unhandledRejection if logAction throws
+      // synchronously before returning a promise. The inner .catch only
+      // handles async rejections from within the .then() callback.
       acquireWriteSlot()
         .then(({ acquired }) => {
           if (!acquired) return;
@@ -205,6 +208,10 @@ function createBackpressureManager(prisma: PrismaClient): BackpressureManager {
         })
         .finally(() => {
           if (slotAcquired) releaseWriteSlot();
+        })
+        .catch(() => {
+          // Suppress any top-level rejection to prevent unhandledRejection.
+          // This is a fire-and-forget path; errors are already logged above.
         });
     },
     getStats() {

@@ -144,8 +144,7 @@ export class PrismaService
         }
       }
       this.logger.log("Database connections established (admin + app)");
-      await this.verifyAppClientRole();
-      await this.verifyRlsEnabled();
+      await Promise.all([this.verifyAppClientRole(), this.verifyRlsEnabled()]);
     } catch (error: unknown) {
       // Sanitize before logging: Prisma/driver connection errors frequently
       // embed the datasource URL (credentials + hostname) in their message

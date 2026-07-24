@@ -610,25 +610,9 @@ export class PartyService {
     if (trimmed.length === 0) {
       return new Date();
     }
-    if (trimmed.length > MAX_DATE_STRING_LENGTH) {
-      throw new InvalidTypeValueError(
-        `fromDate is too long (${trimmed.length} characters, max ${MAX_DATE_STRING_LENGTH}).`,
-        { suggestedTools: ["add_party_role"], context: { field: "fromDate", length: trimmed.length, maxLength: MAX_DATE_STRING_LENGTH } }
-      );
-    }
-    // Any provided value MUST be valid ISO 8601 — mirroring requireValidDate()
-    // (used for birthDate/registrationDate) so both date entry points enforce
-    // the same format. Relying on new Date() alone is too permissive: it
-    // accepts many non-ISO strings (e.g. "Jan 1 2024", "2024/01/01") that
-    // would slip past the error message below, which promises ISO 8601.
-    // isValidISODate() already combines the ISO regex with a Date parse
-    // check, so a passing value is guaranteed to construct a valid Date.
-    if (!isValidISODate(trimmed)) {
-      throw new InvalidTypeValueError(
-        `Invalid fromDate format: ${trimmed}. Use ISO 8601 format (YYYY-MM-DD or YYYY-MM-DDTHH:mm:ss.sssZ)`,
-        { suggestedTools: ["add_party_role"], context: { field: "fromDate", invalidValue: trimmed } }
-      );
-    }
+    // Reuse requireValidDate for ISO 8601 format validation to avoid
+    // duplicating the regex + Date.parse logic used for birthDate/registrationDate.
+    PartyService.requireValidDate(trimmed, "fromDate");
     const parsed = new Date(trimmed);
     // Belt-and-suspenders: isValidISODate already ensures parseability via
     // Date.parse, but a future validation path that bypasses it would store

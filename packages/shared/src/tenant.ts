@@ -10,7 +10,7 @@
 // validateTenantId() is retained as defense-in-depth.
 
 import type { PrismaClient, Prisma } from "@prisma/client";
-import { isDomainError, TenantContextFailedError, InvalidTenantIdError } from "./errors.js";
+import { isDomainError, TenantContextFailedError, InvalidTenantIdError, InvalidTypeValueError } from "./errors.js";
 import { MAX_TENANT_ID_LENGTH } from "./constants.js";
 import { sanitizeLogMessage } from "./sanitize.js";
 
@@ -151,12 +151,12 @@ export async function withTenant<T>(
   options?: { timeout?: number; isolationLevel?: Prisma.TransactionIsolationLevel }
 ): Promise<T> {
   if (!prisma || typeof prisma.$transaction !== "function") {
-    throw new Error(
+    throw new InvalidTypeValueError(
       "withTenant: Invalid PrismaClient. Provide a connected PrismaClient instance."
     );
   }
   if (typeof fn !== "function") {
-    throw new Error(
+    throw new InvalidTypeValueError(
       "withTenant: 'fn' must be a function receiving the transaction client."
     );
   }

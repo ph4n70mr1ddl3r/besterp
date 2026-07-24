@@ -179,16 +179,14 @@ describe("PrismaService", () => {
 
     it("refuses to boot when the RLS enablement verification query fails (tenant isolation unverified)", async () => {
       const service = new PrismaService();
-      // current_user lookup succeeds (so verifyAppClientRole passes), but the
-      // pg_class RLS check query fails — exercising the fail-closed path in
-      // verifyRlsEnabled.
-      let call = 0;
+      // With Promise.all, verifyAppClientRole and verifyRlsEnabled run in
+      // parallel. Distinguish queries by their SQL content rather than call order.
       (service.appClient as unknown as { $queryRaw: () => Promise<unknown> }).$queryRaw = vi
         .fn()
-        .mockImplementation(async () => {
-          call += 1;
-          if (call === 1) return [{ role: "besterp_app" }];
-          if (call === 2) return [{ rolsuper: false, rolcatupdate: false }];
+        .mockImplementation(async (query: any) => {
+          const sql = String(query);
+          if (sql.includes("current_user")) return [{ role: "besterp_app" }];
+          if (sql.includes("pg_roles")) return [{ rolsuper: false, rolbypassrls: false }];
           throw new Error("relation pg_class does not exist");
         });
       await expect(service.onModuleInit()).rejects.toThrow(/tenant isolation unverified/);
@@ -200,42 +198,41 @@ describe("PrismaService", () => {
       // contact_mechanism_type) are intentionally NOT RLS-enforced and would
       // previously be flagged as "missing", causing a false boot failure.
       const service = new PrismaService();
-      let call = 0;
+      const tenantTableResults = [
+        { relname: "party_type", relrowsecurity: false, relforcerowsecurity: false },
+        { relname: "role_type", relrowsecurity: false, relforcerowsecurity: false },
+        { relname: "contact_mechanism_type", relrowsecurity: false, relforcerowsecurity: false },
+        { relname: "party", relrowsecurity: true, relforcerowsecurity: true },
+        { relname: "contact_mechanism", relrowsecurity: true, relforcerowsecurity: true },
+        { relname: "party_contact_mechanism", relrowsecurity: true, relforcerowsecurity: true },
+        { relname: "party_role", relrowsecurity: true, relforcerowsecurity: true },
+        { relname: "ai_action_log", relrowsecurity: true, relforcerowsecurity: true },
+        { relname: "idempotency_record", relrowsecurity: true, relforcerowsecurity: true },
+        { relname: "person", relrowsecurity: true, relforcerowsecurity: true },
+        { relname: "organization", relrowsecurity: true, relforcerowsecurity: true },
+        { relname: "postal_address", relrowsecurity: true, relforcerowsecurity: true },
+        { relname: "telecom_number", relrowsecurity: true, relforcerowsecurity: true },
+        { relname: "email_address", relrowsecurity: true, relforcerowsecurity: true },
+      ];
       (service.appClient as unknown as { $queryRaw: () => Promise<unknown> }).$queryRaw = vi
         .fn()
-        .mockImplementation(async () => {
-          call += 1;
-          if (call === 1) return [{ role: "besterp_app" }];
-          if (call === 2) return [{ rolsuper: false, rolbypassrls: false }];
-          return [
-            { relname: "party_type", relrowsecurity: false, relforcerowsecurity: false },
-            { relname: "role_type", relrowsecurity: false, relforcerowsecurity: false },
-            { relname: "contact_mechanism_type", relrowsecurity: false, relforcerowsecurity: false },
-            { relname: "party", relrowsecurity: true, relforcerowsecurity: true },
-            { relname: "contact_mechanism", relrowsecurity: true, relforcerowsecurity: true },
-            { relname: "party_contact_mechanism", relrowsecurity: true, relforcerowsecurity: true },
-            { relname: "party_role", relrowsecurity: true, relforcerowsecurity: true },
-            { relname: "ai_action_log", relrowsecurity: true, relforcerowsecurity: true },
-            { relname: "idempotency_record", relrowsecurity: true, relforcerowsecurity: true },
-            { relname: "person", relrowsecurity: true, relforcerowsecurity: true },
-            { relname: "organization", relrowsecurity: true, relforcerowsecurity: true },
-            { relname: "postal_address", relrowsecurity: true, relforcerowsecurity: true },
-            { relname: "telecom_number", relrowsecurity: true, relforcerowsecurity: true },
-            { relname: "email_address", relrowsecurity: true, relforcerowsecurity: true },
-          ];
+        .mockImplementation(async (query: any) => {
+          const sql = String(query);
+          if (sql.includes("current_user")) return [{ role: "besterp_app" }];
+          if (sql.includes("pg_roles")) return [{ rolsuper: false, rolbypassrls: false }];
+          return tenantTableResults;
         });
       await expect(service.onModuleInit()).resolves.toBeUndefined();
     });
 
     it("still refuses to boot when a tenant table is missing force RLS", async () => {
       const service = new PrismaService();
-      let call = 0;
       (service.appClient as unknown as { $queryRaw: () => Promise<unknown> }).$queryRaw = vi
         .fn()
-        .mockImplementation(async () => {
-          call += 1;
-          if (call === 1) return [{ role: "besterp_app" }];
-          if (call === 2) return [{ rolsuper: false, rolbypassrls: false }];
+        .mockImplementation(async (query: any) => {
+          const sql = String(query);
+          if (sql.includes("current_user")) return [{ role: "besterp_app" }];
+          if (sql.includes("pg_roles")) return [{ rolsuper: false, rolbypassrls: false }];
           return [
             { relname: "party_type", relrowsecurity: false, relforcerowsecurity: false },
             { relname: "party", relrowsecurity: true, relforcerowsecurity: false },

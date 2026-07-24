@@ -265,17 +265,19 @@ async function acquireIdempotencyRecord(
         );
         return { existingRecord: null, recordCreated: false, unavailable: true };
       }
-      // P2034 on the last attempt — let the loop exhaust so the caller
-      // gets IDEMPOTENCY_CONTENTION (not SERVICE_UNAVAILABLE).
-      // Fall through to the loop-end return.
-      continue;
+      // P2034 on the last attempt — fall through to the loop-end return below.
+      // The caller receives recordCreated=false with unavailable=undefined,
+      // which maps to IDEMPOTENCY_CONTENTION (not SERVICE_UNAVAILABLE), since
+      // this is genuine serialization contention rather than an infrastructure
+      // failure.
+      break;
     }
   }
   // Exhausted all retries due to P2034 serialization failures — the record
-  // was never created and no existing record was found. Return unavailable: true
-  // so the caller surfaces SERVICE_UNAVAILABLE (correct: this is an infrastructure
-  // issue, not a contention issue that a new key would fix).
-  return { existingRecord: null, recordCreated: false, unavailable: true };
+  // was never created and no existing record was found. Return unavailable=undefined
+  // so the caller surfaces IDEMPOTENCY_CONTENTION (this is contention, not an
+  // infrastructure issue — retrying with a new key won't help either).
+  return { existingRecord: null, recordCreated: false };
 }
 
 function handleExistingRecord(

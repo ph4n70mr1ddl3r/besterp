@@ -907,7 +907,7 @@ describe("PartyService", () => {
 
       // Should throw before any DB call
       await expect(partyService.addPartyRole(input)).rejects.toThrow(InvalidTypeValueError);
-      await expect(partyService.addPartyRole(input)).rejects.toThrow("Invalid fromDate format");
+      await expect(partyService.addPartyRole(input)).rejects.toThrow("fromDate is not a valid ISO 8601 date");
     });
 
     it("should reject fromDate that Date accepts but is not ISO 8601", async () => {
@@ -922,7 +922,7 @@ describe("PartyService", () => {
       };
 
       await expect(partyService.addPartyRole(input)).rejects.toThrow(InvalidTypeValueError);
-      await expect(partyService.addPartyRole(input)).rejects.toThrow("Invalid fromDate format");
+      await expect(partyService.addPartyRole(input)).rejects.toThrow("fromDate is not a valid ISO 8601 date");
     });
 
     it("should throw InvalidTypeValueError for invalid partyId format", async () => {

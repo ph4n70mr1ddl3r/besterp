@@ -30,9 +30,13 @@ function extractPrismaError(error: unknown): { code: string | undefined; meta: {
     if (rawMeta != null && typeof rawMeta === "object" && !Array.isArray(rawMeta)) {
       const metaObj = rawMeta as Record<string, unknown>;
       const target = metaObj.target;
-      const validatedTarget = (typeof target === "string" || (Array.isArray(target) && target.every((t) => typeof t === "string")))
-        ? target as string | string[]
-        : undefined;
+      // Non-empty array of strings, or a single string. Empty arrays pass
+      // .every() vacuously but carry no semantic meaning for error context.
+      const validatedTarget = (typeof target === "string")
+        ? target
+        : (Array.isArray(target) && target.length > 0 && target.every((t) => typeof t === "string"))
+          ? target
+          : undefined;
       return { code, meta: validatedTarget !== undefined ? { target: validatedTarget } : undefined };
     }
     return { code, meta: undefined };

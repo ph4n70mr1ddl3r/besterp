@@ -27,10 +27,7 @@ import { validateTenantId, InvalidTypeValueError, isDomainError, setTenantContex
 /** A PrismaClient-like interface with automatic RLS tenant context injection. */
 export type TenantScopedClient = Omit<PrismaClient, "$connect" | "$disconnect" | "$extends" | "$queryRaw" | "$queryRawTyped" | "$executeRaw" | "$executeRawTyped" | "$queryRawUnsafe" | "$executeRawUnsafe">;
 
-const BLOCKED_RAW_SQL_METHODS = new Set([
-  "$queryRaw", "$queryRawTyped", "$executeRaw", "$executeRawTyped",
-  "$queryRawUnsafe", "$executeRawUnsafe",
-]);
+
 
 // ─── LRU Cache ────────────────────────────────────────────────────
 
@@ -156,7 +153,7 @@ function createTransactionWrapper(prisma: PrismaClient, tenantId: string) {
       fn = args[0] as (tx: Prisma.TransactionClient) => Promise<unknown>;
       options = typeof args[1] === "object" && args[1] !== null ? args[1] as { timeout?: number; maxWait?: number; isolationLevel?: Prisma.TransactionIsolationLevel } : undefined;
     } else if (Array.isArray(args[0])) {
-      throw new Error(
+      throw new InvalidTypeValueError(
         "Batch $transaction([...promises]) is not supported on a tenant-scoped client. " +
         "Use an interactive transaction instead: $transaction(async (tx) => { ... }). " +
         "Note: interactive transactions run sequentially, unlike batch which runs concurrently."
@@ -171,7 +168,7 @@ function createTransactionWrapper(prisma: PrismaClient, tenantId: string) {
       return prisma.$transaction(wrappedFn, options);
     }
 
-    throw new Error(
+    throw new InvalidTypeValueError(
       `Unsupported $transaction argument: expected a function or array, got ${typeof args[0]}. ` +
       `Use $transaction(async (tx) => { ... })`
     );
@@ -230,7 +227,7 @@ function createModelDelegateProxy(
           const txMethod = txDelegate[method];
           if (!txMethod || typeof txMethod !== "function") throw new Error(`Method "${method}" not found on model "${modelName}"`);
           return txMethod.apply(txDelegate, args);
-        });
+        }, { timeout: 30_000 });
       };
       methodCache.set(cacheKey, wrapped);
       return wrapped;
@@ -260,9 +257,6 @@ function createClientProxy(
       if (prop === "$transaction") return transactionWrapper;
       if (BLOCKED_CLIENT_METHODS.has(prop)) {
         throw new Error(`Cannot call '${prop}' on a tenant-scoped client. Use the base PrismaClient directly.`);
-      }
-      if (BLOCKED_RAW_SQL_METHODS.has(prop)) {
-        throw new Error(`Cannot call '${prop}' on a tenant-scoped client. Raw SQL (including unsafe variants) bypasses RLS. Use the base PrismaClient.`);
       }
       if (prop.startsWith("$")) {
         throw new Error(`Cannot call '${prop}' on a tenant-scoped client. Only $transaction is allowed. Use the base PrismaClient for other operations.`);

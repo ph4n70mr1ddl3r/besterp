@@ -283,6 +283,8 @@ export function truncateValue(value: unknown, maxSize: number = MAX_STORED_PAYLO
   const encoded = textEncoder.encode(result.serialized);
   const marker = checkOversized(encoded, effectiveMax);
   if (marker) return marker;
+  // The parsed value is a plain JSON-safe form (Maps/Sets converted to arrays,
+  // class instances serialised via toJSON, etc.). It is safe to store as JSONB.
   // Roundtrip through JSON.parse to normalise non-plain values
   // (class instances, Maps, Sets, BigInts, etc.) to plain JSON-safe
   // values before storage as JSONB.

@@ -57,11 +57,8 @@ export class ToolRegistry {
    * Register a tool with optional tool-specific middlewares.
    */
   register(definition: ToolDefinition, middlewares: ToolMiddleware[] = []): void {
-    if (this.tools.has(definition.name)) {
-      throw new Error(`Tool '${definition.name}' is already registered.`);
-    }
-
-    // Validate tool name format: must be non-empty snake_case identifier
+    // Validate tool name format FIRST so errors point at the real issue, not
+    // at "already registered" when the name is actually invalid.
     if (!definition.name || typeof definition.name !== "string") {
       throw new Error("Tool name must be a non-empty string.");
     }
@@ -80,6 +77,10 @@ export class ToolRegistry {
       throw new Error(
         `Tool name '${definition.name}' must be snake_case (lowercase letters, digits, underscores).`
       );
+    }
+
+    if (this.tools.has(definition.name)) {
+      throw new Error(`Tool '${definition.name}' is already registered.`);
     }
 
     // Runtime check: the registry calls `inputSchema.safeParse(...)` when
