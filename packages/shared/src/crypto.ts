@@ -100,11 +100,10 @@ function sortSet(value: Set<unknown>, ancestors: Set<object>, depth: number, bud
     // (sortKeysDeep charged string values, then JSON.stringify +
     // chargeKeyBytes charged them again), causing legitimate inputs to
     // exceed the budget and be rejected as DoS.
-    const sorted = Array.from(value).map((v) => sortKeysDeep(v, ancestors, depth + 1, budget));
-    const prepared = sorted.map((v) => ({
-      v,
-      str: JSON.stringify(v),
-    }));
+    const prepared = Array.from(value, (v) => {
+      const sorted = sortKeysDeep(v, ancestors, depth + 1, budget);
+      return { v: sorted, str: JSON.stringify(sorted) };
+    });
     return prepared
       .sort((a, b) => a.str < b.str ? -1 : a.str > b.str ? 1 : 0)
       .map(({ v }) => v);

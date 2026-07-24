@@ -396,7 +396,7 @@ export function sanitizeLogMessage(message: string): string {
     // These can manipulate terminal display to hide injected log content or
     // create misleading log entries (e.g., U+202E RIGHT-TO-LEFT OVERRIDE).
     // eslint-disable-next-line no-misleading-character-class
-    .replace(/[\u200B\u200C\u200D\u200E\u200F\u2060\u2066-\u2069\u202A-\u202E\u061C\uFEFF]/g, "")
+    .replace(/[\u200B\u200C\u200D\u200E\u200F\u2060-\u2069\u202A-\u202E\u061C\uFEFF]/g, "")
     .replace(/[\r\n\t\x00-\x08\x0b\x0c\x0e-\x1f\x7f\x80-\x9f]/g, "_");
   /* eslint-enable no-control-regex */
 }
