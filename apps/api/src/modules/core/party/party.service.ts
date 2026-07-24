@@ -1077,14 +1077,14 @@ export class PartyService {
   private static toPartyResult(party: PartyWithIncludes): PartyResult {
     return {
       partyId: party.partyId,
-      name: stripHtmlTags(party.name),
-      partyType: party.partyType?.name ? stripHtmlTags(party.partyType.name) : "UNKNOWN",
-      description: party.description ? stripHtmlTags(party.description) : null,
+      name: party.name,
+      partyType: party.partyType?.name ? party.partyType.name : "UNKNOWN",
+      description: party.description,
       person: party.person ? this.toPersonResult(party.person) : null,
       organization: party.organization ? this.toOrgResult(party.organization) : null,
       roles: (party.roles ?? []).map((r) => ({
         partyRoleId: r.partyRoleId,
-        roleTypeName: r.roleType?.name ? stripHtmlTags(r.roleType.name) : "UNKNOWN",
+        roleTypeName: r.roleType?.name ? r.roleType.name : "UNKNOWN",
         fromDate: r.fromDate ? r.fromDate.toISOString() : new Date().toISOString(),
         thruDate: r.thruDate?.toISOString() ?? null,
       })),
@@ -1095,18 +1095,18 @@ export class PartyService {
 
   private static toPersonResult(p: { firstName: string; lastName: string; middleName: string | null; birthDate: Date | null; gender: string | null }): PartyResult["person"] {
     return {
-      firstName: stripHtmlTags(p.firstName),
-      lastName: stripHtmlTags(p.lastName),
-      middleName: p.middleName ? stripHtmlTags(p.middleName) : null,
+      firstName: p.firstName,
+      lastName: p.lastName,
+      middleName: p.middleName,
       birthDate: p.birthDate?.toISOString() ?? null,
-      gender: p.gender ? stripHtmlTags(p.gender) : null,
+      gender: p.gender,
     };
   }
 
   private static toOrgResult(o: { legalName: string; taxId: string | null; registrationDate: Date | null }): PartyResult["organization"] {
     return {
-      legalName: stripHtmlTags(o.legalName),
-      taxId: o.taxId ? stripHtmlTags(o.taxId) : null,
+      legalName: o.legalName,
+      taxId: o.taxId,
       registrationDate: o.registrationDate?.toISOString() ?? null,
     };
   }

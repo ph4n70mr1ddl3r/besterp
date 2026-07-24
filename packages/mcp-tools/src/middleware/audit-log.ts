@@ -224,7 +224,12 @@ function createBackpressureManager(prisma: PrismaClient): BackpressureManager {
           process.stderr.write(`[AuditLog] ${JSON.stringify(errorMeta)}\n`);
         })
         .finally(() => {
-          if (slotAcquired) releaseWriteSlot();
+          try {
+            if (slotAcquired) releaseWriteSlot();
+          } catch {
+            // releaseWriteSlot should never throw; suppress to prevent
+            // the outer .catch from swallowing the original error log.
+          }
         })
         .catch(() => {
           // Suppress any top-level rejection to prevent unhandledRejection.

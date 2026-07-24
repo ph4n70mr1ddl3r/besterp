@@ -274,35 +274,14 @@ export class ToolRegistry {
     try {
       validateTenantIdEnhancedForAuth(context.tenantId);
     } catch {
-      return {
-        success: false,
-        error: {
-          code: "INVALID_TENANT_ID",
-          message: "The request tenant identifier is invalid. Contact the system administrator.",
-          suggestedTools: ["list_available_tools"],
-        },
-      };
+      return this.contextIdentityError("INVALID_TENANT_ID", "tenant identifier");
     }
     if (typeof context.userId !== "string") {
-      return {
-        success: false,
-        error: {
-          code: "INVALID_USER_ID",
-          message: "The request user identifier is invalid. Contact the system administrator.",
-          suggestedTools: ["list_available_tools"],
-        },
-      };
+      return this.contextIdentityError("INVALID_USER_ID", "user identifier");
     }
     const userId = context.userId.trim();
     if (userId.length === 0 || userId.length > MAX_USER_ID_LENGTH || !/^[a-zA-Z0-9_-]+$/.test(userId)) {
-      return {
-        success: false,
-        error: {
-          code: "INVALID_USER_ID",
-          message: "The request user identifier is invalid. Contact the system administrator.",
-          suggestedTools: ["list_available_tools"],
-        },
-      };
+      return this.contextIdentityError("INVALID_USER_ID", "user identifier");
     }
     // `agentId`/`conversationId` are persisted verbatim into the cross-tenant
     // durable idempotency + audit sinks, so an unvalidated/oversized/attacker-
@@ -313,6 +292,17 @@ export class ToolRegistry {
       ?? this.validateOptionalIdentityField(context.conversationId, "conversationId", MAX_CONVERSATION_ID_LENGTH);
     if (idFieldError) return idFieldError;
     return null;
+  }
+
+  private contextIdentityError(code: string, fieldLabel: string): ToolResult {
+    return {
+      success: false,
+      error: {
+        code,
+        message: `The request ${fieldLabel} is invalid. Contact the system administrator.`,
+        suggestedTools: ["list_available_tools"],
+      },
+    };
   }
 
   /**
