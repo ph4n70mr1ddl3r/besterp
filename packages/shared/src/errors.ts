@@ -187,6 +187,20 @@ export class ConcurrencyConflictError extends DomainError {
   }
 }
 
+/**
+ * Thrown internally to signal that a transaction should be retried due to
+ * a serialization conflict. Used as a clean replacement for fabricating
+ * Prisma P2034 errors — callers catch this and re-throw the appropriate
+ * ConcurrencyConflictError after retry exhaustion.
+ */
+export class ConcurrencyRetryError extends Error {
+  static readonly CODE = "CONCURRENCY_RETRY";
+  constructor(message: string) {
+    super(message);
+    this.name = "ConcurrencyRetryError";
+  }
+}
+
 /** Thrown when a tenant ID fails format validation (empty, too long, or contains invalid characters). */
 export class InvalidTenantIdError extends DomainError {
   static readonly CODE = "INVALID_TENANT_ID";

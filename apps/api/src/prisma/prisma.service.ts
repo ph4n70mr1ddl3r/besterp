@@ -73,6 +73,18 @@ export class PrismaService
         "connection string to bypass RLS for audit/idempotency operations."
       );
     }
+    // In development, warn loudly (not just log) if DATABASE_ADMIN_URL is
+    // missing so the silent-audit-data-loss path is surfaced immediately.
+    if (!adminUrl && process.env.NODE_ENV === "development") {
+      // eslint-disable-next-line no-console
+      console.error(
+        "WARNING: DATABASE_ADMIN_URL is not set in development — the admin " +
+        "client falls back to DATABASE_URL. Audit logs and idempotency records " +
+        "(which use the admin client to bypass RLS) will be silently rejected " +
+        "by RLS policies. Set DATABASE_ADMIN_URL to a superuser connection " +
+        "string or accept that audit data will not persist.\n"
+      );
+    }
     super({
       datasourceUrl: adminUrl ?? process.env.DATABASE_URL,
       log: [
@@ -131,14 +143,6 @@ export class PrismaService
   }
 
   async onModuleInit() {
-    if (!process.env.DATABASE_ADMIN_URL && process.env.NODE_ENV !== "production") {
-      this.logger.warn(
-        "DATABASE_ADMIN_URL is not set — admin client falls back to DATABASE_URL. " +
-        "Audit logs and idempotency records (which use the admin client to bypass RLS) " +
-        "will be silently rejected by RLS policies. Set DATABASE_ADMIN_URL to a superuser " +
-        "connection string to fix."
-      );
-    }
     try {
       const connectResults = await Promise.allSettled([
         this.$connect(),

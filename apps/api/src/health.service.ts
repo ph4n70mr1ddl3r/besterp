@@ -159,7 +159,12 @@ export class HealthService implements OnModuleInit {
     const rss = Math.round(memoryUsage.rss / 1024 / 1024);                // MB (total OS memory)
     const heapPercentage = heapTotal > 0 ? Math.round((heapUsed / heapTotal) * 100) : 0;
 
-    const overallStatus: "ok" | "error" = databaseStatus === "connected" && redisStatus !== "disconnected" ? "ok" : "error";
+    // Redis is optional (background jobs); when configured but disconnected,
+    // the system is still healthy for core operations. Only mark error if
+    // Redis IS configured AND actually disconnected (not "not_configured").
+    const redisHealthy = redisStatus === "not_configured" || redisStatus === "connected";
+    const hasRedisWarning = !redisHealthy;
+    const overallStatus: "ok" | "error" = databaseStatus === "connected" ? "ok" : "error";
 
     return {
       status: overallStatus,
@@ -174,6 +179,7 @@ export class HealthService implements OnModuleInit {
         rss,
         heapPercentage,
       },
+      ...(hasRedisWarning ? { warning: "Redis is configured but disconnected — background jobs may not work" } : {}),
     };
   }
 

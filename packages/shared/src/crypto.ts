@@ -381,7 +381,7 @@ export function hashInput(input: unknown): string {
       );
     }
     const budget = { bytes: 0 };
-    const canonical = sortKeysDeep(input, undefined, 0, budget);
+    const canonical = sortKeysDeep(input, new Set(), 0, budget);
     const serialized = JSON.stringify(canonical);
     return crypto
       .createHash("sha256")

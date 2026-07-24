@@ -270,11 +270,25 @@ function createClientProxy(
       if (cachedDelegate) return cachedDelegate;
 
       const delegate = (target as unknown as Record<string, unknown>)[prop];
-      if (!delegate || typeof delegate !== "object") {
-        if (typeof delegate === "function") return delegate;
+      if (!delegate) {
         throw new Error(
           `Model '${prop}' does not exist on the Prisma schema. ` +
           `Check the model name and ensure it is included in schema.prisma.`
+        );
+      }
+      // Any direct-function property on a model delegate would bypass RLS
+      // because it returns unmodified — reject all non-object delegates to
+      // ensure every access goes through the Proxy wrapper.
+      if (typeof delegate === "function") {
+        throw new Error(
+          `Accessing '${prop}' on a tenant-scoped client is blocked. ` +
+          `Direct function properties bypass RLS and are not allowed.`
+        );
+      }
+      if (typeof delegate !== "object") {
+        throw new Error(
+          `Expected an object for model '${prop}', got ${typeof delegate}. ` +
+          `This may indicate a future Prisma version added a non-object property.`
         );
       }
 

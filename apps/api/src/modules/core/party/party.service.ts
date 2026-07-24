@@ -34,6 +34,7 @@ import {
   DuplicateEntityError,
   EntityNotFoundError,
   ConcurrencyConflictError,
+  ConcurrencyRetryError,
   UUID_REGEX,
   EMAIL_REGEX,
   COUNTRY_CODE_REGEX,
@@ -279,67 +280,71 @@ export class PartyService {
     sanitizedPerson: CreatePartyInput["person"] | undefined,
     sanitizedOrg: CreatePartyInput["organization"] | undefined,
   ) {
-    try {
-      return await db.$transaction(async (tx: Prisma.TransactionClient) => {
-        const partyTypeRecord = await tx.partyType.findUnique({ where: { name: partyTypeName } });
-        if (!partyTypeRecord) {
-          throw new InvalidTypeValueError(
-            `PARTY_TYPE '${partyTypeName}' is not valid. Valid types: ['PERSON', 'ORGANIZATION'].`,
-            { suggestedTools: ["get_type_table_values"], context: { field: "partyType", invalidValue: partyTypeName, validValues: ["PERSON", "ORGANIZATION"] } }
-          );
-        }
+        try {
+          return await db.$transaction(async (tx: Prisma.TransactionClient) => {
+            const partyTypeRecord = await tx.partyType.findUnique({ where: { name: partyTypeName } });
+            if (!partyTypeRecord) {
+              throw new InvalidTypeValueError(
+                `PARTY_TYPE '${partyTypeName}' is not valid. Valid types: ['PERSON', 'ORGANIZATION'].`,
+                { suggestedTools: ["get_type_table_values"], context: { field: "partyType", invalidValue: partyTypeName, validValues: ["PERSON", "ORGANIZATION"] } }
+              );
+            }
 
-        const data: Prisma.PartyCreateInput = {
-          partyType: { connect: { partyTypeId: partyTypeRecord.partyTypeId } },
-          tenantId,
-          name,
-          description,
-        };
-        if (sanitizedPerson) {
-          const rawBirthDate = sanitizedPerson.birthDate;
-          const parsedBirthDate = rawBirthDate ? new Date(rawBirthDate) : null;
-          // Belt-and-suspenders: requireValidDate already rejects non-ISO
-          // strings, but this guards against any future call path that
-          // bypasses it. Invalid Date propagates as NaN through Prisma
-          // and would store a corrupt timestamp silently.
-          if (parsedBirthDate && isNaN(parsedBirthDate.getTime())) {
-            throw new InvalidTypeValueError(
-              `birthDate produced an invalid Date`,
-              { suggestedTools: ["create_party"], context: { field: "birthDate", invalidValue: rawBirthDate ?? "" } }
-            );
+            const data: Prisma.PartyCreateInput = {
+              partyType: { connect: { partyTypeId: partyTypeRecord.partyTypeId } },
+              tenantId,
+              name,
+              description,
+            };
+            if (sanitizedPerson) {
+              const rawBirthDate = sanitizedPerson.birthDate;
+              const parsedBirthDate = rawBirthDate ? new Date(rawBirthDate) : null;
+              // Belt-and-suspenders: requireValidDate already rejects non-ISO
+              // strings, but this guards against any future call path that
+              // bypasses it. Invalid Date propagates as NaN through Prisma
+              // and would store a corrupt timestamp silently.
+              if (parsedBirthDate && isNaN(parsedBirthDate.getTime())) {
+                throw new InvalidTypeValueError(
+                  `birthDate produced an invalid Date`,
+                  { suggestedTools: ["create_party"], context: { field: "birthDate", invalidValue: rawBirthDate ?? "" } }
+                );
+              }
+              data.person = {
+                create: {
+                  firstName: sanitizedPerson.firstName,
+                  lastName: sanitizedPerson.lastName,
+                  middleName: sanitizedPerson.middleName ?? null,
+                  birthDate: parsedBirthDate,
+                  gender: sanitizedPerson.gender ?? null,
+                },
+              };
+            }
+            if (sanitizedOrg) {
+              const rawRegistrationDate = sanitizedOrg.registrationDate;
+              const parsedRegistrationDate = rawRegistrationDate ? new Date(rawRegistrationDate) : null;
+              if (parsedRegistrationDate && isNaN(parsedRegistrationDate.getTime())) {
+                throw new InvalidTypeValueError(
+                  `registrationDate produced an invalid Date`,
+                  { suggestedTools: ["create_party"], context: { field: "registrationDate", invalidValue: rawRegistrationDate ?? "" } }
+                );
+              }
+              data.organization = {
+                create: {
+                  legalName: sanitizedOrg.legalName,
+                  taxId: sanitizedOrg.taxId ?? null,
+                  registrationDate: parsedRegistrationDate,
+                },
+              };
+            }
+            return tx.party.create({ data, include: PartyService.PARTY_INCLUDE });
+          }, { timeout: TX_TIMEOUT_MS });
+        } catch (err) {
+          if (err instanceof ConcurrencyRetryError) {
+            // Retry the transaction — the outer retry loop will handle it.
+            throw err;
           }
-          data.person = {
-            create: {
-              firstName: sanitizedPerson.firstName,
-              lastName: sanitizedPerson.lastName,
-              middleName: sanitizedPerson.middleName ?? null,
-              birthDate: parsedBirthDate,
-              gender: sanitizedPerson.gender ?? null,
-            },
-          };
+          PartyService.handleTransactionError(err, "create_party", "create_party", "party");
         }
-        if (sanitizedOrg) {
-          const rawRegistrationDate = sanitizedOrg.registrationDate;
-          const parsedRegistrationDate = rawRegistrationDate ? new Date(rawRegistrationDate) : null;
-          if (parsedRegistrationDate && isNaN(parsedRegistrationDate.getTime())) {
-            throw new InvalidTypeValueError(
-              `registrationDate produced an invalid Date`,
-              { suggestedTools: ["create_party"], context: { field: "registrationDate", invalidValue: rawRegistrationDate ?? "" } }
-            );
-          }
-          data.organization = {
-            create: {
-              legalName: sanitizedOrg.legalName,
-              taxId: sanitizedOrg.taxId ?? null,
-              registrationDate: parsedRegistrationDate,
-            },
-          };
-        }
-        return tx.party.create({ data, include: PartyService.PARTY_INCLUDE });
-      }, { timeout: TX_TIMEOUT_MS });
-    } catch (err) {
-      PartyService.handleTransactionError(err, "create_party", "create_party", "party");
-    }
   }
 
   /** Extract the conflicting field name from a Prisma error's metadata. */
@@ -428,6 +433,12 @@ export class PartyService {
         "Database operation failed with an unexpected error type.",
         { context: { type: err === null ? "null" : typeof err } }
       );
+    }
+
+    // ConcurrencyRetryError is not a DomainError and should propagate as-is
+    // so the caller's retry loop can catch it. Do NOT map it here.
+    if (err instanceof ConcurrencyRetryError) {
+      throw err;
     }
 
     // Use duck-typing instead of `instanceof` to detect Prisma errors.
@@ -631,62 +642,65 @@ export class PartyService {
     tenantId: string, partyId: string, roleTypeId: string,
     trimmedRoleType: string, roleFromDate: Date,
   ): Promise<Prisma.PartyRoleGetPayload<{ include: { roleType: true } }>> {
-    try {
-      return await db.$transaction(async (tx) => {
-        const party = await tx.party.findUnique({ where: { partyId, tenantId } });
-        if (!party) {
-          throw new EntityNotFoundError(`Party '${partyId}' not found.`, { suggestedTools: ["search_parties", "get_party"], context: { partyId } });
-        }
+        try {
+          return await db.$transaction(async (tx) => {
+            const party = await tx.party.findUnique({ where: { partyId, tenantId } });
+            if (!party) {
+              throw new EntityNotFoundError(`Party '${partyId}' not found.`, { suggestedTools: ["search_parties", "get_party"], context: { partyId } });
+            }
 
-        // Use INSERT ... ON CONFLICT to atomically check for duplicates and
-        // insert. This avoids the find-then-create race where two concurrent
-        // transactions both pass the findFirst check before either inserts.
-        // The DB constraint party_active_role_unique catches duplicates, but
-        // using ON CONFLICT gives us a clean error path without relying on
-        // post-hoc constraint violation handling.
-        //
-        // NOTE: Raw SQL is required here because the uniqueness constraint
-        // is a PARTIAL unique index (WHERE thru_date IS NULL). Prisma's
-        // upsert/create with @@unique cannot express partial indexes, so
-        // $queryRaw is the only way to leverage this constraint atomically.
-        const result = await tx.$queryRaw<{ partyRoleId: string; fromDate: Date; thruDate: Date | null }[]>`
-          INSERT INTO "party_role" ("partyId", "roleTypeId", "fromDate")
-          VALUES (${partyId}, ${roleTypeId}, ${roleFromDate})
-          ON CONFLICT DO NOTHING
-          RETURNING "partyRoleId", "fromDate", "thruDate"
-        `;
+            // Use INSERT ... ON CONFLICT to atomically check for duplicates and
+            // insert. This avoids the find-then-create race where two concurrent
+            // transactions both pass the findFirst check before either inserts.
+            // The DB constraint party_active_role_unique catches duplicates, but
+            // using ON CONFLICT gives us a clean error path without relying on
+            // post-hoc constraint violation handling.
+            //
+            // NOTE: Raw SQL is required here because the uniqueness constraint
+            // is a PARTIAL unique index (WHERE thru_date IS NULL). Prisma's
+            // upsert/create with @@unique cannot express partial indexes, so
+            // $queryRaw is the only way to leverage this constraint atomically.
+            const result = await tx.$queryRaw<{ partyRoleId: string; fromDate: Date; thruDate: Date | null }[]>`
+              INSERT INTO "party_role" ("partyId", "roleTypeId", "fromDate")
+              VALUES (${partyId}, ${roleTypeId}, ${roleFromDate})
+              ON CONFLICT DO NOTHING
+              RETURNING "partyRoleId", "fromDate", "thruDate"
+            `;
 
-        if (result.length === 0) {
-          // A concurrent transaction or pre-existing row blocked the insert.
-          // Re-check for an existing active role to give a precise error.
-          const existingRole = await tx.partyRole.findFirst({
-            where: { partyId, roleTypeId, thruDate: null, party: { tenantId } },
-          });
-          if (existingRole) {
-            const fromDate = existingRole.fromDate ? existingRole.fromDate.toISOString() : new Date().toISOString();
-            throw new DuplicateEntityError(
-              `Party '${partyId}' already has active role '${trimmedRoleType}'. Existing role started on ${fromDate}. ` +
-              `To change a party's role, first end the current role by setting a thruDate, then re-call add_party_role.`,
-              { suggestedTools: ["get_party"], context: { partyId, roleType: trimmedRoleType, existingRoleId: existingRole.partyRoleId, existingRoleDate: fromDate } }
-            );
+            if (result.length === 0) {
+              // A concurrent transaction or pre-existing row blocked the insert.
+              // Re-check for an existing active role to give a precise error.
+              const existingRole = await tx.partyRole.findFirst({
+                where: { partyId, roleTypeId, thruDate: null, party: { tenantId } },
+              });
+              if (existingRole) {
+                const fromDate = existingRole.fromDate ? existingRole.fromDate.toISOString() : new Date().toISOString();
+                throw new DuplicateEntityError(
+                  `Party '${partyId}' already has active role '${trimmedRoleType}'. Existing role started on ${fromDate}. ` +
+                  `To change a party's role, first end the current role by setting a thruDate, then re-call add_party_role.`,
+                  { suggestedTools: ["get_party"], context: { partyId, roleType: trimmedRoleType, existingRoleId: existingRole.partyRoleId, existingRoleDate: fromDate } }
+                );
+              }
+              // No existing role found — a concurrent transaction won the race.
+              // Signal the caller to retry using a dedicated error class rather
+              // than fabricating a Prisma P2034 error, which breaks if Prisma's
+              // internal error detection changes.
+              throw new ConcurrencyRetryError("Transaction conflict — retry the operation.");
+            }
+
+            // Fetch the full role with relation data for the return value.
+            return tx.partyRole.findUnique({
+              where: { partyRoleId: result[0]!.partyRoleId },
+              include: { roleType: true },
+            }) as Promise<Prisma.PartyRoleGetPayload<{ include: { roleType: true } }>>;
+          }, { timeout: TX_TIMEOUT_MS });
+        } catch (err) {
+          if (err instanceof ConcurrencyRetryError) {
+            // Retry the transaction — the outer retry loop will handle it.
+            throw err;
           }
-          // No existing role found — a concurrent transaction won the race.
-          // Retry the transaction (the caller's outer catch will handle P2034).
-          throw new Prisma.PrismaClientKnownRequestError(
-            "Transaction conflict — retry the operation.",
-            { code: "P2034", meta: {}, clientVersion: "0.0.0" }
-          );
+          PartyService.handleTransactionError(err, "add_party_role", "get_party", "party role");
         }
-
-        // Fetch the full role with relation data for the return value.
-        return tx.partyRole.findUnique({
-          where: { partyRoleId: result[0]!.partyRoleId },
-          include: { roleType: true },
-        }) as Promise<Prisma.PartyRoleGetPayload<{ include: { roleType: true } }>>;
-      }, { timeout: TX_TIMEOUT_MS });
-    } catch (err) {
-      PartyService.handleTransactionError(err, "add_party_role", "get_party", "party role");
-    }
   }
 
   // ─── Add Contact Mechanism ────────────────────────────────────
