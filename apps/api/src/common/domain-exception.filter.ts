@@ -21,6 +21,11 @@ import {
   type ContextValue,
 } from "@besterp/shared";
 
+/** Normalized development-environment check — mirrors main.ts normalizeEnvironment(). */
+function isDev(): boolean {
+  return process.env.NODE_ENV === "development";
+}
+
 /**
  * Map a DomainError code to an HTTP status code.
  */
@@ -100,7 +105,7 @@ export class DomainExceptionFilter implements ExceptionFilter {
       );
     }
 
-    const isDev = process.env.NODE_ENV === "development";
+    const dev = isDev();
     const body: Record<string, unknown> = {
       statusCode: status,
       error: exception.code,
@@ -121,15 +126,15 @@ export class DomainExceptionFilter implements ExceptionFilter {
       // stripHtmlTags last for stored-XSS defense. This keeps the existing
       // "_"-substitution + HTML-strip semantics while closing the
       // secret-disclosure gap that the parallel MCP surface did not have.
-      ...(status === 500 && !isDev
+      ...(status === 500 && !dev
         ? { message: "An unexpected error occurred" }
         // sanitizeForLogOutput redacts URLs/secrets; stripHtmlTags adds XSS defense.
         : { message: stripHtmlTags(sanitizeForLogOutput(exception.message)) }),
     };
-    if (isDev && exception.suggestedTools.length > 0) {
+    if (dev && exception.suggestedTools.length > 0) {
       body.suggestedTools = exception.suggestedTools;
     }
-    if (isDev && Object.keys(exception.context).length > 0) {
+    if (dev && Object.keys(exception.context).length > 0) {
       body.context = sanitizeContext(exception.context);
     }
     response.status(status).json(body);
@@ -146,12 +151,12 @@ export class DomainExceptionFilter implements ExceptionFilter {
     // "production" NODE_ENV: staging / preview / uat deployments that run under
     // any other value would otherwise return raw error bodies (information
     // disclosure). Only the explicit development environment is permissive.
-    const isDev = process.env.NODE_ENV === "development";
+    const dev = isDev();
     if (typeof exceptionResponse === "string") {
       response.status(status).json({ statusCode: status, message: stripHtmlTags(sanitizeForLogOutput(exceptionResponse)) });
       return;
     }
-    if (!isDev && typeof exceptionResponse === "object" && exceptionResponse !== null) {
+    if (!dev && typeof exceptionResponse === "object" && exceptionResponse !== null) {
       const res = exceptionResponse as Record<string, unknown>;
       // Keep only safe, client-facing fields; drop validation details, stack, etc.
       const safeBody: Record<string, unknown> = { statusCode: status };
@@ -198,7 +203,7 @@ export class DomainExceptionFilter implements ExceptionFilter {
     // By this point exceptionResponse is null or a non-object primitive.
     // In dev, reflect it for debugging; in production use a safe generic body
     // so internal fields (stack traces, validation internals, etc.) cannot leak.
-    if (!isDev) {
+    if (!dev) {
       response.status(status).json({ statusCode: status });
       return;
     }
@@ -216,8 +221,8 @@ export class DomainExceptionFilter implements ExceptionFilter {
       `Unhandled exception${errorCode ? ` [${errorCode}]` : ""}: ${sanitizeForLogOutput(description)}`,
       exception instanceof Error && exception.stack ? sanitizeForLogOutput(exception.stack) : undefined
     );
-    const isDev = process.env.NODE_ENV === "development";
-    const responseMessage = isDev && exception instanceof Error
+    const dev = isDev();
+    const responseMessage = dev && exception instanceof Error
       ? stripHtmlTags(sanitizeForLogOutput(exception.message))
           // Strip internal file paths that could leak implementation details.
           // A Prisma/driver error message may embed an absolute path like

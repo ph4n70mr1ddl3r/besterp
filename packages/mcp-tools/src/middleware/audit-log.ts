@@ -146,6 +146,9 @@ function createBackpressureManager(prisma: PrismaClient): BackpressureManager {
       try {
         entry.timer = setTimeout(() => {
           if (entry.settled) return;
+          // Set settled BEFORE splicing to prevent a TOCTOU race where
+          // releaseWriteSlot() could shift this entry out of the queue and
+          // resolve it after the timeout has already marked it settled.
           entry.settled = true;
           const idx = writeQueue.indexOf(entry);
           if (idx !== -1) writeQueue.splice(idx, 1);

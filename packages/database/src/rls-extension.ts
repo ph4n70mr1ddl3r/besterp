@@ -20,6 +20,9 @@
 import type { PrismaClient, Prisma } from "@prisma/client";
 import { validateTenantId, InvalidTypeValueError, isDomainError, setTenantContext } from "@besterp/shared";
 
+/** Default timeout for individual model operation transactions (ms). */
+const DEFAULT_TX_TIMEOUT_MS = 30_000;
+
 // ─── Blocked methods — single source of truth ─────────────────────
 // These names must stay in sync with the TenantScopedClient type alias.
 // If a method is omitted from the type, it should also be added here.
@@ -225,7 +228,7 @@ function createModelDelegateProxy(
           const txMethod = (txDelegate as Record<string, unknown>)[method];
           if (!txMethod || typeof txMethod !== "function") throw new Error(`Method "${method}" not found on model "${modelName}"`);
           return txMethod.apply(txDelegate, args);
-        }, { timeout: 30_000 });
+        }, { timeout: DEFAULT_TX_TIMEOUT_MS });
       };
       methodCache.set(cacheKey, wrapped);
       return wrapped;

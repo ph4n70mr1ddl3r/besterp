@@ -644,6 +644,11 @@ export class PartyService {
         // The DB constraint party_active_role_unique catches duplicates, but
         // using ON CONFLICT gives us a clean error path without relying on
         // post-hoc constraint violation handling.
+        //
+        // NOTE: Raw SQL is required here because the uniqueness constraint
+        // is a PARTIAL unique index (WHERE thru_date IS NULL). Prisma's
+        // upsert/create with @@unique cannot express partial indexes, so
+        // $queryRaw is the only way to leverage this constraint atomically.
         const result = await tx.$queryRaw<{ partyRoleId: string; fromDate: Date; thruDate: Date | null }[]>`
           INSERT INTO "party_role" ("partyId", "roleTypeId", "fromDate")
           VALUES (${partyId}, ${roleTypeId}, ${roleFromDate})

@@ -118,7 +118,15 @@ export class PrismaService
     // Read cache sizes from env with defaults — clamp to [1, 100_000] to
     // prevent negative values (invalid LRU caches) and absurdly large values
     // (memory exhaustion). 100K entries is far above any realistic workload.
+    const rawMethodCache = process.env.PRISMA_MAX_METHOD_CACHE_SIZE;
+    if (rawMethodCache && Number.isNaN(Number(rawMethodCache))) {
+      this.logger.warn(`PRISMA_MAX_METHOD_CACHE_SIZE="${rawMethodCache}" is not a valid number — using default ${DEFAULT_MAX_METHOD_CACHE_SIZE}.`);
+    }
     this.maxMethodCacheSize = Math.min(100_000, Math.max(1, Number(process.env.PRISMA_MAX_METHOD_CACHE_SIZE) || DEFAULT_MAX_METHOD_CACHE_SIZE));
+    const rawDelegateCache = process.env.PRISMA_MAX_DELEGATE_CACHE_SIZE;
+    if (rawDelegateCache && Number.isNaN(Number(rawDelegateCache))) {
+      this.logger.warn(`PRISMA_MAX_DELEGATE_CACHE_SIZE="${rawDelegateCache}" is not a valid number — using default ${DEFAULT_MAX_DELEGATE_CACHE_SIZE}.`);
+    }
     this.maxDelegateCacheSize = Math.min(100_000, Math.max(1, Number(process.env.PRISMA_MAX_DELEGATE_CACHE_SIZE) || DEFAULT_MAX_DELEGATE_CACHE_SIZE));
   }
 

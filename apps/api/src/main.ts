@@ -246,17 +246,6 @@ async function bootstrap() {
   });
   app.use(generalLimiter);
 
-  // Stricter limiter for authentication endpoints to prevent brute-force attacks
-  const authLimiter = rateLimit({
-    windowMs: (process.env.AUTH_RATE_LIMIT_WINDOW_MS ? Number(process.env.AUTH_RATE_LIMIT_WINDOW_MS) : 15 * 60_000),
-    max: process.env.AUTH_RATE_LIMIT_MAX ? Number(process.env.AUTH_RATE_LIMIT_MAX) : 20,
-    standardHeaders: true,
-    legacyHeaders: false,
-    message: { statusCode: 429, message: "Too many authentication attempts. Please try again later." },
-    skipFailedRequests: true,
-  });
-  app.use("/api/auth/login", authLimiter);
-
   // Helmet security headers — register as early as possible so error
   // responses from subsequent middleware also carry security headers.
   app.use(helmet());
