@@ -11,7 +11,7 @@ import { NestFactory, DiscoveryService } from "@nestjs/core";
 import { Logger, ValidationPipe, type INestApplication } from "@nestjs/common";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
-import { sanitizeForLogOutput, JWT_EXPIRES_IN_REGEX } from "@besterp/shared";
+import { sanitizeForLogOutput, JWT_EXPIRES_IN_REGEX, MAX_JWT_EXPIRES_IN_DAYS } from "@besterp/shared";
 import { isWeakSecret, MIN_JWT_SECRET_LENGTH } from "./auth/secret-strength.js";
 import { AppModule } from "./app.module.js";
 import express, { type Request, type Response, type NextFunction } from "express";
@@ -49,6 +49,27 @@ function validateEnvironment(): void {
       `JWT_EXPIRES_IN "${process.env.JWT_EXPIRES_IN}" is invalid. Must be a duration string like "24h", "60m", "7d".`
     );
     process.exit(1);
+  }
+  // Enforce a maximum token lifetime to prevent absurdly long-lived tokens
+  // (e.g., "9999999999d" ≈ 27,397 years). The regex allows magnitudes up to
+  // 10 digits, so we parse and cap the effective duration at 30 days.
+  if (process.env.JWT_EXPIRES_IN) {
+    const match = process.env.JWT_EXPIRES_IN.match(/^([1-9]\d{0,9})([smhd])$/);
+    if (match) {
+      const value = Number(match[1]);
+      const unit = match[2];
+      let exceedsMax = false;
+      if (unit === "d" && value > MAX_JWT_EXPIRES_IN_DAYS) exceedsMax = true;
+      else if (unit === "h" && value / 24 > MAX_JWT_EXPIRES_IN_DAYS) exceedsMax = true;
+      else if (unit === "m" && value / (24 * 60) > MAX_JWT_EXPIRES_IN_DAYS) exceedsMax = true;
+      else if (unit === "s" && value / (24 * 60 * 60) > MAX_JWT_EXPIRES_IN_DAYS) exceedsMax = true;
+      if (exceedsMax) {
+        logger.error(
+          `JWT_EXPIRES_IN "${process.env.JWT_EXPIRES_IN}" exceeds the maximum allowed token lifetime of ${MAX_JWT_EXPIRES_IN_DAYS} days.`
+        );
+        process.exit(1);
+      }
+    }
   }
 
   // Fail if JWT_SECRET is missing in any non-development environment.

@@ -17,7 +17,7 @@
 
 import { PrismaClient, Prisma, IdempotencyRecord } from "@prisma/client";
 import { createHash } from "node:crypto";
-import { hashInput, getErrorCode, sanitizeLogMessage, sanitizeForLogOutput, redactSensitiveFieldValues, MAX_SOFT_FAILURE_MESSAGE_SIZE, IDEMPOTENCY_TTL_MS, MAX_IDEMPOTENCY_KEY_LENGTH, SAFE_IDEMPOTENCY_KEY, IDEMPOTENCY_MAX_RETRIES, IDEMPOTENCY_RETRY_BASE_DELAY_MS } from "@besterp/shared";
+import { hashInput, getErrorCode, sanitizeLogMessage, sanitizeForLogOutput, redactSensitiveFieldValues, MAX_SOFT_FAILURE_MESSAGE_SIZE, IDEMPOTENCY_TTL_MS, MAX_IDEMPOTENCY_KEY_LENGTH, SAFE_IDEMPOTENCY_KEY, IDEMPOTENCY_MAX_RETRIES, IDEMPOTENCY_RETRY_BASE_DELAY_MS, IDEMPOTENCY_STALE_PENDING_THRESHOLD_MS } from "@besterp/shared";
 import { ToolMiddleware, ToolResult, ToolContext, ZodSchemaLike } from "../schema/tool-definition.js";
 import { truncateValue, MAX_STORED_PAYLOAD_SIZE, capString, isTruncationMarker } from "./truncate.js";
 
@@ -27,8 +27,10 @@ import { truncateValue, MAX_STORED_PAYLOAD_SIZE, capString, isTruncationMarker }
  * it, the record blocks retries for 24h. A 60-second threshold allows
  * recovery: the stale pending record is atomically reset so the operation
  * can be retried.
+ *
+ * @deprecated Use IDEMPOTENCY_STALE_PENDING_THRESHOLD_MS from @besterp/shared.
  */
-const STALE_PENDING_THRESHOLD_MS = 60_000;
+const STALE_PENDING_THRESHOLD_MS = IDEMPOTENCY_STALE_PENDING_THRESHOLD_MS;
 
 /**
  * Create an idempotency middleware backed by PostgreSQL.
@@ -161,7 +163,12 @@ function delay(ms: number): Promise<void> {
 }
 
 function logIdempotencyWarn(message: string): void {
-  process.stderr.write(`[Idempotency] ${JSON.stringify({ timestamp: new Date().toISOString(), message })}\n`);
+  try {
+    process.stderr.write(`[Idempotency] ${JSON.stringify({ timestamp: new Date().toISOString(), message })}\n`);
+  } catch {
+    // stderr may be closed (e.g., container redirect issue) — suppress to
+    // prevent the warning itself from surfacing as an uncaught exception.
+  }
 }
 
 /**
@@ -393,9 +400,10 @@ function handleExistingRecord(
   return {
     success: false,
     error: {
-      code: "INTERNAL_ERROR",
-      message: "Unexpected idempotency state",
+      code: "IDEMPOTENCY_UNKNOWN_STATUS",
+      message: `Unexpected idempotency status '${existing.status}' for key '${redactKey(idempotencyKey)}'. Retry with a new idempotency key.`,
       suggestedTools: [toolName],
+      context: { status: existing.status },
     },
   };
 }

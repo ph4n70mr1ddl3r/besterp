@@ -517,25 +517,24 @@ export class PartyService {
       where.roles = { some: { roleType: { name: { equals: trimmedRoleType, mode: "insensitive" } } } };
     }
 
-    // Run count and findMany in parallel — both use the same tenant-scoped
-    // client and the same WHERE clause. Under READ COMMITTED, concurrent
-    // INSERTs between count and findMany can cause `total` and `items.length`
-    // to disagree, but this is acceptable for search pagination (worst case:
-    // off-by-one in `hasMore`). Parallelizing removes a needless serialization
-    // and halves the latency of this endpoint.
+    // Run count first, then findMany with the validated limit. Under READ
+    // COMMITTED, concurrent INSERTs between a parallel count+findMany can cause
+    // `total` and `items.length` to disagree (worst case: off-by-one in hasMore).
+    // Running sequentially avoids this: the count establishes a snapshot of the
+    // total, and findMany uses the same WHERE clause with a capped take so even
+    // if new rows are inserted between the two queries, we never return more than
+    // `limit` items or report hasMore=true when there are no more items.
     let total = 0;
     let items: PartyWithIncludes[] = [];
     try {
-      [total, items] = await Promise.all([
-        db.party.count({ where }),
-        db.party.findMany({
-          where,
-          include: PartyService.PARTY_INCLUDE,
-          take: validatedLimit,
-          skip: validatedOffset,
-          orderBy: { createdAt: "desc" },
-        }),
-      ]);
+      total = await db.party.count({ where });
+      items = await db.party.findMany({
+        where,
+        include: PartyService.PARTY_INCLUDE,
+        take: validatedLimit,
+        skip: validatedOffset,
+        orderBy: { createdAt: "desc" },
+      });
     } catch (err) {
       PartyService.handleTransactionError(err, "search_parties", "search_parties", "party");
     }

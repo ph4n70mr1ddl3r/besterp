@@ -9,16 +9,9 @@
 // never break the tool).
 
 import { PrismaClient, Prisma } from "@prisma/client";
-import { getErrorCode, sanitizeLogMessage, sanitizeForLogOutput, MAX_REASONING_LENGTH, MAX_SOFT_FAILURE_MESSAGE_SIZE, redactSensitiveFieldValues } from "@besterp/shared";
+import { getErrorCode, sanitizeLogMessage, sanitizeForLogOutput, MAX_REASONING_LENGTH, MAX_SOFT_FAILURE_MESSAGE_SIZE, redactSensitiveFieldValues, MAX_CONCURRENT_AUDIT_WRITES, MAX_AUDIT_QUEUE_SIZE, AUDIT_WRITE_QUEUE_TIMEOUT_MS } from "@besterp/shared";
 import { ToolMiddleware, ToolContext, ToolResult } from "../schema/tool-definition.js";
 import { truncateValue, capString, MAX_STORED_PAYLOAD_SIZE } from "./truncate.js";
-
-/** Maximum concurrent audit log writes to prevent memory pressure under DB slowdown. */
-const MAX_CONCURRENT_AUDIT_WRITES = 100;
-/** Maximum queued audit entries before dropping to prevent unbounded memory growth. */
-const MAX_AUDIT_QUEUE_SIZE = 1000;
-/** Maximum time (ms) a write can wait in the queue before being dropped. */
-const WRITE_QUEUE_TIMEOUT_MS = 5_000;
 
 /**
  * Create an audit log middleware backed by PostgreSQL.
@@ -57,11 +50,11 @@ function createBaseEntry(context: { agentId?: string; conversationId?: string; r
 
 async function executeAndLog(prisma: PrismaClient, backpressure: BackpressureManager, input: unknown, context: ToolContext, definition: { name: string }, next: (input: unknown, context: ToolContext) => Promise<ToolResult>): Promise<ToolResult> {
   if (!prisma?.aiActionLog) {
-    const warnMeta = {
-      timestamp: new Date().toISOString(),
-      message: "Prisma client not available — skipping audit log",
-    };
-    process.stderr.write(`[AuditLog] ${JSON.stringify(warnMeta)}\n`);
+    try {
+      process.stderr.write(`[AuditLog] ${JSON.stringify({ timestamp: new Date().toISOString(), message: "Prisma client not available — skipping audit log" })}\n`);
+    } catch {
+      // stderr may be closed — suppress to prevent uncaught exception.
+    }
     return next(input, context);
   }
 
@@ -156,15 +149,23 @@ function createBackpressureManager(prisma: PrismaClient): BackpressureManager {
           entry.settled = true;
           const idx = writeQueue.indexOf(entry);
           if (idx !== -1) writeQueue.splice(idx, 1);
-          process.stderr.write(`[AuditLog] Write slot timeout after ${WRITE_QUEUE_TIMEOUT_MS}ms — dropping audit entry\n`);
+        try {
+            process.stderr.write(`[AuditLog] Write slot timeout after ${AUDIT_WRITE_QUEUE_TIMEOUT_MS}ms — dropping audit entry\n`);
+          } catch {
+            // stderr may be closed.
+          }
           resolve({ acquired: false });
-        }, WRITE_QUEUE_TIMEOUT_MS);
+        }, AUDIT_WRITE_QUEUE_TIMEOUT_MS);
         entry.timer.unref();
       } catch {
         // setTimeout can fail under extreme memory pressure — drop immediately
         // rather than leaving the entry in the queue without a timer.
+      try {
         process.stderr.write(`[AuditLog] Failed to create timeout for write slot — dropping audit entry\n`);
-        resolve({ acquired: false });
+      } catch {
+        // stderr may be closed.
+      }
+      resolve({ acquired: false });
         return;
       }
       writeQueue.push(entry);
@@ -173,7 +174,11 @@ function createBackpressureManager(prisma: PrismaClient): BackpressureManager {
 
   function releaseWriteSlot(): void {
     if (activeWrites <= 0) {
-      process.stderr.write(`[AuditLog] releaseWriteSlot called with activeWrites=${activeWrites} — possible double-release, ignoring\n`);
+      try {
+        process.stderr.write(`[AuditLog] releaseWriteSlot called with activeWrites=${activeWrites} — possible double-release, ignoring\n`);
+      } catch {
+        // stderr may be closed.
+      }
       return;
     }
     activeWrites--;
@@ -194,7 +199,11 @@ function createBackpressureManager(prisma: PrismaClient): BackpressureManager {
       if (writeQueue.length >= MAX_AUDIT_QUEUE_SIZE) {
         droppedCount++;
         dropDetected = true;
-        process.stderr.write(`[AuditLog] Queue full (${MAX_AUDIT_QUEUE_SIZE}), dropping audit entry for '${sanitizeLogMessage(entry.toolCalled)}' (total dropped: ${droppedCount})\n`);
+        try {
+          process.stderr.write(`[AuditLog] Queue full (${MAX_AUDIT_QUEUE_SIZE}), dropping audit entry for '${sanitizeLogMessage(entry.toolCalled)}' (total dropped: ${droppedCount})\n`);
+        } catch {
+          // stderr may be closed.
+        }
         return;
       }
       let slotAcquired = false;
@@ -221,7 +230,11 @@ function createBackpressureManager(prisma: PrismaClient): BackpressureManager {
             error: sanitizeForLogOutput(logErr instanceof Error ? logErr.message : String(logErr)),
             totalErrors: errorCount,
           };
-          process.stderr.write(`[AuditLog] ${JSON.stringify(errorMeta)}\n`);
+          try {
+            process.stderr.write(`[AuditLog] ${JSON.stringify(errorMeta)}\n`);
+          } catch {
+            // stderr may be closed.
+          }
         })
         .finally(() => {
           try {

@@ -163,3 +163,25 @@ export const MAX_SOFT_FAILURE_MESSAGE_SIZE = 4096;
  *  token — both defeat the purpose of a short-lived JWT. `validateEnvironment`
  *  (main.ts) tests this pattern before booting, so the cap is enforced there. */
 export const JWT_EXPIRES_IN_REGEX = /^[1-9]\d{0,9}[smhd]$/;
+
+// ─── Middleware Constants ──────────────────────────────────────
+
+/** Threshold after which a "pending" idempotency record is considered stale.
+ *  If the server crashes after creating a pending record but before completing
+ *  it, the record blocks retries for 24h. A 60-second threshold allows recovery. */
+export const IDEMPOTENCY_STALE_PENDING_THRESHOLD_MS = 60_000;
+
+/** Maximum concurrent audit log writes to prevent memory pressure under DB slowdown. */
+export const MAX_CONCURRENT_AUDIT_WRITES = 100;
+
+/** Maximum queued audit entries before dropping to prevent unbounded memory growth. */
+export const MAX_AUDIT_QUEUE_SIZE = 1000;
+
+/** Maximum time (ms) a write can wait in the audit write queue before being dropped. */
+export const AUDIT_WRITE_QUEUE_TIMEOUT_MS = 5_000;
+
+/** Preview length (bytes) when a payload is truncated. */
+export const TRUNCATE_PREVIEW_BYTES = 1024;
+
+/** Maximum allowed JWT token lifetime in days. */
+export const MAX_JWT_EXPIRES_IN_DAYS = 30;

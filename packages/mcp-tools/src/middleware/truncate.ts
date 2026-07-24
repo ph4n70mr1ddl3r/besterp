@@ -15,11 +15,11 @@
 //   `{ _error: "Failed to serialize value" }` — never throw from a middleware
 //   side-effect like audit/idempotency logging.
 
-import { MAX_STORED_PAYLOAD_SIZE, sanitizeForLogOutput } from "@besterp/shared";
+import { MAX_STORED_PAYLOAD_SIZE, sanitizeForLogOutput, TRUNCATE_PREVIEW_BYTES } from "@besterp/shared";
 export { MAX_STORED_PAYLOAD_SIZE };
 
 /** Preview length (bytes) when a payload is truncated. */
-const PREVIEW_BYTES = 1024;
+const PREVIEW_BYTES = TRUNCATE_PREVIEW_BYTES;
 
 /** Shared TextEncoder/TextDecoder instances — avoids allocation in hot paths. */
 const textEncoder = new TextEncoder();
@@ -31,6 +31,16 @@ const textDecoder = new TextDecoder();
  * `10xxxxxx` pattern) so the returned string never ends with a lone
  * replacement character (U+FFFD) from a half-decoded trail.
  *
+ * The loop starts at `sliceEnd` which points to the first byte AFTER the
+ * intended slice (i.e., the first excluded byte). If that byte is a UTF-8
+ * continuation byte, it means the lead byte of the character lies before
+ * `sliceEnd`, so [0, sliceEnd) would cut the character in half — keep walking
+ * backwards until we find a non-continuation byte (or reach 0). When
+ * `sliceEnd === encoded.byteLength`, `encoded[sliceEnd]` is `undefined`, and
+ * `(undefined & 0xC0) !== 0x80` is true, so the loop breaks immediately —
+ * correct behaviour since there is no partial character beyond the end of the
+ * buffer.
+ *
  * Both `capString` and the truncation preview must agree on this behaviour —
  * previously only `capString` walked back, so a preview could end with U+FFFD
  * whenever the byte limit landed mid-character (CJK, emoji, accented chars).
@@ -39,9 +49,10 @@ function safeSliceUtf8(encoded: Uint8Array, byteLimit: number): string {
   let sliceEnd = Math.min(byteLimit, encoded.byteLength);
   while (sliceEnd > 0) {
     const byte = encoded[sliceEnd];
-    // `sliceEnd` points at the first EXCLUDED byte. While it is a UTF-8
-    // continuation byte, the corresponding lead byte lies before `sliceEnd`,
-    // so [0, sliceEnd) would still cut the character in half — keep walking.
+    // `sliceEnd` points at the first EXCLUDED byte (or `undefined` if beyond
+    // the buffer). While it is a UTF-8 continuation byte, the corresponding lead
+    // byte lies before `sliceEnd`, so [0, sliceEnd) would still cut the character
+    // in half — keep walking backwards.
     if (byte === undefined || (byte & 0xC0) !== 0x80) break;
     sliceEnd--;
   }
