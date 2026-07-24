@@ -282,8 +282,18 @@ export class ToolRegistry {
         },
       };
     }
-    const userId = context.userId;
-    if (typeof userId !== "string" || userId.length === 0 || userId.length > MAX_USER_ID_LENGTH || !/^[a-zA-Z0-9_-]+$/.test(userId)) {
+    if (typeof context.userId !== "string") {
+      return {
+        success: false,
+        error: {
+          code: "INVALID_USER_ID",
+          message: "The request user identifier is invalid. Contact the system administrator.",
+          suggestedTools: ["list_available_tools"],
+        },
+      };
+    }
+    const userId = context.userId.trim();
+    if (userId.length === 0 || userId.length > MAX_USER_ID_LENGTH || !/^[a-zA-Z0-9_-]+$/.test(userId)) {
       return {
         success: false,
         error: {

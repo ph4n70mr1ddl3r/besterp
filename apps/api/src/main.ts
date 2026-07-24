@@ -230,11 +230,12 @@ async function bootstrap() {
     next();
   });
 
-  // Limit request body size to 100 KB to prevent DoS via oversized payloads.
+  // Limit request body size to 1 MB to prevent DoS via oversized payloads.
   // Uses the raw express middleware since NestFactory.create({ bodyParser: false })
-  // disables the built-in body parser.
-  app.use(express.json({ limit: "100kb" }));
-  app.use(express.urlencoded({ extended: false, limit: "100kb" }));
+  // disables the built-in body parser. Increased from 100 KB which was too
+  // restrictive for legitimate ERP payloads (multi-line descriptions, contacts).
+  app.use(express.json({ limit: "1mb" }));
+  app.use(express.urlencoded({ extended: false, limit: "1mb" }));
   // Handle body-parser errors with clear messages and appropriate status codes.
   // Express error middleware requires exactly 4 parameters.
   // CORS headers are set here so cross-origin clients can read the error
@@ -252,7 +253,7 @@ async function bootstrap() {
       setCorsHeaders(res, origin);
       res.status(413).json({
         statusCode: 413,
-        message: "Request body exceeds the 100 KB limit. Reduce payload size and retry.",
+        message: "Request body exceeds the 1 MB limit. Reduce payload size and retry.",
       });
     } else if (err.type === "entity.parse.failed") {
       setCorsHeaders(res, origin);

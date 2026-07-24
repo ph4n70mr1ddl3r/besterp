@@ -1,7 +1,13 @@
 // Unit tests for PrismaService
 // Tests tenant client caching, eviction, destroyed guard, and lifecycle
 
-import { describe, it, expect, vi, beforeEach, afterAll } from "vitest";
+import { describe, it, expect, vi, beforeAll, beforeEach, afterAll } from "vitest";
+
+// Set env vars before PrismaService is imported so the constructor's
+// DATABASE_ADMIN_URL check passes in test mode.
+process.env.NODE_ENV = "test";
+process.env.DATABASE_URL = "postgresql://test@localhost:5432/test";
+process.env.DATABASE_ADMIN_URL = "postgresql://admin@localhost:5432/test";
 
 // PrismaService extends PrismaClient, which requires a datasource.
 // We mock the PrismaClient constructor to avoid needing a real DB.

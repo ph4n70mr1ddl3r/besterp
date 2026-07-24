@@ -96,10 +96,18 @@ function serializeCause(cause: unknown): unknown {
     return sanitizeForLogOutput(cause.message);
   }
   // Non-Error causes (objects, arrays, etc.) may contain useful diagnostic
-  // info. Run them through redactSensitiveFieldValues to preserve structure
-  // while redacting secrets, rather than discarding with a placeholder.
+  // info. Serialize to JSON and run through sanitizeForLogOutput (which
+  // strips URLs, paths, secrets, and ANSI) to prevent leaking embedded
+  // connection strings or tokens in durable sinks. Cap length to prevent
+  // oversized cause objects from bloating error output.
   if (typeof cause === "object") {
-    return redactSensitiveFieldValues(cause);
+    let serialized: string;
+    try {
+      serialized = JSON.stringify(cause);
+    } catch {
+      return "[Non-serializable cause]";
+    }
+    return `[${sanitizeForLogOutput(serialized).slice(0, 500)}]`;
   }
   return "[Non-error cause]";
 }

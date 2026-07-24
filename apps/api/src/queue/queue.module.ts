@@ -10,6 +10,7 @@
 
 import { DynamicModule, Logger, Module } from "@nestjs/common";
 import { BullModule } from "@nestjs/bullmq";
+import { sanitizeForLogOutput } from "@besterp/shared";
 
 export interface QueueModuleOptions {
   redis: {
@@ -113,7 +114,7 @@ export class QueueModule {
       // loudly instead of being retried blindly 10× then dying silently.
       this.logger.error(
         `Redis connection failed after ${MAX_RETRIES} retries — aborting.` +
-        (err?.message ? ` Last error: ${err.message}` : ""),
+        (err?.message ? ` Last error: ${sanitizeForLogOutput(err.message)}` : ""),
       );
       return undefined;
     }

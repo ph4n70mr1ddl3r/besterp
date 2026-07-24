@@ -579,7 +579,7 @@ export class PartyService {
       partyRoleId: role.partyRoleId,
       partyId: role.partyId,
       roleTypeName: role.roleType.name,
-      fromDate: role.fromDate?.toISOString() ?? "",
+      fromDate: role.fromDate ? role.fromDate.toISOString() : new Date().toISOString(),
       thruDate: role.thruDate?.toISOString() ?? null,
     };
   }
@@ -655,22 +655,46 @@ export class PartyService {
           throw new EntityNotFoundError(`Party '${partyId}' not found.`, { suggestedTools: ["search_parties", "get_party"], context: { partyId } });
         }
 
-        const existingRole = await tx.partyRole.findFirst({
-          where: { partyId, roleTypeId, thruDate: null, party: { tenantId } },
-        });
-        if (existingRole) {
-          const fromDate = existingRole.fromDate?.toISOString() ?? "";
-          throw new DuplicateEntityError(
-            `Party '${partyId}' already has active role '${trimmedRoleType}'. Existing role started on ${fromDate}. ` +
-            `To change a party's role, first end the current role by setting a thruDate, then re-call add_party_role.`,
-            { suggestedTools: ["get_party"], context: { partyId, roleType: trimmedRoleType, existingRoleId: existingRole.partyRoleId, existingRoleDate: fromDate } }
+        // Use INSERT ... ON CONFLICT to atomically check for duplicates and
+        // insert. This avoids the find-then-create race where two concurrent
+        // transactions both pass the findFirst check before either inserts.
+        // The DB constraint party_active_role_unique catches duplicates, but
+        // using ON CONFLICT gives us a clean error path without relying on
+        // post-hoc constraint violation handling.
+        const result = await tx.$queryRaw<{ partyRoleId: string; fromDate: Date; thruDate: Date | null }[]>`
+          INSERT INTO "party_role" ("partyId", "roleTypeId", "fromDate")
+          VALUES (${partyId}, ${roleTypeId}, ${roleFromDate})
+          ON CONFLICT DO NOTHING
+          RETURNING "partyRoleId", "fromDate", "thruDate"
+        `;
+
+        if (result.length === 0) {
+          // A concurrent transaction or pre-existing row blocked the insert.
+          // Re-check for an existing active role to give a precise error.
+          const existingRole = await tx.partyRole.findFirst({
+            where: { partyId, roleTypeId, thruDate: null, party: { tenantId } },
+          });
+          if (existingRole) {
+            const fromDate = existingRole.fromDate ? existingRole.fromDate.toISOString() : new Date().toISOString();
+            throw new DuplicateEntityError(
+              `Party '${partyId}' already has active role '${trimmedRoleType}'. Existing role started on ${fromDate}. ` +
+              `To change a party's role, first end the current role by setting a thruDate, then re-call add_party_role.`,
+              { suggestedTools: ["get_party"], context: { partyId, roleType: trimmedRoleType, existingRoleId: existingRole.partyRoleId, existingRoleDate: fromDate } }
+            );
+          }
+          // No existing role found — a concurrent transaction won the race.
+          // Retry the transaction (the caller's outer catch will handle P2034).
+          throw new Prisma.PrismaClientKnownRequestError(
+            "Transaction conflict — retry the operation.",
+            { code: "P2034", meta: {}, clientVersion: "0.0.0" }
           );
         }
 
-        return tx.partyRole.create({
-          data: { partyId, roleTypeId, fromDate: roleFromDate },
+        // Fetch the full role with relation data for the return value.
+        return tx.partyRole.findUnique({
+          where: { partyRoleId: result[0]!.partyRoleId },
           include: { roleType: true },
-        });
+        }) as Promise<Prisma.PartyRoleGetPayload<{ include: { roleType: true } }>>;
       }, { timeout: TX_TIMEOUT_MS });
     } catch (err) {
       PartyService.handleTransactionError(err, "add_party_role", "get_party", "party role");
@@ -1077,7 +1101,7 @@ export class PartyService {
       roles: (party.roles ?? []).map((r) => ({
         partyRoleId: r.partyRoleId,
         roleTypeName: r.roleType?.name ? stripHtmlTags(r.roleType.name) : "UNKNOWN",
-        fromDate: r.fromDate?.toISOString() ?? "",
+        fromDate: r.fromDate ? r.fromDate.toISOString() : new Date().toISOString(),
         thruDate: r.thruDate?.toISOString() ?? null,
       })),
       createdAt: party.createdAt ? party.createdAt.toISOString() : null,

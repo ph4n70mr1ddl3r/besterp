@@ -742,9 +742,9 @@ describe("PartyService", () => {
         $transaction: vi.fn().mockImplementation(async (fn) => {
           const tx = {
             party: { findUnique: vi.fn().mockResolvedValue({ partyId: "12345678-1234-1234-1234-123456789abc" }) },
+            $queryRaw: vi.fn().mockResolvedValue([{ partyRoleId: "role-123", fromDate: new Date(), thruDate: null }]),
             partyRole: {
-              findFirst: vi.fn().mockResolvedValue(null),
-              create: vi.fn().mockResolvedValue({
+              findUnique: vi.fn().mockResolvedValue({
                 partyRoleId: "role-123",
                 partyId: "12345678-1234-1234-1234-123456789abc",
                 roleTypeId: "rt-customer",
@@ -780,6 +780,7 @@ describe("PartyService", () => {
         $transaction: vi.fn().mockImplementation(async (fn) => {
           const tx = {
             party: { findUnique: vi.fn().mockResolvedValue({ partyId: "12345678-1234-1234-1234-123456789abc" }) },
+            $queryRaw: vi.fn().mockResolvedValue([]),
             partyRole: {
               findFirst: vi.fn().mockResolvedValue({
                 partyRoleId: "existing-role",
@@ -816,6 +817,7 @@ describe("PartyService", () => {
         $transaction: vi.fn().mockImplementation(async (fn) => {
           const tx = {
             party: { findUnique: vi.fn().mockResolvedValue({ partyId: "12345678-1234-1234-1234-123456789abc" }) },
+            $queryRaw: vi.fn().mockResolvedValue([]),
             partyRole: {
               findFirst: vi.fn().mockResolvedValue({
                 partyRoleId: "existing-role",
@@ -968,9 +970,9 @@ describe("PartyService", () => {
         $transaction: vi.fn().mockImplementation(async (fn) => {
           const tx = {
             party: { findUnique: vi.fn().mockResolvedValue({ partyId: "12345678-1234-1234-1234-123456789abc" }) },
+            $queryRaw: vi.fn().mockResolvedValue([{ partyRoleId: "role-123", fromDate: new Date(), thruDate: null }]),
             partyRole: {
-              findFirst: vi.fn().mockResolvedValue(null),
-              create: vi.fn().mockResolvedValue({
+              findUnique: vi.fn().mockResolvedValue({
                 partyRoleId: "role-123",
                 partyId: "12345678-1234-1234-1234-123456789abc",
                 roleTypeId: "rt-customer",
@@ -1071,9 +1073,9 @@ describe("PartyService", () => {
         $transaction: vi.fn().mockImplementation(async (fn) => {
           const tx = {
             party: { findUnique: vi.fn().mockResolvedValue({ partyId: "12345678-1234-1234-1234-123456789abc" }) },
+            $queryRaw: vi.fn().mockResolvedValue([{ partyRoleId: "role-123", fromDate: new Date(), thruDate: null }]),
             partyRole: {
-              findFirst: vi.fn().mockResolvedValue(null),
-              create: vi.fn().mockResolvedValue({
+              findUnique: vi.fn().mockResolvedValue({
                 partyRoleId: "role-123",
                 partyId: "12345678-1234-1234-1234-123456789abc",
                 roleTypeId: "rt-customer",
@@ -1104,9 +1106,9 @@ describe("PartyService", () => {
         $transaction: vi.fn().mockImplementation(async (fn) => {
           const tx = {
             party: { findUnique: vi.fn().mockResolvedValue({ partyId: "12345678-1234-1234-1234-123456789abc" }) },
+            $queryRaw: vi.fn().mockResolvedValue([{ partyRoleId: "role-123", fromDate: new Date("2024-06-15"), thruDate: null }]),
             partyRole: {
-              findFirst: vi.fn().mockResolvedValue(null),
-              create: vi.fn().mockResolvedValue({
+              findUnique: vi.fn().mockResolvedValue({
                 partyRoleId: "role-123",
                 partyId: "12345678-1234-1234-1234-123456789abc",
                 roleTypeId: "rt-customer",

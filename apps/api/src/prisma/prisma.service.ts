@@ -62,9 +62,19 @@ export class PrismaService
   private readonly maxDelegateCacheSize: number;
 
   constructor() {
-    // Base client uses admin URL for migrations, seed, cross-tenant ops
+    // Base client uses admin URL for migrations, seed, cross-tenant ops.
+    // Do NOT fall back to DATABASE_URL — the admin client must bypass RLS.
+    // If DATABASE_ADMIN_URL is missing, audit logs and idempotency writes
+    // would silently fail with RLS violations when using the app role.
+    const adminUrl = process.env.DATABASE_ADMIN_URL?.trim();
+    if (!adminUrl && process.env.NODE_ENV !== "development") {
+      throw new Error(
+        "DATABASE_ADMIN_URL is not set. The admin client requires a superuser " +
+        "connection string to bypass RLS for audit/idempotency operations."
+      );
+    }
     super({
-      datasourceUrl: process.env.DATABASE_ADMIN_URL || process.env.DATABASE_URL,
+      datasourceUrl: adminUrl ?? process.env.DATABASE_URL,
       log: [
         { emit: "stdout", level: "warn" },
         { emit: "stdout", level: "error" },

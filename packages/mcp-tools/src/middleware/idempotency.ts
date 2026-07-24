@@ -271,10 +271,11 @@ async function acquireIdempotencyRecord(
       continue;
     }
   }
-  // Exhausted all retries — surface contention rather than a silent fallthrough.
-  // The for-loop always returns via try/catch, but TS needs an unconditional
-  // return after the loop for flow analysis (TS2366).
-  return { existingRecord: null, recordCreated: false, unavailable: false };
+  // Exhausted all retries due to P2034 serialization failures — the record
+  // was never created and no existing record was found. Return unavailable: true
+  // so the caller surfaces SERVICE_UNAVAILABLE (correct: this is an infrastructure
+  // issue, not a contention issue that a new key would fix).
+  return { existingRecord: null, recordCreated: false, unavailable: true };
 }
 
 function handleExistingRecord(
@@ -439,9 +440,22 @@ async function executeAndUpdate(
     try {
       await updateIdempotencyRecordWithRetry(prisma, idempotencyKey, tenantId, failedResult, true);
     } catch {
-      logIdempotencyWarn(
-        `Failed to persist error result for idempotency key '${redactKey(idempotencyKey)}' — original error will propagate`
-      );
+      // Belt-and-suspenders: if updating the idempotency record as "failed"
+      // itself fails (e.g. P2034 or transient DB error), try a best-effort
+      // reset so the pending record does not block future retries for up to
+      // STALE_PENDING_THRESHOLD_MS (60s). Without this, a stuck "pending"
+      // row would prevent the agent from retrying with the same key even
+      // though the operation genuinely failed.
+      try {
+        await prisma.idempotencyRecord.update({
+          where: { idempotencyKey_tenantId: { idempotencyKey, tenantId } },
+          data: { status: "failed", completedAt: new Date(), error: Prisma.DbNull },
+        });
+      } catch {
+        logIdempotencyWarn(
+          `Failed to persist error result for idempotency key '${redactKey(idempotencyKey)}' and could not reset state — original error will propagate`
+        );
+      }
     }
     throw error;
   }
