@@ -32,7 +32,7 @@ function normalizeEnvironment(): void {
   }
 }
 
-function validateEnvironment(): void {
+function validateRequiredEnvVars(): void {
   const requiredInProduction = ["DATABASE_URL", "DATABASE_ADMIN_URL", "JWT_SECRET"];
   const missing = requiredInProduction.filter((v) => !process.env[v]);
   if (missing.length > 0 && process.env.NODE_ENV === "production") {
@@ -42,7 +42,15 @@ function validateEnvironment(): void {
   if (!process.env.DATABASE_URL && process.env.NODE_ENV !== "production") {
     logger.warn("DATABASE_URL not set — database operations will fail. Set DATABASE_URL before running the API.");
   }
+}
 
+function validateJwtConfig(): void {
+  validateJwtExpiresIn();
+  validateJwtSecretPresence();
+  validateJwtSecretStrength();
+}
+
+function validateJwtExpiresIn(): void {
   // Validate JWT_EXPIRES_IN format if provided.
   if (process.env.JWT_EXPIRES_IN && !JWT_EXPIRES_IN_REGEX.test(process.env.JWT_EXPIRES_IN)) {
     logger.error(
@@ -71,7 +79,9 @@ function validateEnvironment(): void {
       }
     }
   }
+}
 
+function validateJwtSecretPresence(): void {
   // Fail if JWT_SECRET is missing in any non-development environment.
   // In development, a random ephemeral secret is generated instead.
   if (!process.env.JWT_SECRET && process.env.NODE_ENV !== "development") {
@@ -81,7 +91,9 @@ function validateEnvironment(): void {
     );
     process.exit(1);
   }
+}
 
+function validateJwtSecretStrength(): void {
   // Validate JWT_SECRET strength if provided.
   if (process.env.JWT_SECRET) {
     const secret = process.env.JWT_SECRET;
@@ -102,12 +114,20 @@ function validateEnvironment(): void {
       );
     }
   }
+}
 
+function validateRedisConfig(): void {
   const REDIS_WARN_VARS = ["REDIS_HOST", "REDIS_PORT"];
   const missingRedis = REDIS_WARN_VARS.filter((v) => !process.env[v]);
   if (missingRedis.length > 0 && process.env.NODE_ENV === "production") {
     logger.warn(`Missing Redis env vars: ${missingRedis.join(", ")}. Queues and background jobs will fail.`);
   }
+}
+
+function validateEnvironment(): void {
+  validateRequiredEnvVars();
+  validateJwtConfig();
+  validateRedisConfig();
 }
 
 function setupGracefulShutdown(app: INestApplication): void {

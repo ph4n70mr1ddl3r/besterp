@@ -23,7 +23,7 @@ export class PrismaService
   implements OnModuleInit, OnModuleDestroy
 {
   private readonly logger = new Logger(PrismaService.name);
-  private readonly _appClient: PrismaClient;
+  private _appClient!: PrismaClient;
   private _destroyed = false;
   /** Cache of tenant-scoped Proxy clients to avoid GC pressure from repeated creation. */
   private readonly tenantClientCache = new Map<string, WeakRef<TenantScopedClient>>();
@@ -58,14 +58,24 @@ export class PrismaService
   private cacheMisses = 0;
 
   // Cache sizes — configurable via env vars for tuning in production
-  private readonly maxMethodCacheSize: number;
-  private readonly maxDelegateCacheSize: number;
+  private maxMethodCacheSize!: number;
+  private maxDelegateCacheSize!: number;
 
   constructor() {
-    // Base client uses admin URL for migrations, seed, cross-tenant ops.
-    // Do NOT fall back to DATABASE_URL — the admin client must bypass RLS.
-    // If DATABASE_ADMIN_URL is missing, audit logs and idempotency writes
-    // would silently fail with RLS violations when using the app role.
+    super({
+      datasourceUrl: PrismaService.resolveAdminUrl(),
+      log: [
+        { emit: "stdout", level: "warn" },
+        { emit: "stdout", level: "error" },
+      ],
+    });
+    this.validateAppClientEnv();
+    this.initializeAppClient();
+    this.initializeCacheSizes();
+  }
+
+  /** Resolve the admin datasource URL, failing closed in production. */
+  private static resolveAdminUrl(): string | undefined {
     const adminUrl = process.env.DATABASE_ADMIN_URL?.trim();
     if (!adminUrl && process.env.NODE_ENV !== "development") {
       throw new Error(
@@ -73,10 +83,7 @@ export class PrismaService
         "connection string to bypass RLS for audit/idempotency operations."
       );
     }
-    // In development, warn loudly (not just log) if DATABASE_ADMIN_URL is
-    // missing so the silent-audit-data-loss path is surfaced immediately.
     if (!adminUrl && process.env.NODE_ENV === "development") {
-      // eslint-disable-next-line no-console
       console.error(
         "WARNING: DATABASE_ADMIN_URL is not set in development — the admin " +
         "client falls back to DATABASE_URL. Audit logs and idempotency records " +
@@ -85,15 +92,11 @@ export class PrismaService
         "string or accept that audit data will not persist.\n"
       );
     }
-    super({
-      datasourceUrl: adminUrl ?? process.env.DATABASE_URL,
-      log: [
-        { emit: "stdout", level: "warn" },
-        { emit: "stdout", level: "error" },
-      ],
-    });
+    return adminUrl ?? process.env.DATABASE_URL;
+  }
 
-    // App client uses the non-superuser URL for RLS-enforced operations
+  /** Validate that required env vars are present for the app client. */
+  private validateAppClientEnv(): void {
     if (!process.env.DATABASE_URL) {
       if (process.env.NODE_ENV === "production") {
         throw new Error(
@@ -119,6 +122,10 @@ export class PrismaService
         "Set DATABASE_ADMIN_URL before running the API."
       );
     }
+  }
+
+  /** Initialize the RLS-enforced app client. */
+  private initializeAppClient(): void {
     this._appClient = new PrismaClient({
       datasourceUrl: process.env.DATABASE_URL, // must be the besterp_app role
       log: [
@@ -126,10 +133,10 @@ export class PrismaService
         { emit: "stdout", level: "error" },
       ],
     });
+  }
 
-    // Read cache sizes from env with defaults — clamp to [1, 100_000] to
-    // prevent negative values (invalid LRU caches) and absurdly large values
-    // (memory exhaustion). 100K entries is far above any realistic workload.
+  /** Read and clamp cache size env vars to valid ranges. */
+  private initializeCacheSizes(): void {
     const rawMethodCache = process.env.PRISMA_MAX_METHOD_CACHE_SIZE;
     if (rawMethodCache && Number.isNaN(Number(rawMethodCache))) {
       this.logger.warn(`PRISMA_MAX_METHOD_CACHE_SIZE="${rawMethodCache}" is not a valid number — using default ${DEFAULT_MAX_METHOD_CACHE_SIZE}.`);
