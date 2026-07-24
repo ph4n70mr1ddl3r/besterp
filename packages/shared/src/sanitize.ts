@@ -309,14 +309,13 @@ export function sanitizeForLogOutput(message: string): string {
     // from re-redacting an already-inserted `[REDACTED_…]` placeholder
     // (e.g. the Slack/GitHub prefix rules above) into `[[REDACTED_TOKEN]]`.
     //
-    // Two-pass approach avoids the ReDoS of the previous triple-lookaround
-    // regex (three overlapping lookarounds on the same character class with
-    // `{20,}` unbounded quantifier caused catastrophic backtracking on long
-    // strings with no match). Pass 1: match any run of 20+ chars from the
-    // token charset. Pass 2: post-filter for uppercase/punctuation presence
-    // so purely lowercase-hex strings (dashless UUIDs, hashes) and
-    // all-lowercase runs (obviously benign prose) are spared.
-    .replace(/[A-Za-z0-9_./+=-]{20,}/g, (match) => {
+    // The quantifier is bounded to {20,128} (not unbounded {20,}) so the
+    // regex engine never backtracks over arbitrarily long non-matching
+    // strings — a 10 KB all-lowercase run would trigger O(n²) backtracking
+    // with {20,} but is linear with {20,128}. Strings longer than 128 chars
+    // of the token charset fall through to the callback where they are
+    // either accepted (benign) or rejected (high-entropy).
+    .replace(/[A-Za-z0-9_./+=-]{20,128}/g, (match) => {
       // Already-redacted placeholders are not re-consumed.
       if (match.includes("REDACTED")) return match;
       // Purely lowercase runs (prose, repeated chars) are benign.

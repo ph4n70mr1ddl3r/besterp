@@ -10,6 +10,7 @@ import "reflect-metadata";
 import { NestFactory, DiscoveryService } from "@nestjs/core";
 import { Logger, ValidationPipe, type INestApplication } from "@nestjs/common";
 import helmet from "helmet";
+import rateLimit from "express-rate-limit";
 import { sanitizeForLogOutput, JWT_EXPIRES_IN_REGEX } from "@besterp/shared";
 import { isWeakSecret, MIN_JWT_SECRET_LENGTH } from "./auth/secret-strength.js";
 import { AppModule } from "./app.module.js";
@@ -209,6 +210,31 @@ async function bootstrap() {
   setupGracefulShutdown(app);
 
   app.setGlobalPrefix("api");
+
+  // Rate limiting — protects against brute-force auth attacks, MCP tool
+  // exhaustion, and scraping of public endpoints. Uses a sliding window
+  // approach so bursts are smoothed over time rather than allowing a full
+  // quota every N seconds.
+  const generalLimiter = rateLimit({
+    windowMs: (process.env.RATE_LIMIT_WINDOW_MS ? Number(process.env.RATE_LIMIT_WINDOW_MS) : 60_000),
+    max: process.env.RATE_LIMIT_MAX_PER_WINDOW ? Number(process.env.RATE_LIMIT_MAX_PER_WINDOW) : 300,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { statusCode: 429, message: "Rate limit exceeded. Please slow down and retry." },
+    skipFailedRequests: true,
+  });
+  app.use(generalLimiter);
+
+  // Stricter limiter for authentication endpoints to prevent brute-force attacks
+  const authLimiter = rateLimit({
+    windowMs: (process.env.AUTH_RATE_LIMIT_WINDOW_MS ? Number(process.env.AUTH_RATE_LIMIT_WINDOW_MS) : 15 * 60_000),
+    max: process.env.AUTH_RATE_LIMIT_MAX ? Number(process.env.AUTH_RATE_LIMIT_MAX) : 20,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { statusCode: 429, message: "Too many authentication attempts. Please try again later." },
+    skipFailedRequests: true,
+  });
+  app.use("/api/auth/login", authLimiter);
 
   // Helmet security headers — register as early as possible so error
   // responses from subsequent middleware also carry security headers.

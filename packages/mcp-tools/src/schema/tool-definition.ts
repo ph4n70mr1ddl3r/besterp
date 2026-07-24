@@ -135,14 +135,12 @@ export interface ToolDefinition<TResult = unknown> {
    * The actual tool handler — pure business logic.
    * Receives validated input and context, returns a result.
    *
-   * The input parameter is typed as `any` because TypeScript's strict
-   * function parameter checking prevents assigning `(input: SpecificType, ...)`
-   * to `(input: unknown, ...)`. The handler receives Zod-validated data at
-   * runtime — the `inputSchema` field (typed as `ZodSchemaLike`) is the
-   * actual compile-time + runtime type safety boundary.
+   * The input parameter is typed as `unknown` because handlers receive
+   * Zod-validated data at runtime via `inputSchema.safeParse()`. Consumers
+   * cast the input to their specific type within the handler body — this
+   * preserves compile-time safety while avoiding `any`.
    */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  handler: (input: any, context: ToolContext) => Promise<ToolResult<TResult>>;
+  handler: (input: unknown, context: ToolContext) => Promise<ToolResult<TResult>>;
 }
 
 // ─── Middleware ────────────────────────────────────────────────────

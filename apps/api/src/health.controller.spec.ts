@@ -18,6 +18,7 @@ describe("HealthController", () => {
         uptime: 1000,
         environment: "test",
         database: "connected",
+        redis: "not_configured",
         memory: { heapUsed: 100, heapTotal: 200, rss: 150, heapPercentage: 50 },
       };
 
@@ -53,6 +54,7 @@ describe("HealthController", () => {
         uptime: 500,
         environment: "test",
         database: "disconnected",
+        redis: "not_configured",
         memory: { heapUsed: 100, heapTotal: 200, rss: 150, heapPercentage: 50 },
       };
 
@@ -124,6 +126,7 @@ describe("HealthController", () => {
           uptime: 1000,
           environment: "test",
           database: "connected",
+          redis: "not_configured",
           memory: { heapUsed: 100, heapTotal: 200, rss: 150, heapPercentage: 50 },
         }),
         getVersion: vi.fn(),
@@ -143,6 +146,7 @@ describe("HealthController", () => {
           uptime: 1000,
           environment: "test",
           database: "disconnected",
+          redis: "not_configured",
           memory: { heapUsed: 100, heapTotal: 200, rss: 150, heapPercentage: 50 },
         }),
         getVersion: vi.fn(),
@@ -201,6 +205,7 @@ describe("HealthController", () => {
           uptime: 1000,
           environment: "test",
           database: "connected",
+          redis: "not_configured",
           memory: { heapUsed: 100, heapTotal: 200, rss: 150, heapPercentage: 50 },
         }),
         getVersion: vi.fn(),
@@ -227,6 +232,7 @@ describe("HealthController", () => {
           uptime: 1000,
           environment: "test",
           database: "disconnected",
+          redis: "not_configured",
           memory: { heapUsed: 100, heapTotal: 200, rss: 150, heapPercentage: 50 },
         }),
         getVersion: vi.fn(),

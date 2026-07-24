@@ -303,7 +303,8 @@ For idempotent writes, pass an idempotencyKey (string, max 500 chars) along with
   entity: "party",
   tags: ["party", "create", "core"],
 
-  handler: async (input: CreatePartyInput_z, context: ToolContext) => {
+  handler: async (inputRaw: unknown, context: ToolContext) => {
+    const input = inputRaw as CreatePartyInput_z;
     const svc = getPartyService(context);
     const party = await svc.createParty({
       tenantId: context.tenantId,
@@ -341,7 +342,8 @@ Returns full party details. Use this to inspect a specific party's information.`
   entity: "party",
   tags: ["party", "read", "core"],
 
-  handler: async (input: { partyId: string }, context: ToolContext) => {
+  handler: async (inputRaw: unknown, context: ToolContext) => {
+    const input = inputRaw as { partyId: string };
     const svc = getPartyService(context);
     const party = await svc.getParty(context.tenantId, input.partyId);
     return {
@@ -380,7 +382,8 @@ Use this to find customers, suppliers, or any party by name, type, or role.`,
   entity: "party",
   tags: ["party", "search", "core"],
 
-  handler: async (input: SearchPartiesInput_z, context: ToolContext) => {
+  handler: async (inputRaw: unknown, context: ToolContext) => {
+    const input = inputRaw as SearchPartiesInput_z;
     const svc = getPartyService(context);
     const result = await svc.searchParties({
       ...input,
@@ -428,7 +431,8 @@ For idempotent writes, pass an idempotencyKey (string, max 500 chars) along with
   entity: "party",
   tags: ["party", "role", "update"],
 
-  handler: async (input: AddPartyRoleInput_z, context: ToolContext) => {
+  handler: async (inputRaw: unknown, context: ToolContext) => {
+    const input = inputRaw as AddPartyRoleInput_z;
     const svc = getPartyService(context);
     const result = await svc.addPartyRole({
       tenantId: context.tenantId,
@@ -490,7 +494,8 @@ For idempotent writes, pass an idempotencyKey (string, max 500 chars) along with
   entity: "party",
   tags: ["party", "contact", "create"],
 
-  handler: async (input: AddContactMechanismInput_z, context: ToolContext) => {
+  handler: async (inputRaw: unknown, context: ToolContext) => {
+    const input = inputRaw as AddContactMechanismInput_z;
     const svc = getPartyService(context);
     const result = await svc.addContactMechanism({
       tenantId: context.tenantId,

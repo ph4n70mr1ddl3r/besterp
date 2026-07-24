@@ -18,6 +18,7 @@ export interface HealthStatus {
   uptime: number;
   environment: string;
   database: "connected" | "disconnected";
+  redis: "connected" | "disconnected" | "not_configured";
   memory: {
     heapUsed: number;
     heapTotal: number;
@@ -115,6 +116,42 @@ export class HealthService implements OnModuleInit {
       databaseStatus = "disconnected";
     }
 
+    // Check Redis connectivity if configured
+    let redisStatus: "connected" | "disconnected" | "not_configured" = "not_configured";
+    if (process.env.REDIS_HOST) {
+      try {
+        // Use a simple TCP check via net.Socket to avoid adding a Redis client
+        // dependency just for the health check. A successful connect means Redis
+        // is reachable; we do NOT send AUTH/PING because the credentials may not
+        // be available here and a failed auth would falsely report "disconnected".
+        const net = await import("node:net");
+        await new Promise<void>((resolve, reject) => {
+          const socket = new net.Socket();
+          const timeout = setTimeout(() => {
+            socket.destroy();
+            reject(new Error("Redis connection timed out"));
+          }, 2000);
+          socket.on("connect", () => {
+            clearTimeout(timeout);
+            socket.destroy();
+            resolve();
+          });
+          socket.on("error", (err) => {
+            clearTimeout(timeout);
+            reject(err);
+          });
+          socket.connect(
+            Number(process.env.REDIS_PORT || 6379),
+            String(process.env.REDIS_HOST),
+          );
+        });
+        redisStatus = "connected";
+      } catch {
+        this.logger.warn("Redis health check failed — background jobs may not work");
+        redisStatus = "disconnected";
+      }
+    }
+
     // Get memory usage — track heap metrics consistently
     const memoryUsage = process.memoryUsage();
     const heapUsed = Math.round(memoryUsage.heapUsed / 1024 / 1024);      // MB
@@ -122,7 +159,7 @@ export class HealthService implements OnModuleInit {
     const rss = Math.round(memoryUsage.rss / 1024 / 1024);                // MB (total OS memory)
     const heapPercentage = heapTotal > 0 ? Math.round((heapUsed / heapTotal) * 100) : 0;
 
-    const overallStatus: "ok" | "error" = databaseStatus === "connected" ? "ok" : "error";
+    const overallStatus: "ok" | "error" = databaseStatus === "connected" && redisStatus !== "disconnected" ? "ok" : "error";
 
     return {
       status: overallStatus,
@@ -130,6 +167,7 @@ export class HealthService implements OnModuleInit {
       uptime,
       environment,
       database: databaseStatus,
+      redis: redisStatus,
       memory: {
         heapUsed,
         heapTotal,

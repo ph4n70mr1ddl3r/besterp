@@ -83,6 +83,20 @@ async function executeAndLog(prisma: PrismaClient, backpressure: BackpressureMan
 
   backpressure.log({ ...base, toolOutput: result.data ?? null });
 
+  // If audit entries were dropped due to backpressure, surface a non-fatal
+  // warning to the agent so it knows the durable audit trail has a gap. This
+  // is critical for compliance-sensitive ERP systems where silent audit loss
+  // is a regulatory issue. The warning does NOT affect success/data — the
+  // tool still completed successfully; only the audit side-effect was lost.
+  if (backpressure.wasDropDetected()) {
+    result = {
+      ...result,
+      data: result.data != null
+        ? { _auditWarning: "Some audit log entries were dropped due to high load. The operation succeeded but the durable audit trail may be incomplete.", ...(result.data as Record<string, unknown>) }
+        : { _auditWarning: "Some audit log entries were dropped due to high load. The operation succeeded but the durable audit trail may be incomplete." },
+    };
+  }
+
   // The success payload returned to the AI agent must be redacted the SAME
   // way the durable sinks (audit row via truncateValue(redactSensitiveFields…)
   // and idempotency replay via redactSensitiveFields) are. Without this, a
@@ -114,6 +128,7 @@ async function executeAndLog(prisma: PrismaClient, backpressure: BackpressureMan
 interface BackpressureManager {
   log(entry: AuditLogEntry): void;
   getStats(): { activeWrites: number; queueLength: number; droppedCount: number; errorCount: number };
+  wasDropDetected(): boolean;
 }
 
 function createBackpressureManager(prisma: PrismaClient): BackpressureManager {
@@ -126,6 +141,7 @@ function createBackpressureManager(prisma: PrismaClient): BackpressureManager {
   const writeQueue: QueueEntry[] = [];
   let droppedCount = 0;
   let errorCount = 0;
+  let dropDetected = false;
 
   function acquireWriteSlot(): Promise<{ acquired: boolean }> {
     if (activeWrites < MAX_CONCURRENT_AUDIT_WRITES) {
@@ -177,6 +193,7 @@ function createBackpressureManager(prisma: PrismaClient): BackpressureManager {
     log(entry: AuditLogEntry): void {
       if (writeQueue.length >= MAX_AUDIT_QUEUE_SIZE) {
         droppedCount++;
+        dropDetected = true;
         process.stderr.write(`[AuditLog] Queue full (${MAX_AUDIT_QUEUE_SIZE}), dropping audit entry for '${sanitizeLogMessage(entry.toolCalled)}' (total dropped: ${droppedCount})\n`);
         return;
       }
@@ -216,6 +233,11 @@ function createBackpressureManager(prisma: PrismaClient): BackpressureManager {
     },
     getStats() {
       return { activeWrites, queueLength: writeQueue.length, droppedCount, errorCount };
+    },
+    wasDropDetected() {
+      const detected = dropDetected;
+      dropDetected = false;
+      return detected;
     },
   };
 }

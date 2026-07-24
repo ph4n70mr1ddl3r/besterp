@@ -209,8 +209,7 @@ function createModelDelegateProxy(
         );
       }
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const originalFn = (modelTarget as any)[method];
+      const originalFn = (modelTarget as Record<string, unknown>)[method];
       if (typeof originalFn !== "function") return originalFn;
       if (!DATA_METHODS.has(method)) return originalFn;
 
@@ -221,10 +220,9 @@ function createModelDelegateProxy(
       const wrapped = async function (this: unknown, ...args: unknown[]) {
         return prisma.$transaction(async (tx) => {
           await setTenantContext(tx, tenantId);
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const txDelegate = (tx as any)[modelName];
+          const txDelegate = (tx as unknown as Record<string, unknown>)[modelName];
           if (!txDelegate) throw new Error(`Model "${modelName}" not found on transaction client`);
-          const txMethod = txDelegate[method];
+          const txMethod = (txDelegate as Record<string, unknown>)[method];
           if (!txMethod || typeof txMethod !== "function") throw new Error(`Method "${method}" not found on model "${modelName}"`);
           return txMethod.apply(txDelegate, args);
         }, { timeout: 30_000 });
@@ -268,8 +266,7 @@ function createClientProxy(
       const cachedDelegate = delegateCache.get(prop);
       if (cachedDelegate) return cachedDelegate;
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const delegate = (target as any)[prop];
+      const delegate = (target as unknown as Record<string, unknown>)[prop];
       if (!delegate || typeof delegate !== "object") {
         if (typeof delegate === "function") return delegate;
         throw new Error(

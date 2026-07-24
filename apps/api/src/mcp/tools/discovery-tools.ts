@@ -50,7 +50,8 @@ Each tool listing includes its risk level and confirmation requirements.`,
     entity: "tool",
     tags: ["discovery", "meta"],
 
-    handler: async (input: { entity?: string }, _context: ToolContext) => {
+    handler: async (inputRaw: unknown, _context: ToolContext) => {
+      const input = inputRaw as { entity?: string };
       let tools = registry.getDiscoveryInfo();
       if (input.entity) {
         const filter = input.entity.toLowerCase();
@@ -125,7 +126,8 @@ Type tables are the ERP's vocabulary — they define what classifications are av
     entity: "type_table",
     tags: ["discovery", "type-table"],
 
-    handler: async (input: { typeName: TypeName }, _context: ToolContext) => {
+    handler: async (inputRaw: unknown, _context: ToolContext) => {
+      const input = inputRaw as { typeName: TypeName };
       const config = TYPE_TABLE_MAP[input.typeName];
       const values = await queryTypeTable(prisma, config.delegateKey, config.idField);
 
