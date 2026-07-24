@@ -35,11 +35,6 @@ export function stripHtmlTags(input: string): string {
   // work. 100 KB is well above any legitimate text field (the largest field
   // MAX_PARTY_DESCRIPTION_LENGTH is 1000 chars).
   if (input.length === 0) return input;
-  // Measure in UTF-8 bytes, not UTF-16 code units. Multi-byte characters
-  // (CJK, emoji) occupy up to 4 bytes each, so a string of 99k such chars is
-  // ~400 KB — far above the intended 100 KB budget. Measuring code units
-  // would let a crafted multi-byte string slip past the cap and then balloon
-  // further inside the decode loop (entity decoding can expand length).
   if (new TextEncoder().encode(input).length > MAX_INPUT_LENGTH) {
     throw new InvalidTypeValueError(
       `stripHtmlTags: input exceeds maximum allowed length. ` +
@@ -47,75 +42,92 @@ export function stripHtmlTags(input: string): string {
     );
   }
 
-  // Remove null bytes (can confuse parsers and bypass filters)
   let sanitized = input.replace(/\0/g, "");
 
-  // Decode-then-strip loop: decode HTML entities, then strip any tags that
-  // were revealed. Repeats until stable to handle nested/triple encoding
-  // (e.g., &amp;amp;lt; → &amp;lt; → &lt; → < → stripped).
-  // Capped at MAX_SANITIZE_ITERATIONS to prevent DoS via deeply nested encoding.
-  // Also bounds intermediate string size to prevent memory blowup from entity
-  // decoding expansion (e.g. &amp; repeated thousands of times expands each
-  // iteration). The expansion cap is 10× the initial input — well above any
-  // legitimate text field but prevents unbounded growth.
   const maxIntermediateBytes = MAX_INPUT_LENGTH * 10;
   let prev: string;
   let iterations = 0;
   do {
     prev = sanitized;
-
-    // Decode numeric character references — these can bypass tag stripping
-    // when embedded in attributes or content. Must run before tag removal.
-    // e.g. &#60;script&#62; → <script>
-    // Runs inside the loop so double-encoded entities (e.g. &amp;#x3c;)
-    // are decoded across iterations: &amp;#x3c; → &#x3c; → <
-    sanitized = sanitized.replace(/&#[xX]([0-9a-fA-F]+);/g, (_, hex) =>
-      safeFromCodePoint(parseInt(hex, 16))
-    );
-    sanitized = sanitized.replace(/&#(\d+);/g, (_, dec) =>
-      safeFromCodePoint(parseInt(dec, 10))
-    );
-
-    // Decode common HTML entities. Order matters: decode &amp; LAST because
-    // &amp;lt; → &lt; → <. Decode &apos; BEFORE &amp; so &amp;apos; decodes
-    // across iterations: &amp;apos; → &apos; → '.
-    sanitized = sanitized
-      .replace(/&lt;/gi, "<")
-      .replace(/&gt;/gi, ">")
-      .replace(/&apos;/gi, "'")
-      .replace(/&nbsp;/gi, " ")
-      .replace(/&amp;/gi, "&")
-      .replace(/&quot;/gi, '"');
-    // Strip script/style content including the tags themselves
-    sanitized = sanitized.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, "");
-    sanitized = sanitized.replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, "");
-    // Handle orphaned <script>/<style> opening tags without proper closing tags
-    sanitized = sanitized.replace(/<script\b[^>]*\/?>/gi, "");
-    sanitized = sanitized.replace(/<style\b[^>]*\/?>/gi, "");
-    // Remove HTML comments
-    sanitized = sanitized.replace(/<!--[\s\S]*?-->/g, "");
-    // Remove all remaining HTML tags (must have at least one non-whitespace
-    // char after < to avoid treating plain text like "< >" as a tag)
-    sanitized = sanitized.replace(/<[^\s>][^>]*>/g, "");
-    // Strip incomplete/orphaned opening tags (missing closing >)
-    sanitized = sanitized.replace(/<[a-zA-Z][^>]*/, "");
-
-    // Strip C0 control characters (U+0000–U+001F, which subsumes null
-    // bytes from entity decoding like &#x00; → \0) and DEL (U+007F) that
-    // may have been introduced by entity decoding (e.g. &#x7F; → DEL).
-    // These can corrupt log output and terminal displays.
-    // eslint-disable-next-line no-control-regex
-    sanitized = sanitized.replace(/[\x00-\x1f\x7f]/g, "");
+    sanitized = decodeNumericEntities(sanitized);
+    sanitized = decodeCommonEntities(sanitized);
+    sanitized = stripScriptStyleContent(sanitized);
+    sanitized = stripOrphanedScriptStyleTags(sanitized);
+    sanitized = stripHtmlComments(sanitized);
+    sanitized = stripRemainingHtmlTags(sanitized);
+    sanitized = stripIncompleteOpeningTags(sanitized);
+    sanitized = stripControlCharacters(sanitized);
 
     iterations++;
-    // Guard against memory blowup: if entity decoding expanded the string
-    // beyond a reasonable factor, stop to prevent OOM DoS.
     if (new TextEncoder().encode(sanitized).length > maxIntermediateBytes) {
       break;
     }
   } while (sanitized !== prev && iterations < MAX_SANITIZE_ITERATIONS);
 
   return sanitized;
+}
+
+/** Decode numeric character references (&#xHH; and &#DDD;) to Unicode. */
+function decodeNumericEntities(input: string): string {
+  return input
+    .replace(/&#[xX]([0-9a-fA-F]+);/g, (_, hex) => safeFromCodePoint(parseInt(hex, 16)))
+    .replace(/&#(\d+);/g, (_, dec) => safeFromCodePoint(parseInt(dec, 10)));
+}
+
+/**
+ * Decode common HTML entities. Order matters: decode &amp; LAST because
+ * &amp;lt; → &lt; → <. Decode &apos; BEFORE &amp; so &amp;apos; decodes
+ * across iterations.
+ */
+function decodeCommonEntities(input: string): string {
+  return input
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&apos;/gi, "'")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&quot;/gi, '"');
+}
+
+/** Remove script/style content including tags, and orphaned opening tags. */
+function stripScriptStyleContent(input: string): string {
+  return input
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, "")
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, "");
+}
+
+/** Handle orphaned <script>/<style> opening tags without proper closing tags. */
+function stripOrphanedScriptStyleTags(input: string): string {
+  return input
+    .replace(/<script\b[^>]*\/?>/gi, "")
+    .replace(/<style\b[^>]*\/?>/gi, "");
+}
+
+/** Remove HTML comments. */
+function stripHtmlComments(input: string): string {
+  return input.replace(/<!--[\s\S]*?-->/g, "");
+}
+
+/**
+ * Remove all remaining HTML tags (must have at least one non-whitespace char
+ * after < to avoid treating plain text like "< >" as a tag).
+ */
+function stripRemainingHtmlTags(input: string): string {
+  return input.replace(/<[^\s>][^>]*>/g, "");
+}
+
+/** Strip incomplete/orphaned opening tags (missing closing >). */
+function stripIncompleteOpeningTags(input: string): string {
+  return input.replace(/<[a-zA-Z][^>]*/, "");
+}
+
+/**
+ * Strip C0 control characters (U+0000–U+001F) and DEL (U+007F) that may have
+ * been introduced by entity decoding (e.g. &#x7F; → DEL).
+ */
+function stripControlCharacters(input: string): string {
+  // eslint-disable-next-line no-control-regex
+  return input.replace(/[\x00-\x1f\x7f]/g, "");
 }
 
 /**
@@ -157,192 +169,148 @@ export function sanitizeForLogOutput(message: string): string {
     }
     message = end > 0 ? chars.slice(0, end).join("") : "";
   }
-  return sanitizeLogMessage(message)
+  const result = sanitizeLogMessage(message);
+  return replaceFilesystemPaths(
+    replaceCredentialUrls(
+      replaceHostPaths(
+        replaceGenericLongToken(
+          replaceProviderSecrets(
+            replaceBearerAndJwtTokens(
+              replaceQuotedSecrets(
+                replaceBoundarySecrets(
+                  replaceQuerySecrets(
+                    replaceDatabaseUrls(result),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
+/** Replace database connection strings (postgres, redis, mongodb, mysql, amqp). */
+function replaceDatabaseUrls(input: string): string {
+  return input
     .replace(/postgres(?:ql)?:\/\/[^\s"']+/gi, "[DATABASE_URL]")
     .replace(/redis:\/\/[^\s"']+/gi, "[REDIS_URL]")
     .replace(/mongodb(\+srv)?:\/\/[^\s"']+/gi, "[DATABASE_URL]")
     .replace(/mysql:\/\/[^\s"']+/gi, "[DATABASE_URL]")
-    .replace(/amqps?:\/\/[^\s"']+/gi, "[MESSAGE_BROKER_URL]")
-    // Redact query strings (AND URL fragments, which OAuth implicit-flow
-    // tokens like `#access_token=`/`#id_token=` are delivered in) that may
-    // carry secrets (API keys, tokens, passwords) even on non-credential
-    // URLs. This MUST run BEFORE the generic `(https?:\/\/)[^\s...]+ →
-    // [HOST]/[PATH]` rule below: that rule consumes the entire URL including
-    // the trailing `?key=sk_live_abc123`, so the secret would otherwise be
-    // collapsed into `[PATH]` and survive verbatim in operator logs. Scrub
-    // the secret-bearing parameters first so the host/path collapse then
-    // leaves nothing sensitive behind. Both `?`/`&` (query separators) and
-    // `;` (a separator some query parsers treat identically) AND `#` (the
-    // fragment separator) are recognised as starts of a param, and `;` is
-    // excluded from the value class so a `;token=…` immediately following
-    // another param is still caught. A `;`-prefixed value with no leading
-    // `?`/`&`/`#` is still matched by the `#`/`?`/`&` lookbehind because
-    // `;` is not a lookbehind char — guarded below by widening the value
-    // class exclusions only (see `[^&;\s"']`).
-    .replace(/(?<=[?&#;])((?:key|token|id_token|access_token|secret|password|passwd|pwd|auth|api_key|apikey|client_secret|client_id|signature|sign|otp|code|session|bearer)=)([^&;\s"']+)/gi, (_m, name) => {
-      // `name` is `param=`, `value` is the bare secret (`sk_live_abc123`).
-      // The value must be REPLACED (not merely annotated) so the secret
-      // cannot survive in the output. A previous revision appended
-      // `[REDACTED]` AFTER the value (→ `api_key=sk_live_…[REDACTED]`),
-      // which left the secret itself intact in the log — a sanitizer bypass
-      // that defeated the entire purpose of this rule (exosed by round-49:
-      // a `reasoning` string carrying `?api_key=…` persisted the secret
-      // verbatim to the durable audit sink because no `https://` URL was
-      // present to trigger the subsequent `[HOST]/[PATH]` collapse that hid
-      // the leak elsewhere). Drop any leading/trailing bracket the value
-      // captured (e.g. a secret wrapped in `[…]`), then replace the
-      // value entirely.
-      return `${name}[REDACTED]`;
-    })
-    // Boundary-based variant of the rule above for secrets that appear OUTSIDE
-    // a URL query string — e.g. a plain error message `password=hunter2` or a
-    // JSON blob embedded in a string such as `{"api_key":"sk_live_abc"}`. The
-    // `?&?#;` lookbehind above does NOT match these contexts, so without this
-    // rule a secret in free text / JSON-in-text survives verbatim into
-    // operator logs, agent-facing error messages, and (for `reasoning`) the
-    // durable cross-tenant audit row. We require a non-sensitive boundary
-    // before the param name (start-of-string, whitespace, quote, `{`, `,`,
-    // `;`, `(`, `[`) so benign prose with `secret` as an English word is not
-    // mangled, while `{"password":"x"}` / `password=hunter2` are caught. The
-    // value class excludes JSON terminators and whitespace so it stops at the
-    // closing quote/bracket.
-    .replace(/(^|[\s"'{([,;])((?:key|token|id_token|access_token|secret|password|passwd|pwd|auth|api_key|apikey|client_secret|client_id|signature|sign|otp|bearer))=([^}\]\s"'`,;]+)/gi, (_, lead, name) => {
-      return `${lead}${name}=[REDACTED]`;
-    })
-    // Variant of the boundary rule above for secrets wrapped in QUOTES, e.g.
-    // `{"api_key":"sk_live_abc123"}` / `password="hunter2"`. The value class of
-    // the rule above excludes `"`/`'`, so a quoted secret survived verbatim into
-    // operator logs, agent-facing error messages, and (for `reasoning`) the
-    // durable cross-tenant audit row — an asymmetric leak vs. the bare-form rule
-    // that catches `password=hunter2`. Capture the quoted value and replace it
-    // with `[REDACTED]` so the secret text cannot survive in the output. Two
-    // shapes are covered: the JSON object form `"api_key":"value"` (colon +
-    // quoted value, key optionally wrapped in quotes) AND the free-text form
-    // `password="value"` (equals + quoted value). The leading boundary
-    // (whitespace/quote/`{`/`,`/`;`/`(`) is required so benign prose is not
-    // mangled, mirroring the bare-form rule.
-    .replace(/(^|[\s"'{([;,?])"?((?:key|token|id_token|access_token|secret|password|passwd|pwd|auth|api_key|apikey|client_secret|client_id|signature|sign|otp|code|session|bearer))"?\s*[:=]\s*("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')/gi, (_, lead, name) => {
-      return `${lead}${name}=[REDACTED]`;
-    })
-    // Redact high-entropy bearer/secret tokens that appear outside the
-    // key=value form above (e.g. `Authorization: Bearer sk_live_...` echoed in
-    // an auth-failure error, or a bare JWT). The JWT pattern is conservative:
-    // three dot-separated base64url segments, which is structurally distinct
-    // from ordinary prose.
+    .replace(/amqps?:\/\/[^\s"']+/gi, "[MESSAGE_BROKER_URL]");
+}
+
+/**
+ * Redact secrets in URL query strings and fragments.
+ *
+ * MUST run BEFORE the generic URL host/path collapse: that rule consumes the
+ * entire URL including trailing `?key=secret`, so the secret would otherwise
+ * survive verbatim in `[PATH]`. Scrub secrets first so the host/path collapse
+ * leaves nothing sensitive behind.
+ */
+function replaceQuerySecrets(input: string): string {
+  return input.replace(
+    /(?<=[?&#;])((?:key|token|id_token|access_token|secret|password|passwd|pwd|auth|api_key|apikey|client_secret|client_id|signature|sign|otp|code|session|bearer)=)([^&;\s"']+)/gi,
+    (_m, name) => `${name}[REDACTED]`,
+  );
+}
+
+/**
+ * Redact secrets in free text / JSON-in-text that appear outside a URL query
+ * string, e.g. `password=hunter2` or `{"api_key":"sk_live_abc"}`.
+ */
+function replaceBoundarySecrets(input: string): string {
+  return input.replace(
+    /(^|[\s"'{([,;])((?:key|token|id_token|access_token|secret|password|passwd|pwd|auth|api_key|apikey|client_secret|client_id|signature|sign|otp|bearer))=([^}\]\s"'`,;]+)/gi,
+    (_, lead, name) => `${lead}${name}=[REDACTED]`,
+  );
+}
+
+/**
+ * Redact secrets wrapped in quotes: `"api_key":"value"` or `password="value"`.
+ */
+function replaceQuotedSecrets(input: string): string {
+  return input.replace(
+    /(^|[\s"'{([;,?])"?((?:key|token|id_token|access_token|secret|password|passwd|pwd|auth|api_key|apikey|client_secret|client_id|signature|sign|otp|code|session|bearer))"?\s*[:=]\s*("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')/gi,
+    (_, lead, name) => `${lead}${name}=[REDACTED]`,
+  );
+}
+
+/** Redact Bearer tokens and JWTs. */
+function replaceBearerAndJwtTokens(input: string): string {
+  return input
     .replace(/\bBearer\s+[A-Za-z0-9._-]+/gi, "Bearer [REDACTED]")
-    .replace(/\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g, "[REDACTED_JWT]")
-    // Redact HIGH-ENTROPY bearer/secret tokens that appear under a
-    // NON-sensitive key name (or as a bare value in a string leaf) — e.g. an
-    // `{"config": {"value": "AKIAIOSFODNN7EXAMPLE"}}` tool output, a
-    // `{"data": "sk_live_abc123def456"}` payload, or a `notes: ghp_xxx…`
-    // free-text field. The key=value / quoted-value rules above only catch
-    // values whose *name* is in the sensitive list, so a secret attached
-    // under a benign key name (`config`, `data`, `notes`, `value`) survives
-    // verbatim into the agent-facing error/output AND the durable
-    // cross-tenant audit row / idempotency replay — an asymmetric leak the
-    // key-name redactor cannot see because it keys on the field name, not the
-    // value shape. This rule scrubs the value by shape regardless of the
-    // surrounding key, closing the gap on every surface that runs string
-    // leaves through sanitizeForLogOutput (redactSensitiveFieldValues, the
-    // MCP redactSensitiveFields shim, the error-handler context scrubber, and
-    // the truncate _preview pass).
-    //
-    // Two layers:
-    //  (a) Prefix rules for well-known provider token formats — these are
-    //      unambiguous and matched first so `AKIA…`/`sk_live_…`/`ghp_…` are
-    //      caught even at short lengths where a generic rule would be too
-    //      greedy. Exhaustive-ish, covering the common public-cloud / SaaS
-    //      secret shapes an ERP integration might echo.
-    //  (b) A generic long high-entropy run for everything else. Bounded with a
-    //      leading boundary `(^|[\s"'`{([<,;])` and a trailing non-word
-    //      lookahead so ordinary prose (or a base64'd *public* id) is not
-    //      mangled. The run must be >= 20 chars of `[A-Za-z0-9_./+=-]` to
-    //      qualify as high-entropy; short tokens are left alone to avoid
-    //      false positives (e.g. a product SKU `ABC123`). This mirrors the
-    //      length threshold used by the JWT/bearer rules above.
+    .replace(/\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g, "[REDACTED_JWT]");
+}
+
+/**
+ * Redact well-known provider secret prefixes (AWS, Stripe, GitHub, Slack, Google).
+ *
+ * These are matched by shape/prefix rather than by key name, catching secrets
+ * stored under non-sensitive field names (e.g. `config.value`).
+ */
+function replaceProviderSecrets(input: string): string {
+  return input
     .replace(/\b(?:AKIA|ASIA)[0-9A-Z]{16}/g, "[REDACTED_AWS_KEY]")
     .replace(/\b(?:sk|rk|pk|ssk)_(?:live|test)_[A-Za-z0-9]{8,}/gi, "[REDACTED_API_KEY]")
     .replace(/\b(?:ghp|gho|ghu|ghs|ghr|glpat|glpat-|gldt|dop_v1)_[A-Za-z0-9]{16,}/g, "[REDACTED_TOKEN]")
     .replace(/\b(?:xox[baprs]-[A-Za-z0-9-]{10,})/g, "[REDACTED_SLACK_TOKEN]")
     .replace(/\b(?:AIza)[A-Za-z0-9_-]{35}/g, "[REDACTED_GOOGLE_KEY]")
-    .replace(/\b(?:ya29\.)[A-Za-z0-9_-]{20,}/g, "[REDACTED_GOOGLE_TOKEN]")
+    .replace(/\b(?:ya29\.)[A-Za-z0-9_-]{20,}/g, "[REDACTED_GOOGLE_TOKEN]");
+}
+
+/**
+ * Catch-all for long high-entropy tokens that survived all specific rules above.
+ * Uses heuristics to distinguish secrets from benign identifiers.
+ */
+function replaceGenericLongToken(input: string): string {
+  return input.replace(/[A-Za-z0-9_./+=-]{20,128}/g, (match) => {
+    if (match.includes("REDACTED")) return match;
+    if (/^[a-z]+$/.test(match)) return match;
+    if (/^[a-f0-9]+$/.test(match)) return match;
+    if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(match)) return match;
+    if (/^[a-zA-Z0-9_-]+$/.test(match)) {
+      const hasUpper = /[A-Z]/.test(match);
+      const hasPunct = /[._+=/]/.test(match);
+      const hasLetter = /[a-zA-Z]/.test(match);
+      const hasDigit = /[0-9]/.test(match);
+      const isLetterDigitMix = hasLetter && hasDigit;
+      if (!(hasUpper && hasPunct) && !isLetterDigitMix) return match;
+    }
+    return "[REDACTED_TOKEN]";
+  });
+}
+
+/** Collapse URLs to [HOST]/[PATH] form (http, https, ftp, sftp, ws, wss). */
+function replaceHostPaths(input: string): string {
+  return input
     .replace(/(https?:\/\/)[^\s"')}]+/gi, "$1[HOST]/[PATH]")
     .replace(/(?:ftp|sftp):\/\/[^\s"')}]+/gi, "[FTP_URL]")
-    .replace(/(?:ws|wss):\/\/[^\s"')}]+/gi, "[WEBSOCKET_URL]")
-    // Generic catch-all for credential-bearing URLs whose scheme isn't
-    // explicitly listed above (e.g. ldap://, ldaps://, ssh://, vault://,
-    // smtp://, or custom schemes). A driver/library error can embed such a
-    // URL with inline userinfo (user:pass@), and the scheme-specific
-    // patterns above would let it through verbatim — leaking credentials
-    // to operator logs.
-    //
-    // Only matches when a userinfo segment (`user:pass@`) is present, so
-    // credential-free URLs of arbitrary schemes (e.g. `file:///path`,
-    // `custom://host`) are left untouched. Runs AFTER the scheme-specific
-    // patterns so they keep their labelled output ([DATABASE_URL],
-    // [REDIS_URL], …) — this only catches what they miss.
-    // The scheme prefix is length-bounded (`{1,31}`) so the greedy quantifier
-    // cannot overlap the trailing `://`/`user:pass@` match and force
-    // catastrophic backtracking (O(n²)) on a long run of letters with no
-    // `://` (event-loop-blocking ReDoS). Postgres identifiers cap at 63 bytes,
-    // 31 is ample for any real scheme and keeps the regex linear.
-    // The trailing `[^\s"']` class is bounded by excluding `:` to prevent
-    // the `[^\s:/@"']+:[^\s/@"']+` portion from backtracking on long
-    // non-matching strings — each negated class now stops at whitespace OR
-    // `:` so the engine never re-scans the same characters.
-    .replace(/[a-zA-Z][a-zA-Z0-9+.-]{1,31}:\/\/[^\s:"']+:[^\s:"']+@[^\s"']+/g, "[REDACTED_URL]")
-    // Redact filesystem paths, but only when they are absolute (leading `/`
-    // with two or more segments, a `~/` home path, or a Windows drive root).
-    // This avoids corrupting ordinary prose such as "meet me at /home/user
-    // later" — the previous `\bat\b\s*/...` rule collapsed that to
-    // "meet me [PATH] later" and destroyed legitimate log context. A path is
-    // only redacted when it cannot be mistaken for prose: it must begin at a
-    // boundary and have at least two non-empty segments.
-    .replace(/(^|\s)(?:\/(?:[^\s'":/]+\/)+[^\s'":/]*\.[^\s'":/]+(?::\d+)?|~\/[^\s'":/]+\/[^\s'":/]*\.[^\s'":/]+(?::\d+)?|[A-Za-z]:\\[^\s'":]+(?::\d+)?)/g, "$1[PATH]")
-    // LAST: redact a GENERIC LONG HIGH-ENTROPY run that survived every
-    // rule above — this catches secrets under NON-sensitive key names
-    // (e.g. `{"config": {"value": "AKIA…"}}`, `notes: ghp_…`) which the
-    // key=value / quoted-value rules cannot see because they key on the
-    // field name, not the value shape. Runs after the URL/host/path rules
-    // so a legitimate `/path/to/file` is already collapsed to `[PATH]`
-    // and is NOT re-consumed here, and the `(?<!\[)` lookbehind stops it
-    // from re-redacting an already-inserted `[REDACTED_…]` placeholder
-    // (e.g. the Slack/GitHub prefix rules above) into `[[REDACTED_TOKEN]]`.
-    //
-    // The quantifier is bounded to {20,128} (not unbounded {20,}) so the
-    // regex engine never backtracks over arbitrarily long non-matching
-    // strings — a 10 KB all-lowercase run would trigger O(n²) backtracking
-    // with {20,} but is linear with {20,128}. Strings longer than 128 chars
-    // of the token charset fall through to the callback where they are
-    // either accepted (benign) or rejected (high-entropy).
-    .replace(/[A-Za-z0-9_./+=-]{20,128}/g, (match) => {
-      // Already-redacted placeholders are not re-consumed.
-      if (match.includes("REDACTED")) return match;
-      // Purely lowercase runs (prose, repeated chars) are benign.
-      if (/^[a-z]+$/.test(match)) return match;
-      // Purely lowercase-hex (dashless UUIDs, hashes) are benign identifiers.
-      if (/^[a-f0-9]+$/.test(match)) return match;
-      // UUIDs (hyphenated hex) are benign identifiers.
-      if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(match)) return match;
-      // Benign phrases: long mixed-case alnum that looks like ordinary prose
-      // or an identifier (e.g. a camelCase variable, a hyphenated slug). A
-      // secret-shaped value usually carries either punctuation (. _ + / =)
-      // OR a mix of letters AND digits at length >= 20. Require one of:
-      //   - an uppercase letter AND a punctuation char (typical secret shape), or
-      //   - BOTH letters AND digits (an alnum token with no prose-like word
-      //     structure), which catches long lowercase base64 / alphanumeric
-      //     secrets that contain no punctuation (the prior rule let these
-      //     through verbatim).
-      if (/^[a-zA-Z0-9_-]+$/.test(match)) {
-        const hasUpper = /[A-Z]/.test(match);
-        const hasPunct = /[._+=/]/.test(match);
-        const hasLetter = /[a-zA-Z]/.test(match);
-        const hasDigit = /[0-9]/.test(match);
-        const isLetterDigitMix = hasLetter && hasDigit;
-        if (!(hasUpper && hasPunct) && !isLetterDigitMix) return match;
-      }
-      return "[REDACTED_TOKEN]";
-    });
+    .replace(/(?:ws|wss):\/\/[^\s"')}]+/gi, "[WEBSOCKET_URL]");
+}
+
+/**
+ * Redact credential-bearing URLs with userinfo (`user:pass@host`) whose scheme
+ * isn't explicitly handled by the database URL or host/path rules.
+ *
+ * Only matches when a userinfo segment is present, so credential-free URLs
+ * (e.g. `file:///path`) are left untouched.
+ */
+function replaceCredentialUrls(input: string): string {
+  return input.replace(/[a-zA-Z][a-zA-Z0-9+.-]{1,31}:\/\/[^\s:"']+:[^\s:"']+@[^\s"']+/g, "[REDACTED_URL]");
+}
+
+/**
+ * Redact absolute filesystem paths (Unix `/a/b/c.ext`, Windows `C:\path`, `~/path`).
+ * Requires at least two non-empty segments so prose like "meet me at /home"
+ * is not corrupted.
+ */
+function replaceFilesystemPaths(input: string): string {
+  return input.replace(
+    /(^|\s)(?:\/(?:[^\s'":/]+\/)+[^\s'":/]*\.[^\s'":/]+(?::\d+)?|~\/[^\s'":/]+\/[^\s'":/]*\.[^\s'":/]+(?::\d+)?|[A-Za-z]:\\[^\s'":]+(?::\d+)?)/g,
+    "$1[PATH]",
+  );
 }
 
 /**
@@ -613,4 +581,55 @@ export function safeFromCodePoint(codePoint: number): string {
     // U+FFFD (replacement character) to avoid crashing the sanitizer loop.
     return "\uFFFD";
   }
+}
+
+/** Sanitize a postal address object by stripping HTML from all fields. */
+export function sanitizePostalAddress(addr: {
+  addressLine1: string;
+  addressLine2?: string | null;
+  city: string;
+  stateProvince?: string | null;
+  postalCode?: string | null;
+  country: string;
+}): {
+  addressLine1: string;
+  addressLine2: string | null;
+  city: string;
+  stateProvince: string | null;
+  postalCode: string | null;
+  country: string;
+} {
+  const addressLine2 = addr.addressLine2?.trim();
+  const stateProvince = addr.stateProvince?.trim();
+  const postalCode = addr.postalCode?.trim();
+  return {
+    addressLine1: stripHtmlTags(addr.addressLine1.trim()),
+    addressLine2: addressLine2 ? stripHtmlTags(addressLine2) : null,
+    city: stripHtmlTags(addr.city.trim()),
+    stateProvince: stateProvince ? stripHtmlTags(stateProvince) : null,
+    postalCode: postalCode ? stripHtmlTags(postalCode) : null,
+    country: stripHtmlTags(addr.country.trim().toUpperCase()),
+  };
+}
+
+/** Sanitize a telecom number object by stripping HTML from all fields. */
+export function sanitizeTelecomNumber(tel: {
+  countryCode?: string | null;
+  areaCode: string;
+  lineNumber: string;
+  extension?: string | null;
+}, defaultCountryCode = "+1"): {
+  countryCode: string;
+  areaCode: string;
+  lineNumber: string;
+  extension: string | null;
+} {
+  const countryCode = tel.countryCode?.trim();
+  const extension = tel.extension?.trim();
+  return {
+    countryCode: countryCode ? stripHtmlTags(countryCode) : defaultCountryCode,
+    areaCode: stripHtmlTags((tel.areaCode ?? "").trim()),
+    lineNumber: stripHtmlTags((tel.lineNumber ?? "").trim()),
+    extension: extension ? stripHtmlTags(extension) : null,
+  };
 }

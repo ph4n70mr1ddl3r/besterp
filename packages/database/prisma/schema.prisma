@@ -211,10 +211,12 @@ model TelecomNumber {
 model EmailAddress {
   contactMechanismId String @id @map("contact_mechanism_id")
   email              String
+  tenantId           String @map("tenant_id")
 
   contactMechanism ContactMechanism @relation(fields: [contactMechanismId], references: [contactMechanismId], onDelete: Cascade)
 
   @@index([email])
+  @@unique([tenantId, email])
   @@map("email_address")
 }
 

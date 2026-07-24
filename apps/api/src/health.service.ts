@@ -141,7 +141,7 @@ export class HealthService implements OnModuleInit {
             reject(err);
           });
           socket.connect(
-            Number(process.env.REDIS_PORT || 6379),
+            Number(process.env.REDIS_PORT || 6380),
             String(process.env.REDIS_HOST),
           );
         });

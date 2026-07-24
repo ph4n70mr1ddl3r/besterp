@@ -72,6 +72,14 @@ export class TenantGuard implements CanActivate {
         "TenantGuard: userId is empty after trimming. JWT payload is malformed."
       );
     }
+    // Enforce max length for defense-in-depth — the JWT strategy validates
+    // this, but if that guard is ever bypassed the tenant context must not
+    // accept an unbounded userId (could cause DB column overflow).
+    if (userId.length > 200) {
+      throw new UnauthorizedException(
+        "TenantGuard: userId exceeds maximum allowed length.",
+      );
+    }
     if (user.agentId != null && typeof user.agentId !== "string") {
       throw new UnauthorizedException(
         "TenantGuard: agentId is not a string. JWT payload is malformed."

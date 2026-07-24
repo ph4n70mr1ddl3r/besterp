@@ -303,23 +303,23 @@ async function bootstrap() {
     }
   }
 
+  // Consolidated Express error handler — catches body-parser errors (entity.too.large,
+  // entity.parse.failed) and delegates everything else to the next handler. This replaces
+  // two separate error middleware registrations with a single entry point that is easier to
+  // maintain and keeps CORS header logic in one place.
   app.use((err: Error & { type?: string }, req: Request, res: Response, next: NextFunction) => {
     const origin = req.headers.origin;
     if (err.type === "entity.too.large") {
       setCorsHeaders(res, origin);
-      res.status(413).json({
-        statusCode: 413,
-        message: "Request body exceeds the 1 MB limit. Reduce payload size and retry.",
-      });
-    } else if (err.type === "entity.parse.failed") {
-      setCorsHeaders(res, origin);
-      res.status(400).json({
-        statusCode: 400,
-        message: "Request body contains malformed JSON. Check syntax and retry.",
-      });
-    } else {
-      next(err);
+      res.status(413).json({ statusCode: 413, message: "Request body exceeds the 1 MB limit. Reduce payload size and retry." });
+      return;
     }
+    if (err.type === "entity.parse.failed") {
+      setCorsHeaders(res, origin);
+      res.status(400).json({ statusCode: 400, message: "Request body contains malformed JSON. Check syntax and retry." });
+      return;
+    }
+    next(err);
   });
 
   // Catch-all Express error handler — safety net for synchronous throws from
@@ -332,10 +332,7 @@ async function bootstrap() {
   app.use((err: Error, req: Request, res: Response, _next: NextFunction) => {
     logger.error(`Unhandled Express middleware error: ${sanitizeForLogOutput(err.message)}`);
     setCorsHeaders(res, req.headers.origin);
-    res.status(500).json({
-      statusCode: 500,
-      message: "Internal server error",
-    });
+    res.status(500).json({ statusCode: 500, message: "Internal server error" });
   });
 
   app.useGlobalPipes(

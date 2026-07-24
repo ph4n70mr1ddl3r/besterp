@@ -41,6 +41,8 @@ import {
   isValidISODate,
   stripHtmlTags,
   sanitizeForLogOutput,
+  sanitizePostalAddress,
+  sanitizeTelecomNumber,
   MAX_PARTY_NAME_LENGTH,
   MAX_PARTY_DESCRIPTION_LENGTH,
   MAX_PERSON_NAME_LENGTH,
@@ -131,7 +133,7 @@ export class PartyService {
     }
     const trimmedPartyType = partyType.trim();
 
-    const { trimmedName, trimmedDescription } = this.validateCreatePartyFields(name, description);
+    const { trimmedName, trimmedDescription } = PartyService.validateCreatePartyFields(name, description);
     this.validateCreatePartySubtype(trimmedPartyType, personData, orgData);
     this.validatePersonData(personData);
     this.validateOrganizationData(orgData);
@@ -171,7 +173,7 @@ export class PartyService {
     return PartyService.toPartyResult(party);
   }
 
-  private validateCreatePartyFields(name: string, description: string | undefined | null): { trimmedName: string; trimmedDescription: string | null } {
+  private static validateCreatePartyFields(name: string, description: string | undefined | null): { trimmedName: string; trimmedDescription: string | null } {
     if (typeof name !== "string") {
       throw new InvalidTypeValueError(
         "Party name is required and must be a string.",
@@ -907,8 +909,8 @@ export class PartyService {
           data: {
             contactMechanismTypeId,
             tenantId,
-            postalAddress: type === "POSTAL_ADDRESS" && postalAddress ? { create: PartyService.sanitizePostalAddress(postalAddress) } : undefined,
-            telecomNumber: type === "TELECOM_NUMBER" && telecomNumber ? { create: PartyService.sanitizeTelecomNumber(telecomNumber) } : undefined,
+            postalAddress: type === "POSTAL_ADDRESS" && postalAddress ? { create: sanitizePostalAddress(postalAddress) } : undefined,
+            telecomNumber: type === "TELECOM_NUMBER" && telecomNumber ? { create: sanitizeTelecomNumber(telecomNumber) } : undefined,
             emailAddress: type === "EMAIL_ADDRESS" && normalizedEmail ? { create: { email: normalizedEmail } } : undefined,
             partyContacts: { create: { partyId } },
           },
@@ -918,31 +920,6 @@ export class PartyService {
     } catch (err) {
       PartyService.handleTransactionError(err, "add_contact_mechanism", "add_contact_mechanism", "contact mechanism");
     }
-  }
-
-  private static sanitizePostalAddress(addr: NonNullable<AddContactMechanismInput["postalAddress"]>) {
-    const addressLine2 = addr.addressLine2?.trim();
-    const stateProvince = addr.stateProvince?.trim();
-    const postalCode = addr.postalCode?.trim();
-    return {
-      addressLine1: stripHtmlTags(addr.addressLine1.trim()),
-      addressLine2: addressLine2 ? stripHtmlTags(addressLine2) : null,
-      city: stripHtmlTags(addr.city.trim()),
-      stateProvince: stateProvince ? stripHtmlTags(stateProvince) : null,
-      postalCode: postalCode ? stripHtmlTags(postalCode) : null,
-      country: stripHtmlTags(addr.country.trim().toUpperCase()),
-    };
-  }
-
-  private static sanitizeTelecomNumber(tel: NonNullable<AddContactMechanismInput["telecomNumber"]>) {
-    const countryCode = tel.countryCode?.trim();
-    const extension = tel.extension?.trim();
-    return {
-      countryCode: countryCode ? stripHtmlTags(countryCode) : DEFAULT_PHONE_COUNTRY_CODE,
-      areaCode: stripHtmlTags((tel.areaCode ?? "").trim()),
-      lineNumber: stripHtmlTags((tel.lineNumber ?? "").trim()),
-      extension: extension ? stripHtmlTags(extension) : null,
-    };
   }
 
   private static formatContactResult(cm: Prisma.ContactMechanismGetPayload<{
