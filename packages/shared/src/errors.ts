@@ -78,11 +78,10 @@ export class DomainError extends Error {
  * SQL/connection details) into audit logs or idempotency records.
  * `stack` is deliberately omitted to prevent leaking internal stack frames.
  *
- * A non-Error cause (e.g. an attached object) is NOT stringified via
- * `String(cause)` because a custom class's `toString()` can embed sensitive
- * field data into durable sinks (audit logs, idempotency records). We return
- * a safe placeholder instead, consistent with the redaction applied to
- * `context` values — callers must never attach secrets as `cause`.
+ * A non-Error object cause is JSON-serialized and run through
+ * sanitizeForLogOutput to prevent leaking embedded connection strings or
+ * tokens in durable sinks. Non-object, non-Error causes return the safe
+ * `[Non-error cause]` placeholder.
  */
 function serializeCause(cause: unknown): unknown {
   if (cause === undefined || cause === null) return cause;

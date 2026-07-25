@@ -170,10 +170,13 @@ export function sanitizeForLogOutput(message: string): string {
     message = end > 0 ? chars.slice(0, end).join("") : "";
   }
   const result = sanitizeLogMessage(message);
-  return replaceFilesystemPaths(
-    replaceCredentialUrls(
-      replaceHostPaths(
-        replaceGenericLongToken(
+  // Order is critical: URL/host/path rules must run BEFORE the generic
+  // long-token catch-all so URLs are collapsed to [HOST]/[PATH] first.
+  // The generic rule runs LAST to avoid re-consuming legitimate placeholders.
+  return replaceGenericLongToken(
+    replaceFilesystemPaths(
+      replaceCredentialUrls(
+        replaceHostPaths(
           replaceProviderSecrets(
             replaceBearerAndJwtTokens(
               replaceQuotedSecrets(

@@ -282,8 +282,8 @@ export class PartyService {
     sanitizedPerson: CreatePartyInput["person"] | undefined,
     sanitizedOrg: CreatePartyInput["organization"] | undefined,
   ) {
-        try {
-          return await db.$transaction(async (tx: Prisma.TransactionClient) => {
+    try {
+      return await db.$transaction(async (tx: Prisma.TransactionClient) => {
             const partyTypeRecord = await tx.partyType.findUnique({ where: { name: partyTypeName } });
             if (!partyTypeRecord) {
               throw new InvalidTypeValueError(
@@ -339,14 +339,14 @@ export class PartyService {
               };
             }
             return tx.party.create({ data, include: PartyService.PARTY_INCLUDE });
-          }, { timeout: TX_TIMEOUT_MS });
-        } catch (err) {
-          if (err instanceof ConcurrencyRetryError) {
-            // Retry the transaction — the outer retry loop will handle it.
-            throw err;
-          }
-          PartyService.handleTransactionError(err, "create_party", "create_party", "party");
-        }
+        }, { timeout: TX_TIMEOUT_MS });
+    } catch (err) {
+      if (err instanceof ConcurrencyRetryError) {
+        // Retry the transaction — the outer retry loop will handle it.
+        throw err;
+      }
+      PartyService.handleTransactionError(err, "create_party", "create_party", "party");
+    }
   }
 
   /** Extract the conflicting field name from a Prisma error's metadata. */
@@ -644,65 +644,65 @@ export class PartyService {
     tenantId: string, partyId: string, roleTypeId: string,
     trimmedRoleType: string, roleFromDate: Date,
   ): Promise<Prisma.PartyRoleGetPayload<{ include: { roleType: true } }>> {
-        try {
-          return await db.$transaction(async (tx) => {
-            const party = await tx.party.findUnique({ where: { partyId, tenantId } });
-            if (!party) {
-              throw new EntityNotFoundError(`Party '${partyId}' not found.`, { suggestedTools: ["search_parties", "get_party"], context: { partyId } });
-            }
-
-            // Use INSERT ... ON CONFLICT to atomically check for duplicates and
-            // insert. This avoids the find-then-create race where two concurrent
-            // transactions both pass the findFirst check before either inserts.
-            // The DB constraint party_active_role_unique catches duplicates, but
-            // using ON CONFLICT gives us a clean error path without relying on
-            // post-hoc constraint violation handling.
-            //
-            // NOTE: Raw SQL is required here because the uniqueness constraint
-            // is a PARTIAL unique index (WHERE thru_date IS NULL). Prisma's
-            // upsert/create with @@unique cannot express partial indexes, so
-            // $queryRaw is the only way to leverage this constraint atomically.
-            const result = await tx.$queryRaw<{ partyRoleId: string; fromDate: Date; thruDate: Date | null }[]>`
-              INSERT INTO "party_role" ("partyId", "roleTypeId", "fromDate")
-              VALUES (${partyId}, ${roleTypeId}, ${roleFromDate})
-              ON CONFLICT DO NOTHING
-              RETURNING "partyRoleId", "fromDate", "thruDate"
-            `;
-
-            if (result.length === 0) {
-              // A concurrent transaction or pre-existing row blocked the insert.
-              // Re-check for an existing active role to give a precise error.
-              const existingRole = await tx.partyRole.findFirst({
-                where: { partyId, roleTypeId, thruDate: null, party: { tenantId } },
-              });
-              if (existingRole) {
-                const fromDate = existingRole.fromDate ? existingRole.fromDate.toISOString() : new Date().toISOString();
-                throw new DuplicateEntityError(
-                  `Party '${partyId}' already has active role '${trimmedRoleType}'. Existing role started on ${fromDate}. ` +
-                  `To change a party's role, first end the current role by setting a thruDate, then re-call add_party_role.`,
-                  { suggestedTools: ["get_party"], context: { partyId, roleType: trimmedRoleType, existingRoleId: existingRole.partyRoleId, existingRoleDate: fromDate } }
-                );
-              }
-              // No existing role found — a concurrent transaction won the race.
-              // Signal the caller to retry using a dedicated error class rather
-              // than fabricating a Prisma P2034 error, which breaks if Prisma's
-              // internal error detection changes.
-              throw new ConcurrencyRetryError("Transaction conflict — retry the operation.");
-            }
-
-            // Fetch the full role with relation data for the return value.
-            return tx.partyRole.findUnique({
-              where: { partyRoleId: result[0]!.partyRoleId },
-              include: { roleType: true },
-            }) as Promise<Prisma.PartyRoleGetPayload<{ include: { roleType: true } }>>;
-          }, { timeout: TX_TIMEOUT_MS });
-        } catch (err) {
-          if (err instanceof ConcurrencyRetryError) {
-            // Retry the transaction — the outer retry loop will handle it.
-            throw err;
-          }
-          PartyService.handleTransactionError(err, "add_party_role", "get_party", "party role");
+    try {
+      return await db.$transaction(async (tx) => {
+        const party = await tx.party.findUnique({ where: { partyId, tenantId } });
+        if (!party) {
+          throw new EntityNotFoundError(`Party '${partyId}' not found.`, { suggestedTools: ["search_parties", "get_party"], context: { partyId } });
         }
+
+        // Use INSERT ... ON CONFLICT to atomically check for duplicates and
+        // insert. This avoids the find-then-create race where two concurrent
+        // transactions both pass the findFirst check before either inserts.
+        // The DB constraint party_active_role_unique catches duplicates, but
+        // using ON CONFLICT gives us a clean error path without relying on
+        // post-hoc constraint violation handling.
+        //
+        // NOTE: Raw SQL is required here because the uniqueness constraint
+        // is a PARTIAL unique index (WHERE thru_date IS NULL). Prisma's
+        // upsert/create with @@unique cannot express partial indexes, so
+        // $queryRaw is the only way to leverage this constraint atomically.
+        const result = await tx.$queryRaw<{ partyRoleId: string; fromDate: Date; thruDate: Date | null }[]>`
+          INSERT INTO "party_role" ("partyId", "roleTypeId", "fromDate")
+          VALUES (${partyId}, ${roleTypeId}, ${roleFromDate})
+          ON CONFLICT DO NOTHING
+          RETURNING "partyRoleId", "fromDate", "thruDate"
+        `;
+
+        if (result.length === 0) {
+          // A concurrent transaction or pre-existing row blocked the insert.
+          // Re-check for an existing active role to give a precise error.
+          const existingRole = await tx.partyRole.findFirst({
+            where: { partyId, roleTypeId, thruDate: null, party: { tenantId } },
+          });
+          if (existingRole) {
+            const fromDate = existingRole.fromDate ? existingRole.fromDate.toISOString() : new Date().toISOString();
+            throw new DuplicateEntityError(
+              `Party '${partyId}' already has active role '${trimmedRoleType}'. Existing role started on ${fromDate}. ` +
+              `To change a party's role, first end the current role by setting a thruDate, then re-call add_party_role.`,
+              { suggestedTools: ["get_party"], context: { partyId, roleType: trimmedRoleType, existingRoleId: existingRole.partyRoleId, existingRoleDate: fromDate } }
+            );
+          }
+          // No existing role found — a concurrent transaction won the race.
+          // Signal the caller to retry using a dedicated error class rather
+          // than fabricating a Prisma P2034 error, which breaks if Prisma's
+          // internal error detection changes.
+          throw new ConcurrencyRetryError("Transaction conflict — retry the operation.");
+        }
+
+        // Fetch the full role with relation data for the return value.
+        return tx.partyRole.findUnique({
+          where: { partyRoleId: result[0]!.partyRoleId },
+          include: { roleType: true },
+        }) as Promise<Prisma.PartyRoleGetPayload<{ include: { roleType: true } }>>;
+      }, { timeout: TX_TIMEOUT_MS });
+    } catch (err) {
+      if (err instanceof ConcurrencyRetryError) {
+        // Retry the transaction — the outer retry loop will handle it.
+        throw err;
+      }
+      PartyService.handleTransactionError(err, "add_party_role", "get_party", "party role");
+    }
   }
 
   // ─── Add Contact Mechanism ────────────────────────────────────
@@ -932,20 +932,20 @@ export class PartyService {
       contactMechanismType: cm.contactMechanismType.name,
       partyId,
       postalAddress: cm.postalAddress ? {
-        addressLine1: stripHtmlTags(cm.postalAddress.addressLine1),
-        addressLine2: cm.postalAddress.addressLine2 ? stripHtmlTags(cm.postalAddress.addressLine2) : undefined,
-        city: stripHtmlTags(cm.postalAddress.city),
-        stateProvince: cm.postalAddress.stateProvince ? stripHtmlTags(cm.postalAddress.stateProvince) : undefined,
-        postalCode: cm.postalAddress.postalCode ? stripHtmlTags(cm.postalAddress.postalCode) : undefined,
-        country: stripHtmlTags(cm.postalAddress.country),
+        addressLine1: cm.postalAddress.addressLine1,
+        addressLine2: cm.postalAddress.addressLine2 ?? undefined,
+        city: cm.postalAddress.city,
+        stateProvince: cm.postalAddress.stateProvince ?? undefined,
+        postalCode: cm.postalAddress.postalCode ?? undefined,
+        country: cm.postalAddress.country,
       } : null,
       telecomNumber: cm.telecomNumber ? {
-        countryCode: cm.telecomNumber.countryCode ? stripHtmlTags(cm.telecomNumber.countryCode) : undefined,
-        areaCode: stripHtmlTags(cm.telecomNumber.areaCode),
-        lineNumber: stripHtmlTags(cm.telecomNumber.lineNumber),
-        extension: cm.telecomNumber.extension ? stripHtmlTags(cm.telecomNumber.extension) : undefined,
+        countryCode: cm.telecomNumber.countryCode ?? undefined,
+        areaCode: cm.telecomNumber.areaCode,
+        lineNumber: cm.telecomNumber.lineNumber,
+        extension: cm.telecomNumber.extension ?? undefined,
       } : null,
-      emailAddress: cm.emailAddress ? { email: stripHtmlTags(cm.emailAddress.email) } : null,
+      emailAddress: cm.emailAddress ? { email: cm.emailAddress.email } : null,
     };
   }
 

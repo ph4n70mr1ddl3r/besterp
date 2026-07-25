@@ -210,7 +210,7 @@ function handleGenericError(error: unknown, definition: { name: string }, tenant
   // (DB hostnames, connection strings, stack frames). tenantId and userId
   // are sanitized to prevent JSON corruption if they contain `]` or `"` chars.
   process.stderr.write(
-    `[MCP] [${new Date().toISOString()}] Unexpected error in '${sanitizeLogMessage(definition.name)}' (tenant=${sanitizeLogMessage(tenantId)}, user=${sanitizeLogMessage(userId)}): ${safeMessage}\n`
+    `[MCP] [${new Date().toISOString()}] Unexpected error in '${sanitizeLogMessage(definition.name)}' (tenant=${sanitizeForLogOutput(tenantId)}, user=${sanitizeForLogOutput(userId)}): ${safeMessage}\n`
   );
   // Always return a generic message to the AI agent to prevent leaking internals
   return {

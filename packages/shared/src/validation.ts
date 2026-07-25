@@ -77,15 +77,16 @@ export function isValidISODate(value: string): boolean {
   if (!ISO_DATE_REGEX.test(value) || Number.isNaN(new Date(value).getTime())) {
     return false;
   }
-  // Reject years outside a reasonable business range.
-  const year = parseInt(value.slice(0, 4), 10);
-  if (year < 1700 || year > 2200) return false;
-  // Extract month and day from the date portion and validate calendar range.
-  const month = parseInt(value.slice(5, 7), 10);
-  const day = parseInt(value.slice(8, 10), 10);
-  if (month < 1 || month > 12 || day < 1 || day > (DAYS_IN_MONTH[month] ?? 0)) {
-    return false;
-  }
+  // Use regex match groups instead of raw slice to stay robust against
+  // future regex refactoring.
+  const dateMatch = value.match(/^(\d{4})-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])/);
+  if (!dateMatch) return false;
+  const year = parseInt(dateMatch[1]!, 10);
+  const month = parseInt(dateMatch[2]!, 10);
+  const day = parseInt(dateMatch[3]!, 10);
+  // Validate calendar range: reject years outside reasonable business range,
+  // and enforce month-specific day limits (e.g. Feb 30).
+  if (year < 1700 || year > 2200 || day > (DAYS_IN_MONTH[month] ?? 0)) return false;
   // Leap year check for February 29.
   if (month === 2 && day === 29) {
     const isLeap = (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;

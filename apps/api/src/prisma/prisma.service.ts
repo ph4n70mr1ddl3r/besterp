@@ -72,6 +72,20 @@ export class PrismaService
     this.validateAppClientEnv();
     this.initializeAppClient();
     this.initializeCacheSizes();
+    this.warnIfMissingAdminUrl();
+  }
+
+  /** Log a warning if DATABASE_ADMIN_URL is not set in development. */
+  private warnIfMissingAdminUrl(): void {
+    if (!process.env.DATABASE_ADMIN_URL?.trim() && process.env.NODE_ENV === "development") {
+      this.logger.warn(
+        "DATABASE_ADMIN_URL is not set in development — the admin " +
+        "client falls back to DATABASE_URL. Audit logs and idempotency records " +
+        "(which use the admin client to bypass RLS) will be silently rejected " +
+        "by RLS policies. Set DATABASE_ADMIN_URL to a superuser connection " +
+        "string or accept that audit data will not persist."
+      );
+    }
   }
 
   /** Resolve the admin datasource URL, failing closed in production. */
@@ -81,16 +95,6 @@ export class PrismaService
       throw new Error(
         "DATABASE_ADMIN_URL is not set. The admin client requires a superuser " +
         "connection string to bypass RLS for audit/idempotency operations."
-      );
-    }
-    if (!adminUrl && process.env.NODE_ENV === "development") {
-      const staticLogger = new Logger("PrismaService");
-      staticLogger.warn(
-        "DATABASE_ADMIN_URL is not set in development — the admin " +
-        "client falls back to DATABASE_URL. Audit logs and idempotency records " +
-        "(which use the admin client to bypass RLS) will be silently rejected " +
-        "by RLS policies. Set DATABASE_ADMIN_URL to a superuser connection " +
-        "string or accept that audit data will not persist."
       );
     }
     return adminUrl ?? process.env.DATABASE_URL;
@@ -461,28 +465,28 @@ export class PrismaService
   }
 
   /**
-    * Evict a tenant client from the cache when at capacity.
-    * Priority: 1) Stale entries (GC'd), 2) Least recently used live entry.
-    * Skips dead WeakRef entries entirely during LRU scan to keep eviction O(n)
-    * on live entries only — stale entries are collected in a separate pass.
-    */
-   private evictTenantClient(): void {
-     // First pass: collect stale entries and find LRU among live entries
-     const staleKeys: string[] = [];
-     let lruKey: string | null = null;
-     let lruTime = Infinity;
+   * Evict a tenant client from the cache when at capacity.
+   * Priority: 1) Stale entries (GC'd), 2) Least recently used live entry.
+   * Skips dead WeakRef entries entirely during LRU scan to keep eviction O(n)
+   * on live entries only — stale entries are collected in a separate pass.
+   */
+  private evictTenantClient(): void {
+    // First pass: collect stale entries and find LRU among live entries
+    const staleKeys: string[] = [];
+    let lruKey: string | null = null;
+    let lruTime = Infinity;
 
-     for (const [key, ref] of this.tenantClientCache) {
-       if (!ref.deref()) {
-         staleKeys.push(key);
-       } else {
-         const ts = this.lastAccessed.get(key) ?? 0;
-         if (ts < lruTime) {
-           lruTime = ts;
-           lruKey = key;
-         }
-       }
-     }
+    for (const [key, ref] of this.tenantClientCache) {
+      if (!ref.deref()) {
+        staleKeys.push(key);
+      } else {
+        const ts = this.lastAccessed.get(key) ?? 0;
+        if (ts < lruTime) {
+          lruTime = ts;
+          lruKey = key;
+        }
+      }
+    }
 
     // Evict all stale entries first — remove from ALL tracking maps so dead
     // WeakRef entries and their timestamps don't accumulate indefinitely.

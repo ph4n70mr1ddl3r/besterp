@@ -62,7 +62,7 @@ function validateJwtExpiresIn(): void {
   // (e.g., "9999999999d" ≈ 27,397 years). The regex allows magnitudes up to
   // 10 digits, so we parse and cap the effective duration at 30 days.
   if (process.env.JWT_EXPIRES_IN) {
-    const match = process.env.JWT_EXPIRES_IN.match(/^([1-9]\d{0,9})([smhd])$/);
+    const match = JWT_EXPIRES_IN_REGEX.exec(process.env.JWT_EXPIRES_IN);
     if (match) {
       const value = Number(match[1]);
       const unit = match[2];
@@ -261,8 +261,7 @@ async function bootstrap() {
     max: process.env.RATE_LIMIT_MAX_PER_WINDOW ? Number(process.env.RATE_LIMIT_MAX_PER_WINDOW) : 300,
     standardHeaders: true,
     legacyHeaders: false,
-    message: { statusCode: 429, message: "Rate limit exceeded. Please slow down and retry." },
-    skipFailedRequests: true,
+    message: { statusCode: 429, error: "RATE_LIMITED", message: "Rate limit exceeded. Please slow down and retry." },
   });
   app.use(generalLimiter);
 
@@ -300,6 +299,7 @@ async function bootstrap() {
     if (origin && isAllowedOrigin(origin, allowedOrigins)) {
       res.setHeader("Access-Control-Allow-Origin", origin);
       res.setHeader("Access-Control-Allow-Credentials", "true");
+      res.setHeader("Vary", "Origin");
     }
   }
 

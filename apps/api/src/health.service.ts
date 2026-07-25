@@ -8,6 +8,7 @@ import { Injectable, Logger, OnModuleInit } from "@nestjs/common";
 import { PrismaService } from "./prisma/prisma.service.js";
 import { sanitizeForLogOutput, sanitizeLogMessage } from "@besterp/shared";
 import * as fs from "node:fs/promises";
+import * as net from "node:net";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -124,7 +125,6 @@ export class HealthService implements OnModuleInit {
         // dependency just for the health check. A successful connect means Redis
         // is reachable; we do NOT send AUTH/PING because the credentials may not
         // be available here and a failed auth would falsely report "disconnected".
-        const net = await import("node:net");
         await new Promise<void>((resolve, reject) => {
           const socket = new net.Socket();
           const timeout = setTimeout(() => {
