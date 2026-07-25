@@ -14,7 +14,7 @@ import type { JwtValidatedUser } from "./jwt.strategy.js";
 import { TenantContext } from "../common/tenant-context.js";
 import { IS_PUBLIC_KEY } from "./public.decorator.js";
 import { isPublicAllowedForHandler } from "./public-scope.js";
-import { validateTenantIdEnhancedForAuth } from "@besterp/shared";
+import { validateTenantIdEnhancedForAuth, MAX_USER_ID_LENGTH } from "@besterp/shared";
 
 @Injectable()
 export class TenantGuard implements CanActivate {
@@ -75,7 +75,7 @@ export class TenantGuard implements CanActivate {
     // Enforce max length for defense-in-depth — the JWT strategy validates
     // this, but if that guard is ever bypassed the tenant context must not
     // accept an unbounded userId (could cause DB column overflow).
-    if (userId.length > 200) {
+    if (userId.length > MAX_USER_ID_LENGTH) {
       throw new UnauthorizedException(
         "TenantGuard: userId exceeds maximum allowed length.",
       );

@@ -29,9 +29,6 @@ const DEFAULT_TX_TIMEOUT_MS = 30_000;
 
 /** A PrismaClient-like interface with automatic RLS tenant context injection. */
 export type TenantScopedClient = Omit<PrismaClient, "$connect" | "$disconnect" | "$extends" | "$queryRaw" | "$queryRawTyped" | "$executeRaw" | "$executeRawTyped" | "$queryRawUnsafe" | "$executeRawUnsafe">;
-
-
-
 // ─── LRU Cache ────────────────────────────────────────────────────
 
 /** Simple LRU cache implementation using Map (preserves insertion order). */

@@ -98,16 +98,16 @@ const TX_TIMEOUT_MS = 10_000;
 
 @Injectable()
 export class PartyService {
-  private readonly logger = new Logger(PartyService.name);
-
-  constructor(private readonly prisma: PrismaService) {}
-
   private static readonly PARTY_INCLUDE = {
     person: true,
     organization: true,
     partyType: true,
     roles: { include: { roleType: true } },
   } satisfies Prisma.PartyInclude;
+
+  private readonly logger = new Logger(PartyService.name);
+
+  constructor(private readonly prisma: PrismaService) {}
 
   // ─── Create Party ─────────────────────────────────────────────
 

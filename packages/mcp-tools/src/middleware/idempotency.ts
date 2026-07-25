@@ -22,17 +22,6 @@ import { ToolMiddleware, ToolResult, ToolContext, ZodSchemaLike } from "../schem
 import { truncateValue, MAX_STORED_PAYLOAD_SIZE, capString, isTruncationMarker } from "./truncate.js";
 
 /**
- * Threshold after which a "pending" idempotency record is considered stale.
- * If the server crashes after creating a pending record but before completing
- * it, the record blocks retries for 24h. A 60-second threshold allows
- * recovery: the stale pending record is atomically reset so the operation
- * can be retried.
- *
- * @deprecated Use IDEMPOTENCY_STALE_PENDING_THRESHOLD_MS from @besterp/shared.
- */
-const STALE_PENDING_THRESHOLD_MS = IDEMPOTENCY_STALE_PENDING_THRESHOLD_MS;
-
-/**
  * Create an idempotency middleware backed by PostgreSQL.
  *
  * @param prisma - Admin PrismaClient (superuser, bypasses RLS for idempotency records)
@@ -231,7 +220,7 @@ async function acquireIdempotencyRecord(
             return { existing: null, created: true };
           }
           const pendingAge = Date.now() - record.createdAt.getTime();
-          if (pendingAge > STALE_PENDING_THRESHOLD_MS) {
+          if (pendingAge > IDEMPOTENCY_STALE_PENDING_THRESHOLD_MS) {
             // Stale pending record — the previous request likely crashed
             // before completing. Reset to pending so this request can proceed.
             // Only allow reset if the input hash matches to prevent a stale
@@ -337,7 +326,7 @@ function handleExistingRecord(
         };
       }
       const pendingAge = Date.now() - existing.createdAt.getTime();
-      if (pendingAge > STALE_PENDING_THRESHOLD_MS) {
+      if (pendingAge > IDEMPOTENCY_STALE_PENDING_THRESHOLD_MS) {
         return {
           success: false,
           error: {

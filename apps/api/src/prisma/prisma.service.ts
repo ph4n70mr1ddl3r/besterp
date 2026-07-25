@@ -84,12 +84,13 @@ export class PrismaService
       );
     }
     if (!adminUrl && process.env.NODE_ENV === "development") {
-      console.error(
-        "WARNING: DATABASE_ADMIN_URL is not set in development — the admin " +
+      const staticLogger = new Logger("PrismaService");
+      staticLogger.warn(
+        "DATABASE_ADMIN_URL is not set in development — the admin " +
         "client falls back to DATABASE_URL. Audit logs and idempotency records " +
         "(which use the admin client to bypass RLS) will be silently rejected " +
         "by RLS policies. Set DATABASE_ADMIN_URL to a superuser connection " +
-        "string or accept that audit data will not persist.\n"
+        "string or accept that audit data will not persist."
       );
     }
     return adminUrl ?? process.env.DATABASE_URL;
