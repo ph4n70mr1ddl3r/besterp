@@ -284,7 +284,11 @@ export class PartyService {
   ) {
     try {
       return await db.$transaction(async (tx: Prisma.TransactionClient) => {
-            const partyTypeRecord = await tx.partyType.findUnique({ where: { name: partyTypeName } });
+            // Use admin client for global reference data — type tables are shared
+            // across tenants and not subject to RLS. Querying via tenant-scoped tx
+            // adds unnecessary RLS overhead and may fail if policies don't include
+            // these tables.
+            const partyTypeRecord = await this.prisma.admin.partyType.findUnique({ where: { name: partyTypeName } });
             if (!partyTypeRecord) {
               throw new InvalidTypeValueError(
                 `PARTY_TYPE '${partyTypeName}' is not valid. Valid types: ['PERSON', 'ORGANIZATION'].`,
@@ -576,7 +580,9 @@ export class PartyService {
     const trimmedRoleType = this.validateAddPartyRoleInput(roleType);
     const roleFromDate = this.parseFromDate(fromDate);
 
-    const roleTypeRecord = await db.roleType.findUnique({ where: { name: trimmedRoleType } });
+    // Use admin client for global reference data — role_type is a shared
+    // cross-tenant lookup table, not tenant-scoped. RLS policies do not apply.
+    const roleTypeRecord = await this.prisma.admin.roleType.findUnique({ where: { name: trimmedRoleType } });
     if (!roleTypeRecord) {
       throw new InvalidTypeValueError(
         `ROLE_TYPE '${trimmedRoleType}' is not valid. Use 'get_type_table_values' to see valid role types.`,
@@ -720,7 +726,10 @@ export class PartyService {
     const trimmedCmType = this.validateContactMechanismType(contactMechanismType);
     const normalizedEmail = this.validateContactMechanismSubtype(trimmedCmType, postalAddress, telecomNumber, emailAddress);
 
-    const cmType = await db.contactMechanismType.findUnique({ where: { name: trimmedCmType } });
+    // Use admin client for global reference data — contact_mechanism_type is a
+    // shared cross-tenant lookup table, not tenant-scoped. RLS policies do not
+    // apply.
+    const cmType = await this.prisma.admin.contactMechanismType.findUnique({ where: { name: trimmedCmType } });
     if (!cmType) {
       throw new InvalidTypeValueError(
         `CONTACT_MECHANISM_TYPE '${trimmedCmType}' is not valid. Valid types: ['POSTAL_ADDRESS', 'TELECOM_NUMBER', 'EMAIL_ADDRESS'].`,

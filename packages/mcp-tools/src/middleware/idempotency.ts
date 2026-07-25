@@ -463,8 +463,13 @@ async function executeAndUpdate(
   try {
     await updateIdempotencyRecordWithRetry(prisma, idempotencyKey, tenantId, toolResult, isSoftFailure);
   } catch {
+    // Belt-and-suspenders: the idempotency record write failed (e.g. transient DB error).
+    // Log the failure but still return the tool result — the operation already executed.
+    // The agent may retry with the same key, which could re-execute the operation since
+    // no completed/failed record exists. This is a known limitation of the acquire-then-update
+    // pattern under transient failures between acquire and update.
     logIdempotencyWarn(
-      `Failed to persist result for idempotency key '${redactKey(idempotencyKey)}' — result still returned`
+      `Failed to persist result for idempotency key '${redactKey(idempotencyKey)}' — result still returned but idempotency guarantee is weakened for this key`
     );
   }
 

@@ -37,9 +37,8 @@ const textDecoder = new TextDecoder();
  * `sliceEnd`, so [0, sliceEnd) would cut the character in half — keep walking
  * backwards until we find a non-continuation byte (or reach 0). When
  * `sliceEnd === encoded.byteLength`, `encoded[sliceEnd]` is `undefined`, and
- * `(undefined & 0xC0) !== 0x80` is true, so the loop breaks immediately —
- * correct behaviour since there is no partial character beyond the end of the
- * buffer.
+ * the explicit check handles this as a valid character boundary since there is
+ * no partial character beyond the end of the buffer.
  *
  * Both `capString` and the truncation preview must agree on this behaviour —
  * previously only `capString` walked back, so a preview could end with U+FFFD
@@ -49,10 +48,9 @@ function safeSliceUtf8(encoded: Uint8Array, byteLimit: number): string {
   let sliceEnd = Math.min(byteLimit, encoded.byteLength);
   while (sliceEnd > 0) {
     const byte = encoded[sliceEnd];
-    // `sliceEnd` points at the first EXCLUDED byte (or `undefined` if beyond
-    // the buffer). While it is a UTF-8 continuation byte, the corresponding lead
-    // byte lies before `sliceEnd`, so [0, sliceEnd) would still cut the character
-    // in half — keep walking backwards.
+    // `sliceEnd` points at the first EXCLUDED byte. If it is beyond the buffer
+    // (undefined), or not a UTF-8 continuation byte (10xxxxxx / 0x80–0xBF),
+    // we are on a character boundary and can stop.
     if (byte === undefined || (byte & 0xC0) !== 0x80) break;
     sliceEnd--;
   }

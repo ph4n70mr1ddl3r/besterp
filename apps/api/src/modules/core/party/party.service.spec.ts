@@ -35,6 +35,11 @@ function mockParty(overrides: Record<string, any> = {}) {
 
 // Mock PrismaService
 const mockPrismaService = {
+  admin: {
+    partyType: { findUnique: vi.fn() },
+    roleType: { findUnique: vi.fn() },
+    contactMechanismType: { findUnique: vi.fn() },
+  },
   tenantScoped: vi.fn(),
 } as any;
 
@@ -46,8 +51,38 @@ describe("PartyService", () => {
     partyService = new PartyService(mockPrismaService);
   });
 
+  // Helper to set up the admin type lookups used by createParty / addPartyRole / addContactMechanism.
+  // These methods moved global-type lookups (partyType, roleType, contactMechanismType) out of the
+  // transaction and onto the admin client (round-51 review), so tests that previously mocked the
+  // tx-level delegates must now mock the admin delegates instead.
+  function mockAdminTypes(overrides: {
+    partyTypeId?: string;
+    roleTypeId?: string;
+    contactMechanismTypeId?: string;
+    partyTypeNull?: boolean;
+    roleTypeNull?: boolean;
+    cmTypeNull?: boolean;
+  } = {}) {
+    if (!overrides.partyTypeNull) {
+      mockPrismaService.admin.partyType.findUnique.mockResolvedValue({ partyTypeId: overrides.partyTypeId ?? "pt-person" });
+    } else {
+      mockPrismaService.admin.partyType.findUnique.mockResolvedValue(null);
+    }
+    if (!overrides.roleTypeNull) {
+      mockPrismaService.admin.roleType.findUnique.mockResolvedValue({ roleTypeId: overrides.roleTypeId ?? "rt-customer" });
+    } else {
+      mockPrismaService.admin.roleType.findUnique.mockResolvedValue(null);
+    }
+    if (!overrides.cmTypeNull) {
+      mockPrismaService.admin.contactMechanismType.findUnique.mockResolvedValue({ contactMechanismTypeId: overrides.contactMechanismTypeId ?? "cmt-postal" });
+    } else {
+      mockPrismaService.admin.contactMechanismType.findUnique.mockResolvedValue(null);
+    }
+  }
+
   describe("createParty", () => {
     it("should create a person party successfully", async () => {
+      mockAdminTypes();
       const input: CreatePartyInput = {
         tenantId: "tenant-1",
         partyType: "PERSON",
@@ -85,6 +120,7 @@ describe("PartyService", () => {
     });
 
     it("should create an organization party successfully", async () => {
+      mockAdminTypes();
       const input: CreatePartyInput = {
         tenantId: "tenant-1",
         partyType: "ORGANIZATION",
@@ -232,6 +268,7 @@ describe("PartyService", () => {
     });
 
     it("should throw error for invalid party type", async () => {
+      mockAdminTypes({ partyTypeNull: true });
       const input: CreatePartyInput = {
         tenantId: "tenant-1",
         partyType: "INVALID_TYPE" as any,
@@ -240,11 +277,7 @@ describe("PartyService", () => {
 
       const mockDb = {
         $transaction: vi.fn().mockImplementation(async (fn) => {
-          const tx = {
-            partyType: {
-              findUnique: vi.fn().mockResolvedValue(null),
-            },
-          };
+          const tx = {};
           return fn(tx);
         }),
       };
@@ -350,6 +383,7 @@ describe("PartyService", () => {
     });
 
     it("should trim gender and middleName fields", async () => {
+      mockAdminTypes();
       const input: CreatePartyInput = {
         tenantId: "tenant-1",
         partyType: "PERSON",
@@ -440,6 +474,7 @@ describe("PartyService", () => {
     });
 
     it("should accept a valid ISO 8601 birthDate", async () => {
+      mockAdminTypes();
       // Sanity check: a real ISO date should not trip the new guard.
       const input: CreatePartyInput = {
         tenantId: "tenant-1",
@@ -477,6 +512,7 @@ describe("PartyService", () => {
     });
 
     it("should accept a whitespace-padded ISO birthDate (consistent with fromDate)", async () => {
+      mockAdminTypes();
       // Regression guard: requireValidDate must validate the TRIMMED value
       // so a padded date like " 1990-06-15 " is accepted — matching
       // parseFromDate() (add_party_role) and the MCP Zod schemas, which
@@ -729,6 +765,7 @@ describe("PartyService", () => {
 
   describe("addPartyRole", () => {
     it("should add role to party successfully", async () => {
+      mockAdminTypes();
       const input = {
         tenantId: "tenant-1",
         partyId: "12345678-1234-1234-1234-123456789abc",
@@ -767,6 +804,7 @@ describe("PartyService", () => {
     });
 
     it("should throw error for duplicate role", async () => {
+      mockAdminTypes();
       const input = {
         tenantId: "tenant-1",
         partyId: "12345678-1234-1234-1234-123456789abc",
@@ -801,6 +839,7 @@ describe("PartyService", () => {
     });
 
     it("should not suggest the nonexistent 'update_party_role' tool", async () => {
+      mockAdminTypes();
       // Regression guard: the duplicate-role error used to suggest
       // 'update_party_role' as a next action, but no such tool exists.
       // AI agents following the suggestion would loop on UNKNOWN_TOOL.
@@ -856,24 +895,18 @@ describe("PartyService", () => {
     });
 
     it("should throw error for invalid role type", async () => {
+      mockAdminTypes({ roleTypeNull: true });
       const input = {
         tenantId: "tenant-1",
         partyId: "12345678-1234-1234-1234-123456789abc",
         roleType: "InvalidRole",
       };
 
-      const mockDb = {
-        roleType: {
-          findUnique: vi.fn().mockResolvedValue(null),
-        },
-      };
-
-      mockPrismaService.tenantScoped.mockReturnValue(mockDb);
-
       await expect(partyService.addPartyRole(input)).rejects.toThrow(InvalidTypeValueError);
     });
 
     it("should throw EntityNotFoundError when party does not exist", async () => {
+      mockAdminTypes();
       const input = {
         tenantId: "tenant-1",
         partyId: "00000000-0000-0000-0000-000000000000",
@@ -957,6 +990,7 @@ describe("PartyService", () => {
     });
 
     it("should trim roleType before lookup", async () => {
+      mockAdminTypes();
       const input = {
         tenantId: "tenant-1",
         partyId: "12345678-1234-1234-1234-123456789abc",
@@ -990,8 +1024,8 @@ describe("PartyService", () => {
 
       const result = await partyService.addPartyRole(input);
 
-      // Verify the trimmed value was used for the lookup
-      expect(mockDb.roleType.findUnique).toHaveBeenCalledWith(
+      // Verify the trimmed value was used for the lookup (admin client, not tenant-scoped)
+      expect(mockPrismaService.admin.roleType.findUnique).toHaveBeenCalledWith(
         expect.objectContaining({ where: { name: "Customer" } })
       );
       expect(result.roleTypeName).toBe("Customer");
@@ -1068,6 +1102,8 @@ describe("PartyService", () => {
     });
 
     it("should default fromDate to now when undefined", async () => {
+      mockAdminTypes();
+      mockAdminTypes();
       const mockDb = {
         roleType: { findUnique: vi.fn().mockResolvedValue({ roleTypeId: "rt-customer" }) },
         $transaction: vi.fn().mockImplementation(async (fn) => {
@@ -1099,6 +1135,7 @@ describe("PartyService", () => {
     });
 
     it("should accept whitespace-padded fromDate after trim", async () => {
+      mockAdminTypes();
       // Defense-in-depth: the pre-trim length check must not reject a
       // whitespace-padded date whose trimmed value is within the limit.
       const mockDb = {
@@ -1135,6 +1172,7 @@ describe("PartyService", () => {
 
   describe("addContactMechanism", () => {
     it("should add postal address successfully", async () => {
+      mockAdminTypes();
       const input: AddContactMechanismInput = {
         tenantId: "tenant-1",
         partyId: "12345678-1234-1234-1234-123456789abc",
@@ -1222,6 +1260,7 @@ describe("PartyService", () => {
     });
 
     it("should throw EntityNotFoundError when party does not exist (inside transaction)", async () => {
+      mockAdminTypes();
       const input: AddContactMechanismInput = {
         tenantId: "tenant-1",
         partyId: "00000000-0000-0000-0000-000000000000",
@@ -1297,6 +1336,7 @@ describe("PartyService", () => {
     });
 
     it("should add telecom number successfully", async () => {
+      mockAdminTypes();
       const input: AddContactMechanismInput = {
         tenantId: "tenant-1",
         partyId: "12345678-1234-1234-1234-123456789abc",
@@ -1350,6 +1390,7 @@ describe("PartyService", () => {
     });
 
     it("should add email address successfully", async () => {
+      mockAdminTypes();
       const input: AddContactMechanismInput = {
         tenantId: "tenant-1",
         partyId: "12345678-1234-1234-1234-123456789abc",
@@ -1398,6 +1439,7 @@ describe("PartyService", () => {
     });
 
     it("should strip HTML tags from email before storing (defense-in-depth)", async () => {
+      mockAdminTypes();
       // Regression guard: the service is the last line of defense for
       // direct/internal callers that bypass the REST DTO's stricter
       // @IsEmail. EMAIL_REGEX permits '<' and '>', so without stripping,
@@ -1453,6 +1495,7 @@ describe("PartyService", () => {
     });
 
     it("should redact the local part of a duplicate email without leaking the '@' (short local part)", async () => {
+      mockAdminTypes();
       // Regression guard: checkEmailDuplicate builds a masked preview of the
       // offending address for the DuplicateEntityError message + context. A
       // fixed `slice(0, 2)` preview spanned into the '@' for a single-char
@@ -1511,6 +1554,7 @@ describe("PartyService", () => {
     });
 
     it("scopes the email duplicate check to the requesting party (no false positive for other parties)", async () => {
+      mockAdminTypes();
       // Regression guard for round-30 scoping fix: the duplicate query must be
       // filtered by partyContacts.some({ partyId }) so an identical email
       // registered to a DIFFERENT party is not mistaken for a duplicate of the
@@ -1788,6 +1832,7 @@ describe("PartyService", () => {
     });
 
     it("should accept valid E.164 country codes", async () => {
+      mockAdminTypes();
       // Real country codes (+1, +44, +81, +86) should all pass validation.
       const mockDb = {
         contactMechanismType: {
@@ -1830,6 +1875,8 @@ describe("PartyService", () => {
     });
 
     it("should accept whitespace-padded countryCode after trim (defense-in-depth)", async () => {
+      mockAdminTypes();
+      mockAdminTypes();
       const mockDb = {
         contactMechanismType: {
           findUnique: vi.fn().mockResolvedValue({ contactMechanismTypeId: "cmt-telecom" }),
@@ -1869,6 +1916,7 @@ describe("PartyService", () => {
     });
 
     it("should scope the telecom duplicate check on countryCode (round-50 fix)", async () => {
+      mockAdminTypes();
       // Regression: checkTelecomDuplicate previously matched only on
       // (areaCode, lineNumber), so "+1 555 1234" and "+44 555 1234"
       // collided as the same number. The duplicate check must now include

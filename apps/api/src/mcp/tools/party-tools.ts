@@ -166,7 +166,7 @@ const CONTACT_SUBTYPE_CONFIGS: Record<string, SubtypeFieldConfig> = {
 
 /** Required string: trims, strips HTML, enforces min/max length. */
 function sanitizedString(min: number, max: number) {
-  return z.string().max(max)
+  return z.string()
     .transform(s => stripHtmlTags(s.trim()))
     .pipe(z.string().min(min).max(max));
 }

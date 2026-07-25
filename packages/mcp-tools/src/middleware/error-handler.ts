@@ -108,7 +108,7 @@ const PRISMA_ERROR_HANDLERS: Record<string, ErrorFactory> = {
       success: false,
       error: {
         code: "ENTITY_NOT_FOUND",
-        message: `The referenced entity was not found. Use 'search_${entityPlural}' to find valid records.`,
+        message: `The '${entityName}' entity was not found. Use 'search_${entityPlural}' to find valid records.`,
         suggestedTools: [`search_${entityPlural}`, `get_${entityName}`],
       },
     };
