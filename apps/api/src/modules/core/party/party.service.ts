@@ -668,11 +668,18 @@ export class PartyService {
         // is a PARTIAL unique index (WHERE thru_date IS NULL). Prisma's
         // upsert/create with @@unique cannot express partial indexes, so
         // $queryRaw is the only way to leverage this constraint atomically.
+        // NOTE: column names MUST be snake_case (party_id, role_type_id,
+        // from_date, party_role_id, thru_date) — these are the physical DB column
+        // names created by migration 20260510081953_init (Prisma's @map directives
+        // remap them to camelCase for the typed client only; raw SQL bypasses
+        // that mapping and addresses the columns by their real, snake_case names).
+        // RETURNING aliases them back to camelCase keys so the typed result below
+        // (result[0]!.partyRoleId) reads as declared.
         const result = await tx.$queryRaw<{ partyRoleId: string; fromDate: Date; thruDate: Date | null }[]>`
-          INSERT INTO "party_role" ("partyId", "roleTypeId", "fromDate")
+          INSERT INTO "party_role" ("party_id", "role_type_id", "from_date")
           VALUES (${partyId}, ${roleTypeId}, ${roleFromDate})
           ON CONFLICT DO NOTHING
-          RETURNING "partyRoleId", "fromDate", "thruDate"
+          RETURNING "party_role_id" AS "partyRoleId", "from_date" AS "fromDate", "thru_date" AS "thruDate"
         `;
 
         if (result.length === 0) {

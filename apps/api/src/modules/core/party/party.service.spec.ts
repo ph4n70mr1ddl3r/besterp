@@ -803,6 +803,74 @@ describe("PartyService", () => {
       expect(result.roleTypeName).toBe("Customer");
     });
 
+    it("should emit snake_case column names in the ON CONFLICT INSERT (regression)", async () => {
+      // Regression guard: the raw $queryRaw INSERT targeted the DB columns by
+      // camelCase names ("partyId", "roleTypeId", ...) even though the physical
+      // columns are snake_case (party_id, role_type_id, ...). Prisma's typed
+      // client hides this via @map, but raw SQL addresses the real columns, so
+      // the query threw `column "partyId" of relation "party_role" does not
+      // exist` at runtime. The mock below records the tagged-template SQL and
+      // asserts the snake_case names are present and the camelCase ones are not.
+      mockAdminTypes();
+      const input = {
+        tenantId: "tenant-1",
+        partyId: "12345678-1234-1234-1234-123456789abc",
+        roleType: "Customer",
+      };
+
+      let capturedSql = "";
+      const mockDb = {
+        roleType: {
+          findUnique: vi.fn().mockResolvedValue({ roleTypeId: "rt-customer" }),
+        },
+        $transaction: vi.fn().mockImplementation(async (fn) => {
+          const queryRawMock = vi.fn().mockResolvedValue([
+            { partyRoleId: "role-123", fromDate: new Date(), thruDate: null },
+          ]);
+          const tx = {
+            party: { findUnique: vi.fn().mockResolvedValue({ partyId: "12345678-1234-1234-1234-123456789abc" }) },
+            $queryRaw: queryRawMock,
+            partyRole: {
+              findUnique: vi.fn().mockResolvedValue({
+                partyRoleId: "role-123",
+                partyId: "12345678-1234-1234-1234-123456789abc",
+                roleTypeId: "rt-customer",
+                fromDate: new Date(),
+                thruDate: null,
+                roleType: { name: "Customer", roleTypeId: "rt-customer" },
+              }),
+            },
+          };
+          const outcome = await fn(tx);
+          // Tagged-template call: calls[0][0] is the TemplateStringsArray,
+          // calls[0][1..] are the interpolated parameter values. Joining the
+          // strings reconstitutes the SQL text (with ? placeholders) so we can
+          // assert on the column names actually sent to the database.
+          const firstCall = queryRawMock.mock.calls[0];
+          if (firstCall && Array.isArray(firstCall[0])) {
+            capturedSql = (firstCall[0] as readonly string[]).join("?");
+          }
+          return outcome;
+        }),
+      };
+      mockPrismaService.tenantScoped.mockReturnValue(mockDb);
+
+      await partyService.addPartyRole(input);
+
+      expect(capturedSql).toContain('"party_role"');
+      expect(capturedSql).toContain('"party_id"');
+      expect(capturedSql).toContain('"role_type_id"');
+      expect(capturedSql).toContain('"from_date"');
+      expect(capturedSql).toContain('AS "partyRoleId"');
+      // The camelCase names that Prisma exposes on the typed client must NOT
+      // appear as column references in the raw SQL. "fromDate"/"thruDate"/
+      // "partyRoleId" legitimately reappear as RETURNING aliases, but the
+      // pure column-name forms below are never aliased to and are the
+      // clearest indicator of the original snake_case bug.
+      expect(capturedSql).not.toContain('"partyId"');
+      expect(capturedSql).not.toContain('"roleTypeId"');
+    });
+
     it("should throw error for duplicate role", async () => {
       mockAdminTypes();
       const input = {

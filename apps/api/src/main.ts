@@ -117,7 +117,10 @@ function validateJwtSecretStrength(): void {
 }
 
 function validateRedisConfig(): void {
-  const REDIS_WARN_VARS = ["REDIS_HOST", "REDIS_PORT"];
+  // REDIS_PASSWORD is included so a missing production password is flagged
+  // here as a clear env-var warning rather than surfacing later as a
+  // confusing QueueModule init throw inside NestFactory.create.
+  const REDIS_WARN_VARS = ["REDIS_HOST", "REDIS_PORT", "REDIS_PASSWORD"];
   const missingRedis = REDIS_WARN_VARS.filter((v) => !process.env[v]);
   if (missingRedis.length > 0 && process.env.NODE_ENV === "production") {
     logger.warn(`Missing Redis env vars: ${missingRedis.join(", ")}. Queues and background jobs will fail.`);
