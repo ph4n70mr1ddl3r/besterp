@@ -18,9 +18,6 @@
 import { MAX_STORED_PAYLOAD_SIZE, sanitizeForLogOutput, TRUNCATE_PREVIEW_BYTES } from "@besterp/shared";
 export { MAX_STORED_PAYLOAD_SIZE };
 
-/** Preview length (bytes) when a payload is truncated. */
-const PREVIEW_BYTES = TRUNCATE_PREVIEW_BYTES;
-
 /** Shared TextEncoder/TextDecoder instances — avoids allocation in hot paths. */
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
@@ -93,7 +90,7 @@ function truncationMarker(encoded: Uint8Array): {
     // `_preview` field — an asymmetric leak into the cross-tenant audit sink.
     // sanitizeForLogOutput scrubs high-entropy bearer/secret tokens by shape,
     // so the preview can never carry a raw secret.
-    _preview: sanitizeForLogOutput(safeSliceUtf8(encoded, PREVIEW_BYTES)),
+    _preview: sanitizeForLogOutput(safeSliceUtf8(encoded, TRUNCATE_PREVIEW_BYTES)),
   };
 }
 

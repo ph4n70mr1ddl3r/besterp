@@ -118,7 +118,7 @@ function stripRemainingHtmlTags(input: string): string {
 
 /** Strip incomplete/orphaned opening tags (missing closing >). */
 function stripIncompleteOpeningTags(input: string): string {
-  return input.replace(/<[a-zA-Z][^>]*/, "");
+  return input.replace(/<[a-zA-Z][^>]*/g, "");
 }
 
 /**
