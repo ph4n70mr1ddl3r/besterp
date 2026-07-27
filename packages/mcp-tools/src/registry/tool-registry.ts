@@ -10,7 +10,6 @@ import {
   RegistryEntry,
   ToolResult,
   ToolContext,
-  ZodSchemaLike,
   RiskLevel,
 } from "../schema/tool-definition.js";
 import { MAX_IDEMPOTENCY_KEY_LENGTH, SAFE_IDEMPOTENCY_KEY, sanitizeForLogOutput, redactSensitiveFieldValues, validateTenantIdEnhancedForAuth, MAX_USER_ID_LENGTH, MAX_AGENT_ID_LENGTH, MAX_CONVERSATION_ID_LENGTH } from "@besterp/shared";
@@ -96,7 +95,7 @@ export class ToolRegistry {
     // `as any` casts bypass the type check.
     if (
       !definition.inputSchema ||
-      typeof (definition.inputSchema as ZodSchemaLike).safeParse !== "function"
+      typeof definition.inputSchema.safeParse !== "function"
     ) {
       throw new Error(
         `Tool '${definition.name}' has an invalid inputSchema: ` +
@@ -209,7 +208,7 @@ export class ToolRegistry {
           const parsed = definition.inputSchema.safeParse(input);
           if (!parsed.success) {
             const issueString = parsed.error.issues
-              .map((i) => `${i.path.map((p) => typeof p === "symbol" ? p.toString() : String(p)).join(".")}: ${i.message}`)
+              .map((i) => `${i.path.map((p) => String(p)).join(".")}: ${i.message}`)
               .join("; ");
             const detailRaw = issueString.length > MAX_VALIDATION_MESSAGE_LENGTH
               ? `${issueString.slice(0, MAX_VALIDATION_MESSAGE_LENGTH)}… [${parsed.error.issues.length} issues, truncated]`
@@ -381,7 +380,7 @@ export class ToolRegistry {
    */
   private sanitizeIssues(issues: ReadonlyArray<{ path: PropertyKey[]; message: string; code?: string; received?: unknown }>, maxIssues: number): unknown[] {
     return issues.slice(0, maxIssues).map((issue) => {
-      const path = issue.path.map((p) => (typeof p === "symbol" ? p.toString() : String(p)));
+      const path = issue.path.map((p) => String(p));
       // Redact any path segment that matches a sensitive field name, not just
       // the last segment — a Zod issue path like ["user","password","confirm"]
       // would otherwise leak the "password" key in the path array.
@@ -395,8 +394,8 @@ export class ToolRegistry {
         path: sanitizedPath,
       };
       const sensitivePathSegments = path.filter((p) => isSensitiveField(p));
-      const lastSegment = path.length > 0 ? path[path.length - 1] : "";
-      if (sensitivePathSegments.length > 0 || (isSensitiveField(lastSegment ?? "") && issue.received !== undefined)) {
+      const lastSegment = path.length > 0 ? path[path.length - 1]! : "";
+      if (sensitivePathSegments.length > 0 || (isSensitiveField(lastSegment) && issue.received !== undefined)) {
         redacted.received = "[REDACTED]";
       } else if (issue.received !== undefined) {
         redacted.received = redactSensitiveFieldValues(sanitizeForLogOutput(String(issue.received)));

@@ -28,7 +28,7 @@ const DEFAULT_TX_TIMEOUT_MS = 30_000;
 // If a method is omitted from the type, it should also be added here.
 
 /** A PrismaClient-like interface with automatic RLS tenant context injection. */
-export type TenantScopedClient = Omit<PrismaClient, "$connect" | "$disconnect" | "$extends" | "$queryRaw" | "$queryRawTyped" | "$executeRaw" | "$executeRawTyped" | "$queryRawUnsafe" | "$executeRawUnsafe">;
+export type TenantScopedClient = Omit<PrismaClient, "$connect" | "$disconnect" | "$extends" | "$queryRaw" | "$queryRawTyped" | "$executeRaw" | "$executeRawTyped" | "$queryRawUnsafe" | "$executeRawUnsafe" | "$on" | "$use" | "$metrics">;
 // ─── LRU Cache ────────────────────────────────────────────────────
 
 /** Simple LRU cache implementation using Map (preserves insertion order). */
@@ -43,9 +43,8 @@ class LruCache<K, V> {
     if (value !== undefined) {
       this.map.delete(key);
       this.map.set(key, value);
-      return value;
     }
-    return undefined;
+    return value;
   }
 
   set(key: K, value: V): void {
@@ -105,7 +104,7 @@ const DATA_METHODS = new Set([
 ]);
 
 /** Operations that should never be called on a tenant-scoped proxy. */
-const BLOCKED_CLIENT_METHODS = new Set(["$connect", "$disconnect", "$extends"]);
+const BLOCKED_CLIENT_METHODS = new Set(["$connect", "$disconnect", "$extends", "$on", "$use", "$metrics"]);
 
 /**
  * Create a tenant-scoped Prisma client.

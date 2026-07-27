@@ -18,7 +18,6 @@ import {
   EntityNotFoundError, DuplicateEntityError, ConcurrencyConflictError,
   MissingSubtypeDataError, InvalidTypeValueError, InvalidTenantIdError,
   TenantContextFailedError,
-  type ContextValue,
 } from "@besterp/shared";
 
 /** Normalized development-environment check — mirrors main.ts normalizeEnvironment(). */
@@ -57,13 +56,6 @@ function domainErrorToStatus(error: DomainError): number {
  * redaction the MCP error-handler applies to the same DomainError.context for
  * AI agents — and guards against container cycles.
  */
-function sanitizeContext(context: Record<string, ContextValue>): unknown {
-  // Redact the whole context tree at once so key-based redaction can see the
-  // field names (a per-entry walk would lose the key by the time the value
-  // reached the redactor). redactSensitiveFieldValues sanitizes every string
-  // leaf and redacts values under sensitive-named keys, and guards cycles.
-  return redactSensitiveFieldValues(context);
-}
 
 @Catch()
 export class DomainExceptionFilter implements ExceptionFilter {
@@ -119,23 +111,23 @@ export class DomainExceptionFilter implements ExceptionFilter {
       // via a downstream error, or a `Bearer …` token) survive into the
       // message. Reflecting the message verbatim into the response body
       // re-opens the same log/response-injection surface that
-      // sanitizeContext() closes for context values — and unlike context this
-      // field is sent in BOTH dev and production for non-500 DomainErrors.
+      // redactSensitiveFieldValues() closes for context values — and unlike
+      // context this field is sent in BOTH dev and production for non-500
+      // DomainErrors.
       // sanitizeForLogOutput runs control-char/ANSI stripping FIRST and then
       // redacts URLs/secrets/tokens (matching the MCP error-handler), and
       // stripHtmlTags last for stored-XSS defense. This keeps the existing
       // "_"-substitution + HTML-strip semantics while closing the
       // secret-disclosure gap that the parallel MCP surface did not have.
-      ...(status === 500 && !dev
-        ? { message: "An unexpected error occurred" }
-        // sanitizeForLogOutput redacts URLs/secrets; stripHtmlTags adds XSS defense.
-        : { message: stripHtmlTags(sanitizeForLogOutput(exception.message)) }),
+      message: status === 500 && !dev
+        ? "An unexpected error occurred"
+        : stripHtmlTags(sanitizeForLogOutput(exception.message)),
     };
     if (dev && exception.suggestedTools.length > 0) {
       body.suggestedTools = exception.suggestedTools;
     }
     if (dev && Object.keys(exception.context).length > 0) {
-      body.context = sanitizeContext(exception.context);
+      body.context = redactSensitiveFieldValues(exception.context);
     }
     response.status(status).json(body);
   }

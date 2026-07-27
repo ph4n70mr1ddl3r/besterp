@@ -118,7 +118,7 @@ export function idempotencyMiddleware(prisma: PrismaClient): ToolMiddleware {
 
     const hashResult = computeInputHash(input, definition);
     if (typeof hashResult === "symbol") return next(input, context);
-    const inputHash = hashResult as string;
+    const inputHash = hashResult;
 
     const { existingRecord, recordCreated, unavailable } = await acquireIdempotencyRecord(
       prisma, keyResult.key, tenantId, userId, agentId, conversationId, definition.name, inputHash,

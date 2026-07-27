@@ -1,5 +1,7 @@
 import { InvalidTypeValueError } from "./errors.js";
 
+const TEXT_ENCODER = new TextEncoder();
+
 // Input sanitization utilities for BestERP.
 //
 // Provides defense-in-depth against XSS by stripping HTML tags and
@@ -35,7 +37,7 @@ export function stripHtmlTags(input: string): string {
   // work. 100 KB is well above any legitimate text field (the largest field
   // MAX_PARTY_DESCRIPTION_LENGTH is 1000 chars).
   if (input.length === 0) return input;
-  if (new TextEncoder().encode(input).length > MAX_INPUT_LENGTH) {
+  if (TEXT_ENCODER.encode(input).length > MAX_INPUT_LENGTH) {
     throw new InvalidTypeValueError(
       `stripHtmlTags: input exceeds maximum allowed length. ` +
       `This may indicate a DoS attempt via deeply nested HTML encoding.`
@@ -59,7 +61,7 @@ export function stripHtmlTags(input: string): string {
     sanitized = stripControlCharacters(sanitized);
 
     iterations++;
-    if (new TextEncoder().encode(sanitized).length > maxIntermediateBytes) {
+    if (TEXT_ENCODER.encode(sanitized).length > maxIntermediateBytes) {
       break;
     }
   } while (sanitized !== prev && iterations < MAX_SANITIZE_ITERATIONS);
@@ -152,18 +154,17 @@ export function sanitizeForLogOutput(message: string): string {
   // value could trigger O(n²) backtracking in the URL catch-all regex below and
   // block the Node event loop (DoS). The .slice(...) truncation applied by
   // callers happens AFTER this runs, so it cannot mitigate the cost.
-  if (new TextEncoder().encode(message).length > MAX_LOG_OUTPUT_LENGTH) {
+  if (TEXT_ENCODER.encode(message).length > MAX_LOG_OUTPUT_LENGTH) {
     // Truncate on a CHARACTER boundary (not UTF-16 code units) so the result
     // stays within the byte budget and is never cut mid-multi-byte character.
     // String.prototype.slice counts UTF-16 code units, so slicing a run of
     // CJK/emoji at the same numeric index could keep far more than 100 KB of
     // UTF-8 bytes — defeating the DoS cap the guard exists to enforce.
-    const enc = new TextEncoder();
     let end = 0;
     let byteCount = 0;
     const chars = [...message];
     for (; end < chars.length; end++) {
-      const chBytes = enc.encode(chars[end]).length;
+      const chBytes = TEXT_ENCODER.encode(chars[end]).length;
       if (byteCount + chBytes > MAX_LOG_OUTPUT_LENGTH) break;
       byteCount += chBytes;
     }
@@ -271,7 +272,7 @@ function replaceGenericLongToken(input: string): string {
   return input.replace(/[A-Za-z0-9_./+=-]{20,128}/g, (match) => {
     if (match.includes("REDACTED")) return match;
     if (/^[a-z]+$/.test(match)) return match;
-    if (/^[a-f0-9]+$/.test(match)) return match;
+    if (/^[a-f0-9]+$/i.test(match)) return match;
     if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(match)) return match;
     if (/^[a-zA-Z0-9_-]+$/.test(match)) {
       const hasUpper = /[A-Z]/.test(match);
@@ -371,10 +372,7 @@ export function sanitizeLogMessage(message: string): string {
   /* eslint-enable no-control-regex */
 }
 
-/**
- * Alias for {@link sanitizeForLogOutput} — kept for backwards compatibility.
- * New code should use sanitizeForLogOutput directly.
- */
+/** @deprecated Use {@link sanitizeForLogOutput} instead. */
 export function sanitizeLogOutput(message: string): string {
   return sanitizeForLogOutput(message);
 }

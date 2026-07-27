@@ -108,10 +108,12 @@ async function main() {
     // runtime STALE_PENDING_THRESHOLD_MS reset, not by this job.
     const cutoff = new Date();
     let batchDeleted: number;
+    // Declared OUTSIDE the do block so the while condition can reference it.
+    let expired: Array<{ idempotencyKey: string; tenantId: string }>;
     do {
       // orderBy ensures deterministic iteration so the oldest expired rows
       // are always cleaned first (helps with retention SLAs).
-      const expired = await tx.idempotencyRecord.findMany({
+      expired = await tx.idempotencyRecord.findMany({
         where: { expiresAt: { lt: cutoff }, status: { not: "pending" } },
         orderBy: { expiresAt: "asc" },
         select: { idempotencyKey: true, tenantId: true },

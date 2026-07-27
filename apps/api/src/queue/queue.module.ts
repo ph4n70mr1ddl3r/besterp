@@ -108,7 +108,7 @@ export class QueueModule {
   private static redisRetryStrategy(times: number): number | undefined {
     const MAX_RETRIES = 10;
     if (times > MAX_RETRIES) {
-      this.logger.error(
+      QueueModule.logger.error(
         `Redis connection failed after ${MAX_RETRIES} retries — aborting.`,
       );
       return undefined;
@@ -131,7 +131,7 @@ export class QueueModule {
       host,
       port,
       maxRetriesPerRequest: null,
-      retryStrategy: (times: number) => QueueModule.redisRetryStrategy(times),
+      retryStrategy: QueueModule.redisRetryStrategy.bind(QueueModule),
       connectTimeout: 10000,
       ...(password ? { password } : {}),
       ...(tls ? { tls } : {}),

@@ -17,8 +17,6 @@ import { sanitizeLogMessage } from "./sanitize.js";
 /** Prisma's interactive transaction client with all model delegates. */
 type TxClient = Prisma.TransactionClient;
 
-
-
 const TENANT_ID_PATTERN = /^[a-zA-Z0-9_-]+$/;
 
 /**

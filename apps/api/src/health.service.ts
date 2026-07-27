@@ -26,6 +26,7 @@ export interface HealthStatus {
     rss: number;
     heapPercentage: number;
   };
+  warning?: string;
 }
 
 export interface VersionInfo {

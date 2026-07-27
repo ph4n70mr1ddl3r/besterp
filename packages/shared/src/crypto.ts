@@ -1,4 +1,4 @@
-import * as crypto from "node:crypto";
+import { createHash } from "node:crypto";
 import { InvalidTypeValueError } from "./errors.js";
 
 /**
@@ -171,6 +171,8 @@ function sortObject(value: object, ancestors: Set<object>, depth: number, budget
   }
 }
 
+const TEXT_ENCODER = new TextEncoder();
+
 /** Maximum recursion depth to prevent stack overflow on deeply nested inputs. */
 const MAX_HASH_DEPTH = 100;
 
@@ -210,7 +212,7 @@ const MAX_HASH_STRING_BYTES = 100_000;
  * count looks moderate.
  */
 function checkStringBounds(value: string, budget?: { bytes: number }): void {
-  const len = new TextEncoder().encode(value).length;
+  const len = TEXT_ENCODER.encode(value).length;
   if (budget) {
     budget.bytes += len;
     if (budget.bytes > MAX_HASH_TOTAL_BYTES) {
@@ -241,7 +243,7 @@ function checkStringBounds(value: string, budget?: { bytes: number }): void {
  */
 function chargeKeyBytes(value: string, budget?: { bytes: number }): void {
   if (!budget) return;
-  budget.bytes += new TextEncoder().encode(value).length + 2;
+  budget.bytes += TEXT_ENCODER.encode(value).length + 2;
   if (budget.bytes > MAX_HASH_TOTAL_BYTES) {
     throw new InvalidTypeValueError(
       `Input exceeds aggregate serialized size limit of ${MAX_HASH_TOTAL_BYTES} bytes. ` +
@@ -383,8 +385,7 @@ export function hashInput(input: unknown): string {
     const budget = { bytes: 0 };
     const canonical = sortKeysDeep(input, new Set(), 0, budget);
     const serialized = JSON.stringify(canonical);
-    return crypto
-      .createHash("sha256")
+    return createHash("sha256")
       .update(serialized)
       .digest("hex");
   } catch (e) {
