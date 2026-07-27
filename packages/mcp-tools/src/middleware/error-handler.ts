@@ -209,9 +209,15 @@ function handleGenericError(error: unknown, definition: { name: string }, tenant
   // Log sanitized details to stderr to prevent leaking sensitive info
   // (DB hostnames, connection strings, stack frames). tenantId and userId
   // are sanitized to prevent JSON corruption if they contain `]` or `"` chars.
-  process.stderr.write(
-    `[MCP] [${new Date().toISOString()}] Unexpected error in '${sanitizeLogMessage(definition.name)}' (tenant=${sanitizeForLogOutput(tenantId)}, user=${sanitizeForLogOutput(userId)}): ${safeMessage}\n`
-  );
+  try {
+    process.stderr.write(
+      `[MCP] [${new Date().toISOString()}] Unexpected error in '${sanitizeLogMessage(definition.name)}' (tenant=${sanitizeForLogOutput(tenantId)}, user=${sanitizeForLogOutput(userId)}): ${safeMessage}\n`
+    );
+  } catch {
+    // stderr may be closed (e.g., container redirect during shutdown) —
+    // suppress to prevent the log itself from surfacing as an uncaught
+    // exception, matching the pattern used by audit-log.ts and idempotency.ts.
+  }
   // Always return a generic message to the AI agent to prevent leaking internals
   return {
     success: false,
