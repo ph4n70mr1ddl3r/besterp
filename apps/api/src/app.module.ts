@@ -12,7 +12,7 @@
 // import enables the decorator metadata globally; subsequent imports are
 // no-ops but pollute the dependency graph.
 import { Module } from "@nestjs/common";
-import { APP_FILTER, APP_GUARD } from "@nestjs/core";
+import { DiscoveryModule, APP_FILTER, APP_GUARD } from "@nestjs/core";
 import { AuthModule } from "./auth/auth.module.js";
 import { JwtAuthGuard } from "./auth/jwt-auth.guard.js";
 import { TenantGuard } from "./auth/tenant.guard.js";
@@ -25,6 +25,7 @@ import { DomainExceptionFilter } from "./common/domain-exception.filter.js";
 
 @Module({
   imports: [
+    DiscoveryModule,      // Required for app.get(DiscoveryService) in main.ts boot-time scope verification
     AuthModule,           // JWT authentication (must be early for guard registration)
     PrismaModule,         // Global — provides PrismaService everywhere
     PartyModule,          // Core party domain (imports PrismaModule)

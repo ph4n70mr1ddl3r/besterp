@@ -172,10 +172,7 @@ function setupGracefulShutdown(app: INestApplication): void {
   });
 
   process.on("unhandledRejection", (reason) => {
-    void gracefulShutdown("Unhandled promise rejection", reason).catch((shutdownErr) => {
-      logger.error(`Error during shutdown handler: ${sanitizeForLogOutput(shutdownErr instanceof Error ? shutdownErr.message : String(shutdownErr))}`);
-      process.exit(1);
-    });
+    void gracefulShutdown("Unhandled promise rejection", reason);
   });
 
   app.enableShutdownHooks();
@@ -266,11 +263,11 @@ async function bootstrap() {
     legacyHeaders: false,
     message: { statusCode: 429, error: "RATE_LIMITED", message: "Rate limit exceeded. Please slow down and retry." },
   });
-  app.use(generalLimiter);
-
-  // Helmet security headers — register as early as possible so error
-  // responses from subsequent middleware also carry security headers.
+  // Helmet security headers — register FIRST so rate-limit 429 responses
+  // and other early-exit paths also carry security headers.
   app.use(helmet());
+
+  app.use(generalLimiter);
 
   const allowedOrigins = parseAllowedOrigins();
   configureCors(app, allowedOrigins);
@@ -310,17 +307,20 @@ async function bootstrap() {
   // entity.parse.failed) and delegates everything else to the next handler. This replaces
   // two separate error middleware registrations with a single entry point that is easier to
   // maintain and keeps CORS header logic in one place.
-  app.use((err: Error & { type?: string }, req: Request, res: Response, next: NextFunction) => {
+  app.use((err: unknown, req: Request, res: Response, next: NextFunction) => {
     const origin = req.headers.origin;
-    if (err.type === "entity.too.large") {
-      setCorsHeaders(res, origin);
-      res.status(413).json({ statusCode: 413, message: "Request body exceeds the 1 MB limit. Reduce payload size and retry." });
-      return;
-    }
-    if (err.type === "entity.parse.failed") {
-      setCorsHeaders(res, origin);
-      res.status(400).json({ statusCode: 400, message: "Request body contains malformed JSON. Check syntax and retry." });
-      return;
+    if (err && typeof err === "object" && "type" in err) {
+      const typedErr = err as { type?: string };
+      if (typedErr.type === "entity.too.large") {
+        setCorsHeaders(res, origin);
+        res.status(413).json({ statusCode: 413, message: "Request body exceeds the 1 MB limit. Reduce payload size and retry." });
+        return;
+      }
+      if (typedErr.type === "entity.parse.failed") {
+        setCorsHeaders(res, origin);
+        res.status(400).json({ statusCode: 400, message: "Request body contains malformed JSON. Check syntax and retry." });
+        return;
+      }
     }
     next(err);
   });
@@ -332,8 +332,9 @@ async function bootstrap() {
   // The full sanitized error is logged server-side for debugging.
   // CORS headers are set mirroring the existing CORS middleware so the error
   // body is visible to cross-origin clients regardless of environment.
-  app.use((err: Error, req: Request, res: Response, _next: NextFunction) => {
-    logger.error(`Unhandled Express middleware error: ${sanitizeForLogOutput(err.message)}`);
+  app.use((err: unknown, req: Request, res: Response, _next: NextFunction) => {
+    const message = err instanceof Error ? err.message : String(err);
+    logger.error(`Unhandled Express middleware error: ${sanitizeForLogOutput(message)}`);
     setCorsHeaders(res, req.headers.origin);
     res.status(500).json({ statusCode: 500, message: "Internal server error" });
   });

@@ -162,9 +162,8 @@ export class HealthService implements OnModuleInit {
     // Redis is optional (background jobs); when configured but disconnected,
     // the system is still healthy for core operations. Only mark error if
     // Redis IS configured AND actually disconnected (not "not_configured").
-    const redisHealthy = redisStatus === "not_configured" || redisStatus === "connected";
-    const hasRedisWarning = !redisHealthy;
     const overallStatus: "ok" | "error" = databaseStatus === "connected" ? "ok" : "error";
+    const redisWarning = redisStatus === "disconnected" ? "Redis is configured but disconnected — background jobs may not work" : undefined;
 
     return {
       status: overallStatus,
@@ -179,7 +178,7 @@ export class HealthService implements OnModuleInit {
         rss,
         heapPercentage,
       },
-      ...(hasRedisWarning ? { warning: "Redis is configured but disconnected — background jobs may not work" } : {}),
+      ...(redisWarning ? { warning: redisWarning } : {}),
     };
   }
 

@@ -231,7 +231,7 @@ export class DomainExceptionFilter implements ExceptionFilter {
           // Require a leading `/` or Windows drive letter so bare filenames
           // like "config.json" in prose are NOT collapsed (the previous regex
           // matched any segment ending in a known extension).
-          .replace(/(?:^|\s)(?:\/(?:[^\s'":/]+\/)+[^\s'":/]+\.(?:js|ts|json|env|yaml|yml|sql|pem|key|cert|config|conf|toml)|[A-Za-z]:\\[^\s'":]+\.(?:js|ts|json|env|yaml|yml|sql|pem|key|cert|config|conf|toml))/g, "$1[PATH]")
+          .replace(/(^|\s)(?:\/(?:[^\s'":/]+\/)+[^\s'":/]+\.(?:js|ts|json|env|yaml|yml|sql|pem|key|cert|config|conf|toml)|[A-Za-z]:\\[^\s'":]+\.(?:js|ts|json|env|yaml|yml|sql|pem|key|cert|config|conf|toml))/g, "$1[PATH]")
       : "Internal server error";
     response.status(500).json({
       statusCode: 500,
