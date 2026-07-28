@@ -226,7 +226,7 @@ function replaceQuerySecrets(input: string): string {
  */
 function replaceBoundarySecrets(input: string): string {
   return input.replace(
-    /(^|[\s"'{([,;])((?:key|token|id_token|access_token|secret|password|passwd|pwd|auth|api_key|apikey|client_secret|client_id|signature|sign|otp|code|session|bearer))=([^}\]\s"'`,;]+)/gi,
+    /(^|[\s"'{([,;])((?:key|token|id_token|access_token|secret|password|passwd|pwd|auth|api_key|apikey|client_secret|client_id|signature|sign|otp|bearer))=([^}\]\s"'`,;]+)/gi,
     (_, lead, name) => `${lead}${name}=[REDACTED]`,
   );
 }
