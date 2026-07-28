@@ -226,7 +226,7 @@ function replaceQuerySecrets(input: string): string {
  */
 function replaceBoundarySecrets(input: string): string {
   return input.replace(
-    /(^|[\s"'{([,;])((?:key|token|id_token|access_token|secret|password|passwd|pwd|auth|api_key|apikey|client_secret|client_id|signature|sign|otp|bearer))=([^}\]\s"'`,;]+)/gi,
+    /(^|[\s"'{([,;])((?:key|token|id_token|access_token|secret|password|passwd|pwd|auth|api_key|apikey|client_secret|client_id|signature|sign|otp|code|session|bearer))=([^}\]\s"'`,;]+)/gi,
     (_, lead, name) => `${lead}${name}=[REDACTED]`,
   );
 }
@@ -275,12 +275,9 @@ function replaceGenericLongToken(input: string): string {
     if (/^[a-f0-9]+$/i.test(match)) return match;
     if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(match)) return match;
     if (/^[a-zA-Z0-9_-]+$/.test(match)) {
-      const hasUpper = /[A-Z]/.test(match);
-      const hasPunct = /[._+=/]/.test(match);
       const hasLetter = /[a-zA-Z]/.test(match);
       const hasDigit = /[0-9]/.test(match);
-      const isLetterDigitMix = hasLetter && hasDigit;
-      if (!(hasUpper && hasPunct) && !isLetterDigitMix) return match;
+      if (!(hasLetter && hasDigit)) return match;
     }
     return "[REDACTED_TOKEN]";
   });

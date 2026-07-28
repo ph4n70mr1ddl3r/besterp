@@ -31,7 +31,7 @@ export class QueueModule {
     // rather than erroring. Only development keeps the localhost fallback so a
     // local dev box can run without env wiring; production must set REDIS_HOST
     // explicitly (mirrors resolvePassword's production guard).
-    if (!rawHost && process.env.NODE_ENV !== "development") {
+    if (!rawHost && process.env.NODE_ENV?.toLowerCase() !== "development") {
       this.logger.error(
         "REDIS_HOST not set in production — refusing to default to localhost (would connect to an unintended Redis instance)."
       );
@@ -56,7 +56,7 @@ export class QueueModule {
    */
   private static resolveTls(): { rejectUnauthorized: boolean } | undefined {
     if (process.env.REDIS_TLS === "0") return undefined;
-    if (process.env.NODE_ENV === "development" && process.env.REDIS_TLS !== "1") {
+    if (process.env.NODE_ENV?.toLowerCase() === "development" && process.env.REDIS_TLS !== "1") {
       return undefined;
     }
     return { rejectUnauthorized: true };
@@ -67,7 +67,7 @@ export class QueueModule {
     if (password !== undefined && password.trim().length === 0) {
       throw new Error("Redis password is set but empty. Provide a non-empty password or unset REDIS_PASSWORD.");
     }
-    if (!password && process.env.NODE_ENV !== "development") {
+    if (!password && process.env.NODE_ENV?.toLowerCase() !== "development") {
       this.logger.error(
         "REDIS_PASSWORD not set in production — refusing to connect without authentication."
       );
@@ -85,7 +85,7 @@ export class QueueModule {
     // defaulting to 6380 in production could point the app at an unintended
     // Redis instance (e.g. an unrelated service on the same host) with no
     // error. Only development keeps the fallback.
-    if (process.env.NODE_ENV !== "development") {
+    if (process.env.NODE_ENV?.toLowerCase() !== "development") {
       this.logger.error(
         "REDIS_PORT not set in production — refusing to default to 6380 (would connect to a possibly unintended Redis instance)."
       );

@@ -163,7 +163,13 @@ function normaliseForTruncation(value: unknown, seen: WeakSet<object> = new Weak
     }
   }
   if (Array.isArray(value)) {
-    return value.map((v) => normaliseForTruncation(v, seen));
+    if (seen.has(value)) throw new Error("Circular reference in Array value");
+    seen.add(value);
+    try {
+      return value.map((v) => normaliseForTruncation(v, seen));
+    } finally {
+      seen.delete(value);
+    }
   }
   // Defer to JSON.stringify's built-in handling for special objects (Date,
   // RegExp, Error, BigInt wrappers, class instances with toJSON) rather than

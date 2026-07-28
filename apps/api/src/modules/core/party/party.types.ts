@@ -51,7 +51,7 @@ export interface PartyResult {
   roles: Array<{
     partyRoleId: string;
     roleTypeName: string;
-    fromDate: string;
+    fromDate: string | null;
     thruDate: string | null;
   }>;
   createdAt: string | null;

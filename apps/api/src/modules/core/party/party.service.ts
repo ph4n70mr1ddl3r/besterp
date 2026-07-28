@@ -1096,7 +1096,7 @@ export class PartyService {
       roles: (party.roles ?? []).map((r) => ({
         partyRoleId: r.partyRoleId,
         roleTypeName: r.roleType?.name ? r.roleType.name : "UNKNOWN",
-        fromDate: r.fromDate ? r.fromDate.toISOString() : new Date().toISOString(),
+        fromDate: r.fromDate ? r.fromDate.toISOString() : null,
         thruDate: r.thruDate?.toISOString() ?? null,
       })),
       createdAt: party.createdAt ? party.createdAt.toISOString() : null,
