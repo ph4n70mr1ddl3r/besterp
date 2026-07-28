@@ -189,7 +189,7 @@ function createBackpressureManager(prisma: PrismaClient): BackpressureManager {
     // due to a race, clamp to 0 to prevent the writeQueue drain from stalling.
     if (activeWrites < 0) activeWrites = 0;
     if (writeQueue.length > 0) {
-      const next = writeQueue.shift()!;
+      const next = writeQueue.shift() as QueueEntry;
       clearTimeout(next.timer);
       next.settled = true;
       activeWrites++;
