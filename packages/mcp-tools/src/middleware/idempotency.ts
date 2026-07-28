@@ -524,22 +524,12 @@ async function updateIdempotencyRecordWithRetry(
       return;
     } catch (updateErr) {
       const code = getErrorCode(updateErr);
-      // P2025 (record not found): the idempotency record was removed between
-      // acquire and update — typically the 24h-TTL cleanup job expired it, or a
-      // concurrent reset cleared it. Retrying the update is futile: the row is
-      // gone and cannot be recreated without re-acquiring (which would risk a
-      // duplicate execution). The operation already produced its result, and
-      // with no record there is nothing to replay, so log once and return.
-      // Both call sites in executeAndUpdate wrap this in try/catch, so a normal
-      // return here is behaviour-preserving while avoiding
-      // IDEMPOTENCY_MAX_RETRIES wasted attempts + backoff latency.
       // P2025: the idempotency record was TTL-cleaned or manually deleted
-      // between acquire and update. The operation already ran successfully,
-      // but the result cannot be persisted. A future retry with the same key
-      // will NOT find a completed record and WILL re-execute — idempotency
-      // is defeated for this key. This is a documented edge case of the TTL
-      // cleanup model; high-value operations may need re-acquire+update in a
-      // single transaction.
+      // between acquire and update — retrying is futile. The operation already
+      // ran successfully, but the result cannot be persisted. A future retry
+      // with the same key will re-execute (idempotency defeated for this key).
+      // Both call sites wrap this in try/catch, so returning here avoids
+      // IDEMPOTENCY_MAX_RETRIES wasted attempts + backoff latency.
       if (code === "P2025") {
         const p2025Detail = updateErr instanceof Error ? updateErr.message : String(updateErr);
         logIdempotencyWarn(
