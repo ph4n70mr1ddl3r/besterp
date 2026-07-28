@@ -22,7 +22,7 @@ export class McpService implements OnModuleInit {
     private readonly partyService: PartyService,
   ) {}
 
-  onModuleInit() {
+  async onModuleInit(): Promise<void> {
     this.registry.addGlobalMiddleware(errorHandlerMiddleware);
     this.registry.addGlobalMiddleware(auditLogMiddleware(this.prisma.admin));
     this.registry.addGlobalMiddleware(idempotencyMiddleware(this.prisma.admin));

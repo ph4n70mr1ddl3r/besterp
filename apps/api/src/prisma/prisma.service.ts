@@ -131,8 +131,14 @@ export class PrismaService
 
   /** Initialize the RLS-enforced app client. */
   private initializeAppClient(): void {
+    const dbUrl = process.env.DATABASE_URL;
+    if (!dbUrl) {
+      throw new Error(
+        "DATABASE_URL is not set. The app client requires DATABASE_URL to connect as the RLS-enforced role."
+      );
+    }
     this._appClient = new PrismaClient({
-      datasourceUrl: process.env.DATABASE_URL, // must be the besterp_app role
+      datasourceUrl: dbUrl, // must be the besterp_app role
       log: [
         { emit: "stdout", level: "warn" },
         { emit: "stdout", level: "error" },
@@ -179,6 +185,14 @@ export class PrismaService
         `Failed to connect to database: ${sanitizeForLogOutput(error instanceof Error ? error.message : String(error))}`,
         error instanceof Error && error.stack ? sanitizeForLogOutput(error.stack) : undefined
       );
+      // Re-throw the original error — connection and verification errors are
+      // already logged with sanitized output above. Do NOT wrap in a generic
+      // error here because the caller (main.ts bootstrap) relies on the original
+      // message to distinguish between connection failures and verification
+      // failures (RLS, role check). The err cause chain is preserved via the
+      // original Error instance; sensitive data in the message is sanitized
+      // before logging but the original is re-thrown so the boot logic can
+      // make accurate status decisions.
       throw error;
     }
   }

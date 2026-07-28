@@ -192,7 +192,7 @@ function optionalFilteredString(max: number) {
 
 /** Optional ISO 8601 date: trims, validates format, enforces max length. */
 function optionalIsoDate(max: number = MAX_DATE_STRING_LENGTH) {
-  return z.string().max(max)
+  return z.string()
     .optional()
     .transform(s => s?.trim() || undefined)
     .pipe(z.string().max(max).optional())
@@ -477,6 +477,10 @@ const addContactMechanismSchema = z.object({
   emailAddress: emailAddressSchema.optional()
     .describe("Email details (required when contactMechanismType is EMAIL_ADDRESS)"),
 }).superRefine((data, ctx) => {
+  if (!data.contactMechanismType) {
+    ctx.addIssue({ code: "custom", message: "contactMechanismType is required", path: ["contactMechanismType"] });
+    return;
+  }
   validateSubtypeFields(data, ctx, data.contactMechanismType, CONTACT_SUBTYPE_CONFIGS);
 });
 

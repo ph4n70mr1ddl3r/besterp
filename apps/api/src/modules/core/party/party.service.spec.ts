@@ -1171,7 +1171,6 @@ describe("PartyService", () => {
 
     it("should default fromDate to now when undefined", async () => {
       mockAdminTypes();
-      mockAdminTypes();
       const mockDb = {
         roleType: { findUnique: vi.fn().mockResolvedValue({ roleTypeId: "rt-customer" }) },
         $transaction: vi.fn().mockImplementation(async (fn) => {

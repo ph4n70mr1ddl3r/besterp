@@ -55,10 +55,11 @@ export class QueueModule {
    * spreads the result, so `tls: undefined` leaves the (plain) socket as-is.
    */
   private static resolveTls(): { rejectUnauthorized: boolean } | undefined {
-    if (process.env.REDIS_TLS === "0") return undefined;
-    if (process.env.NODE_ENV?.toLowerCase() === "development" && process.env.REDIS_TLS !== "1") {
-      return undefined;
-    }
+    const tlsEnabled = ["1", "true", "yes"].includes((process.env.REDIS_TLS ?? "").toLowerCase());
+    const tlsDisabled = ["0", "false", "no"].includes((process.env.REDIS_TLS ?? "").toLowerCase());
+    if (tlsDisabled) return undefined;
+    if (tlsEnabled) return { rejectUnauthorized: true };
+    if (process.env.NODE_ENV?.toLowerCase() === "development") return undefined;
     return { rejectUnauthorized: true };
   }
 

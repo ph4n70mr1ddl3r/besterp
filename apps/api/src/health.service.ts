@@ -122,20 +122,32 @@ export class HealthService implements OnModuleInit {
     let redisStatus: "connected" | "disconnected" | "not_configured" = "not_configured";
     if (process.env.REDIS_HOST) {
       try {
-        // Use a simple TCP check via net.Socket to avoid adding a Redis client
-        // dependency just for the health check. A successful connect means Redis
-        // is reachable; we do NOT send AUTH/PING because the credentials may not
-        // be available here and a failed auth would falsely report "disconnected".
         await new Promise<void>((resolve, reject) => {
           const socket = new net.Socket();
+          let responseBuffer = "";
           const timeout = setTimeout(() => {
             socket.destroy();
             reject(new Error("Redis connection timed out"));
           }, 2000);
           socket.on("connect", () => {
-            clearTimeout(timeout);
-            socket.destroy();
-            resolve();
+            const redisPassword = process.env.REDIS_PASSWORD;
+            if (redisPassword) {
+              socket.write(`AUTH ${redisPassword}\r\n`);
+            }
+            socket.write("*1\r\n$4\r\nPING\r\n");
+          });
+          socket.on("data", (data) => {
+            responseBuffer += data.toString();
+            if (responseBuffer.includes("+PONG") || responseBuffer.includes("+OK")) {
+              clearTimeout(timeout);
+              socket.destroy();
+              resolve();
+            }
+            if (responseBuffer.startsWith("-")) {
+              clearTimeout(timeout);
+              socket.destroy();
+              reject(new Error(`Redis error: ${responseBuffer.trim()}`));
+            }
           });
           socket.on("error", (err) => {
             clearTimeout(timeout);

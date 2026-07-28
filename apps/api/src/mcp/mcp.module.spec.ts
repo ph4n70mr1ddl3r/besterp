@@ -25,7 +25,7 @@ describe("McpService", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.spyOn(McpService.prototype, "onModuleInit").mockImplementation(() => {});
+    vi.spyOn(McpService.prototype, "onModuleInit").mockImplementation(() => Promise.resolve());
     mcpService = createMcpService();
   });
 

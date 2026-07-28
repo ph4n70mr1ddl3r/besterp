@@ -167,7 +167,20 @@ export class PartyService {
 
     const db: TenantScopedClient = this.prisma.tenantScoped(trimmedTenantId);
 
-    const party = await this.createPartyTransaction(db, trimmedTenantId, trimmedPartyType, sanitizedName, sanitizedDescription, sanitizedPerson, sanitizedOrg);
+    // Use admin client for global reference data — type tables are shared
+    // across tenants and not subject to RLS. Querying via tenant-scoped tx
+    // adds unnecessary RLS overhead and may fail if policies don't include
+    // these tables. Look up BEFORE the transaction to avoid cross-connection
+    // consistency concerns (the admin client is a separate connection).
+    const partyTypeRecord = await this.prisma.admin.partyType.findUnique({ where: { name: trimmedPartyType } });
+    if (!partyTypeRecord) {
+      throw new InvalidTypeValueError(
+        `PARTY_TYPE '${trimmedPartyType}' is not valid. Valid types: ['PERSON', 'ORGANIZATION'].`,
+        { suggestedTools: ["get_type_table_values"], context: { field: "partyType", invalidValue: trimmedPartyType, validValues: ["PERSON", "ORGANIZATION"] } }
+      );
+    }
+
+    const party = await this.createPartyTransaction(db, trimmedTenantId, partyTypeRecord, sanitizedName, sanitizedDescription, sanitizedPerson, sanitizedOrg);
 
     this.logger.log(`Created ${trimmedPartyType} party: ${sanitizeForLogOutput(sanitizedName)} (${party.partyId})`);
     return PartyService.toPartyResult(party);
@@ -277,24 +290,13 @@ export class PartyService {
 
   private async createPartyTransaction(
     db: TenantScopedClient,
-    tenantId: string, partyTypeName: string,
+    tenantId: string, partyTypeRecord: { partyTypeId: string },
     name: string, description: string | null,
     sanitizedPerson: CreatePartyInput["person"] | undefined,
     sanitizedOrg: CreatePartyInput["organization"] | undefined,
   ) {
     try {
       return await db.$transaction(async (tx: Prisma.TransactionClient) => {
-            // Use admin client for global reference data — type tables are shared
-            // across tenants and not subject to RLS. Querying via tenant-scoped tx
-            // adds unnecessary RLS overhead and may fail if policies don't include
-            // these tables.
-            const partyTypeRecord = await this.prisma.admin.partyType.findUnique({ where: { name: partyTypeName } });
-            if (!partyTypeRecord) {
-              throw new InvalidTypeValueError(
-                `PARTY_TYPE '${partyTypeName}' is not valid. Valid types: ['PERSON', 'ORGANIZATION'].`,
-                { suggestedTools: ["get_type_table_values"], context: { field: "partyType", invalidValue: partyTypeName, validValues: ["PERSON", "ORGANIZATION"] } }
-              );
-            }
 
             const data: Prisma.PartyCreateInput = {
               partyType: { connect: { partyTypeId: partyTypeRecord.partyTypeId } },
@@ -349,7 +351,7 @@ export class PartyService {
         // Retry the transaction — the outer retry loop will handle it.
         throw err;
       }
-      PartyService.handleTransactionError(err, "create_party", "create_party", "party");
+      throw PartyService.handleTransactionError(err, "create_party", "create_party", "party");
     }
   }
 
@@ -541,8 +543,8 @@ export class PartyService {
     // total, and findMany uses the same WHERE clause with a capped take so even
     // if new rows are inserted between the two queries, we never return more than
     // `limit` items or report hasMore=true when there are no more items.
-    let total = 0;
-    let items: PartyWithIncludes[] = [];
+    let total: number;
+    let items: PartyWithIncludes[];
     try {
       total = await db.party.count({ where });
       items = await db.party.findMany({
@@ -553,7 +555,7 @@ export class PartyService {
         orderBy: { createdAt: "desc" },
       });
     } catch (err) {
-      PartyService.handleTransactionError(err, "search_parties", "search_parties", "party");
+      throw PartyService.handleTransactionError(err, "search_parties", "search_parties", "party");
     }
 
     return {
@@ -714,7 +716,7 @@ export class PartyService {
         // Retry the transaction — the outer retry loop will handle it.
         throw err;
       }
-      PartyService.handleTransactionError(err, "add_party_role", "get_party", "party role");
+      throw PartyService.handleTransactionError(err, "add_party_role", "get_party", "party role");
     }
   }
 
@@ -934,7 +936,7 @@ export class PartyService {
         });
       }, { timeout: TX_TIMEOUT_MS });
     } catch (err) {
-      PartyService.handleTransactionError(err, "add_contact_mechanism", "add_contact_mechanism", "contact mechanism");
+      throw PartyService.handleTransactionError(err, "add_contact_mechanism", "add_contact_mechanism", "contact mechanism");
     }
   }
 

@@ -12,13 +12,11 @@
 // fall back to "24h" while production crashes.
 
 import { Module } from "@nestjs/common";
-import { JwtModule } from "@nestjs/jwt";
+import { JwtModule, type JwtSignOptions } from "@nestjs/jwt";
 import { PassportModule } from "@nestjs/passport";
-import type { SignOptions } from "jsonwebtoken";
 import { JwtStrategy, resolveJwtSecret } from "./jwt.strategy.js";
 
-const rawJwtExpiresIn = process.env.JWT_EXPIRES_IN ?? "24h";
-const jwtExpiresIn: SignOptions["expiresIn"] = rawJwtExpiresIn as SignOptions["expiresIn"];
+const jwtExpiresIn: JwtSignOptions["expiresIn"] = (process.env.JWT_EXPIRES_IN ?? "24h") as JwtSignOptions["expiresIn"];
 
 @Module({
   imports: [
