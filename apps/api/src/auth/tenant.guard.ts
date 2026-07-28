@@ -48,7 +48,7 @@ export class TenantGuard implements CanActivate {
     // future code path that bypasses the strategy (e.g., test doubles)
     // cannot produce a malformed tenant context. The enhanced validator
     // trims and checks the format in one call.
-    if (user.tenantId == null) {
+    if (user.tenantId === undefined || user.tenantId === null) {
       throw new UnauthorizedException(
         "TenantGuard: tenantId is missing from JWT payload.",
       );

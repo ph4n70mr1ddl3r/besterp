@@ -67,7 +67,7 @@ function handleDomainError(error: DomainError, definition: { name: string }): To
       // other agent-facing field so a crafted code is not reflected verbatim.
       code: sanitizeForLogOutput(error.code),
       message: sanitizeForLogOutput(error.message),
-      suggestedTools: (error.suggestedTools?.length ?? 0) > 0 ? error.suggestedTools : [definition.name, "list_available_tools"],
+      suggestedTools: (error.suggestedTools?.length ?? 0) > 0 ? [...error.suggestedTools] : [definition.name, "list_available_tools"],
       context: sanitizeContextValueForToolResult(error.context),
     },
   };

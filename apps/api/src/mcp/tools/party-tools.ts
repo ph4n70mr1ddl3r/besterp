@@ -76,7 +76,7 @@ interface PartyServices {
 
 function getPartyService(ctx: ToolContext) {
   const svc = ctx.services.partyService;
-  if (!svc || typeof svc !== "object") {
+  if (svc === undefined || svc === null || typeof svc !== "object") {
     throw new InvalidTypeValueError(
       "PartyService not available in ToolContext.services",
       { context: { field: "partyService" } }

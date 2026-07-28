@@ -65,21 +65,19 @@ export class McpService implements OnModuleInit {
         { context: { field: "userId", receivedType: typeof overrides.userId } }
       );
     }
-    let userId = overrides.userId;
-    if (userId.trim().length === 0) {
+    const userId = sanitizeForLogOutput(stripHtmlTags(overrides.userId.trim()));
+    if (userId.length === 0) {
       throw new InvalidTypeValueError(
         "McpService.buildContext: userId must not be empty or whitespace-only.",
         { context: { field: "userId" } }
       );
     }
-    userId = userId.trim();
     if (userId.length > MAX_USER_ID_LENGTH) {
       throw new InvalidTypeValueError(
         `McpService.buildContext: userId is too long (${userId.length} chars, max ${MAX_USER_ID_LENGTH}).`,
         { context: { field: "userId", length: userId.length, maxLength: MAX_USER_ID_LENGTH } }
       );
     }
-    userId = sanitizeForLogOutput(stripHtmlTags(userId));
 
     const idempotencyKey = validateOptionalField("idempotencyKey", overrides.idempotencyKey, MAX_IDEMPOTENCY_KEY_LENGTH);
     if (idempotencyKey !== undefined && !SAFE_IDEMPOTENCY_KEY.test(idempotencyKey)) {

@@ -106,7 +106,8 @@ function serializeCause(cause: unknown): unknown {
     } catch {
       return "[Non-serializable cause]";
     }
-    return `[${sanitizeForLogOutput(serialized).slice(0, 500)}]`;
+    const sanitized = sanitizeForLogOutput(serialized).slice(0, 500);
+    return sanitized.length > 0 ? sanitized : "[Empty cause]";
   }
   return "[Non-error cause]";
 }
