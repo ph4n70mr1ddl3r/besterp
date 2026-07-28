@@ -131,7 +131,7 @@ export class QueueModule {
       host,
       port,
       maxRetriesPerRequest: null,
-      retryStrategy: QueueModule.redisRetryStrategy.bind(QueueModule),
+      retryStrategy: (times: number) => QueueModule.redisRetryStrategy(times),
       connectTimeout: 10000,
       ...(password ? { password } : {}),
       ...(tls ? { tls } : {}),

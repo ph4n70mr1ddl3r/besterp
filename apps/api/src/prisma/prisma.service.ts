@@ -146,12 +146,12 @@ export class PrismaService
     if (rawMethodCache && Number.isNaN(Number(rawMethodCache))) {
       this.logger.warn(`PRISMA_MAX_METHOD_CACHE_SIZE="${rawMethodCache}" is not a valid number — using default ${DEFAULT_MAX_METHOD_CACHE_SIZE}.`);
     }
-    this.maxMethodCacheSize = Math.min(100_000, Math.max(1, Number(process.env.PRISMA_MAX_METHOD_CACHE_SIZE) || DEFAULT_MAX_METHOD_CACHE_SIZE));
+    this.maxMethodCacheSize = Math.min(100_000, Math.max(1, Number(rawMethodCache) || DEFAULT_MAX_METHOD_CACHE_SIZE));
     const rawDelegateCache = process.env.PRISMA_MAX_DELEGATE_CACHE_SIZE;
     if (rawDelegateCache && Number.isNaN(Number(rawDelegateCache))) {
       this.logger.warn(`PRISMA_MAX_DELEGATE_CACHE_SIZE="${rawDelegateCache}" is not a valid number — using default ${DEFAULT_MAX_DELEGATE_CACHE_SIZE}.`);
     }
-    this.maxDelegateCacheSize = Math.min(100_000, Math.max(1, Number(process.env.PRISMA_MAX_DELEGATE_CACHE_SIZE) || DEFAULT_MAX_DELEGATE_CACHE_SIZE));
+    this.maxDelegateCacheSize = Math.min(100_000, Math.max(1, Number(rawDelegateCache) || DEFAULT_MAX_DELEGATE_CACHE_SIZE));
   }
 
   async onModuleInit() {
