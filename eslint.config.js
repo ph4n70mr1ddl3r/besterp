@@ -51,6 +51,7 @@ export default tseslint.config(
     rules: {
       "@typescript-eslint/no-explicit-any": "off",
       "max-lines-per-function": "off",
+      "max-nested-callbacks": "off",
     },
   },
   {

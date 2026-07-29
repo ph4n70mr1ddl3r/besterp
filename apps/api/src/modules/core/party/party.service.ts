@@ -929,7 +929,9 @@ export class PartyService {
             tenantId,
             postalAddress: type === "POSTAL_ADDRESS" && postalAddress ? { create: sanitizePostalAddress(postalAddress) } : undefined,
             telecomNumber: type === "TELECOM_NUMBER" && telecomNumber ? { create: sanitizeTelecomNumber(telecomNumber) } : undefined,
-            emailAddress: type === "EMAIL_ADDRESS" && normalizedEmail ? { create: { email: normalizedEmail } } : undefined,
+            emailAddress: type === "EMAIL_ADDRESS" && normalizedEmail 
+              ? { create: { email: normalizedEmail, tenantId } } 
+              : undefined,
             partyContacts: { create: { partyId } },
           },
           include: { postalAddress: true, telecomNumber: true, emailAddress: true, contactMechanismType: true },
