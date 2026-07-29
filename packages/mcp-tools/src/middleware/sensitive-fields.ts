@@ -2,4 +2,4 @@
 // from a local module path. The actual logic lives in @besterp/shared and is
 // the single source of truth for what counts as sensitive.
 
-export { isSensitiveFieldName as isSensitiveField } from "@besterp/shared";
+export { splitFieldNameTokens as splitFieldTokens, isSensitiveFieldName as isSensitiveField } from "@besterp/shared";

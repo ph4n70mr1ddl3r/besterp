@@ -49,7 +49,7 @@ function createBaseEntry(context: { agentId?: string; conversationId?: string; r
 }
 
 async function executeAndLog(prisma: PrismaClient, backpressure: BackpressureManager, input: unknown, context: ToolContext, definition: { name: string }, next: (input: unknown, context: ToolContext) => Promise<ToolResult>): Promise<ToolResult> {
-  if (!prisma.aiActionLog) {
+  if (!prisma?.aiActionLog) {
     try {
       process.stderr.write(`[AuditLog] ${JSON.stringify({ timestamp: new Date().toISOString(), message: "Prisma client not available — skipping audit log" })}\n`);
     } catch {
