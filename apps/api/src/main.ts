@@ -267,7 +267,15 @@ async function bootstrap() {
   // and other early-exit paths also carry security headers.
   app.use(helmet());
 
-  app.use(generalLimiter);
+  // Skip rate limiter for health/readiness endpoints — load balancers and
+  // orchestrators poll these frequently, and rate-limiting them can cause
+  // false-positive health failures and premature instance de-registration.
+  app.use((req: Request, res: Response, next: NextFunction) => {
+    if (req.path === "/api/health" || req.path.startsWith("/api/health/")) {
+      return next();
+    }
+    return generalLimiter(req, res, next);
+  });
 
   const allowedOrigins = parseAllowedOrigins();
   configureCors(app, allowedOrigins);

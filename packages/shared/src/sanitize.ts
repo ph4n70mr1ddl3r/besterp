@@ -1,4 +1,4 @@
-import { InvalidTypeValueError } from "./errors.js";
+
 
 const TEXT_ENCODER = new TextEncoder();
 
@@ -27,19 +27,13 @@ const TEXT_ENCODER = new TextEncoder();
  * @returns Sanitized string with HTML tags removed
  */
 const MAX_SANITIZE_ITERATIONS = 20;
-/** Maximum input length to prevent DoS via deeply nested encoded strings. */
 const MAX_INPUT_LENGTH = 100_000;
 
 export function stripHtmlTags(input: string): string {
-  // Early-exit for empty strings and oversized input. The length cap prevents
-  // DoS via deeply nested HTML entity encoding (e.g., &amp;amp;amp;...) where
-  // each iteration can expand the string, and the decode loop multiplies the
-  // work. 100 KB is well above any legitimate text field (the largest field
-  // MAX_PARTY_DESCRIPTION_LENGTH is 1000 chars).
   if (input.length === 0) return input;
   if (TEXT_ENCODER.encode(input).length > MAX_INPUT_LENGTH) {
-    throw new InvalidTypeValueError(
-      `stripHtmlTags: input exceeds maximum allowed length. ` +
+    throw new Error(
+      `stripHtmlTags: input exceeds maximum allowed length (${MAX_INPUT_LENGTH} bytes). ` +
       `This may indicate a DoS attempt via deeply nested HTML encoding.`
     );
   }
@@ -62,7 +56,10 @@ export function stripHtmlTags(input: string): string {
 
     iterations++;
     if (TEXT_ENCODER.encode(sanitized).length > maxIntermediateBytes) {
-      break;
+      throw new Error(
+        `stripHtmlTags: intermediate output exceeded ${maxIntermediateBytes} bytes during sanitization. ` +
+        `This may indicate a DoS attempt via entity expansion.`
+      );
     }
   } while (sanitized !== prev && iterations < MAX_SANITIZE_ITERATIONS);
 
@@ -120,7 +117,7 @@ function stripRemainingHtmlTags(input: string): string {
 
 /** Strip incomplete/orphaned opening tags (missing closing >). */
 function stripIncompleteOpeningTags(input: string): string {
-  return input.replace(/<[a-zA-Z][^>]*/g, "");
+  return input.replace(/<[a-zA-Z]{2,}[^>]*/g, "");
 }
 
 /**
@@ -268,9 +265,11 @@ function replaceProviderSecrets(input: string): string {
  * Catch-all for long high-entropy tokens that survived all specific rules above.
  * Uses heuristics to distinguish secrets from benign identifiers.
  */
+const REDACTED_PLACEHOLDERS = /^\[REDACTED(?:_[A-Z_]+)?\]$/;
+
 function replaceGenericLongToken(input: string): string {
   return input.replace(/[A-Za-z0-9_./+=-]{20,128}/g, (match) => {
-    if (match.includes("REDACTED")) return match;
+    if (REDACTED_PLACEHOLDERS.test(match)) return match;
     if (/^[a-z]+$/.test(match)) return match;
     if (/^[a-f0-9]+$/i.test(match)) return match;
     if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(match)) return match;
@@ -524,12 +523,27 @@ function redactPlainObject(value: Record<string, unknown>, depth: number, seen: 
 }
 
 function handleDepthLimit(value: unknown): unknown {
-  if (value != null && typeof value === "object" && !Array.isArray(value) && !(value instanceof Map) && !(value instanceof Set) && !(value instanceof WeakMap) && !(value instanceof WeakSet)) {
-    const capped: Record<string, unknown> = {};
-    for (const [key] of Object.entries(value as Record<string, unknown>)) {
-      capped[key] = isSensitiveFieldName(key) ? "[REDACTED]" : "[Too deep]";
+  if (value != null && typeof value === "object") {
+    if (Array.isArray(value)) {
+      return value.map(() => "[Too deep]");
     }
-    return capped;
+    if (value instanceof Map) {
+      return [...value.keys()].map((k) => {
+        const keyStr = typeof k === "string" ? k : String(k);
+        return [isSensitiveFieldName(keyStr) ? "[REDACTED]" : "[Too deep]", "[Too deep]"];
+      });
+    }
+    if (value instanceof Set) {
+      return [...value].map(() => "[Too deep]");
+    }
+    if (value instanceof WeakMap || value instanceof WeakSet) return "[WeakCollection]";
+    if (!Array.isArray(value)) {
+      const capped: Record<string, unknown> = {};
+      for (const [key] of Object.entries(value as Record<string, unknown>)) {
+        capped[key] = isSensitiveFieldName(key) ? "[REDACTED]" : "[Too deep]";
+      }
+      return capped;
+    }
   }
   return "[Too deep]";
 }

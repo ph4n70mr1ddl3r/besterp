@@ -461,7 +461,7 @@ async function executeAndUpdate(
     throw error;
   }
 
-  const isSoftFailure = toolResult.success === false;
+  const isSoftFailure = toolResult.success !== true;
   try {
     await updateIdempotencyRecordWithRetry(prisma, idempotencyKey, tenantId, toolResult, isSoftFailure);
   } catch {

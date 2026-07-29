@@ -275,7 +275,7 @@ export class ToolRegistry {
     } catch {
       return this.contextIdentityError("INVALID_TENANT_ID", "tenant identifier");
     }
-    if (typeof context.userId !== "string") {
+    if (typeof context.userId !== "string" || context.userId !== context.userId.trim()) {
       return this.contextIdentityError("INVALID_USER_ID", "user identifier");
     }
     const userId = context.userId.trim();

@@ -131,6 +131,7 @@ export class HealthService implements OnModuleInit {
             ? tls.connect({ host: redisHost, port: redisPort, rejectUnauthorized: true })
             : new net.Socket();
           let responseBuffer = "";
+          const MAX_RESPONSE_BUFFER = 1024;
           const timeout = setTimeout(() => {
             socket.destroy();
             reject(new Error("Redis connection timed out"));
@@ -138,13 +139,24 @@ export class HealthService implements OnModuleInit {
           socket.on("connect", () => {
             const redisPassword = process.env.REDIS_PASSWORD;
             if (redisPassword) {
+              if (/[\r\n]/.test(redisPassword)) {
+                socket.destroy();
+                reject(new Error("Redis password contains invalid characters (newlines)"));
+                return;
+              }
               socket.write(`AUTH ${redisPassword}\r\n`);
             }
             socket.write("*1\r\n$4\r\nPING\r\n");
           });
           socket.on("data", (data) => {
             responseBuffer += data.toString();
-            if (responseBuffer.includes("+PONG") || responseBuffer.includes("+OK")) {
+            if (responseBuffer.length > MAX_RESPONSE_BUFFER) {
+              clearTimeout(timeout);
+              socket.destroy();
+              reject(new Error("Redis response exceeded maximum buffer size"));
+              return;
+            }
+            if (responseBuffer.includes("+PONG\r\n") || responseBuffer.includes("+OK\r\n")) {
               clearTimeout(timeout);
               socket.destroy();
               resolve();

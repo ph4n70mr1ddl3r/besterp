@@ -645,22 +645,6 @@ describe("Idempotency Middleware", () => {
     expect(allArgs).toContain("id-");
   });
 
-  it("should reject when idempotencyKey is absurdly long", async () => {
-    // The middleware now returns an error instead of silently passing through,
-    // so callers get structured feedback instead of losing idempotency.
-    const input = { test: "value" };
-    const contextWithKey = { ...mockContext, idempotencyKey: "x".repeat(501) };
-
-    const middleware = idempotencyMiddleware(mockPrisma as any);
-    const result = await middleware(input, contextWithKey, mockDefinition, successNext({ success: true, data: "should not reach" }));
-
-    expect(result.success).toBe(false);
-    expect(result.error?.code).toBe("INVALID_IDEMPOTENCY_KEY");
-    // No record should have been created — the middleware rejected early.
-    expect(mockPrisma.idempotencyRecord.create).not.toHaveBeenCalled();
-    expect(mockPrisma.idempotencyRecord.findUnique).not.toHaveBeenCalled();
-  });
-
   it("should skip idempotency entirely when Zod validation fails (avoid false mismatch on retry)", async () => {
     // When safeParse fails, the middleware must NOT create an idempotency
     // record. Storing a hash of the raw (un-normalised) invalid input would

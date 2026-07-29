@@ -1,6 +1,5 @@
 import { describe, it, expect } from "vitest";
 import { stripHtmlTags, sanitizeLogOutput, sanitizeLogMessage, sanitizeForLogOutput, safeFromCodePoint, isSensitiveFieldName, redactSensitiveFieldValues } from "../sanitize.js";
-import { InvalidTypeValueError } from "../errors.js";
 
 describe("stripHtmlTags", () => {
   it("returns empty string for empty input", () => {
@@ -52,18 +51,16 @@ describe("stripHtmlTags", () => {
     expect(stripHtmlTags(deepNested)).toBe("&&&&");
   });
 
-  it("throws InvalidTypeValueError on oversized input", () => {
+  it("throws on oversized input", () => {
     const long = "a".repeat(100_001);
-    expect(() => stripHtmlTags(long)).toThrow(InvalidTypeValueError);
     expect(() => stripHtmlTags(long)).toThrow("input exceeds maximum");
   });
 
-  it("throws InvalidTypeValueError on oversized multi-byte input (byte-length guard)", () => {
+  it("throws on oversized multi-byte input (byte-length guard)", () => {
     // A 99k multi-byte string passes the UTF-16 code-unit count but is far
     // larger in UTF-8 bytes. The guard measures bytes, so it must reject.
     const longMultiByte = "中".repeat(99_000);
     expect(Buffer.byteLength(longMultiByte, "utf8")).toBeGreaterThan(100_000);
-    expect(() => stripHtmlTags(longMultiByte)).toThrow(InvalidTypeValueError);
     expect(() => stripHtmlTags(longMultiByte)).toThrow("input exceeds maximum");
   });
 
