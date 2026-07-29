@@ -2,9 +2,48 @@
 
 ## Scope
 Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
-`mcp-tools`, `apps/api`) conducted on 2026-07-20. This is review 68;
-round 1–67 are documented in earlier revisions of this file and `CHANGES.md`.
+`mcp-tools`, `apps/api`) conducted on 2026-07-29. This is review 69;
+rounds 1–68 are documented in earlier revisions of this file and `CHANGES.md`.
+ 
+## Findings & Actions (round 69)
+ 
+### Fixed this round
+ 
+1. **🔵 Documentation improvement — added JSDoc comment to `McpService.buildContext`** 
+   (`apps/api/src/mcp/mcp.service.ts`). The method now includes explicit documentation
+   explaining that all string inputs undergo dual sanitization (HTML stripping + secret
+   redaction) as defense-in-depth for audit log persistence and agent-facing output.
+   Inline comments explain the rationale for double-sanitizing `userId`. No functional
+   changes; purely a maintainability improvement.
+ 
+### Reviewed but NOT changed (no new critical issues)
+ 
+Comprehensive re-verification of all security-critical components since round 68:
+- **Tenant isolation (RLS boot assertions, superuser refusal, app-level `tenantId` filters)** — Re-verified intact. PrismaService's verifyRlsEnabled() correctly validates force-RLS on all tenant tables (including the updated list from rls-setup.sql). App client role verification properly rejects superuser connections.
+- **Secret redaction across REST/MCP/durable surfaces** — All sanitizer functions (sanitizeForLogOutput, redactSensitiveFieldValues, error-handler, audit-log middleware, tool-registry) remain consistent. No asymmetric leaks detected.
+- **Idempotency-key charset validation** — SAFE_IDEMPOTENCY_KEY regex applied at MCP buildContext boundary and middleware; no gaps found.
+- **ReDoS guards** — Length caps on sanitizeForLogOutput input prevent catastrophic backtracking in URL regexes. Review confirmed.
+- **JWT token validation** — JwtStrategy enforces tenantId format via validateTenantIdEnhanced, userId/agentId length caps, and signature verification. Main.ts validates JWT_EXPIRES_IN and JWT_SECRET strength intact.
+- **Health/version endpoint** — Sanitized warning field (round 67 fix), production returns redacted version/name (hardened per round 45). No regression.
+- **SearchParties HTML stripping** — optionalFilteredString now calls stripHtmlTags(s.trim()) matching REST DTO (round 68 fix). Confirmed present.
+- **EMAIL_REGEX TLD length** — Requires ≥2 char TLD (round 68 fix). Confirmed present.
+- **JWT_EXPIRES_IN_REGEX non-zero leading digit** — Requires `[1-9]` start (round 68 fix). Confirmed present.
+- **Complexity warnings** — Functions exceeding max-complexity:15 (redactSensitiveFields, sanitizeContextValue, serializeCause) remain intentionally complex to preserve single-source-truth traversal logic; warnings documented and accepted. No new deviations.
 
+All tests pass (334 api tests, 201 shared tests, 142 mcp-tools tests, 26 database tests, 10 skipped RLS-isolation tests requiring live DB). Lint clean. Typecheck clean.
+
+No 🔴 or 🟡 exploit paths identified beyond those already fixed in previous rounds. Security posture remains strong and defense-in-depth layers are consistently applied across all surfaces.
+
+## Test Results (round 69)
+```
+api:       334 passed (15 files)  (unchanged — documentation improvement only)
+shared:    201 passed (4 files)   (unchanged)
+mcp-tools: 142 passed (4 files)   (unchanged)
+database:   26 passed, 10 skipped (2 files) (unchanged)
+────────────────────────────────────
+Total:     703 passed, 10 skipped
+```
+ 
 ## Findings & Actions (round 68)
 
 ### Fixed this round

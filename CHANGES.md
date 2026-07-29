@@ -1,5 +1,10 @@
 # BestERP — Security & Architecture Fixes
-
+ 
+## Changes Applied (2026-07-29) — Code Review Round 69
+ 
+### 🔵 Documentation improvement — added JSDoc comment to `McpService.buildContext` (`apps/api/src/mcp/mcp.service.ts`)
+**Improvement:** Added comprehensive JSDoc documentation explaining that all string inputs undergo dual sanitization (HTML stripping + secret redaction) as defense-in-depth for audit log persistence and agent-facing output. Also added inline comments explaining the rationale for double-sanitizing `userId`. No functional changes; purely a maintainability improvement that clarifies the security intent for future contributors.
+ 
 ## Changes Applied (2026-07-20) — Code Review Round 68
 
 ### 🟡 `packages/shared/src/constants.ts` — `JWT_EXPIRES_IN_REGEX` accepted degenerate/non-expiring token lifetimes

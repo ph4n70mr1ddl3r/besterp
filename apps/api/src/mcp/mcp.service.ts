@@ -36,6 +36,17 @@ export class McpService implements OnModuleInit {
     );
   }
 
+  /**
+   * Build the MCP tool context from request overrides.
+   * 
+   * All string inputs are sanitized to prevent secret leakage and XSS:
+   * - HTML tags stripped via stripHtmlTags
+   * - Secrets/URLs redacted via sanitizeForLogOutput
+   * - Whitespace trimmed
+   * - Length caps enforced via shared constants
+   * 
+   * @param overrides - Context overrides including tenantId, userId, optional fields
+   */
   buildContext(overrides: {
     tenantId: string;
     userId: string;
@@ -65,6 +76,10 @@ export class McpService implements OnModuleInit {
         { context: { field: "userId", receivedType: typeof overrides.userId } }
       );
     }
+    // Double-sanitize userId: stripHtmlTags removes HTML payloads,
+    // sanitizeForLogOutput redacts secrets/URLs. Both are applied because
+    // userId may be persisted to durable audit logs and reflected in agent-facing
+    // messages. Defense-in-depth ensures no secret leakage even if one layer fails.
     const userId = sanitizeForLogOutput(stripHtmlTags(overrides.userId.trim()));
     if (userId.length === 0) {
       throw new InvalidTypeValueError(
