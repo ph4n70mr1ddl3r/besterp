@@ -162,7 +162,7 @@ export const MAX_SOFT_FAILURE_MESSAGE_SIZE = 4096;
  *  an unbounded `999999999999999999d` would produce an effectively non-expiring
  *  token — both defeat the purpose of a short-lived JWT. `validateEnvironment`
  *  (main.ts) tests this pattern before booting, so the cap is enforced there. */
-export const JWT_EXPIRES_IN_REGEX = /^[1-9]\d{0,9}[smhd]$/;
+export const JWT_EXPIRES_IN_REGEX = /^([1-9]\d{0,9})([smhd])$/;
 
 // ─── Middleware Constants ──────────────────────────────────────
 

@@ -12,7 +12,7 @@ import {
   ToolContext,
   RiskLevel,
 } from "../schema/tool-definition.js";
-import { MAX_IDEMPOTENCY_KEY_LENGTH, SAFE_IDEMPOTENCY_KEY, sanitizeForLogOutput, redactSensitiveFieldValues, validateTenantIdEnhancedForAuth, MAX_USER_ID_LENGTH, MAX_AGENT_ID_LENGTH, MAX_CONVERSATION_ID_LENGTH } from "@besterp/shared";
+import { MAX_IDEMPOTENCY_KEY_LENGTH, sanitizeForLogOutput, redactSensitiveFieldValues, validateTenantIdEnhancedForAuth, MAX_USER_ID_LENGTH, MAX_AGENT_ID_LENGTH, MAX_CONVERSATION_ID_LENGTH } from "@besterp/shared";
 import { isSensitiveField } from "../middleware/sensitive-fields.js";
 
 const VALID_RISK_LEVELS: readonly RiskLevel[] = ["none", "low", "medium", "high", "critical"];
@@ -186,7 +186,7 @@ export class ToolRegistry {
       ? rawInput as Record<string, unknown>
       : null;
     const effectiveContext: ToolContext =
-      raw?.idempotencyKey && typeof raw.idempotencyKey === "string" && raw.idempotencyKey.length <= MAX_IDEMPOTENCY_KEY_LENGTH && SAFE_IDEMPOTENCY_KEY.test(raw.idempotencyKey) && !context.idempotencyKey
+      raw?.idempotencyKey && typeof raw.idempotencyKey === "string" && raw.idempotencyKey.length <= MAX_IDEMPOTENCY_KEY_LENGTH && !context.idempotencyKey
         ? { ...context, idempotencyKey: raw.idempotencyKey }
         : context;
 

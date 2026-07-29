@@ -173,7 +173,7 @@ const CONTACT_SUBTYPE_CONFIGS: Record<string, SubtypeFieldConfig> = {
 function sanitizedString(min: number, max: number) {
   return z.string()
     // eslint-disable-next-line no-control-regex
-    .transform(s => stripHtmlTags(s.trim()).replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, ""))
+    .transform(s => stripHtmlTags(s.trim()).replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, ""))
     .pipe(z.string().min(min).max(max));
 }
 
