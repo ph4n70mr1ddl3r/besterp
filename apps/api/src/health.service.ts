@@ -9,6 +9,7 @@ import { PrismaService } from "./prisma/prisma.service.js";
 import { sanitizeForLogOutput, sanitizeLogMessage } from "@besterp/shared";
 import * as fs from "node:fs/promises";
 import * as net from "node:net";
+import * as tls from "node:tls";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -123,7 +124,12 @@ export class HealthService implements OnModuleInit {
     if (process.env.REDIS_HOST) {
       try {
         await new Promise<void>((resolve, reject) => {
-          const socket = new net.Socket();
+          const useTls = HealthService.resolveRedisTls();
+          const redisPort = Number(process.env.REDIS_PORT || 6380);
+          const redisHost = String(process.env.REDIS_HOST);
+          const socket = useTls
+            ? tls.connect({ host: redisHost, port: redisPort, rejectUnauthorized: true })
+            : new net.Socket();
           let responseBuffer = "";
           const timeout = setTimeout(() => {
             socket.destroy();
@@ -153,10 +159,9 @@ export class HealthService implements OnModuleInit {
             clearTimeout(timeout);
             reject(err);
           });
-          socket.connect(
-            Number(process.env.REDIS_PORT || 6380),
-            String(process.env.REDIS_HOST),
-          );
+          if (!useTls) {
+            (socket as net.Socket).connect(redisPort, redisHost);
+          }
         });
         redisStatus = "connected";
       } catch {
@@ -234,5 +239,18 @@ export class HealthService implements OnModuleInit {
         date: process.env.BUILD_DATE ? sanitizeLogMessage(process.env.BUILD_DATE).slice(0, 30) : undefined,
       },
     };
+  }
+
+  /**
+   * Resolve whether the Redis health check must use TLS.
+   * Mirrors QueueModule.resolveTls() logic so both probes agree on
+   * when TLS is required. Default: enabled in non-development,
+   * disabled in development. Opt out via REDIS_TLS=0.
+   */
+  private static resolveRedisTls(): boolean {
+    const raw = (process.env.REDIS_TLS ?? "").toLowerCase();
+    if (["1", "true", "yes"].includes(raw)) return true;
+    if (["0", "false", "no"].includes(raw)) return false;
+    return process.env.NODE_ENV !== "development";
   }
 }
