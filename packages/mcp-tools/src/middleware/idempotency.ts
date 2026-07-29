@@ -107,7 +107,7 @@ function handleRecordContention(key: string, toolName: string): ToolResult {
 
 export function idempotencyMiddleware(prisma: PrismaClient): ToolMiddleware {
   return async (input, context, definition, next) => {
-    if (!prisma?.idempotencyRecord) {
+    if (!prisma.idempotencyRecord) {
       logIdempotencyWarn("Prisma client not available — skipping idempotency check");
       return next(input, context);
     }

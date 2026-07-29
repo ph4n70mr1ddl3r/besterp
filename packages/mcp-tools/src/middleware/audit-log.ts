@@ -8,7 +8,7 @@
 // blocks tool execution. Log failures are silently ignored (audit should
 // never break the tool).
 
-import { PrismaClient, Prisma } from "@prisma/client";
+import { PrismaClient, type Prisma } from "@prisma/client";
 import { getErrorCode, sanitizeLogMessage, sanitizeForLogOutput, MAX_REASONING_LENGTH, MAX_SOFT_FAILURE_MESSAGE_SIZE, redactSensitiveFieldValues, MAX_CONCURRENT_AUDIT_WRITES, MAX_AUDIT_QUEUE_SIZE, AUDIT_WRITE_QUEUE_TIMEOUT_MS } from "@besterp/shared";
 import { ToolMiddleware, ToolContext, ToolResult } from "../schema/tool-definition.js";
 import { truncateValue, capString, MAX_STORED_PAYLOAD_SIZE } from "./truncate.js";
@@ -49,7 +49,7 @@ function createBaseEntry(context: { agentId?: string; conversationId?: string; r
 }
 
 async function executeAndLog(prisma: PrismaClient, backpressure: BackpressureManager, input: unknown, context: ToolContext, definition: { name: string }, next: (input: unknown, context: ToolContext) => Promise<ToolResult>): Promise<ToolResult> {
-  if (!prisma?.aiActionLog) {
+  if (!prisma.aiActionLog) {
     try {
       process.stderr.write(`[AuditLog] ${JSON.stringify({ timestamp: new Date().toISOString(), message: "Prisma client not available — skipping audit log" })}\n`);
     } catch {
@@ -185,9 +185,6 @@ function createBackpressureManager(prisma: PrismaClient): BackpressureManager {
       return;
     }
     activeWrites--;
-    // Guard against double-release edge case: if activeWrites went below 0
-    // due to a race, clamp to 0 to prevent the writeQueue drain from stalling.
-    if (activeWrites < 0) activeWrites = 0;
     if (writeQueue.length > 0) {
       const next = writeQueue.shift() as QueueEntry;
       clearTimeout(next.timer);

@@ -537,13 +537,11 @@ function handleDepthLimit(value: unknown): unknown {
       return [...value].map(() => "[Too deep]");
     }
     if (value instanceof WeakMap || value instanceof WeakSet) return "[WeakCollection]";
-    if (!Array.isArray(value)) {
-      const capped: Record<string, unknown> = {};
-      for (const [key] of Object.entries(value as Record<string, unknown>)) {
-        capped[key] = isSensitiveFieldName(key) ? "[REDACTED]" : "[Too deep]";
-      }
-      return capped;
+    const capped: Record<string, unknown> = {};
+    for (const [key] of Object.entries(value as Record<string, unknown>)) {
+      capped[key] = isSensitiveFieldName(key) ? "[REDACTED]" : "[Too deep]";
     }
+    return capped;
   }
   return "[Too deep]";
 }

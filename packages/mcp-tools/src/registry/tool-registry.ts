@@ -275,10 +275,11 @@ export class ToolRegistry {
     } catch {
       return this.contextIdentityError("INVALID_TENANT_ID", "tenant identifier");
     }
-    if (typeof context.userId !== "string" || context.userId !== context.userId.trim()) {
+    const trimmedUserId = context.userId.trim();
+    if (typeof context.userId !== "string" || context.userId !== trimmedUserId) {
       return this.contextIdentityError("INVALID_USER_ID", "user identifier");
     }
-    const userId = context.userId.trim();
+    const userId = trimmedUserId;
     if (userId.length === 0 || userId.length > MAX_USER_ID_LENGTH || !/^[a-zA-Z0-9_-]+$/.test(userId)) {
       return this.contextIdentityError("INVALID_USER_ID", "user identifier");
     }
@@ -390,7 +391,7 @@ export class ToolRegistry {
         // A Zod issue message can echo the offending input verbatim (e.g.
         // "Expected string, received {raw password}"), so run it through the
         // deep redactor as well as the length/char sanitizer.
-        message: redactSensitiveFieldValues(sanitizeForLogOutput(issue.message)),
+        message: redactSensitiveFieldValues(issue.message) as string,
         path: sanitizedPath,
       };
       const sensitivePathSegments = path.filter((p) => isSensitiveField(p));
@@ -398,7 +399,7 @@ export class ToolRegistry {
       if (sensitivePathSegments.length > 0 || (isSensitiveField(lastSegment) && issue.received !== undefined)) {
         redacted.received = "[REDACTED]";
       } else if (issue.received !== undefined) {
-        redacted.received = redactSensitiveFieldValues(sanitizeForLogOutput(String(issue.received)));
+        redacted.received = redactSensitiveFieldValues(issue.received);
       }
       return redacted;
     });

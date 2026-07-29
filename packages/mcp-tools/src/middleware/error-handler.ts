@@ -8,11 +8,11 @@
 
 import {
   isDomainError,
-  DomainError,
   sanitizeLogMessage,
   sanitizeForLogOutput,
   pluralize,
   redactSensitiveFieldValues,
+  type DomainError,
 } from "@besterp/shared";
 import { ToolMiddleware, ToolResult } from "../schema/tool-definition.js";
 
@@ -50,7 +50,7 @@ const MAX_ERROR_LOG_LINE_LENGTH = 500;
 function sanitizeContextValueForToolResult(value: unknown): Record<string, unknown> | undefined {
   const sanitized = redactSensitiveFieldValues(value);
   if (sanitized === null || sanitized === undefined) return undefined;
-  if (typeof sanitized === "object" && sanitized !== null) {
+  if (typeof sanitized === "object" && sanitized !== null && !Array.isArray(sanitized)) {
     const obj = sanitized as Record<string, unknown>;
     if (Object.keys(obj).length === 0) return undefined;
     return obj;

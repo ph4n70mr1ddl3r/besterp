@@ -21,4 +21,4 @@ export {
 } from "./middleware/index.js";
 
 // Truncation utilities (re-exported for custom middleware authors)
-export { truncateValue, capString, MAX_STORED_PAYLOAD_SIZE } from "./middleware/truncate.js";
+export { truncateValue, capString, MAX_STORED_PAYLOAD_SIZE, isTruncationMarker } from "./middleware/truncate.js";

@@ -12,8 +12,8 @@ import { redactSensitiveFieldValues, sanitizeForLogOutput } from "./sanitize.js"
  */
 export class DomainError extends Error {
   readonly code: string;
-  readonly suggestedTools: string[];
-  readonly context: Record<string, ContextValue>;
+  readonly suggestedTools: readonly string[];
+  readonly context: Readonly<Record<string, ContextValue>>;
 
   constructor(
     code: string,
