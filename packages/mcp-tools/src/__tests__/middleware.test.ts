@@ -1262,8 +1262,9 @@ describe("Audit Log Middleware", () => {
 
     const createCall = mockPrisma.aiActionLog.create.mock.calls[0];
     const storedOutput = createCall[0].data.toolOutput;
-    // Error output should be truncated consistently with the success path
-    expect(storedOutput._truncated).toBe(true);
+    // Error output stores { error: { message, code } } where message is
+    // capped via capString (not truncateValue), so check the textual marker
+    expect(storedOutput.error.message).toContain("[truncated, original was");
   });
 
   it("should sanitize DB connection strings from error-path output", async () => {
