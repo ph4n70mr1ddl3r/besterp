@@ -164,7 +164,7 @@ export class HealthService implements OnModuleInit {
             if (responseBuffer.startsWith("-")) {
               clearTimeout(timeout);
               socket.destroy();
-              reject(new Error(`Redis error: ${responseBuffer.trim()}`));
+              reject(new Error(`Redis error: ${sanitizeForLogOutput(responseBuffer.trim())}`));
             }
           });
           socket.on("error", (err) => {

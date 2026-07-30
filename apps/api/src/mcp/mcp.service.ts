@@ -1,6 +1,6 @@
 import { Injectable, Logger, OnModuleInit } from "@nestjs/common";
-import { validateTenantIdEnhanced } from "@besterp/database";
 import { InvalidTypeValueError, MAX_USER_ID_LENGTH, MAX_IDEMPOTENCY_KEY_LENGTH, SAFE_IDEMPOTENCY_KEY, MAX_AGENT_ID_LENGTH, MAX_CONVERSATION_ID_LENGTH, MAX_REASONING_LENGTH, stripHtmlTags, sanitizeForLogOutput } from "@besterp/shared";
+import { validateTenantIdEnhanced } from "@besterp/database";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { PartyService } from "../modules/core/party/party.service.js";
 import {
@@ -94,13 +94,15 @@ export class McpService implements OnModuleInit {
       );
     }
 
-    const idempotencyKey = validateOptionalField("idempotencyKey", overrides.idempotencyKey, MAX_IDEMPOTENCY_KEY_LENGTH);
-    if (idempotencyKey !== undefined && !SAFE_IDEMPOTENCY_KEY.test(idempotencyKey)) {
+    const rawIdempotencyKey = validateOptionalField("idempotencyKey", overrides.idempotencyKey, MAX_IDEMPOTENCY_KEY_LENGTH);
+    if (rawIdempotencyKey !== undefined && !SAFE_IDEMPOTENCY_KEY.test(rawIdempotencyKey)) {
       throw new InvalidTypeValueError(
         "McpService.buildContext: idempotencyKey must contain only printable ASCII characters.",
         { context: { field: "idempotencyKey" } }
       );
     }
+    const idempotencyKey = rawIdempotencyKey !== undefined ? sanitizeForLogOutput(stripHtmlTags(rawIdempotencyKey)) : undefined;
+
     const agentId = validateOptionalField("agentId", overrides.agentId, MAX_AGENT_ID_LENGTH);
     const conversationId = validateOptionalField("conversationId", overrides.conversationId, MAX_CONVERSATION_ID_LENGTH);
     const reasoning = validateOptionalField("reasoning", overrides.reasoning, MAX_REASONING_LENGTH);

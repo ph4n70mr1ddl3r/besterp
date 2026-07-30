@@ -98,12 +98,8 @@ async function queryTypeTable(
     select: { [idField]: true, name: true, description: true, aiPromptHint: true },
   });
   return rows.map((r) => ({
-    id: r[idField] as string | null,
-    name: r.name as string | null,
-    // Type-table rows are global reference data read via the admin (RLS-
-    // bypassing) client, but a stored value could still carry HTML/ANSI/URL
-    // payloads. Sanitize before reflecting to the agent to match every other
-    // agent-facing surface.
+    id: typeof r[idField] === "string" ? sanitizeForLogOutput(stripHtmlTags(r[idField] as string)) : null,
+    name: typeof r.name === "string" ? sanitizeForLogOutput(stripHtmlTags(r.name)) : null,
     description: typeof r.description === "string" ? sanitizeForLogOutput(stripHtmlTags(r.description)) : null,
     aiPromptHint: typeof r.aiPromptHint === "string" ? sanitizeForLogOutput(stripHtmlTags(r.aiPromptHint)) : null,
   }));

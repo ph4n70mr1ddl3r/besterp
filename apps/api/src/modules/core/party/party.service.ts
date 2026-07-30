@@ -1036,9 +1036,10 @@ export class PartyService {
    *  an opaque Prisma P2023 error for malformed IDs from MCP tool callers. */
   private static requireUuid(value: string, field: string): void {
     if (!UUID_REGEX.test(value)) {
+      const safeValue = sanitizeForLogOutput(stripHtmlTags(value));
       throw new InvalidTypeValueError(
         `Invalid '${field}': must be a valid UUID.`,
-        { suggestedTools: ["search_parties", "get_party"], context: { field, received: value } }
+        { suggestedTools: ["search_parties", "get_party"], context: { field, received: safeValue } }
       );
     }
   }
