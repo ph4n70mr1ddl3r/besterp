@@ -144,15 +144,15 @@ npm run db:seed
    npm install
    ```
 
-2. **Start infrastructure** (PostgreSQL, Redis, MinIO)
-   ```bash
-   cd docker && docker compose up -d
-   ```
-
-3. **Set up environment variables**
+2. **Set up environment variables**
    ```bash
    cp .env.example .env
    # No changes needed for local development — defaults match docker compose
+   ```
+
+3. **Start infrastructure** (PostgreSQL, Redis, MinIO)
+   ```bash
+   cd docker && docker compose up -d
    ```
 
 4. **Run database migrations and seed**

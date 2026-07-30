@@ -13,7 +13,7 @@
     "reset": "prisma migrate reset --force",
     "studio": "prisma studio",
     "spike:rls": "tsx spikes/spike-rls.ts",
-    "postinstall": "prisma generate",
+    "postinstall": "prisma generate || true",
     "build": "tsc",
     "test": "vitest run",
     "test:watch": "vitest",

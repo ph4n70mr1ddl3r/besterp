@@ -1,7 +1,3 @@
-
-
-const TEXT_ENCODER = new TextEncoder();
-
 // Input sanitization utilities for BestERP.
 //
 // Provides defense-in-depth against XSS by stripping HTML tags and
@@ -26,6 +22,8 @@ const TEXT_ENCODER = new TextEncoder();
  * @param input - The raw string to sanitize
  * @returns Sanitized string with HTML tags removed
  */
+const TEXT_ENCODER = new TextEncoder();
+
 const MAX_SANITIZE_ITERATIONS = 20;
 const MAX_INPUT_LENGTH = 100_000;
 
