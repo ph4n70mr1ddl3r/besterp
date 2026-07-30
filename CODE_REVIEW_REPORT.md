@@ -2,12 +2,34 @@
 
 ## Scope
 Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
-`mcp-tools`, `apps/api`) conducted on 2026-07-29. This is review 69;
-rounds 1–68 are documented in earlier revisions of this file and `CHANGES.md`.
+`mcp-tools`, `apps/api`) conducted on 2026-07-30. This is review 70;
+rounds 1–69 are documented in earlier revisions of this file and `CHANGES.md`.
  
-## Findings & Actions (round 69)
+## Findings & Actions (round 70)
  
 ### Fixed this round
+
+1. **🟢 `queue.module.ts` — Retry strategy lacked jitter, causing thundering-herd reconnection.** The Redis retry strategy used `Math.min(times * 200, 5000)` — deterministic exponential backoff. Under heavy load or full cluster restart, all connections retried in lockstep, amplifying contention. Added `Math.random() * 200` jitter so retries are spread across a 200ms window.
+
+2. **🟢 `discovery-tools.ts` — Entity filter not trimmed.** `list_available_tools`' `entity` filter was lowercased but not trimmed, so `"  party  "` would match no tools despite `"party"` being a valid entity. Now trims before filtering.
+
+3. **🟢 `party.module.ts`, `health.module.ts` — Added explicit `PrismaModule` imports.** Both modules depended on `PrismaService` via the `@Global()` decorator on `PrismaModule`, creating implicit hard-to-trace dependencies. Adding explicit `imports: [PrismaModule]` makes the dependency graph self-documenting and allows isolated testing without the global.
+
+4. **🟢 `jwt-auth.guard.ts` — Removed verbose inline comments duplicated by `public-scope.ts`.** The guard carried multi-line commentary about `@Public()` scope rules that is already documented in `public-scope.ts` (`isPublicAllowedForHandler`). Since the guard delegates to that function, the comment adds no information and diverged from the source of truth.
+
+All tests pass (334 api tests, 201 shared tests, 142 mcp-tools tests, 26 database tests, 10 skipped RLS-isolation tests requiring live DB). Lint clean. Typecheck clean.
+
+## Test Results (round 70)
+```
+api:       334 passed (15 files)
+shared:    201 passed (4 files)
+mcp-tools: 142 passed (4 files)
+database:   26 passed, 10 skipped (2 files)
+────────────────────────────────────
+Total:     703 passed, 10 skipped
+```
+
+## Findings & Actions (round 69)
  
 1. **🔵 Documentation improvement — added JSDoc comment to `McpService.buildContext`** 
    (`apps/api/src/mcp/mcp.service.ts`). The method now includes explicit documentation

@@ -114,7 +114,9 @@ export class QueueModule {
       );
       return undefined;
     }
-    return Math.min(times * 200, 5000);
+    const baseDelay = Math.min(times * 200, 5000);
+    const jitter = Math.random() * 200;
+    return baseDelay + jitter;
   }
 
   static forRoot(options?: Partial<QueueModuleOptions>): DynamicModule {

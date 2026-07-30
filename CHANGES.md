@@ -1,5 +1,23 @@
 # BestERP — Security & Architecture Fixes
  
+## Changes Applied (2026-07-30) — Code Review Round 70
+
+### 🟢 `apps/api/src/queue/queue.module.ts` — Redis retry strategy added jitter to prevent thundering-herd reconnection
+
+**Improvement:** The Redis retry strategy used purely deterministic backoff (`Math.min(times * 200, 5000)`), causing all connections to retry in lockstep after a cluster restart or network event. Added `Math.random() * 200` jitter to spread reconnection attempts across a 200ms window, reducing contention when multiple instances reconnect simultaneously.
+
+### 🟢 `apps/api/src/mcp/tools/discovery-tools.ts` — Entity filter now trimmed before matching
+
+**Improvement:** The `list_available_tools` entity filter applied `.toLowerCase()` but did not `.trim()`, so whitespace-padded input like `"  party  "` would match no tools. Added `.trim()` before the filter comparison for consistent behavior.
+
+### 🟢 `apps/api/src/modules/core/party/party.module.ts`, `apps/api/src/health.module.ts` — Added explicit `PrismaModule` imports
+
+**Improvement:** Both modules depended on `PrismaService` via the `@Global()` decorator on `PrismaModule`, creating implicit dependencies invisible to module-level analysis. Added explicit `imports: [PrismaModule]` so the dependency graph is self-documenting and each module can be tested in isolation without the `@Global()`.
+
+### 🟢 `apps/api/src/auth/jwt-auth.guard.ts` — Removed verbose inline comments duplicated by the public-scope module
+
+**Improvement:** The guard carried multi-line commentary about `@Public()` scope rules that is already documented in `public-scope.ts`. Removed the duplicate commentary since the guard delegates to `isPublicAllowedForHandler` which is the single source of truth for the scope restriction.
+ 
 ## Changes Applied (2026-07-29) — Code Review Round 69
  
 ### 🔵 Documentation improvement — added JSDoc comment to `McpService.buildContext` (`apps/api/src/mcp/mcp.service.ts`)

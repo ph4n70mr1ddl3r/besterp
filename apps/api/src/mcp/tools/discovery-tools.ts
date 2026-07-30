@@ -54,7 +54,7 @@ Each tool listing includes its risk level and confirmation requirements.`,
       const input = inputRaw as { entity?: string };
       let tools = registry.getDiscoveryInfo();
       if (input.entity) {
-        const filter = input.entity.toLowerCase();
+        const filter = input.entity.trim().toLowerCase();
         tools = tools.filter((t) => (t.entity ?? "").toLowerCase() === filter);
       }
       return {
