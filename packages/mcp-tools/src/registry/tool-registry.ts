@@ -275,8 +275,11 @@ export class ToolRegistry {
     } catch {
       return this.contextIdentityError("INVALID_TENANT_ID", "tenant identifier");
     }
+    if (typeof context.userId !== "string") {
+      return this.contextIdentityError("INVALID_USER_ID", "user identifier");
+    }
     const trimmedUserId = context.userId.trim();
-    if (typeof context.userId !== "string" || context.userId !== trimmedUserId) {
+    if (context.userId !== trimmedUserId) {
       return this.contextIdentityError("INVALID_USER_ID", "user identifier");
     }
     const userId = trimmedUserId;

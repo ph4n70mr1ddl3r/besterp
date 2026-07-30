@@ -326,7 +326,7 @@ async function bootstrap() {
       }
       if (typedErr.type === "entity.parse.failed") {
         setCorsHeaders(res, origin);
-        res.status(400).json({ statusCode: 400, message: "Request body contains malformed JSON. Check syntax and retry." });
+        res.status(400).json({ statusCode: 400, message: "Request body could not be parsed. Check syntax and retry." });
         return;
       }
     }

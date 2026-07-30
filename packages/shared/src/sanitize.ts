@@ -266,7 +266,7 @@ function replaceProviderSecrets(input: string): string {
 const REDACTED_PLACEHOLDERS = /^\[REDACTED(?:_[A-Z_]+)?\]$/;
 
 function replaceGenericLongToken(input: string): string {
-  return input.replace(/[A-Za-z0-9_./+=-]{20,128}/g, (match) => {
+  return input.replace(/[A-Za-z0-9_./=+-]{20,128}/g, (match) => {
     if (REDACTED_PLACEHOLDERS.test(match)) return match;
     if (/^[a-z]+$/.test(match)) return match;
     if (/^[a-f0-9]+$/i.test(match)) return match;
