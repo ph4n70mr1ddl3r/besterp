@@ -2,9 +2,43 @@
 
 ## Scope
 Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
-`mcp-tools`, `apps/api`) conducted on 2026-07-30. This is review 70;
-rounds 1–69 are documented in earlier revisions of this file and `CHANGES.md`.
- 
+`mcp-tools`, `apps/api`) conducted on 2026-07-31. This is review 71;
+rounds 1–70 are documented in earlier revisions of this file and `CHANGES.md`.
+
+## Findings & Actions (round 71)
+
+### Fixed this round
+
+1. **🔴 `create-roles.sql` — invalid `//` PL/pgSQL comment prevented `besterp_app` from ever being created.** The `DO $$` block threw `syntax error at or near "/"`; with no `ON_ERROR_STOP`, psql exited 0 while every GRANT failed (`role "besterp_app" does not exist`). CI seed/db steps and the docker initdb flow were silently broken. Fixed to `--` and verified on a live PostgreSQL 16 cluster (role created, grants succeed, idempotent re-run).
+
+2. **🔴 `rls-setup.sql` — `CREATE POLICY IF NOT EXISTS` is not valid PostgreSQL syntax; 0 of 11 tenant-isolation policies were ever created.** The ALTER TABLE ENABLE/FORCE statements succeeded, so `verifyRlsEnabled()`'s boot check passed while `pg_policy` was empty — RLS "enabled" with no policies, so tenant isolation was never enforced. Changed to `DROP POLICY IF EXISTS …; CREATE POLICY …`, verified: 11 policies created, idempotent, and a `set_tenant_context('tenant-acme')` transaction returns only that tenant's rows.
+
+3. **🟡 App-role password single-sourced.** The role password was hardcoded in three conflicting places (`'CHANGE_ME_USE_ALTER_ROLE'`, `besterp_app_dev` in CI, `CHANGEME_APP_PASSWORD` in `.env.example`). Now sourced from the psql variable `app_db_password` (default `CHANGEME_APP_PASSWORD`); CI passes `-v app_db_password=besterp_app_dev`. Uses `format('%L', :'app_db_password')` + `\gexec` with a `WHERE NOT EXISTS` guard because psql does not interpolate variables inside dollar-quoted strings, and `\if :{?app_db_password}` so a supplied `-v` is not clobbered. Both paths verified to produce distinct SCRAM hashes.
+
+4. **🟡 `docker-compose.yml` — `rls-setup.sql` in `initdb.d` ran before migrations and silently failed, so RLS was never applied in the docker flow.** Moved it out of `initdb.d`, mounted read-only at `/setup/rls-setup.sql`, and documented the post-migration step in README (`docker exec -i besterp-postgres psql -U besterp -d besterp -f /setup/rls-setup.sql`).
+
+5. **🟡 `set_tenant_context` EXECUTE restrictions moved from `create-roles.sql` to `rls-setup.sql`.** The REVOKE/GRANT referenced a function created later and always failed; the app-role-only intent was never enforced. Now placed immediately after the function's `CREATE OR REPLACE`; verified (`besterp_app`=true, `public`=false).
+
+6. **🟢 `sanitize.ts` — generic long-token redactor destroyed legitimate ULID identity IDs.** `replaceGenericLongToken` redacted any ≥20-char alphanumeric run with letters+digits, so ULIDs (`01H3X8Q5Y2GX4K1A2B3C4D5E6F`) and prefixed forms (`usr_…`, `agent_…`) became `[REDACTED_TOKEN]` in `McpService.buildContext` output, the durable audit log, and every sanitizing log/error surface. Whitelisted the ULID shape and prefixed ULIDs; all genuine secret shapes still redacted. Regression tests added (`sanitize.test.ts`, `mcp.module.spec.ts`).
+
+7. **🟢 `crypto.ts` — removed dead `kStr: ""` initializer in `sortMap`.**
+
+8. **🟢 Added direct unit tests for `sanitizePostalAddress`/`sanitizeTelecomNumber`** (previously only covered indirectly).
+
+All SQL changes were verified against a throwaway PostgreSQL 16 cluster (initdb + pg_ctl), not just reviewed: `create-roles.sql` and `rls-setup.sql` both run clean, are idempotent, and RLS policy enforcement was smoke-tested across tenants.
+
+All tests pass (335 api tests, 209 shared tests, 142 mcp-tools tests, 26 database tests, 10 skipped RLS-isolation tests requiring live DB). Lint clean. Typecheck clean.
+
+## Test Results (round 71)
+```
+api:       335 passed (15 files)
+shared:    209 passed (4 files)
+mcp-tools: 142 passed (4 files)
+database:   26 passed, 10 skipped (2 files)
+────────────────────────────────────
+Total:     712 passed, 10 skipped
+```
+
 ## Findings & Actions (round 70)
  
 ### Fixed this round

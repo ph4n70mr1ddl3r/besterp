@@ -1,5 +1,45 @@
 # BestERP — Security & Architecture Fixes
- 
+
+## Changes Applied (2026-07-31) — Code Review Round 71
+
+### 🔴 `packages/database/prisma/create-roles.sql` — invalid `//` PL/pgSQL comment silently prevented `besterp_app` from ever being created
+
+**Problem:** A `// ALTER ROLE before first use outside local development.` comment inside the `DO $$` block is not valid PL/pgSQL (only `--` and `/* */` are), so the block threw `syntax error at or near "/"`. Because CI/docker run psql without `ON_ERROR_STOP`, every subsequent `GRANT … TO besterp_app` failed with `role "besterp_app" does not exist` and psql still exited 0. The application role — the non-superuser role RLS depends on — was never provisioned, silently breaking CI's seed/database steps and the docker initdb flow. Verified against a live PostgreSQL 16 cluster.
+**Fix:** Changed the comment to `--`. The role is now created and all grants succeed (verified: role exists, password auth works, script is idempotent across re-runs).
+
+### 🔴 `packages/database/prisma/rls-setup.sql` — `CREATE POLICY IF NOT EXISTS` is unsupported in PostgreSQL; no tenant-isolation policy was ever created
+
+**Problem:** PostgreSQL's `CREATE POLICY` does not support `IF NOT EXISTS` (unlike `CREATE TABLE`/`CREATE INDEX`). All 11 `CREATE POLICY IF NOT EXISTS` statements threw `syntax error at or near "NOT"` and were silently skipped (psql exit 0 without `ON_ERROR_STOP`). The ALTER TABLE ENABLE/FORCE ROW LEVEL SECURITY statements *did* run, so `verifyRlsEnabled()`'s boot check passed — while `pg_policy` contained **zero** rows. RLS was "enabled" but had no policies, so tenant isolation was never enforced. Verified on PostgreSQL 16: 11 errors, 0 policies.
+**Fix:** Each policy now uses `DROP POLICY IF EXISTS <name> ON <table>; CREATE POLICY <name> ON <table> …`, which is supported and keeps the script idempotent. Verified: 11 policies created, re-run exits 0, and a tenant-scoped `set_tenant_context('tenant-acme')` transaction returns only that tenant's rows.
+
+### 🟡 `packages/database/prisma/create-roles.sql` — app-role password drifted across three sources (single-source-of-truth fix)
+
+**Problem:** The role password was hardcoded three ways: `'CHANGE_ME_USE_ALTER_ROLE'` in `create-roles.sql`, `besterp_app_dev` in CI connection strings, and `CHANGEME_APP_PASSWORD` in `.env.example`. Even after fixing the `//` bug, CI seed/tests and the documented local flow would fail with auth errors.
+**Fix:** The password now comes from the psql variable `app_db_password` (default `CHANGEME_APP_PASSWORD`, matching `.env.example`/docker). CI passes `psql -v app_db_password=besterp_app_dev`. Uses `format('%L', :'app_db_password')` + `\gexec` with a `WHERE NOT EXISTS` guard (psql cannot interpolate variables inside dollar-quoted strings), and `\if :{?app_db_password}` so a supplied `-v` is never clobbered. Verified both paths produce distinct SCRAM hashes.
+
+### 🟡 `docker/docker-compose.yml` — `rls-setup.sql` mounted into `initdb.d` ran before migrations and silently failed; README flow corrected
+
+**Problem:** initdb executes before Prisma migrations create the tables, so every `ENABLE/FORCE ROW LEVEL SECURITY` failed silently and RLS was never applied for the documented docker flow — the app's `verifyRlsEnabled()` boot check then refused to start.
+**Fix:** Removed `rls-setup.sql` from `initdb.d`; it is now mounted read-only at `/setup/rls-setup.sql` and README step 4 applies it after `npm run db:migrate` via `docker exec -i besterp-postgres psql -U besterp -d besterp -f /setup/rls-setup.sql`. `create-roles.sql` remains in `initdb.d` (role creation needs no tables).
+
+### 🟡 `packages/database/prisma/rls-setup.sql` — `set_tenant_context` EXECUTE restrictions moved here from `create-roles.sql` (ordering bug)
+
+**Problem:** `create-roles.sql` ran `REVOKE/GRANT EXECUTE ON FUNCTION set_tenant_context(TEXT)` before that function existed (it is created by `rls-setup.sql`), so the statements always failed and the "app-role-only" intent was never enforced.
+**Fix:** The `REVOKE … FROM PUBLIC; GRANT … TO besterp_app` statements now live in `rls-setup.sql` immediately after the function is created. Verified: `has_function_privilege('besterp_app', …, 'EXECUTE')` = true, `public` = false.
+
+### 🟢 `packages/shared/src/sanitize.ts` — generic long-token redactor destroyed legitimate ULID identity IDs
+
+**Problem:** `replaceGenericLongToken` redacted any ≥20-char alphanumeric run containing both letters and digits to `"[REDACTED_TOKEN]"`. ULIDs — the dominant identity-ID shape in the MCP ecosystem (Anthropic/Claude user, conversation, thread IDs) — matched this and were destroyed. Impact was direct: `McpService.buildContext` runs `sanitizeForLogOutput` on `userId`/`agentId`/`conversationId`/`idempotencyKey`, so `usr_01H3X8Q5Y2GX4K1A2B3C4D5E6F` became `[REDACTED_TOKEN]` in the persisted audit log and every log/error surface that sanitizes those fields (`error-handler.ts`, `discovery-tools.ts`). Reproduced before the fix.
+**Fix:** `replaceGenericLongToken` now whitelists the ULID shape (`/^[0-9][0-9A-HJKMNP-TV-Z]{25}$/`, Crockford base32 without I/L/O/U) and prefixed forms (`usr_…`, `agent_…`, `conv_…`). All existing secret shapes (base64, `ghp_…`, `sk_live_…`, mixed-case alnum runs, JWTs) are still redacted. Regression tests added in `sanitize.test.ts` and `mcp.module.spec.ts`.
+
+### 🟢 `packages/shared/src/crypto.ts` — removed dead `kStr: ""` initializer in `sortMap`
+
+**Improvement:** The `kStr` property was initialized to `""` and immediately overwritten in the following loop. Removed the dead initializer (typed the array so the property remains `string`).
+
+### 🟢 `packages/shared/src/__tests__/sanitize.test.ts` — added unit coverage for `sanitizePostalAddress`/`sanitizeTelecomNumber`
+
+**Improvement:** These exported helpers were only exercised indirectly. Added direct unit tests covering HTML stripping, trimming, country uppercasing, default country code, and null-collapsing of blank optional fields.
+
 ## Changes Applied (2026-07-30) — Code Review Round 70
 
 ### 🟢 `apps/api/src/queue/queue.module.ts` — Redis retry strategy added jitter to prevent thundering-herd reconnection

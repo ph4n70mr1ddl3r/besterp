@@ -113,7 +113,7 @@ jobs:
           PGPASSWORD: besterp_dev
           PGDATABASE: besterp
         run: |
-          psql -f packages/database/prisma/create-roles.sql
+          psql -v app_db_password=besterp_app_dev -f packages/database/prisma/create-roles.sql
           psql -f packages/database/prisma/rls-setup.sql
 
       - name: Seed database

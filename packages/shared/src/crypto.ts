@@ -45,14 +45,12 @@ function sortMap(value: Map<unknown, unknown>, ancestors: Set<object>, depth: nu
     // comparison re-stringifies both keys — O(n log n) stringifications total.
     // Pre-computing reduces this to O(n).
     const entries = Array.from(value.entries());
-    const prepared = entries
-      .map(([k, v]) => ({
-        v,
-        kSorted: sortKeysDeep(k, ancestors, depth + 1, budget),
-        kStr: "", // populated below
-      }));
+    const prepared: Array<{ v: unknown; kSorted: unknown; kStr: string }> = entries
+      .map(([k, v]) => {
+        const kSorted = sortKeysDeep(k, ancestors, depth + 1, budget);
+        return { v, kSorted, kStr: JSON.stringify(kSorted) };
+      });
     for (const entry of prepared) {
-      entry.kStr = JSON.stringify(entry.kSorted);
       // Charge the key bytes to the aggregate budget. For string keys,
       // checkStringBounds already charged the key value via sortKeysDeep;
       // chargeKeyBytes here adds the JSON quote overhead (+2) for the

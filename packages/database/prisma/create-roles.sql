@@ -13,17 +13,21 @@
 -- or pass it through a secrets manager / migration tool.
 
 -- Create the application role.
--- PASSWORD must be set via ALTER ROLE before deploying to non-dev environments.
--- See the NOTE comment near the bottom of this file for the production command.
-DO $$
-BEGIN
-  IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'besterp_app') THEN
-    -- Placeholder password — MUST be replaced with a strong random value via
-    // ALTER ROLE before first use outside local development.
-    CREATE ROLE besterp_app WITH LOGIN PASSWORD 'CHANGE_ME_USE_ALTER_ROLE' NOINHERIT;
-  END IF;
-END
-$$;
+-- The password is single-sourced from the psql variable `app_db_password`
+-- (defaults to the dev value used by .env.example and docker-compose.yml).
+-- CI overrides it with `psql -v app_db_password=besterp_app_dev ...` to match
+-- the connection strings in .github/workflows/ci.yml. For staging/production,
+-- pass a strong random value via -v or ALTER ROLE afterwards — see the NOTE
+-- near the bottom of this file.
+-- `format(...) \gexec` is used (not a DO block) because psql does not
+-- interpolate variables inside dollar-quoted strings; the SELECT guard makes
+-- this idempotent across re-runs.
+\if :{?app_db_password}
+\else
+\set app_db_password 'CHANGEME_APP_PASSWORD'
+\endif
+SELECT format('CREATE ROLE besterp_app WITH LOGIN PASSWORD %L NOINHERIT', :'app_db_password')
+WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'besterp_app')\gexec
 
 -- Grant database access
 GRANT CONNECT ON DATABASE besterp TO besterp_app;
@@ -48,6 +52,6 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public
 ALTER DEFAULT PRIVILEGES IN SCHEMA public
   GRANT USAGE, SELECT ON SEQUENCES TO besterp_app;
 
--- Restrict set_tenant_context() to app role only (defense-in-depth)
-REVOKE EXECUTE ON FUNCTION set_tenant_context(TEXT) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION set_tenant_context(TEXT) TO besterp_app;
+-- NOTE: set_tenant_context() EXECUTE restrictions live in rls-setup.sql, which
+-- runs AFTER migrations create the function. This file cannot GRANT/REVOKE on
+-- it because the function does not exist yet when this script runs.

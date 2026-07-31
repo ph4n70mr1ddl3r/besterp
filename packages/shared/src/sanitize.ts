@@ -265,9 +265,20 @@ function replaceProviderSecrets(input: string): string {
  */
 const REDACTED_PLACEHOLDERS = /^\[REDACTED(?:_[A-Z_]+)?\]$/;
 
+// ULID (Crockford base32, 26 chars): the dominant identity-ID shape across the
+// MCP ecosystem (Anthropic/Claude user, conversation, and thread IDs are ULIDs).
+// Must be whitelisted or legitimate identity values would be destroyed to
+// "[REDACTED_TOKEN]" everywhere they are logged/persisted (buildContext,
+// error-handler, audit-log). Charset excludes I/L/O/U per the Crockford spec.
+const ULID_PATTERN = /^[0-9][0-9A-HJKMNP-TV-Z]{25}$/;
+// Prefixed forms such as `usr_<ULID>`, `agent_<ULID>`, `conv_<ULID>`.
+const PREFIXED_ULID_PATTERN = /^[a-z][a-z0-9]{0,19}_[0-9][0-9A-HJKMNP-TV-Z]{25}$/;
+
 function replaceGenericLongToken(input: string): string {
   return input.replace(/[A-Za-z0-9_./=+-]{20,128}/g, (match) => {
     if (REDACTED_PLACEHOLDERS.test(match)) return match;
+    if (ULID_PATTERN.test(match)) return match;
+    if (PREFIXED_ULID_PATTERN.test(match)) return match;
     if (/^[a-z]+$/.test(match)) return match;
     if (/^[a-f0-9]+$/i.test(match)) return match;
     if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(match)) return match;

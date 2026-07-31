@@ -161,6 +161,20 @@ describe("McpService", () => {
       expect(ctx.reasoning).not.toContain("<iframe>");
     });
 
+    it("should preserve ULID identity IDs (must not mangle them into [REDACTED_TOKEN])", () => {
+      const ctx = mcpService.buildContext({
+        tenantId: "tenant-1",
+        userId: "usr_01H3X8Q5Y2GX4K1A2B3C4D5E6F",
+        agentId: "agent_01H3X8Q5Y2GX4K1A2B3C4D5E6F",
+        conversationId: "01H3X8Q5Y2GX4K1A2B3C4D5E6F",
+        idempotencyKey: "key_01H3X8Q5Y2GX4K1A2B3C4D5E6F",
+      });
+      expect(ctx.userId).toBe("usr_01H3X8Q5Y2GX4K1A2B3C4D5E6F");
+      expect(ctx.agentId).toBe("agent_01H3X8Q5Y2GX4K1A2B3C4D5E6F");
+      expect(ctx.conversationId).toBe("01H3X8Q5Y2GX4K1A2B3C4D5E6F");
+      expect(ctx.idempotencyKey).toBe("key_01H3X8Q5Y2GX4K1A2B3C4D5E6F");
+    });
+
     it("should redact secret shapes in reasoning at the boundary (not just downstream)", () => {
       const ctx = mcpService.buildContext({
         tenantId: "tenant-1",

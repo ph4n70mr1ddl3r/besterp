@@ -155,9 +155,14 @@ npm run db:seed
    cd docker && docker compose up -d
    ```
 
-4. **Run database migrations and seed**
+4. **Run database migrations, apply RLS, and seed**
+
+   The compose init script creates the `besterp_app` role, but Row-Level Security
+   (`rls-setup.sql`) must be applied **after** migrations because it enables
+   RLS on tables that migrations create:
    ```bash
    npm run db:migrate
+   docker exec -i besterp-postgres psql -U besterp -d besterp -f /setup/rls-setup.sql
    npm run db:seed
    ```
 

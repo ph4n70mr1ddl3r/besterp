@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { stripHtmlTags, sanitizeLogOutput, sanitizeLogMessage, sanitizeForLogOutput, safeFromCodePoint, isSensitiveFieldName, redactSensitiveFieldValues } from "../sanitize.js";
+import { stripHtmlTags, sanitizeLogOutput, sanitizeLogMessage, sanitizeForLogOutput, safeFromCodePoint, isSensitiveFieldName, redactSensitiveFieldValues, sanitizePostalAddress, sanitizeTelecomNumber } from "../sanitize.js";
 
 describe("stripHtmlTags", () => {
   it("returns empty string for empty input", () => {
@@ -789,5 +789,91 @@ describe("sanitizeForLogOutput — bare high-entropy tokens", () => {
     expect(sanitizeForLogOutput("password=hunter2 retry")).toContain("password=[REDACTED]");
     expect(sanitizeForLogOutput("token=supersecretvalue in log")).toContain("token=[REDACTED]");
     expect(sanitizeForLogOutput("otp=123456 confirmed")).toContain("otp=[REDACTED]");
+  });
+});
+
+describe("sanitizeForLogOutput — ULID identity IDs are preserved", () => {
+  it("preserves a bare ULID (26-char Crockford base32 identity ID)", () => {
+    expect(sanitizeForLogOutput("01H3X8Q5Y2GX4K1A2B3C4D5E6F")).toBe("01H3X8Q5Y2GX4K1A2B3C4D5E6F");
+  });
+
+  it("preserves prefixed ULIDs (usr_/agent_/conv_ identity IDs)", () => {
+    expect(sanitizeForLogOutput("usr_01H3X8Q5Y2GX4K1A2B3C4D5E6F")).toBe("usr_01H3X8Q5Y2GX4K1A2B3C4D5E6F");
+    expect(sanitizeForLogOutput("agent_01H3X8Q5Y2GX4K1A2B3C4D5E6F")).toBe("agent_01H3X8Q5Y2GX4K1A2B3C4D5E6F");
+    expect(sanitizeForLogOutput("conversation_01H3X8Q5Y2GX4K1A2B3C4D5E6F")).toBe("conversation_01H3X8Q5Y2GX4K1A2B3C4D5E6F");
+  });
+
+  it("preserves ULIDs embedded in surrounding log prose", () => {
+    expect(sanitizeForLogOutput("party 01H3X8Q5Y2GX4K1A2B3C4D5E6F created")).toBe(
+      "party 01H3X8Q5Y2GX4K1A2B3C4D5E6F created",
+    );
+  });
+
+  it("still redacts long letter+digit tokens that are NOT ULID-shaped", () => {
+    // Regression guard: the ULID whitelist must not become a broad escape hatch
+    // for arbitrary mixed-case alphanumeric secrets.
+    expect(sanitizeForLogOutput("token AbCdEfGhIjKlMnOpQrStUvWxYz0123456789 leaked")).toContain("[REDACTED_TOKEN]");
+    expect(sanitizeForLogOutput("secret a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6 leaked")).toContain("[REDACTED_TOKEN]");
+  });
+});
+
+describe("sanitizePostalAddress", () => {
+  it("strips HTML, trims, uppercases country, and nulls out blank optionals", () => {
+    const out = sanitizePostalAddress({
+      addressLine1: "  <b>123 Main St</b>  ",
+      addressLine2: "  <i>Apt 4B</i>  ",
+      city: "  <span>Springfield</span>  ",
+      stateProvince: "  IL  ",
+      postalCode: "  62701  ",
+      country: "  us  ",
+    });
+    expect(out).toEqual({
+      addressLine1: "123 Main St",
+      addressLine2: "Apt 4B",
+      city: "Springfield",
+      stateProvince: "IL",
+      postalCode: "62701",
+      country: "US",
+    });
+  });
+
+  it("collapses blank/null optional fields to null", () => {
+    const out = sanitizePostalAddress({
+      addressLine1: "123 Main St",
+      addressLine2: null,
+      city: "Springfield",
+      stateProvince: "   ",
+      postalCode: undefined,
+      country: "us",
+    });
+    expect(out.addressLine2).toBeNull();
+    expect(out.stateProvince).toBeNull();
+    expect(out.postalCode).toBeNull();
+  });
+});
+
+describe("sanitizeTelecomNumber", () => {
+  it("strips HTML, trims, and applies the default country code when absent", () => {
+    const out = sanitizeTelecomNumber({
+      areaCode: "  212  ",
+      lineNumber: "  <b>555-1234</b>  ",
+    });
+    expect(out).toEqual({
+      countryCode: "+1",
+      areaCode: "212",
+      lineNumber: "555-1234",
+      extension: null,
+    });
+  });
+
+  it("honours an explicit country code and extension", () => {
+    const out = sanitizeTelecomNumber({
+      countryCode: "  +44  ",
+      areaCode: "20",
+      lineNumber: "7946",
+      extension: "  77  ",
+    });
+    expect(out.countryCode).toBe("+44");
+    expect(out.extension).toBe("77");
   });
 });
