@@ -6,7 +6,7 @@
 
 import { Injectable, Logger, OnModuleInit } from "@nestjs/common";
 import { PrismaService } from "./prisma/prisma.service.js";
-import { sanitizeForLogOutput, sanitizeLogMessage } from "@besterp/shared";
+import { sanitizeForLogOutput, sanitizeLogMessage, resolveRedisTls } from "@besterp/shared";
 import * as fs from "node:fs/promises";
 import * as net from "node:net";
 import * as tls from "node:tls";
@@ -103,7 +103,7 @@ export class HealthService implements OnModuleInit {
     const timestamp = new Date().toISOString();
     const uptime = Math.round(process.uptime() * 1000); // ms since process started
     const environment = process.env.NODE_ENV || "development";
-    
+
     // Check database connectivity — use the app client (RLS-enforced path).
     // `SELECT 1` does not access any tenant-scoped table, so RLS policies
     // do not interfere. Using the app client avoids exercising the admin
@@ -124,7 +124,7 @@ export class HealthService implements OnModuleInit {
     if (process.env.REDIS_HOST) {
       try {
         await new Promise<void>((resolve, reject) => {
-          const useTls = HealthService.resolveRedisTls();
+          const useTls = resolveRedisTls();
           const redisPort = Number(process.env.REDIS_PORT || 6380);
           const redisHost = String(process.env.REDIS_HOST);
           const socket = useTls
@@ -251,18 +251,5 @@ export class HealthService implements OnModuleInit {
         date: process.env.BUILD_DATE ? sanitizeLogMessage(process.env.BUILD_DATE).slice(0, 30) : undefined,
       },
     };
-  }
-
-  /**
-   * Resolve whether the Redis health check must use TLS.
-   * Mirrors QueueModule.resolveTls() logic so both probes agree on
-   * when TLS is required. Default: enabled in non-development,
-   * disabled in development. Opt out via REDIS_TLS=0.
-   */
-  private static resolveRedisTls(): boolean {
-    const raw = (process.env.REDIS_TLS ?? "").toLowerCase();
-    if (["1", "true", "yes"].includes(raw)) return true;
-    if (["0", "false", "no"].includes(raw)) return false;
-    return process.env.NODE_ENV !== "development";
   }
 }

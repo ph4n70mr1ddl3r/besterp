@@ -185,3 +185,24 @@ export const TRUNCATE_PREVIEW_BYTES = 1024;
 
 /** Maximum allowed JWT token lifetime in days. */
 export const MAX_JWT_EXPIRES_IN_DAYS = 30;
+
+// ─── Redis ─────────────────────────────────────────────────────
+
+/**
+ * Resolve whether a Redis connection should use TLS.
+ *
+ * Defaults: enabled in non-development, disabled in development.
+ * Override via `REDIS_TLS`: set to `0`, `false`, or `no` to disable;
+ * set to `1`, `true`, or `yes` to enable.
+ *
+ * Shared between the BullMQ queue module and the Redis health probe so
+ * both surfaces agree on when TLS is required — preventing a scenario
+ * where the health check passes over plaintext while the queue uses TLS
+ * (or vice versa), which would hide configuration drift from operators.
+ */
+export function resolveRedisTls(): boolean {
+  const raw = (process.env.REDIS_TLS ?? "").toLowerCase();
+  if (["1", "true", "yes"].includes(raw)) return true;
+  if (["0", "false", "no"].includes(raw)) return false;
+  return process.env.NODE_ENV !== "development";
+}

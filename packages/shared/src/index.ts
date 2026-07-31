@@ -85,4 +85,5 @@ export {
   AUDIT_WRITE_QUEUE_TIMEOUT_MS,
   TRUNCATE_PREVIEW_BYTES,
   MAX_JWT_EXPIRES_IN_DAYS,
+  resolveRedisTls,
 } from "./constants.js";

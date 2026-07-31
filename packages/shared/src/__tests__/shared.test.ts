@@ -2,10 +2,10 @@
 // These don't require a database — only validateTenantId.
 // hashInput tests are in crypto.test.ts (comprehensive coverage).
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { validateTenantId, validateTenantIdEnhancedForAuth, withTenant } from "../tenant.js";
 import { COUNTRY_CODE_REGEX, EMAIL_REGEX, UUID_REGEX, isValidISODate } from "../validation.js";
-import { JWT_EXPIRES_IN_REGEX } from "../constants.js";
+import { JWT_EXPIRES_IN_REGEX, resolveRedisTls } from "../constants.js";
 import {
   ConcurrencyConflictError,
   DomainError,
@@ -398,5 +398,71 @@ describe("isValidISODate", () => {
   it("rejects non-date strings", () => {
     expect(isValidISODate("not-a-date")).toBe(false);
     expect(isValidISODate("")).toBe(false);
+  });
+});
+
+describe("resolveRedisTls", () => {
+  const originalEnv = process.env;
+
+  beforeEach(() => {
+    process.env = { ...originalEnv };
+  });
+
+  afterEach(() => {
+    process.env = originalEnv;
+  });
+
+  it("returns true when REDIS_TLS=1", () => {
+    process.env.REDIS_TLS = "1";
+    expect(resolveRedisTls()).toBe(true);
+  });
+
+  it("returns true when REDIS_TLS=true", () => {
+    process.env.REDIS_TLS = "true";
+    expect(resolveRedisTls()).toBe(true);
+  });
+
+  it("returns true when REDIS_TLS=yes", () => {
+    process.env.REDIS_TLS = "yes";
+    expect(resolveRedisTls()).toBe(true);
+  });
+
+  it("returns false when REDIS_TLS=0", () => {
+    process.env.REDIS_TLS = "0";
+    expect(resolveRedisTls()).toBe(false);
+  });
+
+  it("returns false when REDIS_TLS=false", () => {
+    process.env.REDIS_TLS = "false";
+    expect(resolveRedisTls()).toBe(false);
+  });
+
+  it("returns false when REDIS_TLS=no", () => {
+    process.env.REDIS_TLS = "no";
+    expect(resolveRedisTls()).toBe(false);
+  });
+
+  it("defaults to true in production", () => {
+    process.env.NODE_ENV = "production";
+    delete process.env.REDIS_TLS;
+    expect(resolveRedisTls()).toBe(true);
+  });
+
+  it("defaults to false in development", () => {
+    process.env.NODE_ENV = "development";
+    delete process.env.REDIS_TLS;
+    expect(resolveRedisTls()).toBe(false);
+  });
+
+  it("defaults to true in non-development, non-production envs", () => {
+    process.env.NODE_ENV = "staging";
+    delete process.env.REDIS_TLS;
+    expect(resolveRedisTls()).toBe(true);
+  });
+
+  it("explicit value overrides environment default", () => {
+    process.env.NODE_ENV = "development";
+    process.env.REDIS_TLS = "1";
+    expect(resolveRedisTls()).toBe(true);
   });
 });

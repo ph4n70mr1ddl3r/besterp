@@ -10,6 +10,7 @@
 
 import { DynamicModule, Logger, Module } from "@nestjs/common";
 import { BullModule } from "@nestjs/bullmq";
+import { resolveRedisTls } from "@besterp/shared";
 
 export interface QueueModuleOptions {
   redis: {
@@ -55,11 +56,7 @@ export class QueueModule {
    * spreads the result, so `tls: undefined` leaves the (plain) socket as-is.
    */
   private static resolveTls(): { rejectUnauthorized: boolean } | undefined {
-    const tlsEnabled = ["1", "true", "yes"].includes((process.env.REDIS_TLS ?? "").toLowerCase());
-    const tlsDisabled = ["0", "false", "no"].includes((process.env.REDIS_TLS ?? "").toLowerCase());
-    if (tlsDisabled) return undefined;
-    if (tlsEnabled) return { rejectUnauthorized: true };
-    if (process.env.NODE_ENV?.toLowerCase() === "development") return undefined;
+    if (!resolveRedisTls()) return undefined;
     return { rejectUnauthorized: true };
   }
 
