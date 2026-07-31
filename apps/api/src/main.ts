@@ -374,7 +374,7 @@ async function bootstrap() {
     logger.log(`BestERP API running on http://localhost:${port}`);
   } catch (err) {
     logger.error(`Failed to listen on port ${port}: ${sanitizeForLogOutput(err instanceof Error ? err.message : String(err))}`);
-    try { await app.close(); } catch (closeErr) { logger.debug(`App close error after listen failure: ${closeErr}`); }
+    try { await app.close(); } catch (closeErr) { logger.debug(`App close error after listen failure: ${sanitizeForLogOutput(closeErr instanceof Error ? closeErr.message : String(closeErr))}`); }
     process.exit(1);
   }
 }

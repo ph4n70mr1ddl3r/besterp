@@ -128,11 +128,6 @@ function stripControlCharacters(input: string): string {
 }
 
 /**
- * Sanitize a log message to remove sensitive patterns (connection strings,
- * internal file paths, hostnames). Used by error handlers and shutdown
- * routines to prevent leaking infrastructure details in logs.
- */
-/**
  * Maximum input length fed to the URL/path redaction regexes. Unlike
  * `stripHtmlTags`, this function has no inherent length cap, and two of its
  * regexes (the generic `scheme://user:pass@host` catch-all below) have a
