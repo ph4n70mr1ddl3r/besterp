@@ -12,39 +12,6 @@ import {
 import { registerPartyTools } from "./tools/party-tools.js";
 import { registerDiscoveryTools } from "./tools/discovery-tools.js";
 
-function validateOptionalField(
-  fieldName: string,
-  value: string | undefined | null,
-  maxLength: number,
-): string | undefined {
-  if (value === undefined || value === null) {
-    return undefined;
-  }
-  if (typeof value !== "string") {
-    throw new InvalidTypeValueError(
-      `McpService.buildContext: ${fieldName} must be a string, received ${typeof value}.`,
-      { context: { field: fieldName, receivedType: typeof value } }
-    );
-  }
-  const trimmed = value.trim();
-  if (trimmed.length === 0) {
-    if (value.length > 0) {
-      throw new InvalidTypeValueError(
-        `McpService.buildContext: ${fieldName} cannot be whitespace-only.`,
-        { context: { field: fieldName } }
-      );
-    }
-    return undefined;
-  }
-  if (trimmed.length > maxLength) {
-    throw new InvalidTypeValueError(
-      `McpService.buildContext: ${fieldName} is too long (${trimmed.length} chars, max ${maxLength}).`,
-      { context: { field: fieldName, length: trimmed.length, maxLength } }
-    );
-  }
-  return trimmed;
-}
-
 @Injectable()
 export class McpService implements OnModuleInit {
   private readonly logger = new Logger(McpService.name);
@@ -127,7 +94,7 @@ export class McpService implements OnModuleInit {
       );
     }
 
-    const rawIdempotencyKey = validateOptionalField("idempotencyKey", overrides.idempotencyKey, MAX_IDEMPOTENCY_KEY_LENGTH);
+    const rawIdempotencyKey = McpService.validateOptionalField("idempotencyKey", overrides.idempotencyKey, MAX_IDEMPOTENCY_KEY_LENGTH);
     if (rawIdempotencyKey !== undefined && !SAFE_IDEMPOTENCY_KEY.test(rawIdempotencyKey)) {
       throw new InvalidTypeValueError(
         "McpService.buildContext: idempotencyKey must contain only printable ASCII characters.",
@@ -136,9 +103,9 @@ export class McpService implements OnModuleInit {
     }
     const idempotencyKey = rawIdempotencyKey !== undefined ? sanitizeForLogOutput(stripHtmlTags(rawIdempotencyKey)) : undefined;
 
-    const agentId = validateOptionalField("agentId", overrides.agentId, MAX_AGENT_ID_LENGTH);
-    const conversationId = validateOptionalField("conversationId", overrides.conversationId, MAX_CONVERSATION_ID_LENGTH);
-    const reasoning = validateOptionalField("reasoning", overrides.reasoning, MAX_REASONING_LENGTH);
+    const agentId = McpService.validateOptionalField("agentId", overrides.agentId, MAX_AGENT_ID_LENGTH);
+    const conversationId = McpService.validateOptionalField("conversationId", overrides.conversationId, MAX_CONVERSATION_ID_LENGTH);
+    const reasoning = McpService.validateOptionalField("reasoning", overrides.reasoning, MAX_REASONING_LENGTH);
 
     const safeAgentId = agentId !== undefined ? sanitizeForLogOutput(stripHtmlTags(agentId)) : undefined;
     const safeConversationId = conversationId !== undefined ? sanitizeForLogOutput(stripHtmlTags(conversationId)) : undefined;
@@ -159,5 +126,38 @@ export class McpService implements OnModuleInit {
 
   getRegistry(): ToolRegistry {
     return this.registry;
+  }
+
+  private static validateOptionalField(
+    fieldName: string,
+    value: string | undefined | null,
+    maxLength: number,
+  ): string | undefined {
+    if (value === undefined || value === null) {
+      return undefined;
+    }
+    if (typeof value !== "string") {
+      throw new InvalidTypeValueError(
+        `McpService.buildContext: ${fieldName} must be a string, received ${typeof value}.`,
+        { context: { field: fieldName, receivedType: typeof value } }
+      );
+    }
+    const trimmed = value.trim();
+    if (trimmed.length === 0) {
+      if (value.length > 0) {
+        throw new InvalidTypeValueError(
+          `McpService.buildContext: ${fieldName} cannot be whitespace-only.`,
+          { context: { field: fieldName } }
+        );
+      }
+      return undefined;
+    }
+    if (trimmed.length > maxLength) {
+      throw new InvalidTypeValueError(
+        `McpService.buildContext: ${fieldName} is too long (${trimmed.length} chars, max ${maxLength}).`,
+        { context: { field: fieldName, length: trimmed.length, maxLength } }
+      );
+    }
+    return trimmed;
   }
 }

@@ -33,57 +33,6 @@ export interface JwtValidatedUser {
   agentId?: string;
 }
 
-/**
- * Validate and trim a required string field from JWT payload.
- * Throws UnauthorizedException if invalid.
- */
-function validateAndTrimRequired(
-  value: unknown,
-  fieldName: string,
-  maxLength: number,
-): string {
-  if (typeof value !== "string" || value.length === 0) {
-    throw new UnauthorizedException(`Invalid token: missing ${fieldName}.`);
-  }
-  const trimmed = value.trim();
-  if (trimmed.length === 0) {
-    throw new UnauthorizedException(`Invalid token: ${fieldName} is whitespace-only.`);
-  }
-  // Check length AFTER trimming so a claim at the cap with surrounding
-  // whitespace isn't rejected. Mirrors validateAndTrimOptional below and
-  // McpModule.buildContext — all of which measure the trimmed length.
-  if (trimmed.length > maxLength) {
-    throw new UnauthorizedException(
-      `Invalid token: ${fieldName} is too long (${trimmed.length} chars, max ${maxLength}).`
-    );
-  }
-  return trimmed;
-}
-
-/**
- * Validate and trim an optional string field from JWT payload.
- * Returns undefined if not provided or whitespace-only.
- * Throws UnauthorizedException if invalid type or too long.
- */
-function validateAndTrimOptional(
-  value: unknown,
-  fieldName: string,
-  maxLength: number,
-): string | undefined {
-  if (value === undefined || value === null) return undefined;
-  if (typeof value !== "string") {
-    throw new UnauthorizedException(`Invalid token: ${fieldName} must be a string.`);
-  }
-  const trimmed = value.trim();
-  if (trimmed.length === 0) return undefined;
-  if (trimmed.length > maxLength) {
-    throw new UnauthorizedException(
-      `Invalid token: ${fieldName} is too long (${trimmed.length} chars, max ${maxLength}).`
-    );
-  }
-  return trimmed;
-}
-
 /** Internal cache for the resolved JWT secret — initialized once per process. */
 const _jwtSecretCache = { value: undefined as string | undefined };
 const _logger = new Logger("JwtSecret");
@@ -142,9 +91,48 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     });
   }
 
+  private static validateAndTrimRequired(
+    value: unknown,
+    fieldName: string,
+    maxLength: number,
+  ): string {
+    if (typeof value !== "string" || value.length === 0) {
+      throw new UnauthorizedException(`Invalid token: missing ${fieldName}.`);
+    }
+    const trimmed = value.trim();
+    if (trimmed.length === 0) {
+      throw new UnauthorizedException(`Invalid token: ${fieldName} is whitespace-only.`);
+    }
+    if (trimmed.length > maxLength) {
+      throw new UnauthorizedException(
+        `Invalid token: ${fieldName} is too long (${trimmed.length} chars, max ${maxLength}).`
+      );
+    }
+    return trimmed;
+  }
+
+  private static validateAndTrimOptional(
+    value: unknown,
+    fieldName: string,
+    maxLength: number,
+  ): string | undefined {
+    if (value === undefined || value === null) return undefined;
+    if (typeof value !== "string") {
+      throw new UnauthorizedException(`Invalid token: ${fieldName} must be a string.`);
+    }
+    const trimmed = value.trim();
+    if (trimmed.length === 0) return undefined;
+    if (trimmed.length > maxLength) {
+      throw new UnauthorizedException(
+        `Invalid token: ${fieldName} is too long (${trimmed.length} chars, max ${maxLength}).`
+      );
+    }
+    return trimmed;
+  }
+
   async validate(payload: JwtPayload): Promise<JwtValidatedUser> {
-    const userId = validateAndTrimRequired(payload.sub, "user ID (sub)", MAX_USER_ID_LENGTH);
-    let tenantId = validateAndTrimRequired(payload.tenantId, "tenantId", MAX_TENANT_ID_LENGTH);
+    const userId = JwtStrategy.validateAndTrimRequired(payload.sub, "user ID (sub)", MAX_USER_ID_LENGTH);
+    let tenantId = JwtStrategy.validateAndTrimRequired(payload.tenantId, "tenantId", MAX_TENANT_ID_LENGTH);
 
     // Defense-in-depth: validate tenantId format at the auth boundary so a
     // forged-but-signed token carrying a malicious tenantId never reaches
@@ -170,8 +158,8 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       );
     }
 
-    const agentId = validateAndTrimOptional(payload.agentId, "agentId", MAX_AGENT_ID_LENGTH);
-    const role = validateAndTrimOptional(payload.role, "role", MAX_ROLE_LENGTH);
+    const agentId = JwtStrategy.validateAndTrimOptional(payload.agentId, "agentId", MAX_AGENT_ID_LENGTH);
+    const role = JwtStrategy.validateAndTrimOptional(payload.role, "role", MAX_ROLE_LENGTH);
 
     return {
       userId,

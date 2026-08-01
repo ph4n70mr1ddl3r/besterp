@@ -50,7 +50,7 @@ export class TenantGuard implements CanActivate {
     // trims and checks the format in one call.
     if (user.tenantId === undefined || user.tenantId === null) {
       throw new UnauthorizedException(
-        "TenantGuard: tenantId is missing from JWT payload.",
+        "TenantGuard: tenantId is missing from JWT payload."
       );
     }
     let tenantId: string;
