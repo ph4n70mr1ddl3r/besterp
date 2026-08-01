@@ -122,6 +122,18 @@ export class HealthService implements OnModuleInit {
     // Check Redis connectivity if configured
     let redisStatus: "connected" | "disconnected" | "not_configured" = "not_configured";
     if (process.env.REDIS_HOST) {
+      // Mirror QueueModule's production guard: if REDIS_HOST is set but
+      // REDIS_PORT is absent, defaulting to 6380 silently could connect to
+      // an unintended Redis instance (the same footgun QueueModule now
+      // refuses in production). Log a warning so operators notice the
+      // misconfiguration rather than probing the wrong service.
+      if (!process.env.REDIS_PORT && process.env.NODE_ENV === "production") {
+        this.logger.warn(
+          "REDIS_HOST is set but REDIS_PORT is missing in production — " +
+          "defaulting to 6380. QueueModule requires REDIS_PORT explicitly; " +
+          "set it to avoid connecting to an unintended Redis instance."
+        );
+      }
       try {
         await new Promise<void>((resolve, reject) => {
           const useTls = resolveRedisTls();

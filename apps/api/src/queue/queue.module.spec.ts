@@ -13,6 +13,10 @@ describe("QueueModule", () => {
     delete process.env.REDIS_PORT;
     delete process.env.REDIS_PASSWORD;
     delete process.env.NODE_ENV;
+    // Reset the module-level warning flag so each test gets a fresh state.
+    // Without this, a previous test that triggered the REDIS_PORT warning
+    // would suppress the warning in later tests, masking test isolation.
+    (QueueModule as unknown as { _redisPortWarned: boolean })._redisPortWarned = false;
   });
 
   afterEach(() => {
