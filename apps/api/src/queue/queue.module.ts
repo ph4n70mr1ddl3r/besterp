@@ -76,6 +76,12 @@ export class QueueModule {
     return password?.trim();
   }
 
+  /** Warn once per process that REDIS_PORT is missing in dev. A per-call
+   *  warning fires on every startup and every test that exercises forRoot,
+   *  which drowns out real warnings. Track via a module-level flag so the
+   *  message is emitted exactly once. */
+  private static _redisPortWarned = false;
+
   private static resolvePort(explicitPort?: number): number {
     if (explicitPort !== undefined) return this.validatePort(explicitPort);
     if (process.env.REDIS_PORT) return this.validatePort(Number.parseInt(process.env.REDIS_PORT, 10));
@@ -89,10 +95,13 @@ export class QueueModule {
       );
       throw new Error("Redis port is required in non-development environments. Set REDIS_PORT.");
     }
-    this.logger.warn(
-      "REDIS_PORT is not set — defaulting to 6380 to match .env.example. " +
-      "Set REDIS_PORT explicitly to avoid connecting to the wrong Redis instance."
-    );
+    if (!QueueModule._redisPortWarned) {
+      QueueModule._redisPortWarned = true;
+      this.logger.warn(
+        "REDIS_PORT is not set — defaulting to 6380 to match .env.example. " +
+        "Set REDIS_PORT explicitly to avoid connecting to the wrong Redis instance."
+      );
+    }
     return 6380;
   }
 

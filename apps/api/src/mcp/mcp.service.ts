@@ -12,6 +12,39 @@ import {
 import { registerPartyTools } from "./tools/party-tools.js";
 import { registerDiscoveryTools } from "./tools/discovery-tools.js";
 
+function validateOptionalField(
+  fieldName: string,
+  value: string | undefined | null,
+  maxLength: number,
+): string | undefined {
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+  if (typeof value !== "string") {
+    throw new InvalidTypeValueError(
+      `McpService.buildContext: ${fieldName} must be a string, received ${typeof value}.`,
+      { context: { field: fieldName, receivedType: typeof value } }
+    );
+  }
+  const trimmed = value.trim();
+  if (trimmed.length === 0) {
+    if (value.length > 0) {
+      throw new InvalidTypeValueError(
+        `McpService.buildContext: ${fieldName} cannot be whitespace-only.`,
+        { context: { field: fieldName } }
+      );
+    }
+    return undefined;
+  }
+  if (trimmed.length > maxLength) {
+    throw new InvalidTypeValueError(
+      `McpService.buildContext: ${fieldName} is too long (${trimmed.length} chars, max ${maxLength}).`,
+      { context: { field: fieldName, length: trimmed.length, maxLength } }
+    );
+  }
+  return trimmed;
+}
+
 @Injectable()
 export class McpService implements OnModuleInit {
   private readonly logger = new Logger(McpService.name);
@@ -127,37 +160,4 @@ export class McpService implements OnModuleInit {
   getRegistry(): ToolRegistry {
     return this.registry;
   }
-}
-
-function validateOptionalField(
-  fieldName: string,
-  value: string | undefined | null,
-  maxLength: number,
-): string | undefined {
-  if (value === undefined || value === null) {
-    return undefined;
-  }
-  if (typeof value !== "string") {
-    throw new InvalidTypeValueError(
-      `McpService.buildContext: ${fieldName} must be a string, received ${typeof value}.`,
-      { context: { field: fieldName, receivedType: typeof value } }
-    );
-  }
-  const trimmed = value.trim();
-  if (trimmed.length === 0) {
-    if (value.length > 0) {
-      throw new InvalidTypeValueError(
-        `McpService.buildContext: ${fieldName} cannot be whitespace-only.`,
-        { context: { field: fieldName } }
-      );
-    }
-    return undefined;
-  }
-  if (trimmed.length > maxLength) {
-    throw new InvalidTypeValueError(
-      `McpService.buildContext: ${fieldName} is too long (${trimmed.length} chars, max ${maxLength}).`,
-      { context: { field: fieldName, length: trimmed.length, maxLength } }
-    );
-  }
-  return trimmed;
 }

@@ -13,6 +13,7 @@ export default tseslint.config(
             "packages/mcp-tools/src/__tests__/*.ts",
             "packages/shared/src/__tests__/*.ts",
           ],
+          maximumDefaultProjectFileMatchCount_THIS_WILL_SLOW_DOWN_LINTING: 20,
         },
       },
     },
