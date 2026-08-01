@@ -55,7 +55,7 @@ export class HealthService implements OnModuleInit {
     this.packageInfoReady = this.initPackageInfo().catch((err) => {
       const msg = err instanceof Error ? err.message : String(err);
       this.packageInfoError = msg;
-      this.logger.warn(`Could not read package.json: ${msg}`);
+      this.logger.warn(`Could not read package.json: ${sanitizeForLogOutput(msg)}`);
     });
   }
 
@@ -91,7 +91,7 @@ export class HealthService implements OnModuleInit {
       };
     } catch (parseErr) {
       this.logger.warn(
-        `package.json found but could not be parsed: ${parseErr instanceof Error ? parseErr.message : parseErr}`
+        `package.json found but could not be parsed: ${sanitizeForLogOutput(parseErr instanceof Error ? parseErr.message : String(parseErr))}`
       );
     }
   }

@@ -7,6 +7,7 @@
 //   DATABASE_ADMIN_URL="..." npx tsx packages/database/scripts/cleanup-expired-idempotency.ts
 
 import { PrismaClient } from "@prisma/client";
+import { sanitizeForLogOutput } from "@besterp/shared";
 
 if (!process.env.DATABASE_ADMIN_URL) {
     console.error("DATABASE_ADMIN_URL is required for idempotency cleanup (bypasses RLS). " +
@@ -136,7 +137,7 @@ async function main() {
     try {
       await tx.$queryRaw`SELECT pg_advisory_unlock(${ADVISORY_LOCK_KEY})`;
     } catch (e) {
-      console.warn("Could not release advisory lock:", e);
+      console.warn("Could not release advisory lock:", sanitizeForLogOutput(e instanceof Error ? e.message : String(e)));
     }
 
     return { skipped: false as const, deleted, before: beforeCount, after: afterCount };
