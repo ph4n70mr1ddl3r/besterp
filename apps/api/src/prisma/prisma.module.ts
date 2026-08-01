@@ -1,13 +1,14 @@
-// Prisma Module — Provides RLS-aware PrismaClient to the application.
+// Prisma Module — Provides the RLS-aware PrismaService to the application.
 //
-// Phase 0b:
-// - Implement Prisma Client Extension for automatic tenant context
-// - Add request-scoped tenant resolution via JWT/auth middleware
-// - Connection pooling configuration
+// PrismaService exposes three clients:
+// - admin: cross-tenant operations (global reference data, audit/idempotency
+//   sinks) that bypass RLS by design.
+// - appClient: the RLS-enforced application client for tenant-scoped operations.
+// - tenantScoped(tenantId): per-tenant proxies that call set_tenant_context()
+//   at the database level, cached with WeakRef eviction + LRU replacement.
 //
-// NOTE: PrismaService extends PrismaClient directly. This works because
-// the DATABASE_URL env var is set at import time. For production, consider
-// constructor injection of the connection string for testability.
+// The @Global() decorator makes PrismaService injectable across all modules
+// without per-module imports.
 
 import { Global, Module } from "@nestjs/common";
 import { PrismaService } from "./prisma.service.js";

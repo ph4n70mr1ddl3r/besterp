@@ -11,6 +11,8 @@ import {
   InvalidTypeValueError,
   DuplicateEntityError,
   EntityNotFoundError,
+  ConcurrencyRetryError,
+  ConcurrencyConflictError,
   MAX_SEARCH_LIMIT,
 } from "@besterp/shared";
 
@@ -904,6 +906,83 @@ describe("PartyService", () => {
       mockPrismaService.tenantScoped.mockReturnValue(mockDb);
 
       await expect(partyService.addPartyRole(input)).rejects.toThrow(DuplicateEntityError);
+    });
+
+    it("should retry the transaction on ConcurrencyRetryError and succeed", async () => {
+      // Regression: addPartyRole used to re-throw ConcurrencyRetryError
+      // ("Transaction conflict — retry the operation.") straight to the caller
+      // even though the comments promised an outer retry loop. A concurrent
+      // add_party_role that lost the insert race therefore surfaced as an
+      // internal error instead of retrying. Now the service retries the whole
+      // transaction a bounded number of times.
+      mockAdminTypes();
+      const input = {
+        tenantId: "tenant-1",
+        partyId: "12345678-1234-1234-1234-123456789abc",
+        roleType: "Customer",
+      };
+
+      const transaction = vi
+        .fn()
+        // First attempt loses the insert race.
+        .mockRejectedValueOnce(new ConcurrencyRetryError("Transaction conflict — retry the operation."))
+        // Second attempt succeeds.
+        .mockImplementation(async (fn) => {
+          const tx = {
+            party: { findUnique: vi.fn().mockResolvedValue({ partyId: "12345678-1234-1234-1234-123456789abc" }) },
+            $queryRaw: vi.fn().mockResolvedValue([{ partyRoleId: "role-123", fromDate: new Date(), thruDate: null }]),
+            partyRole: {
+              findUnique: vi.fn().mockResolvedValue({
+                partyRoleId: "role-123",
+                partyId: "12345678-1234-1234-1234-123456789abc",
+                roleTypeId: "rt-customer",
+                fromDate: new Date(),
+                thruDate: null,
+                roleType: { name: "Customer", roleTypeId: "rt-customer" },
+              }),
+            },
+          };
+          return fn(tx);
+        });
+      const mockDb = {
+        roleType: { findUnique: vi.fn().mockResolvedValue({ roleTypeId: "rt-customer" }) },
+        $transaction: transaction,
+      };
+      mockPrismaService.tenantScoped.mockReturnValue(mockDb);
+
+      const result = await partyService.addPartyRole(input);
+
+      expect(result.partyRoleId).toBe("role-123");
+      expect(transaction).toHaveBeenCalledTimes(2);
+    });
+
+    it("should throw ConcurrencyConflictError after exhausting retry attempts", async () => {
+      // Regression: when the transaction keeps losing the insert race, the
+      // service must surface a DomainError with a retry hint instead of
+      // leaking the internal ConcurrencyRetryError to the caller.
+      mockAdminTypes();
+      const input = {
+        tenantId: "tenant-1",
+        partyId: "12345678-1234-1234-1234-123456789abc",
+        roleType: "Customer",
+      };
+
+      const transaction = vi.fn().mockRejectedValue(new ConcurrencyRetryError("Transaction conflict — retry the operation."));
+      const mockDb = {
+        roleType: { findUnique: vi.fn().mockResolvedValue({ roleTypeId: "rt-customer" }) },
+        $transaction: transaction,
+      };
+      mockPrismaService.tenantScoped.mockReturnValue(mockDb);
+
+      try {
+        await partyService.addPartyRole(input);
+        expect.fail("expected ConcurrencyConflictError to be thrown");
+      } catch (err) {
+        expect(err).toBeInstanceOf(ConcurrencyConflictError);
+        const domainErr = err as ConcurrencyConflictError;
+        expect(domainErr.suggestedTools).toContain("add_party_role");
+      }
+      expect(transaction).toHaveBeenCalledTimes(3);
     });
 
     it("should not suggest the nonexistent 'update_party_role' tool", async () => {

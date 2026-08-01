@@ -1,5 +1,39 @@
 # BestERP — Security & Architecture Fixes
 
+## Changes Applied (2026-08-01) — Code Review Round 74
+
+### 🔴 `apps/api/src/modules/core/party/party.service.ts` — `addPartyRole` threw `ConcurrencyRetryError` without ever retrying; the promised "outer retry loop" did not exist
+
+**Problem:** `addPartyRoleTransaction` handles concurrent duplicate `add_party_role` calls atomically via `INSERT … ON CONFLICT DO NOTHING` against the partial unique index `party_active_role_unique` (the DB-level guard that prevents two active roles of the same type). When two transactions race, the loser's `ON CONFLICT` returns 0 rows; after a re-check finds no active role, the code throws `ConcurrencyRetryError("Transaction conflict — retry the operation.")`. Comments at three sites (`createPartyTransaction`, `handleTransactionError`, `addPartyRoleTransaction`) claimed an "outer retry loop" / "the caller's retry loop" would handle it — but **no retry loop existed anywhere in the codebase**. The error escaped to the REST controller / MCP tool handler as a raw non-Domain `Error`, so the exact concurrency race the code was designed to survive produced a generic 500/UNKNOWN failure.
+**Fix:** Added a bounded retry loop (max 3 attempts) in `addPartyRole` around the whole transaction. On retry exhaustion it now throws a `ConcurrencyConflictError` (a `DomainError`) with "please retry the operation" and the `add_party_role` suggestion, giving the caller an actionable error instead of an internal signal. Corrected the misleading "outer retry loop" comments in `createPartyTransaction`. Added 2 regression tests: retry-then-succeed, and `ConcurrencyConflictError` after exhaustion.
+
+### 🟢 `apps/api/src/prisma/prisma.module.ts` — stale "Phase 0b" development notes replaced
+
+**Problem:** The header comment described an unimplemented "Phase 0b" plan (Client Extension tenant context, request-scoped JWT resolution, connection pooling) superseded long ago — misleading future contributors about the module's design.
+**Fix:** Replaced with a concise description of the actual three-client design (`admin`, `appClient`, `tenantScoped` with WeakRef cache + LRU replacement) matching the PrismaService implementation.
+
+## Changes Applied (2026-07-31) — Code Review Round 73
+
+### 🟢 `apps/api/src/main.ts` — `closeErr` log not sanitized
+
+**Problem:** The graceful-shutdown debug log for `app.close()` rejections was the only error path not run through `sanitizeForLogOutput`; a connection string / hostname from the rejection could leak into operator logs.
+**Fix:** Aligned the `closeErr` log to the same `sanitizeForLogOutput` pattern used by every other error path.
+
+### 🟢 `packages/shared/src/sanitize.ts` — orphaned JSDoc removed
+
+**Fix:** Removed a JSDoc block left behind after `sanitizeLogMessage` was refactored; it described a function that no longer exists.
+
+## Changes Applied (2026-07-31) — Code Review Round 72
+
+### 🟡 `resolveRedisTls` deduplicated to `@besterp/shared/constants.ts`
+
+**Problem:** The Redis TLS decision was computed independently in `queue.module.ts` (`resolveTls`) and `health.service.ts` (private `resolveRedisTls`) — a TLS-policy change could drift between the BullMQ queue and the Redis health probe.
+**Fix:** Extracted a single `resolveRedisTls()` source of truth in `@besterp/shared/constants.ts`; `QueueModule` and `HealthService` both delegate to it. Added unit tests covering every branch (explicit true/false, production/development/staging defaults, explicit override).
+
+### 🟢 `packages/mcp-tools/src/middleware/error-handler.ts` — indentation drift corrected
+
+**Fix:** A 6-space-indented line that had drifted from its surrounding block was normalized.
+
 ## Changes Applied (2026-07-31) — Code Review Round 71
 
 ### 🔴 `packages/database/prisma/create-roles.sql` — invalid `//` PL/pgSQL comment silently prevented `besterp_app` from ever being created

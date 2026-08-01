@@ -96,6 +96,9 @@ type PartyWithIncludes = Prisma.PartyGetPayload<{
 /** Timeout for Prisma interactive transactions (ms). */
 const TX_TIMEOUT_MS = 10_000;
 
+/** Max attempts (initial + retries) for the addPartyRole concurrency retry loop. */
+const MAX_CONCURRENCY_RETRIES = 3;
+
 @Injectable()
 export class PartyService {
   private static readonly PARTY_INCLUDE = {
@@ -348,7 +351,9 @@ export class PartyService {
         }, { timeout: TX_TIMEOUT_MS });
     } catch (err) {
       if (err instanceof ConcurrencyRetryError) {
-        // Retry the transaction — the outer retry loop will handle it.
+        // createPartyTransaction never throws ConcurrencyRetryError today;
+        // if it ever does, re-throw unchanged so the caller can decide how
+        // to handle the retryable race.
         throw err;
       }
       throw PartyService.handleTransactionError(err, "create_party", "create_party", "party");
@@ -592,7 +597,34 @@ export class PartyService {
       );
     }
 
-    const role = await this.addPartyRoleTransaction(db, trimmedTenantId, partyId, roleTypeRecord.roleTypeId, trimmedRoleType, roleFromDate);
+    // addPartyRoleTransaction throws ConcurrencyRetryError when a concurrent
+    // transaction won the insert race (ON CONFLICT DO NOTHING returned no row
+    // and no active role was found on re-check). Earlier comments promised an
+    // "outer retry loop" that never existed, so the race surfaced as a raw
+    // ConcurrencyRetryError to the caller. Retry the whole transaction a
+    // bounded number of times so concurrent duplicate add_party_role calls
+    // converge instead of failing.
+    let role: Prisma.PartyRoleGetPayload<{ include: { roleType: true } }>;
+    for (let attempt = 1; ; attempt += 1) {
+      try {
+        role = await this.addPartyRoleTransaction(db, trimmedTenantId, partyId, roleTypeRecord.roleTypeId, trimmedRoleType, roleFromDate);
+        break;
+      } catch (err) {
+        if (err instanceof ConcurrencyRetryError && attempt < MAX_CONCURRENCY_RETRIES) {
+          this.logger.warn(`add_party_role transaction conflict (attempt ${attempt}/${MAX_CONCURRENCY_RETRIES}) — retrying`);
+          continue;
+        }
+        if (err instanceof ConcurrencyRetryError) {
+          // Retry budget exhausted — surface a DomainError with a clear
+          // retry hint instead of the internal ConcurrencyRetryError.
+          throw new ConcurrencyConflictError(
+            `Transaction conflict while adding role to party '${partyId}' — please retry the operation.`,
+            { suggestedTools: ["add_party_role"], context: { partyId, roleType: trimmedRoleType } }
+          );
+        }
+        throw err;
+      }
+    }
 
     this.logger.log(`Added role '${sanitizeForLogOutput(trimmedRoleType)}' to party ${partyId} (ID: ${role.partyRoleId})`);
     return {
@@ -713,7 +745,7 @@ export class PartyService {
       }, { timeout: TX_TIMEOUT_MS });
     } catch (err) {
       if (err instanceof ConcurrencyRetryError) {
-        // Retry the transaction — the outer retry loop will handle it.
+        // Retry the transaction — addPartyRole's bounded retry loop handles it.
         throw err;
       }
       throw PartyService.handleTransactionError(err, "add_party_role", "get_party", "party role");

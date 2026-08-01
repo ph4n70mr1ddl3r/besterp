@@ -2,8 +2,108 @@
 
 ## Scope
 Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
-`mcp-tools`, `apps/api`) conducted on 2026-07-31. This is review 71;
-rounds 1–70 are documented in earlier revisions of this file and `CHANGES.md`.
+`mcp-tools`, `apps/api`) conducted on 2026-08-01. This is review 74;
+rounds 1–73 are documented in earlier revisions of this file and `CHANGES.md`.
+
+## Findings & Actions (round 74)
+
+### Fixed this round
+
+1. **🔴 `party.service.ts:addPartyRole` — a `ConcurrencyRetryError` (the insert-race
+   signal) was thrown but never retried; three comments promised an "outer retry loop"
+   that did not exist.** `addPartyRoleTransaction` uses `INSERT … ON CONFLICT DO NOTHING`
+   against the partial unique index `party_active_role_unique` to handle concurrent
+   duplicate `add_party_role` calls atomically. When two transactions race, the loser's
+   `ON CONFLICT` returns 0 rows, and after re-checking (no active role visible), the
+   code throws `ConcurrencyRetryError("Transaction conflict — retry the operation.")`.
+   Comments at three sites (`createPartyTransaction`, `handleTransactionError`,
+   `addPartyRoleTransaction`) claimed "the outer retry loop will handle it" / "the
+   caller's retry loop can catch it" — but **no retry loop existed anywhere** in the
+   codebase. The error therefore escaped to the caller (REST controller / MCP tool
+   handler) as a raw non-Domain `Error`, producing a generic 500/UNKNOWN failure on
+   exactly the concurrent race the code was designed to survive. Fixed by adding a
+   bounded retry loop (max 3 attempts) in `addPartyRole` around the whole transaction;
+   on retry exhaustion it now throws a `ConcurrencyConflictError` (a `DomainError`)
+   with a clear "please retry the operation" message and the `add_party_role` suggestion,
+   so the agent/caller gets an actionable error instead of an internal signal. The
+   stale "outer retry loop" comments in `createPartyTransaction` were corrected to
+   describe the actual behavior. Regression tests added.
+
+2. **🟢 `prisma.module.ts:3-10` — stale "Phase 0b" development notes.** The header
+   comment described an unimplemented "Phase 0b" plan (Client Extension tenant
+   context, request-scoped JWT resolution, connection pooling config) that was
+   superseded long ago. Replaced with a concise description of the current three-client
+   design (`admin`, `appClient`, `tenantScoped`) matching the actual PrismaService
+   implementation.
+
+### Reviewed but NOT changed (false positives / deferred)
+
+- **`createParty` concurrency path:** `createPartyTransaction` does not use
+  `ON CONFLICT` (party creation has no partial-unique race like `party_role`), so it
+  never throws `ConcurrencyRetryError`. The re-throw there is defensive only and was
+  left intact.
+- **Tenant isolation (RLS boot assertions, superuser boot refusal, app-level
+  `tenantId` filters), secret redaction across REST/MCP/durable surfaces,
+  idempotency-key charset consistency, ReDoS, and `@Public()` scope scanning** remain
+  intact and were re-verified by independent reads this round. No new exploit paths
+  beyond the retry-loop fix.
+
+## Test Results (round 74)
+```
+api:       337 passed (15 files)  (+2 — round 74 addPartyRole retry regressions)
+shared:    219 passed (4 files)   (unchanged)
+mcp-tools: 142 passed (4 files)   (unchanged)
+database:   26 passed, 10 skipped (2 files) (unchanged)
+────────────────────────────────────
+Total:     724 passed, 10 skipped
+```
+
+## Findings & Actions (round 73)
+
+### Fixed this round
+
+1. **🟢 `main.ts:377` — `closeErr` was logged unsanitized while every other error
+   path uses `sanitizeForLogOutput`.** The graceful-shutdown debug log was the lone
+   exception; a connection string / hostname from `app.close()` rejection could have
+   leaked into operator logs. Aligned to the same sanitization pattern.
+2. **🟢 `sanitize.ts:130-134` — removed an orphaned JSDoc block** that described
+   `sanitizeLogMessage` but was left behind after the function was refactored; the
+   comment no longer matched any declaration.
+
+## Test Results (round 73)
+```
+api:       335 passed (15 files)  (unchanged)
+shared:    219 passed (4 files)   (unchanged)
+mcp-tools: 142 passed (4 files)   (unchanged)
+database:   26 passed, 10 skipped (2 files) (unchanged)
+────────────────────────────────────
+Total:     722 passed, 10 skipped
+```
+
+## Findings & Actions (round 72)
+
+### Fixed this round
+
+1. **🟡 `resolveRedisTls` duplicated in `queue.module.ts` and `health.service.ts` —
+   TLS configuration drift risk.** Both modules computed the Redis TLS decision
+   independently (default-on outside development, `REDIS_TLS=0` opt-out). Extracted
+   the single source of truth to `@besterp/shared/constants.ts`; `QueueModule` and
+   `HealthService` now both delegate to it, so a future TLS policy change applies
+   uniformly to the BullMQ queue and the Redis health probe.
+2. **🟢 `error-handler.ts:95` — inconsistent 6-space indentation** that had drifted
+   from its surrounding block; normalized to the block's indentation.
+3. **🟢 New unit tests** covering every `resolveRedisTls` branch (explicit
+   true/false values, production/development/staging defaults, explicit override).
+
+## Test Results (round 72)
+```
+shared:    219 passed (4 files)   (+10 — round 72 resolveRedisTls branch tests)
+mcp-tools: 142 passed (4 files)   (unchanged)
+database:   26 passed, 10 skipped (2 files) (unchanged)
+api:       335 passed (15 files)  (unchanged)
+────────────────────────────────────
+Total:     722 passed, 10 skipped
+```
 
 ## Findings & Actions (round 71)
 
