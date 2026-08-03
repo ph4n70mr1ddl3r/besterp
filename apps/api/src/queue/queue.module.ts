@@ -116,7 +116,7 @@ export class QueueModule {
     const MAX_RETRIES = 10;
     if (times > MAX_RETRIES) {
       QueueModule.logger.error(
-        `Redis connection failed after ${MAX_RETRIES} retries — aborting. ${lastError ? `Last error: ${sanitizeForLogOutput(lastError.message)}` : ""}`,
+        `Redis connection failed after ${MAX_RETRIES} retries — aborting. ${lastError ? `Last error: ${sanitizeForLogOutput(lastError.message)}` : ""}`
       );
       return undefined;
     }

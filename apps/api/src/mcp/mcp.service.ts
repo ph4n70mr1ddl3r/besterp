@@ -76,30 +76,36 @@ export class McpService implements OnModuleInit {
         { context: { field: "userId", receivedType: typeof overrides.userId } }
       );
     }
-    // Double-sanitize userId: stripHtmlTags removes HTML payloads,
-    // sanitizeForLogOutput redacts secrets/URLs. Both are applied because
-    // userId may be persisted to durable audit logs and reflected in agent-facing
-    // messages. Defense-in-depth ensures no secret leakage even if one layer fails.
-    const userId = sanitizeForLogOutput(stripHtmlTags(overrides.userId.trim()));
-    if (userId.length === 0) {
+    // Validate format BEFORE sanitization: sanitizeForLogOutput can replace
+    // secret-shaped substrings with [REDACTED_...] placeholders that contain
+    // brackets, which fail TENANT_ID_PATTERN. Checking the raw trimmed value
+    // first ensures a legitimate userId that happens to contain a secret-like
+    // substring is not false-rejected by the pattern guard.
+    const rawUserId = overrides.userId.trim();
+    if (rawUserId.length === 0) {
       throw new InvalidTypeValueError(
         "McpService.buildContext: userId must not be empty or whitespace-only.",
         { context: { field: "userId" } }
       );
     }
-    if (userId.length > MAX_USER_ID_LENGTH) {
+    if (rawUserId.length > MAX_USER_ID_LENGTH) {
       throw new InvalidTypeValueError(
-        `McpService.buildContext: userId is too long (${userId.length} chars, max ${MAX_USER_ID_LENGTH}).`,
-        { context: { field: "userId", length: userId.length, maxLength: MAX_USER_ID_LENGTH } }
+        `McpService.buildContext: userId is too long (${rawUserId.length} chars, max ${MAX_USER_ID_LENGTH}).`,
+        { context: { field: "userId", length: rawUserId.length, maxLength: MAX_USER_ID_LENGTH } }
       );
     }
-    if (!TENANT_ID_PATTERN.test(userId)) {
+    if (!TENANT_ID_PATTERN.test(rawUserId)) {
       throw new InvalidTypeValueError(
         "McpService.buildContext: userId contains invalid characters. " +
           "User IDs may only contain alphanumeric characters, hyphens, and underscores.",
         { context: { field: "userId" } }
       );
     }
+    // Double-sanitize userId: stripHtmlTags removes HTML payloads,
+    // sanitizeForLogOutput redacts secrets/URLs. Both are applied because
+    // userId may be persisted to durable audit logs and reflected in agent-facing
+    // messages. Defense-in-depth ensures no secret leakage even if one layer fails.
+    const userId = sanitizeForLogOutput(stripHtmlTags(rawUserId));
 
     const rawIdempotencyKey = McpService.validateOptionalField("idempotencyKey", overrides.idempotencyKey, MAX_IDEMPOTENCY_KEY_LENGTH);
     if (rawIdempotencyKey !== undefined && !SAFE_IDEMPOTENCY_KEY.test(rawIdempotencyKey)) {

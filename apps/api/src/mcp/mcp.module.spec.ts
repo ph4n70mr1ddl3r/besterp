@@ -195,18 +195,37 @@ describe("McpService", () => {
     });
 
     it("should strip HTML and sanitize secrets from identity/context fields before persistence", () => {
+      // userId uses a valid TENANT_ID_PATTERN shape (alphanumeric + hyphen + underscore)
+      // that contains a secret-shaped substring. The pattern check runs BEFORE
+      // sanitization, so the raw value must pass the charset gate; sanitization
+      // then redacts the secret portion.
       const ctx = mcpService.buildContext({
         tenantId: "tenant-1",
-        userId: "user<42>api",
-        agentId: 'a<img src=x onerror=alert(1)>',
-        conversationId: 'c"password=hunter2"',
-        reasoning: 'r<iframe src=evil>',
+        userId: "us-sk_live_realsecret123",
+        agentId: "agent_a<img src=x>",
+        conversationId: 'conv_"password=hunter2"',
+        reasoning: "r<iframe src=evil>",
       });
-      expect(ctx.userId).toBe("userapi");
+      // userId passes pattern check (hyphen creates word boundary before sk_live_)
+      // then gets sanitized; the sk_live_ prefix triggers the provider-secret rule
+      expect(ctx.userId).toBe("us-[REDACTED_API_KEY]");
+      // agentId/conversationId/reasoning also go through sanitizeForLogOutput
       expect(ctx.agentId).not.toContain("<img");
       expect(ctx.conversationId).not.toContain("hunter2");
       expect(ctx.conversationId).toContain("[REDACTED]");
       expect(ctx.reasoning).not.toContain("<iframe>");
+    });
+
+    it("should reject userId with invalid characters before sanitization", () => {
+      // Pattern check runs BEFORE sanitization, so a userId containing < >
+      // (which stripHtmlTags would remove) is rejected outright rather than
+      // being silently accepted after sanitization rewrites the value.
+      expect(() =>
+        mcpService.buildContext({
+          tenantId: "tenant-1",
+          userId: "user<42>api",
+        })
+      ).toThrow("userId contains invalid characters");
     });
 
     it("should preserve ULID identity IDs (must not mangle them into [REDACTED_TOKEN])", () => {

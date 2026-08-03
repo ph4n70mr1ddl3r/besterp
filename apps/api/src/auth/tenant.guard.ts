@@ -58,7 +58,7 @@ export class TenantGuard implements CanActivate {
       tenantId = validateTenantIdEnhancedForAuth(user.tenantId);
     } catch {
       throw new UnauthorizedException(
-        "TenantGuard: tenantId failed format validation.",
+        "TenantGuard: tenantId failed format validation."
       );
     }
     if (typeof user.userId !== "string") {
@@ -77,7 +77,7 @@ export class TenantGuard implements CanActivate {
     // accept an unbounded userId (could cause DB column overflow).
     if (userId.length > MAX_USER_ID_LENGTH) {
       throw new UnauthorizedException(
-        "TenantGuard: userId exceeds maximum allowed length.",
+        "TenantGuard: userId exceeds maximum allowed length."
       );
     }
     // TENANT_ID_PATTERN is the canonical alphanumeric+hyphen+underscore
@@ -88,7 +88,7 @@ export class TenantGuard implements CanActivate {
     if (!TENANT_ID_PATTERN.test(userId)) {
       throw new UnauthorizedException(
         "TenantGuard: userId contains invalid characters. " +
-          "User IDs may only contain alphanumeric characters, hyphens, and underscores.",
+          "User IDs may only contain alphanumeric characters, hyphens, and underscores."
       );
     }
     if (user.agentId != null && typeof user.agentId !== "string") {

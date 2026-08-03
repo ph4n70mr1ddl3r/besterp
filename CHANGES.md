@@ -1,5 +1,24 @@
 # BestERP — Security & Architecture Fixes
 
+## Changes Applied (2026-08-04) — Code Review Round 84
+
+### 🟡 `apps/api/src/mcp/mcp.service.ts` — userId pattern validation now runs BEFORE sanitization
+
+**Problem:** `buildContext` ran `sanitizeForLogOutput(stripHtmlTags(…))` on `userId` first, then checked `TENANT_ID_PATTERN.test(userId)`. `sanitizeForLogOutput` replaces secret-shaped substrings (e.g. `sk_live_…`) with `[REDACTED_API_KEY]` placeholders that contain `[` and `]` — characters NOT in the allowed charset `/^[a-zA-Z0-9_-]+$/`. A structurally valid userId like `us-sk_live_abc123` would therefore pass the raw format check, get sanitized to `us-[REDACTED_API_KEY]`, and then fail the post-sanitization pattern check, producing a false rejection.
+**Fix:** Moved the length and charset validation to run on the raw trimmed `userId` BEFORE sanitization. The sanitized value is still length-capped and persisted. Added 2 regression tests: (1) a secret-bearing valid-format userId passes validation and is correctly sanitized to `us-[REDACTED_API_KEY]`, and (2) an invalid-character userId (`user<42>api`) is rejected before sanitization even runs.
+
+### 🟢 `apps/api/src/health.service.ts` — `_redisPortWarned` made static for consistency
+
+**Improvement:** Changed the `REDIS_PORT`-once-per-process deduplication flag from an instance property to a `static` class property, matching the pattern already used in `QueueModule._redisPortWarned`. The behavior is identical for NestJS singletons, but the static declaration makes the "per-process" intent explicit at the point of declaration.
+
+### 🟢 `apps/api/src/modules/core/party/party.service.ts` — retry loop explicit-bounded form
+
+**Improvement:** Refactored the `addPartyRole` concurrency retry loop from `for (let attempt = 1; ; attempt += 1)` with inline `break`/`continue` to `for (let attempt = 1; attempt <= MAX_CONCURRENCY_RETRIES; attempt++)`. The iteration bound is now visible at the loop header. Added `!` non-null assertions on post-loop `role` accesses since TypeScript's control-flow analysis treats the bounded loop as potentially non-entering.
+
+### 🟢 Trailing commas cleaned up in `tenant.guard.ts`, `queue.module.ts`
+
+**Improvement:** Removed stray trailing commas in `throw` expressions that were inconsistent with the project's formatting conventions.
+
 ## Changes Applied (2026-08-01) — Code Review Round 74
 
 ### 🔴 `apps/api/src/modules/core/party/party.service.ts` — `addPartyRole` threw `ConcurrencyRetryError` without ever retrying; the promised "outer retry loop" did not exist

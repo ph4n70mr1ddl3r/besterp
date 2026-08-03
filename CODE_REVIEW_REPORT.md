@@ -2,8 +2,39 @@
 
 ## Scope
 Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
-`mcp-tools`, `apps/api`) conducted on 2026-08-01. This is review 74;
-rounds 1–73 are documented in earlier revisions of this file and `CHANGES.md`.
+`mcp-tools`, `apps/api`) conducted on 2026-08-04. This is review 84;
+rounds 1–83 are documented in earlier revisions of this file and `CHANGES.md`.
+
+## Findings & Actions (round 84)
+
+### Fixed this round
+
+1. **🟡 `mcp.service.ts:buildContext` — userId pattern validation ran AFTER sanitization, causing false-rejection of legitimate IDs that contained secret-shaped substrings.** `sanitizeForLogOutput` replaces secret-shaped runs (e.g. `sk_live_…`) with `[REDACTED_API_KEY]` placeholders that contain `[` and `]` characters, which are NOT in the `TENANT_ID_PATTERN` charset (`/^[a-zA-Z0-9_-]+$/`). A userId like `us-sk_live_abc123` would pass the raw pattern check, get sanitized to `us-[REDACTED_API_KEY]`, and then FAIL the post-sanitization pattern check — a false rejection of a structurally valid ID. Fixed by moving the length + charset validation to run on the raw trimmed value BEFORE sanitization; the sanitized value is still length-capped and then persisted. Added a regression test asserting that a secret-bearing valid-format userId passes validation and is correctly sanitized, and a second test asserting that an invalid-character userId (e.g. `user<42>api`) is rejected before sanitization even runs.
+
+2. **🟢 `health.service.ts` — `_redisPortWarned` changed from instance property to static to match `QueueModule`'s per-process deduplication pattern.** The comment already stated the intent ("per-process flag … mirrors the same deduplication pattern used by QueueModule") but the implementation used an instance property, which is functionally equivalent for NestJS singletons but obscures the intent. Aligned to the static class property pattern used by `QueueModule._redisPortWarned` so the "once per process" guarantee is explicit in the declaration.
+
+3. **🟢 `party.service.ts:addPartyRole` — retry loop rewritten from `for (;;)` with `break`/`continue` to an explicit-bounded `for (let attempt = 1; attempt <= MAX_CONCURRENCY_RETRIES; attempt++)`.** The original infinite-loop form was correct but slightly harder to read; the bounded form makes the iteration limit immediately visible at the loop header. Added `!` non-null assertions on the `role` usages after the loop since TypeScript's control-flow analysis can no longer prove the loop body always assigns `role` (the loop condition is now a variable expression).
+
+4. **🟢 Trailing commas cleaned up in `tenant.guard.ts`, `queue.module.ts`.** Removed stray trailing commas in `throw` expressions that were inconsistent with the project's style conventions.
+
+### Reviewed but NOT changed (false positives / deferred)
+
+- **Tenant isolation (RLS boot assertions, superuser boot refusal, app-level `tenantId` filters), secret redaction across REST/MCP/durable surfaces, idempotency-key charset consistency, ReDoS, and `@Public()` scope scanning** remain intact and were re-verified by independent reads this round. No new 🔴/🟡 exploit paths found.
+- **`jwt.strategy.ts` — `_jwtSecretCache` module-level mutable state:** re-verified as correct; `resolveJwtSecret()` is called during NestJS module initialization which happens after `validateEnvironment()` in `bootstrap()`, so the secret is never cached before the strength check runs.
+- **`prisma.service.ts` — `verifyAppClientRole` and `verifyRlsEnabled` run in parallel via `Promise.all`:** re-verified as correct; `Promise.all` rejects as soon as any promise rejects, so the first failure aborts boot immediately.
+- **`domain-exception.filter.ts` — `HttpException` string message/error branch:** re-verified as correctly sanitized (round 56/67 fixes are intact).
+- **`sanitize.ts` — `replaceGenericLongToken` ULID whitelist + generic catch-all:** re-verified as correctly preserving legitimate identity IDs while redacting secret-shaped runs.
+- **`queue.module.ts` — Redis TLS resolution deduplicated to `@besterp/shared/constants.ts`:** re-verified as intact (round 72 fix).
+
+## Test Results (round 84)
+```
+api:       345 passed (15 files)  (+1 — round 84 userId pre-sanitize pattern check regression)
+shared:    219 passed (4 files)   (unchanged)
+mcp-tools: 145 passed (4 files)   (unchanged)
+database:   26 passed, 10 skipped (2 files) (unchanged)
+────────────────────────────────────
+Total:     730 passed, 10 skipped
+```
 
 ## Findings & Actions (round 74)
 

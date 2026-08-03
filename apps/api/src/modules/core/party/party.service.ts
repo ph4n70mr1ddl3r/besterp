@@ -603,8 +603,8 @@ export class PartyService {
     // ConcurrencyRetryError to the caller. Retry the whole transaction a
     // bounded number of times so concurrent duplicate add_party_role calls
     // converge instead of failing.
-    let role: Prisma.PartyRoleGetPayload<{ include: { roleType: true } }>;
-    for (let attempt = 1; ; attempt += 1) {
+    let role: Prisma.PartyRoleGetPayload<{ include: { roleType: true } }> | undefined;
+    for (let attempt = 1; attempt <= MAX_CONCURRENCY_RETRIES; attempt++) {
       try {
         role = await this.addPartyRoleTransaction(db, trimmedTenantId, partyId, roleTypeRecord.roleTypeId, trimmedRoleType, roleFromDate);
         break;
@@ -625,13 +625,13 @@ export class PartyService {
       }
     }
 
-    this.logger.log(`Added role '${sanitizeForLogOutput(trimmedRoleType)}' to party ${partyId} (ID: ${role.partyRoleId})`);
+    this.logger.log(`Added role '${sanitizeForLogOutput(trimmedRoleType)}' to party ${partyId} (ID: ${role!.partyRoleId})`);
     return {
-      partyRoleId: role.partyRoleId,
-      partyId: role.partyId,
-      roleTypeName: role.roleType.name,
-      fromDate: role.fromDate ? role.fromDate.toISOString() : new Date().toISOString(),
-      thruDate: role.thruDate?.toISOString() ?? null,
+      partyRoleId: role!.partyRoleId,
+      partyId: role!.partyId,
+      roleTypeName: role!.roleType.name,
+      fromDate: role!.fromDate ? role!.fromDate.toISOString() : new Date().toISOString(),
+      thruDate: role!.thruDate?.toISOString() ?? null,
     };
   }
 

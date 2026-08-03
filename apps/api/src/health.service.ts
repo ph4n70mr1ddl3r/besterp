@@ -51,9 +51,9 @@ export class HealthService implements OnModuleInit {
   /**
    * Per-process flag so the REDIS_PORT warning fires exactly once instead of
    * flooding operator logs on every load-balancer health-check poll.
-   * Mirrors the same deduplication pattern used by QueueModule.
+   * Mirrors the same deduplication pattern used by QueueModule (static flag).
    */
-  private _redisPortWarned = false;
+  private static _redisPortWarned = false;
 
   constructor(private readonly prisma: PrismaService) {}
 
@@ -137,8 +137,8 @@ export class HealthService implements OnModuleInit {
       // so the warning only fires in staging/dev where both surfaces default
       // to 6380.
       if (!process.env.REDIS_PORT && process.env.NODE_ENV !== "development") {
-        if (!this._redisPortWarned) {
-          this._redisPortWarned = true;
+        if (!HealthService._redisPortWarned) {
+          HealthService._redisPortWarned = true;
           this.logger.warn(
             "REDIS_HOST is set but REDIS_PORT is missing — " +
             "defaulting to 6380. Set REDIS_PORT explicitly to avoid connecting " +
