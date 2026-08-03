@@ -155,7 +155,12 @@ npm run db:seed
    cd docker && docker compose up -d
    ```
 
-4. **Run database migrations, apply RLS, and seed**
+4. **Generate Prisma client**
+   ```bash
+   npm run generate --workspace=@besterp/database
+   ```
+
+5. **Run database migrations, apply RLS, and seed**
 
    The compose init script creates the `besterp_app` role, but Row-Level Security
    (`rls-setup.sql`) must be applied **after** migrations because it enables
@@ -164,11 +169,6 @@ npm run db:seed
    npm run db:migrate
    docker exec -i besterp-postgres psql -U besterp -d besterp -f /setup/rls-setup.sql
    npm run db:seed
-   ```
-
-5. **Generate Prisma client**
-   ```bash
-   npm run generate --workspace=@besterp/database
    ```
 
 6. **Run the application**

@@ -80,6 +80,11 @@ export class TenantGuard implements CanActivate {
         "TenantGuard: userId exceeds maximum allowed length.",
       );
     }
+    // TENANT_ID_PATTERN is the canonical alphanumeric+hyphen+underscore
+    // charset shared by both tenant IDs and user/agent/conversation IDs.
+    // Using the same pattern everywhere avoids drift between auth-boundary
+    // validation and the RLS call path, which both operate on the same
+    // character set.
     if (!TENANT_ID_PATTERN.test(userId)) {
       throw new UnauthorizedException(
         "TenantGuard: userId contains invalid characters. " +

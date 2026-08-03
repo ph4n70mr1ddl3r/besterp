@@ -17,7 +17,7 @@
     "db:generate": "npm run generate --workspace=@besterp/database",
     "db:seed": "npm run seed --workspace=@besterp/database",
     "db:reset": "npm run reset --workspace=@besterp/database",
-    "db:cleanup": "tsx packages/database/scripts/cleanup-expired-idempotency.ts",
+    "db:cleanup": "npx tsx packages/database/scripts/cleanup-expired-idempotency.ts",
     "spike:rls": "npm run spike:rls --workspace=@besterp/database",
     "spike:agent": "npm run spike:agent --workspace=@besterp/mcp-tools"
   },

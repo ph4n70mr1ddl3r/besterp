@@ -478,10 +478,6 @@ const addContactMechanismSchema = z.object({
   emailAddress: emailAddressSchema.optional()
     .describe("Email details (required when contactMechanismType is EMAIL_ADDRESS)"),
 }).superRefine((data, ctx) => {
-  if (!data.contactMechanismType) {
-    ctx.addIssue({ code: "custom", message: "contactMechanismType is required", path: ["contactMechanismType"] });
-    return;
-  }
   validateSubtypeFields(data, ctx, data.contactMechanismType, CONTACT_SUBTYPE_CONFIGS);
 });
 
