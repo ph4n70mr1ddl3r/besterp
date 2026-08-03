@@ -1,6 +1,6 @@
 // @besterp/shared — Common utilities for BestERP packages
 
-export { withTenant, validateTenantId, validateTenantIdEnhancedForAuth, setTenantContext } from "./tenant.js";
+export { withTenant, validateTenantId, validateTenantIdEnhancedForAuth, setTenantContext, TENANT_ID_PATTERN } from "./tenant.js";
 
 export type { DomainErrorOptions, ContextValue } from "./errors.js";
 export {

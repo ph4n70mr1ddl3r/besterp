@@ -15,6 +15,7 @@ import {
   EntityNotFoundError,
   DuplicateEntityError,
   InvalidTypeValueError,
+  TenantContextFailedError,
 } from "@besterp/shared";
 
 interface MockContext {
@@ -64,6 +65,7 @@ describe("DomainExceptionFilter", () => {
       [new EntityNotFoundError("missing", { suggestedTools: ["search_parties"] }), 404],
       [new DuplicateEntityError("dup"), 409],
       [new InvalidTypeValueError("bad"), 422],
+      [new TenantContextFailedError("rls-failed"), 503],
     ])("maps %s.constructor.name to the expected status", (error: DomainError, status: number) => {
       process.env.NODE_ENV = "development";
       const ctx = createMockHost();

@@ -14,7 +14,7 @@ import type { JwtValidatedUser } from "./jwt.strategy.js";
 import { TenantContext } from "../common/tenant-context.js";
 import { IS_PUBLIC_KEY } from "./public.decorator.js";
 import { isPublicAllowedForHandler } from "./public-scope.js";
-import { validateTenantIdEnhancedForAuth, MAX_USER_ID_LENGTH } from "@besterp/shared";
+import { validateTenantIdEnhancedForAuth, MAX_USER_ID_LENGTH, TENANT_ID_PATTERN } from "@besterp/shared";
 
 @Injectable()
 export class TenantGuard implements CanActivate {
@@ -78,6 +78,12 @@ export class TenantGuard implements CanActivate {
     if (userId.length > MAX_USER_ID_LENGTH) {
       throw new UnauthorizedException(
         "TenantGuard: userId exceeds maximum allowed length.",
+      );
+    }
+    if (!TENANT_ID_PATTERN.test(userId)) {
+      throw new UnauthorizedException(
+        "TenantGuard: userId contains invalid characters. " +
+          "User IDs may only contain alphanumeric characters, hyphens, and underscores.",
       );
     }
     if (user.agentId != null && typeof user.agentId !== "string") {

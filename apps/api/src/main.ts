@@ -239,6 +239,11 @@ function parsePort(): number {
     logger.error(`Invalid PORT "${rawPort}". Must be an integer between 1 and 65535.`);
     process.exit(1);
   }
+  if (rawPort === "3000" && !process.env.PORT) {
+    logger.warn(
+      "PORT not set — defaulting to 3000. Set PORT explicitly in production."
+    );
+  }
   return port;
 }
 

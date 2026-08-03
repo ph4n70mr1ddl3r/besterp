@@ -152,4 +152,26 @@ describe("TenantGuard", () => {
 
     expect(() => guard.canActivate(ctx)).toThrow(UnauthorizedException);
   });
+
+  it("throws UnauthorizedException when userId contains invalid characters", () => {
+    // userId must match the same character set as tenantId to prevent
+    // control characters or injected payloads from reaching durable sinks.
+    (reflector.getAllAndOverride as any).mockReturnValue(false);
+    const ctx = makeContext({
+      user: { userId: "user; DROP TABLE users;--", tenantId: "t1" },
+    });
+
+    expect(() => guard.canActivate(ctx)).toThrow(UnauthorizedException);
+  });
+
+  it("accepts a userId with only valid characters (alphanumeric, hyphen, underscore)", () => {
+    (reflector.getAllAndOverride as any).mockReturnValue(false);
+    const ctx = makeContext({
+      user: { userId: "usr_123-safe", tenantId: "t1" },
+    });
+
+    expect(guard.canActivate(ctx)).toBe(true);
+    const req = ctx.switchToHttp().getRequest() as any;
+    expect(req.tenantContext.userId).toBe("usr_123-safe");
+  });
 });

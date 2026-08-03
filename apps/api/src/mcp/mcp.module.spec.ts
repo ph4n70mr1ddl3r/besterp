@@ -128,6 +128,24 @@ describe("McpService", () => {
       ).toThrow("userId is too long");
     });
 
+    it("should reject userId with invalid characters (security guard)", () => {
+      // Regression: userId must be validated for character set at the MCP auth
+      // boundary so payloads like "user; DROP TABLE..." never reach durable
+      // sinks, matching the same guard in TenantGuard and ToolRegistry.
+      expect(() =>
+        mcpService.buildContext({
+          tenantId: "tenant-1",
+          userId: "user;DROP TABLE",
+        })
+      ).toThrow(InvalidTypeValueError);
+      expect(() =>
+        mcpService.buildContext({
+          tenantId: "tenant-1",
+          userId: "user@evil",
+        })
+      ).toThrow(InvalidTypeValueError);
+    });
+
     it("should accept userId at max length", () => {
       const ctx = mcpService.buildContext({
         tenantId: "tenant-1",
@@ -147,14 +165,12 @@ describe("McpService", () => {
     it("should strip HTML and sanitize secrets from identity/context fields before persistence", () => {
       const ctx = mcpService.buildContext({
         tenantId: "tenant-1",
-        userId: '<script>alert(1)</script>u?api_key=sk_live_abc123',
+        userId: "user<42>api",
         agentId: 'a<img src=x onerror=alert(1)>',
         conversationId: 'c"password=hunter2"',
         reasoning: 'r<iframe src=evil>',
       });
-      expect(ctx.userId).not.toContain("<script>");
-      expect(ctx.userId).not.toContain("sk_live_abc123");
-      expect(ctx.userId).toContain("[REDACTED]");
+      expect(ctx.userId).toBe("userapi");
       expect(ctx.agentId).not.toContain("<img");
       expect(ctx.conversationId).not.toContain("hunter2");
       expect(ctx.conversationId).toContain("[REDACTED]");

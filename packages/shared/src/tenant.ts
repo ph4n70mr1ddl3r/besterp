@@ -19,6 +19,9 @@ type TxClient = Prisma.TransactionClient;
 
 const TENANT_ID_PATTERN = /^[a-zA-Z0-9_-]+$/;
 
+/** Exported for reuse by auth boundaries that validate identity fields. */
+export { TENANT_ID_PATTERN };
+
 /**
  * Validates a tenant ID to prevent SQL injection and normalises it (trim).
  *

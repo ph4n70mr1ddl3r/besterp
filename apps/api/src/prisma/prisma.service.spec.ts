@@ -240,6 +240,38 @@ describe("PrismaService", () => {
         });
       await expect(service.onModuleInit()).rejects.toThrow(/Row-Level Security is NOT/);
     });
+
+    it("refuses to boot when an unexpected table has force RLS (schema drift guard)", async () => {
+      // Regression guard: if a new tenant table is added to rls-setup.sql but
+      // omitted from the verification list in prisma.service.ts, the boot check
+      // must refuse to start rather than silently accepting unverified isolation.
+      const service = new PrismaService();
+      (service.appClient as unknown as { $queryRaw: () => Promise<unknown> }).$queryRaw = vi
+        .fn()
+        .mockImplementation(async (query: any) => {
+          const sql = String(query);
+          if (sql.includes("current_user")) return [{ role: "besterp_app" }];
+          if (sql.includes("pg_roles")) return [{ rolsuper: false, rolbypassrls: false }];
+          return [
+            { relname: "party_type", relrowsecurity: false, relforcerowsecurity: false },
+            { relname: "party", relrowsecurity: true, relforcerowsecurity: true },
+            { relname: "contact_mechanism", relrowsecurity: true, relforcerowsecurity: true },
+            { relname: "party_contact_mechanism", relrowsecurity: true, relforcerowsecurity: true },
+            { relname: "party_role", relrowsecurity: true, relforcerowsecurity: true },
+            { relname: "ai_action_log", relrowsecurity: true, relforcerowsecurity: true },
+            { relname: "idempotency_record", relrowsecurity: true, relforcerowsecurity: true },
+            { relname: "person", relrowsecurity: true, relforcerowsecurity: true },
+            { relname: "organization", relrowsecurity: true, relforcerowsecurity: true },
+            { relname: "postal_address", relrowsecurity: true, relforcerowsecurity: true },
+            { relname: "telecom_number", relrowsecurity: true, relforcerowsecurity: true },
+            { relname: "email_address", relrowsecurity: true, relforcerowsecurity: true },
+            // "user_session" is a tenant table that has FORCE RLS but is NOT in
+            // the verification list — boot must refuse.
+            { relname: "user_session", relrowsecurity: true, relforcerowsecurity: true },
+          ];
+        });
+      await expect(service.onModuleInit()).rejects.toThrow(/force-RLS on user_session which are NOT in the verification list/i);
+    });
   });
 
   describe("onModuleInit error logging", () => {

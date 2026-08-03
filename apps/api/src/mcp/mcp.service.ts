@@ -1,5 +1,5 @@
 import { Injectable, Logger, OnModuleInit } from "@nestjs/common";
-import { InvalidTypeValueError, MAX_USER_ID_LENGTH, MAX_IDEMPOTENCY_KEY_LENGTH, SAFE_IDEMPOTENCY_KEY, MAX_AGENT_ID_LENGTH, MAX_CONVERSATION_ID_LENGTH, MAX_REASONING_LENGTH, stripHtmlTags, sanitizeForLogOutput } from "@besterp/shared";
+import { InvalidTypeValueError, MAX_USER_ID_LENGTH, MAX_IDEMPOTENCY_KEY_LENGTH, SAFE_IDEMPOTENCY_KEY, MAX_AGENT_ID_LENGTH, MAX_CONVERSATION_ID_LENGTH, MAX_REASONING_LENGTH, stripHtmlTags, sanitizeForLogOutput, TENANT_ID_PATTERN } from "@besterp/shared";
 import { validateTenantIdEnhanced } from "@besterp/database";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { PartyService } from "../modules/core/party/party.service.js";
@@ -91,6 +91,13 @@ export class McpService implements OnModuleInit {
       throw new InvalidTypeValueError(
         `McpService.buildContext: userId is too long (${userId.length} chars, max ${MAX_USER_ID_LENGTH}).`,
         { context: { field: "userId", length: userId.length, maxLength: MAX_USER_ID_LENGTH } }
+      );
+    }
+    if (!TENANT_ID_PATTERN.test(userId)) {
+      throw new InvalidTypeValueError(
+        "McpService.buildContext: userId contains invalid characters. " +
+          "User IDs may only contain alphanumeric characters, hyphens, and underscores.",
+        { context: { field: "userId" } }
       );
     }
 
