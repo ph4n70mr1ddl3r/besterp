@@ -10,7 +10,7 @@ import { PrismaClient } from "@prisma/client";
 import { sanitizeForLogOutput } from "@besterp/shared";
 
 if (!process.env.DATABASE_ADMIN_URL) {
-    console.error("DATABASE_ADMIN_URL is required for idempotency cleanup (bypasses RLS). " +
+  console.error("DATABASE_ADMIN_URL is required for idempotency cleanup (bypasses RLS). " +
     "The app role cannot see expired records due to tenant-scoped RLS policies."
   );
   process.exit(1);

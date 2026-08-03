@@ -136,6 +136,42 @@ describe("ToolRegistry", () => {
       expect(result.error?.code).toBe("INVALID_CONTEXT_ID");
     });
 
+    it("should reject a malformed tenantId before executing the handler", async () => {
+      // tenantId is the primary isolation boundary. A malformed value here is
+      // a cross-tenant access path, so the registry must fail closed with a
+      // non-enumerating error that echoes nothing back to the caller.
+      const result = await registry.execute("list_available_tools", {}, {
+        tenantId: "'; DROP TABLE party;--",
+        userId: "user-1",
+        services: {},
+      });
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe("INVALID_TENANT_ID");
+      expect(JSON.stringify(result.error)).not.toContain("DROP TABLE");
+    });
+
+    it("should reject a non-string userId before executing the handler", async () => {
+      // userId is persisted into durable audit/idempotency sinks; it must be
+      // a validated string before any middleware or handler runs.
+      const result = await registry.execute("list_available_tools", {}, {
+        tenantId: "tenant-1",
+        userId: 42 as unknown as string,
+        services: {},
+      });
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe("INVALID_USER_ID");
+    });
+
+    it("should reject a whitespace-only userId before executing the handler", async () => {
+      const result = await registry.execute("list_available_tools", {}, {
+        tenantId: "tenant-1",
+        userId: "   ",
+        services: {},
+      });
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe("INVALID_USER_ID");
+    });
+
     it("should accept valid optional agentId/conversationId and reach the handler", async () => {
       const handler = vi.fn().mockResolvedValue({ success: true, data: {} });
       registry.register({

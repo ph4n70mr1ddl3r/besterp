@@ -56,6 +56,22 @@ describe("McpService", () => {
       ).toThrow();
     });
 
+    it("should reject null tenant ID", () => {
+      // typeof null === "object", so the string check catches it before trim.
+      expect(() =>
+        mcpService.buildContext({
+          tenantId: null as unknown as string,
+          userId: "user-123",
+        })
+      ).toThrow(InvalidTypeValueError);
+      expect(() =>
+        mcpService.buildContext({
+          tenantId: null as unknown as string,
+          userId: "user-123",
+        })
+      ).toThrow(/tenantId must be a string/);
+    });
+
     it("should reject empty tenant ID", () => {
       expect(() =>
         mcpService.buildContext({
@@ -96,6 +112,22 @@ describe("McpService", () => {
           userId: "",
         })
       ).toThrow("userId must not be empty or whitespace-only");
+    });
+
+    it("should reject null userId", () => {
+      // typeof null === "object", so the string check catches it before trim.
+      expect(() =>
+        mcpService.buildContext({
+          tenantId: "tenant-1",
+          userId: null as unknown as string,
+        })
+      ).toThrow(InvalidTypeValueError);
+      expect(() =>
+        mcpService.buildContext({
+          tenantId: "tenant-1",
+          userId: null as unknown as string,
+        })
+      ).toThrow(/userId must be a string/);
     });
 
     it("should reject whitespace-only userId", () => {
