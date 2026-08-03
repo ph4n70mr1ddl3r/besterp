@@ -55,33 +55,50 @@ export class McpService implements OnModuleInit {
     idempotencyKey?: string;
     reasoning?: string;
   }) {
-    if (typeof overrides.tenantId !== "string") {
+    const tenantId = this.validateTenantId(overrides.tenantId);
+    const userId = this.validateUserId(overrides.userId);
+    const idempotencyKey = this.validateIdempotencyKey(overrides.idempotencyKey);
+    const { agentId, conversationId } = this.validateOptionalIds(overrides);
+    const reasoning = this.validateReasoning(overrides.reasoning);
+
+    return {
+      tenantId,
+      userId,
+      agentId,
+      conversationId,
+      idempotencyKey,
+      reasoning,
+      services: {
+        partyService: this.partyService,
+      },
+    };
+  }
+
+  private validateTenantId(value: string): string {
+    if (typeof value !== "string") {
       throw new InvalidTypeValueError(
         "McpService.buildContext: tenantId must be a string.",
-        { context: { field: "tenantId", receivedType: typeof overrides.tenantId } }
+        { context: { field: "tenantId", receivedType: typeof value } }
       );
     }
-    let tenantId = overrides.tenantId.trim();
-    if (tenantId.length === 0) {
+    const trimmed = value.trim();
+    if (trimmed.length === 0) {
       throw new InvalidTypeValueError(
         "McpService.buildContext: tenantId must not be empty or whitespace-only.",
-        { context: { field: "tenantId", receivedType: typeof overrides.tenantId } }
+        { context: { field: "tenantId", receivedType: typeof value } }
       );
     }
-    tenantId = validateTenantIdEnhanced(tenantId);
+    return validateTenantIdEnhanced(trimmed);
+  }
 
-    if (typeof overrides.userId !== "string") {
+  private validateUserId(value: string): string {
+    if (typeof value !== "string") {
       throw new InvalidTypeValueError(
         "McpService.buildContext: userId must be a string.",
-        { context: { field: "userId", receivedType: typeof overrides.userId } }
+        { context: { field: "userId", receivedType: typeof value } }
       );
     }
-    // Validate format BEFORE sanitization: sanitizeForLogOutput can replace
-    // secret-shaped substrings with [REDACTED_...] placeholders that contain
-    // brackets, which fail TENANT_ID_PATTERN. Checking the raw trimmed value
-    // first ensures a legitimate userId that happens to contain a secret-like
-    // substring is not false-rejected by the pattern guard.
-    const rawUserId = overrides.userId.trim();
+    const rawUserId = value.trim();
     if (rawUserId.length === 0) {
       throw new InvalidTypeValueError(
         "McpService.buildContext: userId must not be empty or whitespace-only.",
@@ -105,17 +122,21 @@ export class McpService implements OnModuleInit {
     // sanitizeForLogOutput redacts secrets/URLs. Both are applied because
     // userId may be persisted to durable audit logs and reflected in agent-facing
     // messages. Defense-in-depth ensures no secret leakage even if one layer fails.
-    const userId = sanitizeForLogOutput(stripHtmlTags(rawUserId));
+    return sanitizeForLogOutput(stripHtmlTags(rawUserId));
+  }
 
-    const rawIdempotencyKey = McpService.validateOptionalField("idempotencyKey", overrides.idempotencyKey, MAX_IDEMPOTENCY_KEY_LENGTH);
-    if (rawIdempotencyKey !== undefined && !SAFE_IDEMPOTENCY_KEY.test(rawIdempotencyKey)) {
+  private validateIdempotencyKey(value: string | undefined): string | undefined {
+    const raw = McpService.validateOptionalField("idempotencyKey", value, MAX_IDEMPOTENCY_KEY_LENGTH);
+    if (raw !== undefined && !SAFE_IDEMPOTENCY_KEY.test(raw)) {
       throw new InvalidTypeValueError(
         "McpService.buildContext: idempotencyKey must contain only printable ASCII characters.",
         { context: { field: "idempotencyKey" } }
       );
     }
-    const idempotencyKey = rawIdempotencyKey !== undefined ? sanitizeForLogOutput(stripHtmlTags(rawIdempotencyKey)) : undefined;
+    return raw !== undefined ? sanitizeForLogOutput(stripHtmlTags(raw)) : undefined;
+  }
 
+  private validateOptionalIds(overrides: { agentId?: string; conversationId?: string }): { agentId: string | undefined; conversationId: string | undefined } {
     const agentId = McpService.validateOptionalField("agentId", overrides.agentId, MAX_AGENT_ID_LENGTH);
     const conversationId = McpService.validateOptionalField("conversationId", overrides.conversationId, MAX_CONVERSATION_ID_LENGTH);
 
@@ -143,20 +164,12 @@ export class McpService implements OnModuleInit {
     }
     const safeAgentId = rawAgentId !== undefined ? sanitizeForLogOutput(stripHtmlTags(rawAgentId)) : undefined;
     const safeConversationId = rawConversationId !== undefined ? sanitizeForLogOutput(stripHtmlTags(rawConversationId)) : undefined;
-    const reasoning = McpService.validateOptionalField("reasoning", overrides.reasoning, MAX_REASONING_LENGTH);
-    const safeReasoning = reasoning !== undefined ? sanitizeForLogOutput(stripHtmlTags(reasoning)) : undefined;
+    return { agentId: safeAgentId, conversationId: safeConversationId };
+  }
 
-    return {
-      tenantId,
-      userId,
-      agentId: safeAgentId,
-      conversationId: safeConversationId,
-      idempotencyKey,
-      reasoning: safeReasoning,
-      services: {
-        partyService: this.partyService,
-      },
-    };
+  private validateReasoning(value: string | undefined): string | undefined {
+    const reasoning = McpService.validateOptionalField("reasoning", value, MAX_REASONING_LENGTH);
+    return reasoning !== undefined ? sanitizeForLogOutput(stripHtmlTags(reasoning)) : undefined;
   }
 
   getRegistry(): ToolRegistry {
