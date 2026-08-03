@@ -162,7 +162,7 @@ async function main() {
 
 main()
   .catch((e) => {
-    console.error("Cleanup failed:", e);
+    console.error("Cleanup failed:", sanitizeForLogOutput(e instanceof Error ? e.message : String(e)));
     process.exitCode = 1;
   })
   .finally(async () => {

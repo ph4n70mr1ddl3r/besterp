@@ -125,13 +125,16 @@ export class HealthService implements OnModuleInit {
       // Mirror QueueModule's production guard: if REDIS_HOST is set but
       // REDIS_PORT is absent, defaulting to 6380 silently could connect to
       // an unintended Redis instance (the same footgun QueueModule now
-      // refuses in production). Log a warning so operators notice the
-      // misconfiguration rather than probing the wrong service.
-      if (!process.env.REDIS_PORT && process.env.NODE_ENV === "production") {
+      // refuses in production). Log a warning in non-production so operators
+      // notice the misconfiguration rather than probing the wrong service.
+      // Note: in production QueueModule throws before this code is reachable,
+      // so the warning only fires in staging/dev where both surfaces default
+      // to 6380.
+      if (!process.env.REDIS_PORT && process.env.NODE_ENV !== "development") {
         this.logger.warn(
-          "REDIS_HOST is set but REDIS_PORT is missing in production — " +
-          "defaulting to 6380. QueueModule requires REDIS_PORT explicitly; " +
-          "set it to avoid connecting to an unintended Redis instance."
+          "REDIS_HOST is set but REDIS_PORT is missing — " +
+          "defaulting to 6380. Set REDIS_PORT explicitly to avoid connecting " +
+          "to an unintended Redis instance."
         );
       }
       try {
