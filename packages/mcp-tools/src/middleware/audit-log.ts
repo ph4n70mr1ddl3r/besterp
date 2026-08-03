@@ -201,6 +201,10 @@ function createBackpressureManager(prisma: PrismaClient): BackpressureManager {
     activeWrites--;
     if (writeQueue.length > 0) {
       const next = writeQueue.shift() as QueueEntry;
+      // Guard against double-release: if the timeout already settled this
+      // entry (and removed it from the queue) before releaseWriteSlot was
+      // called, next.settled is true and we must not resolve it again.
+      if (next.settled) return;
       clearTimeout(next.timer);
       next.settled = true;
       activeWrites++;

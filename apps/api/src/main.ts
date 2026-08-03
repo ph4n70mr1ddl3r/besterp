@@ -349,6 +349,9 @@ async function bootstrap() {
     const message = err instanceof Error ? err.message : String(err);
     logger.error(`Unhandled Express middleware error: ${sanitizeForLogOutput(message)}`);
     setCorsHeaders(res, req.headers.origin);
+    if (res.headersSent) {
+      return;
+    }
     res.status(500).json({ statusCode: 500, message: "Internal server error" });
   });
 

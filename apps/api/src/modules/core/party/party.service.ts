@@ -625,13 +625,22 @@ export class PartyService {
       }
     }
 
-    this.logger.log(`Added role '${sanitizeForLogOutput(trimmedRoleType)}' to party ${partyId} (ID: ${role!.partyRoleId})`);
+    if (!role) {
+      // Should be unreachable — the loop either assigns role or throws.
+      // Kept as a defensive guard so TypeScript does not require a non-null
+      // assertion on every downstream access.
+      throw new InvalidTypeValueError(
+        "Unexpected state: add_party_role transaction completed but returned no role.",
+        { suggestedTools: ["add_party_role"], context: { partyId } }
+      );
+    }
+    this.logger.log(`Added role '${sanitizeForLogOutput(trimmedRoleType)}' to party ${partyId} (ID: ${role.partyRoleId})`);
     return {
-      partyRoleId: role!.partyRoleId,
-      partyId: role!.partyId,
-      roleTypeName: role!.roleType.name,
-      fromDate: role!.fromDate ? role!.fromDate.toISOString() : new Date().toISOString(),
-      thruDate: role!.thruDate?.toISOString() ?? null,
+      partyRoleId: role.partyRoleId,
+      partyId: role.partyId,
+      roleTypeName: role.roleType.name,
+      fromDate: role.fromDate ? role.fromDate.toISOString() : new Date().toISOString(),
+      thruDate: role.thruDate?.toISOString() ?? null,
     };
   }
 
@@ -737,8 +746,19 @@ export class PartyService {
         }
 
         // Fetch the full role with relation data for the return value.
+        // result[0] is guaranteed to exist here because result.length === 0
+        // already threw ConcurrencyRetryError above; the guard is a
+        // belt-and-suspenders so TypeScript does not require a non-null
+        // assertion on the access below.
+        const inserted = result[0];
+        if (!inserted) {
+          throw new InvalidTypeValueError(
+            "Unexpected state: ON CONFLICT DO NOTHING returned no row but also did not throw.",
+            { suggestedTools: ["add_party_role"], context: { partyId } }
+          );
+        }
         return tx.partyRole.findUnique({
-          where: { partyRoleId: result[0]!.partyRoleId },
+          where: { partyRoleId: inserted.partyRoleId },
           include: { roleType: true },
         }) as Promise<Prisma.PartyRoleGetPayload<{ include: { roleType: true } }>>;
       }, { timeout: TX_TIMEOUT_MS });
