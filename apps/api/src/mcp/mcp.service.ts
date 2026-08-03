@@ -118,11 +118,12 @@ export class McpService implements OnModuleInit {
         { context: { field: "userId" } }
       );
     }
-    // Double-sanitize userId: stripHtmlTags removes HTML payloads,
-    // sanitizeForLogOutput redacts secrets/URLs. Both are applied because
-    // userId may be persisted to durable audit logs and reflected in agent-facing
-    // messages. Defense-in-depth ensures no secret leakage even if one layer fails.
-    return sanitizeForLogOutput(stripHtmlTags(rawUserId));
+    // Return the raw trimmed userId (not sanitized) so downstream validators
+    // (tool-registry.validateContextIdentity) can apply their own format check
+    // on the same value. Sanitization happens at the output surfaces
+    // (audit-log, idempotency) so the durable sinks never store a raw secret
+    // while the identity fields remain usable for correlation and auditing.
+    return rawUserId;
   }
 
   private validateIdempotencyKey(value: string | undefined): string | undefined {
@@ -162,8 +163,8 @@ export class McpService implements OnModuleInit {
         { context: { field: "conversationId" } }
       );
     }
-    const safeAgentId = rawAgentId !== undefined ? sanitizeForLogOutput(stripHtmlTags(rawAgentId)) : undefined;
-    const safeConversationId = rawConversationId !== undefined ? sanitizeForLogOutput(stripHtmlTags(rawConversationId)) : undefined;
+    const safeAgentId = rawAgentId !== undefined ? stripHtmlTags(rawAgentId) : undefined;
+    const safeConversationId = rawConversationId !== undefined ? stripHtmlTags(rawConversationId) : undefined;
     return { agentId: safeAgentId, conversationId: safeConversationId };
   }
 

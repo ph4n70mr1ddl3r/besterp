@@ -17,7 +17,7 @@
 
 import { PrismaClient, Prisma, IdempotencyRecord } from "@prisma/client";
 import { createHash } from "node:crypto";
-import { hashInput, getErrorCode, sanitizeLogMessage, sanitizeForLogOutput, redactSensitiveFieldValues, MAX_SOFT_FAILURE_MESSAGE_SIZE, IDEMPOTENCY_TTL_MS, MAX_IDEMPOTENCY_KEY_LENGTH, SAFE_IDEMPOTENCY_KEY, IDEMPOTENCY_MAX_RETRIES, IDEMPOTENCY_RETRY_BASE_DELAY_MS, IDEMPOTENCY_STALE_PENDING_THRESHOLD_MS } from "@besterp/shared";
+import { hashInput, getErrorCode, sanitizeLogMessage, sanitizeForLogOutput, stripHtmlTags, redactSensitiveFieldValues, MAX_SOFT_FAILURE_MESSAGE_SIZE, IDEMPOTENCY_TTL_MS, MAX_IDEMPOTENCY_KEY_LENGTH, SAFE_IDEMPOTENCY_KEY, IDEMPOTENCY_MAX_RETRIES, IDEMPOTENCY_RETRY_BASE_DELAY_MS, IDEMPOTENCY_STALE_PENDING_THRESHOLD_MS, MAX_USER_ID_LENGTH, MAX_AGENT_ID_LENGTH, MAX_CONVERSATION_ID_LENGTH } from "@besterp/shared";
 import { ToolMiddleware, ToolResult, ToolContext, ZodSchemaLike } from "../schema/tool-definition.js";
 import { truncateValue, MAX_STORED_PAYLOAD_SIZE, capString, isTruncationMarker } from "./truncate.js";
 
@@ -185,10 +185,23 @@ async function acquireIdempotencyRecord(
         const record = await tx.idempotencyRecord.findUnique({ where: { idempotencyKey_tenantId: { idempotencyKey, tenantId } } });
 
         if (!record) {
+          // Sanitize identity fields before persisting to the durable
+          // idempotency_record table. `userId`/`agentId`/`conversationId` are
+          // caller-supplied and may embed secrets (connection strings,
+          // `?api_key=…`); the raw values were already format-validated by
+          // `buildContext` and `validateContextIdentity`, but sanitization is
+          // still required so the durable sink never stores a raw secret.
+          const safeUserId = sanitizeForLogOutput(stripHtmlTags(userId)).slice(0, MAX_USER_ID_LENGTH);
+          const safeAgentId = agentId !== undefined
+            ? sanitizeForLogOutput(stripHtmlTags(agentId)).slice(0, MAX_AGENT_ID_LENGTH)
+            : undefined;
+          const safeConversationId = conversationId !== undefined
+            ? sanitizeForLogOutput(stripHtmlTags(conversationId)).slice(0, MAX_CONVERSATION_ID_LENGTH)
+            : undefined;
           await tx.idempotencyRecord.create({
             data: {
-              idempotencyKey, toolName, tenantId, userId,
-              agentId: agentId ?? null, conversationId: conversationId ?? null,
+              idempotencyKey, toolName, tenantId, userId: safeUserId,
+              agentId: safeAgentId ?? null, conversationId: safeConversationId ?? null,
               status: "pending", inputHash,
               expiresAt: new Date(Date.now() + IDEMPOTENCY_TTL_MS),
             },

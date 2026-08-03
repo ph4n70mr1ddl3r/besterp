@@ -9,7 +9,7 @@
 // never break the tool).
 
 import { PrismaClient, type Prisma } from "@prisma/client";
-import { getErrorCode, sanitizeLogMessage, sanitizeForLogOutput, MAX_REASONING_LENGTH, MAX_SOFT_FAILURE_MESSAGE_SIZE, redactSensitiveFieldValues, MAX_CONCURRENT_AUDIT_WRITES, MAX_AUDIT_QUEUE_SIZE, AUDIT_WRITE_QUEUE_TIMEOUT_MS } from "@besterp/shared";
+import { getErrorCode, sanitizeLogMessage, sanitizeForLogOutput, stripHtmlTags, MAX_REASONING_LENGTH, MAX_SOFT_FAILURE_MESSAGE_SIZE, redactSensitiveFieldValues, MAX_CONCURRENT_AUDIT_WRITES, MAX_AUDIT_QUEUE_SIZE, AUDIT_WRITE_QUEUE_TIMEOUT_MS, MAX_USER_ID_LENGTH, MAX_AGENT_ID_LENGTH, MAX_CONVERSATION_ID_LENGTH } from "@besterp/shared";
 import { ToolMiddleware, ToolContext, ToolResult } from "../schema/tool-definition.js";
 import { truncateValue, capString, MAX_STORED_PAYLOAD_SIZE } from "./truncate.js";
 
@@ -37,11 +37,25 @@ function createBaseEntry(context: { agentId?: string; conversationId?: string; r
   const reasoning = context.reasoning
     ? sanitizeForLogOutput(context.reasoning).slice(0, MAX_REASONING_LENGTH)
     : null;
+  // `userId`/`agentId`/`conversationId` originate from the caller's MCP request
+  // and are persisted verbatim to the cross-tenant `ai_action_log` durable sink.
+  // A caller could embed a secret (connection string, `?api_key=…`) in any of
+  // these fields, so sanitize them the same way `reasoning` is — via
+  // `sanitizeForLogOutput` — before the row is written. `stripHtmlTags` is
+  // applied first (HTML can hide secret-shaped patterns from the redactor) and
+  // the length cap prevents oversized identity fields from bloating the row.
+  const userId = sanitizeForLogOutput(stripHtmlTags(context.userId)).slice(0, MAX_USER_ID_LENGTH);
+  const agentId = context.agentId !== undefined
+    ? sanitizeForLogOutput(stripHtmlTags(context.agentId)).slice(0, MAX_AGENT_ID_LENGTH)
+    : undefined;
+  const conversationId = context.conversationId !== undefined
+    ? sanitizeForLogOutput(stripHtmlTags(context.conversationId)).slice(0, MAX_CONVERSATION_ID_LENGTH)
+    : undefined;
   return {
-    agentId: context.agentId,
-    conversationId: context.conversationId,
+    agentId,
+    conversationId,
     reasoning,
-    userId: context.userId,
+    userId,
     tenantId: context.tenantId,
     toolCalled: definition.name,
     toolInput: redactSensitiveFields(input),

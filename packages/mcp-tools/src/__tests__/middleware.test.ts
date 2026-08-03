@@ -889,6 +889,45 @@ describe("Idempotency Middleware", () => {
     expect(stored).not.toContain("postgres://");
     expect(stored).toContain("[DATABASE_URL]");
   });
+
+  it("should sanitize userId/agentId/conversationId before persisting to idempotency_record", async () => {
+    // Regression guard (round 85): buildContext validates identity fields at
+    // the auth boundary but returns them raw (not sanitized) so downstream
+    // tool-registry.validateContextIdentity can apply its own format check.
+    // The idempotency middleware is the durable sink, so it must sanitize
+    // userId/agentId/conversationId before writing to idempotency_record —
+    // a secret-bearing identity field would otherwise leak to the cross-tenant
+    // durable 24h-TTL record verbatim.
+    const input = { test: "value" };
+    const idempotencyKey = "test-key";
+    const contextWithSecretIdentity = {
+      ...mockContext,
+      idempotencyKey,
+      userId: "us-sk_live_realsecret123",
+      agentId: "agent-a-password-hidden",
+      conversationId: "conv_123_session-token",
+    };
+
+    mockFindInTransaction(null);
+    mockPrisma.idempotencyRecord.create.mockResolvedValue({
+      idempotencyKey,
+      status: "pending",
+    });
+    mockPrisma.idempotencyRecord.update.mockResolvedValue({});
+
+    const middleware = idempotencyMiddleware(mockPrisma as any);
+    await middleware(input, contextWithSecretIdentity as any, mockDefinition, successNext({ success: true, data: "created" }));
+
+    const createCall = mockPrisma.idempotencyRecord.create.mock.calls[0];
+    const stored = createCall[0].data;
+    // userId with secret-shaped pattern should be redacted
+    expect(stored.userId).not.toContain("sk_live_realsecret123");
+    expect(stored.userId).toContain("[REDACTED_API_KEY]");
+    // agentId without secret patterns passes through unchanged
+    expect(stored.agentId).toBe("agent-a-password-hidden");
+    // conversationId with generic long token pattern should be redacted
+    expect(stored.conversationId).toContain("[REDACTED_TOKEN]");
+  });
 });
 
 describe("Audit Log Middleware", () => {
@@ -1330,6 +1369,32 @@ describe("Audit Log Middleware", () => {
     expect(allArgs).not.toContain("s3cret-pw");
     expect(allArgs).not.toContain("postgres://besterp");
     expect(allArgs).toContain("[DATABASE_URL]");
+  });
+
+  it("should sanitize userId/agentId/conversationId before persisting to audit log", async () => {
+    // Regression guard (round 85): buildContext returns raw identity values,
+    // so audit-log middleware must sanitize them before persisting to the
+    // cross-tenant durable sink (ai_action_log) to prevent secret leaks.
+    const input = { test: "value" };
+    const contextWithSecretIdentity = {
+      ...mockContext,
+      userId: "us-sk_live_realsecret123",
+      agentId: "agent-a-password-hidden",
+      conversationId: "conv_123_session-token",
+    };
+    const toolResult: ToolResult = { success: true, data: "ok" };
+
+    mockPrisma.aiActionLog.create.mockResolvedValue({ id: "log-id" });
+
+    const middleware = auditLogMiddleware(mockPrisma as any);
+    await middleware(input, contextWithSecretIdentity as any, mockDefinition, successNext(toolResult));
+
+    const createCall = mockPrisma.aiActionLog.create.mock.calls[0];
+    const stored = createCall[0].data;
+    expect(stored.userId).not.toContain("sk_live_realsecret123");
+    expect(stored.userId).toContain("[REDACTED_API_KEY]");
+    expect(stored.agentId).toBe("agent-a-password-hidden");
+    expect(stored.conversationId).not.toContain("session-token");
   });
 });
 
