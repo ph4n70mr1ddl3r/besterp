@@ -1,5 +1,13 @@
--- RLS setup for BestERP Phase 0a spike
+-- RLS setup for BestERP
 -- Applied after Prisma migration
+--
+-- Security notes:
+-- - set_tenant_context() uses SECURITY INVOKER so policies run as the
+--   calling role (besterp_app), not as superuser.
+-- - search_path is pinned to pg_catalog,public to prevent function
+--   substitution attacks via a crafted schema.
+-- - The DO $$ block refuses to apply policies if besterp_app is a
+--   superuser (superusers ALWAYS bypass RLS regardless of FORCE).
 
 -- ─── Tenant Context Function ────────────────────────────────
 -- Parameterized function for setting tenant context, avoiding

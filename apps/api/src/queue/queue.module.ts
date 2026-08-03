@@ -10,7 +10,7 @@
 
 import { DynamicModule, Logger, Module } from "@nestjs/common";
 import { BullModule } from "@nestjs/bullmq";
-import { resolveRedisTls } from "@besterp/shared";
+import { resolveRedisTls, sanitizeForLogOutput } from "@besterp/shared";
 
 export interface QueueModuleOptions {
   redis: {
@@ -112,11 +112,11 @@ export class QueueModule {
     return port;
   }
 
-  private static redisRetryStrategy(times: number): number | undefined {
+  private static redisRetryStrategy(times: number, lastError?: Error): number | undefined {
     const MAX_RETRIES = 10;
     if (times > MAX_RETRIES) {
       QueueModule.logger.error(
-        `Redis connection failed after ${MAX_RETRIES} retries — aborting.`,
+        `Redis connection failed after ${MAX_RETRIES} retries — aborting. ${lastError ? `Last error: ${sanitizeForLogOutput(lastError.message)}` : ""}`,
       );
       return undefined;
     }
@@ -140,7 +140,7 @@ export class QueueModule {
       host,
       port,
       maxRetriesPerRequest: null,
-      retryStrategy: (times: number) => QueueModule.redisRetryStrategy(times),
+      retryStrategy: (times: number, lastError?: Error) => QueueModule.redisRetryStrategy(times, lastError),
       connectTimeout: 10000,
       ...(password ? { password } : {}),
       ...(tls ? { tls } : {}),

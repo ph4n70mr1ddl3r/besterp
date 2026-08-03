@@ -1,3 +1,15 @@
+// MCP Module — Tool server with middleware pipeline.
+//
+// Registers the MCP tool registry with the full middleware stack:
+//   1. errorHandlerMiddleware (outermost — catches all exceptions)
+//   2. auditLogMiddleware (fire-and-forget durable audit writes)
+//   3. idempotencyMiddleware (deduplication via DB-backed records)
+//   4. Tool-specific middlewares (registered per-tool)
+//   5. Handler (Zod validation → service call)
+//
+// Tools are registered in McpService.onModuleInit() after the module
+// wiring is complete, so the registry factory can resolve services.
+
 import {
   DynamicModule,
   Module,

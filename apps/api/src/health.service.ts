@@ -48,6 +48,12 @@ export class HealthService implements OnModuleInit {
   private packageInfo: { version: string; name: string } = { version: "0.0.0", name: "unknown" };
   private packageInfoReady: Promise<void> = Promise.resolve();
   private packageInfoError: string | undefined;
+  /**
+   * Per-process flag so the REDIS_PORT warning fires exactly once instead of
+   * flooding operator logs on every load-balancer health-check poll.
+   * Mirrors the same deduplication pattern used by QueueModule.
+   */
+  private _redisPortWarned = false;
 
   constructor(private readonly prisma: PrismaService) {}
 
@@ -131,11 +137,14 @@ export class HealthService implements OnModuleInit {
       // so the warning only fires in staging/dev where both surfaces default
       // to 6380.
       if (!process.env.REDIS_PORT && process.env.NODE_ENV !== "development") {
-        this.logger.warn(
-          "REDIS_HOST is set but REDIS_PORT is missing — " +
-          "defaulting to 6380. Set REDIS_PORT explicitly to avoid connecting " +
-          "to an unintended Redis instance."
-        );
+        if (!this._redisPortWarned) {
+          this._redisPortWarned = true;
+          this.logger.warn(
+            "REDIS_HOST is set but REDIS_PORT is missing — " +
+            "defaulting to 6380. Set REDIS_PORT explicitly to avoid connecting " +
+            "to an unintended Redis instance."
+          );
+        }
       }
       try {
         await new Promise<void>((resolve, reject) => {

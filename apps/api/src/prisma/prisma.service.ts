@@ -75,10 +75,10 @@ export class PrismaService
     this.warnIfMissingAdminUrl();
   }
 
-  /** Log a warning if DATABASE_ADMIN_URL is not set in development. */
+  /** Log a debug message if DATABASE_ADMIN_URL is not set in development. */
   private warnIfMissingAdminUrl(): void {
     if (!process.env.DATABASE_ADMIN_URL?.trim() && process.env.NODE_ENV === "development") {
-      this.logger.warn(
+      this.logger.debug(
         "DATABASE_ADMIN_URL is not set in development — the admin " +
         "client falls back to DATABASE_URL. Audit logs and idempotency records " +
         "(which use the admin client to bypass RLS) will be silently rejected " +
