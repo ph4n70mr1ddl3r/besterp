@@ -164,6 +164,30 @@ describe("TenantGuard", () => {
     expect(() => guard.canActivate(ctx)).toThrow(UnauthorizedException);
   });
 
+  it("throws UnauthorizedException when agentId contains invalid characters", () => {
+    // agentId must match TENANT_ID_PATTERN at the auth boundary so control
+    // chars or injected payloads never reach durable sinks (ai_action_log,
+    // idempotency_record). Defense-in-depth: JwtStrategy trims+length-checks
+    // but does not validate charset.
+    (reflector.getAllAndOverride as any).mockReturnValue(false);
+    const ctx = makeContext({
+      user: { userId: "u1", tenantId: "t1", agentId: "agent; DROP TABLE" },
+    });
+
+    expect(() => guard.canActivate(ctx)).toThrow(UnauthorizedException);
+  });
+
+  it("accepts a valid agentId with only valid characters", () => {
+    (reflector.getAllAndOverride as any).mockReturnValue(false);
+    const ctx = makeContext({
+      user: { userId: "u1", tenantId: "t1", agentId: "agent_123-safe" },
+    });
+
+    expect(guard.canActivate(ctx)).toBe(true);
+    const req = ctx.switchToHttp().getRequest() as any;
+    expect(req.tenantContext.agentId).toBe("agent_123-safe");
+  });
+
   it("accepts a userId with only valid characters (alphanumeric, hyphen, underscore)", () => {
     (reflector.getAllAndOverride as any).mockReturnValue(false);
     const ctx = makeContext({

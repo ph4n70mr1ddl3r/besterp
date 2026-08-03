@@ -199,21 +199,63 @@ describe("McpService", () => {
       // that contains a secret-shaped substring. The pattern check runs BEFORE
       // sanitization, so the raw value must pass the charset gate; sanitization
       // then redacts the secret portion.
+      // agentId/conversationId now also pass the charset gate BEFORE sanitization,
+      // so we use valid-char shapes that still carry secret-shaped payloads.
       const ctx = mcpService.buildContext({
         tenantId: "tenant-1",
         userId: "us-sk_live_realsecret123",
-        agentId: "agent_a<img src=x>",
-        conversationId: 'conv_"password=hunter2"',
+        agentId: "agent-a-password-hidden",
+        conversationId: "conv_123_session-token",
         reasoning: "r<iframe src=evil>",
       });
       // userId passes pattern check (hyphen creates word boundary before sk_live_)
       // then gets sanitized; the sk_live_ prefix triggers the provider-secret rule
       expect(ctx.userId).toBe("us-[REDACTED_API_KEY]");
       // agentId/conversationId/reasoning also go through sanitizeForLogOutput
-      expect(ctx.agentId).not.toContain("<img");
-      expect(ctx.conversationId).not.toContain("hunter2");
-      expect(ctx.conversationId).toContain("[REDACTED]");
+      // (agentId is a valid alphanumeric+hyphen+underscore shape so it survives;
+      // conversationId contains a generic long-token shape that gets redacted).
+      expect(ctx.agentId).toBe("agent-a-password-hidden");
+      expect(ctx.conversationId).toBe("[REDACTED_TOKEN]");
       expect(ctx.reasoning).not.toContain("<iframe>");
+    });
+
+    it("should reject agentId with invalid characters before sanitization", () => {
+      // agentId must match TENANT_ID_PATTERN at the auth boundary so control
+      // chars or injected payloads never reach durable sinks. Invalid chars
+      // are rejected BEFORE sanitizeForLogOutput runs (matching userId).
+      expect(() =>
+        mcpService.buildContext({
+          tenantId: "tenant-1",
+          userId: "user-1",
+          agentId: "agent; DROP TABLE",
+        })
+      ).toThrow(InvalidTypeValueError);
+      expect(() =>
+        mcpService.buildContext({
+          tenantId: "tenant-1",
+          userId: "user-1",
+          agentId: "agent<42>",
+        })
+      ).toThrow(InvalidTypeValueError);
+    });
+
+    it("should reject conversationId with invalid characters before sanitization", () => {
+      // Same charset gate as userId and agentId — prevents control chars or
+      // injected payloads from reaching durable sinks via conversationId.
+      expect(() =>
+        mcpService.buildContext({
+          tenantId: "tenant-1",
+          userId: "user-1",
+          conversationId: "conv; DROP TABLE",
+        })
+      ).toThrow(InvalidTypeValueError);
+      expect(() =>
+        mcpService.buildContext({
+          tenantId: "tenant-1",
+          userId: "user-1",
+          conversationId: "conv<42>",
+        })
+      ).toThrow(InvalidTypeValueError);
     });
 
     it("should reject userId with invalid characters before sanitization", () => {

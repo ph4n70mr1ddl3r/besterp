@@ -271,8 +271,8 @@ export class HealthService implements OnModuleInit {
       // anonymous /version caller cannot learn infrastructure details.
       warning: this.packageInfoError ? sanitizeForLogOutput(this.packageInfoError) : undefined,
       build: {
-        number: process.env.BUILD_NUMBER ? sanitizeLogMessage(process.env.BUILD_NUMBER).slice(0, 50) : undefined,
-        date: process.env.BUILD_DATE ? sanitizeLogMessage(process.env.BUILD_DATE).slice(0, 30) : undefined,
+        number: process.env.BUILD_NUMBER ? sanitizeForLogOutput(process.env.BUILD_NUMBER).slice(0, 50) : undefined,
+        date: process.env.BUILD_DATE ? sanitizeForLogOutput(process.env.BUILD_DATE).slice(0, 30) : undefined,
       },
     };
   }

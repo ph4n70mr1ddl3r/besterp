@@ -118,10 +118,32 @@ export class McpService implements OnModuleInit {
 
     const agentId = McpService.validateOptionalField("agentId", overrides.agentId, MAX_AGENT_ID_LENGTH);
     const conversationId = McpService.validateOptionalField("conversationId", overrides.conversationId, MAX_CONVERSATION_ID_LENGTH);
-    const reasoning = McpService.validateOptionalField("reasoning", overrides.reasoning, MAX_REASONING_LENGTH);
 
-    const safeAgentId = agentId !== undefined ? sanitizeForLogOutput(stripHtmlTags(agentId)) : undefined;
-    const safeConversationId = conversationId !== undefined ? sanitizeForLogOutput(stripHtmlTags(conversationId)) : undefined;
+    // Enforce charset at the auth boundary for agentId and conversationId,
+    // matching the guard already applied to userId above. These fields are
+    // persisted verbatim into durable sinks (ai_action_log, idempotency_record),
+    // so invalid chars must be rejected before sanitization runs — a value
+    // containing e.g. `;` or `<` would otherwise only be caught later at the
+    // tool-registry execution boundary, leaving a defense-in-depth gap.
+    const rawAgentId = agentId ?? undefined;
+    if (rawAgentId !== undefined && !TENANT_ID_PATTERN.test(rawAgentId)) {
+      throw new InvalidTypeValueError(
+        "McpService.buildContext: agentId contains invalid characters. " +
+          "Agent IDs may only contain alphanumeric characters, hyphens, and underscores.",
+        { context: { field: "agentId" } }
+      );
+    }
+    const rawConversationId = conversationId ?? undefined;
+    if (rawConversationId !== undefined && !TENANT_ID_PATTERN.test(rawConversationId)) {
+      throw new InvalidTypeValueError(
+        "McpService.buildContext: conversationId contains invalid characters. " +
+          "Conversation IDs may only contain alphanumeric characters, hyphens, and underscores.",
+        { context: { field: "conversationId" } }
+      );
+    }
+    const safeAgentId = rawAgentId !== undefined ? sanitizeForLogOutput(stripHtmlTags(rawAgentId)) : undefined;
+    const safeConversationId = rawConversationId !== undefined ? sanitizeForLogOutput(stripHtmlTags(rawConversationId)) : undefined;
+    const reasoning = McpService.validateOptionalField("reasoning", overrides.reasoning, MAX_REASONING_LENGTH);
     const safeReasoning = reasoning !== undefined ? sanitizeForLogOutput(stripHtmlTags(reasoning)) : undefined;
 
     return {

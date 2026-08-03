@@ -96,7 +96,19 @@ export class TenantGuard implements CanActivate {
         "TenantGuard: agentId is not a string. JWT payload is malformed."
       );
     }
-    const agentId = user.agentId?.trim() || undefined;
+    // Enforce the same charset as userId: alphanumeric + hyphen + underscore.
+    // An agentId with invalid chars (e.g. `agent; DROP TABLE...`) that slipped
+    // through JwtStrategy's trim+length gate would otherwise be persisted
+    // verbatim into durable sinks (ai_action_log, idempotency_record). Match
+    // the guard already applied to userId on the preceding lines.
+    const rawAgentId = user.agentId?.trim() ?? "";
+    if (rawAgentId.length > 0 && !TENANT_ID_PATTERN.test(rawAgentId)) {
+      throw new UnauthorizedException(
+        "TenantGuard: agentId contains invalid characters. " +
+          "Agent IDs may only contain alphanumeric characters, hyphens, and underscores."
+      );
+    }
+    const agentId = rawAgentId || undefined;
 
     const tenantContext: TenantContext = {
       tenantId,
