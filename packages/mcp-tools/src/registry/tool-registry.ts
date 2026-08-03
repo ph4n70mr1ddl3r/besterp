@@ -12,7 +12,7 @@ import {
   ToolContext,
   RiskLevel,
 } from "../schema/tool-definition.js";
-import { MAX_IDEMPOTENCY_KEY_LENGTH, sanitizeForLogOutput, redactSensitiveFieldValues, validateTenantIdEnhancedForAuth, MAX_USER_ID_LENGTH, MAX_AGENT_ID_LENGTH, MAX_CONVERSATION_ID_LENGTH } from "@besterp/shared";
+import { MAX_IDEMPOTENCY_KEY_LENGTH, sanitizeForLogOutput, redactSensitiveFieldValues, validateTenantIdEnhancedForAuth, MAX_USER_ID_LENGTH, MAX_AGENT_ID_LENGTH, MAX_CONVERSATION_ID_LENGTH, TENANT_ID_PATTERN } from "@besterp/shared";
 import { isSensitiveField } from "../middleware/sensitive-fields.js";
 
 const VALID_RISK_LEVELS: readonly RiskLevel[] = ["none", "low", "medium", "high", "critical"];
@@ -283,7 +283,7 @@ export class ToolRegistry {
       return this.contextIdentityError("INVALID_USER_ID", "user identifier");
     }
     const userId = trimmedUserId;
-    if (userId.length === 0 || userId.length > MAX_USER_ID_LENGTH || !/^[a-zA-Z0-9_-]+$/.test(userId)) {
+    if (userId.length === 0 || userId.length > MAX_USER_ID_LENGTH || !TENANT_ID_PATTERN.test(userId)) {
       return this.contextIdentityError("INVALID_USER_ID", "user identifier");
     }
     // `agentId`/`conversationId` are persisted verbatim into the cross-tenant
@@ -319,7 +319,7 @@ export class ToolRegistry {
     maxLength: number,
   ): ToolResult | null {
     if (value === undefined) return null;
-    if (typeof value !== "string" || value.length === 0 || value.length > maxLength || !/^[a-zA-Z0-9_-]+$/.test(value)) {
+    if (typeof value !== "string" || value.length === 0 || value.length > maxLength || !TENANT_ID_PATTERN.test(value)) {
       return {
         success: false,
         error: {

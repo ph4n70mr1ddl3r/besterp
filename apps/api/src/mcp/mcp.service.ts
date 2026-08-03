@@ -147,7 +147,7 @@ export class McpService implements OnModuleInit {
     // so invalid chars must be rejected before sanitization runs — a value
     // containing e.g. `;` or `<` would otherwise only be caught later at the
     // tool-registry execution boundary, leaving a defense-in-depth gap.
-    const rawAgentId = agentId ?? undefined;
+    const rawAgentId = agentId;
     if (rawAgentId !== undefined && !TENANT_ID_PATTERN.test(rawAgentId)) {
       throw new InvalidTypeValueError(
         "McpService.buildContext: agentId contains invalid characters. " +
@@ -155,7 +155,7 @@ export class McpService implements OnModuleInit {
         { context: { field: "agentId" } }
       );
     }
-    const rawConversationId = conversationId ?? undefined;
+    const rawConversationId = conversationId;
     if (rawConversationId !== undefined && !TENANT_ID_PATTERN.test(rawConversationId)) {
       throw new InvalidTypeValueError(
         "McpService.buildContext: conversationId contains invalid characters. " +
