@@ -68,6 +68,12 @@ describe("QueueModule", () => {
       expect(() => QueueModule.forRoot()).toThrow("Invalid Redis port");
     });
 
+    it("should throw on port with trailing garbage (no silent parseInt truncation)", () => {
+      process.env.REDIS_PORT = "6380abc";
+      process.env.NODE_ENV = "development";
+      expect(() => QueueModule.forRoot()).toThrow("Invalid Redis port");
+    });
+
     it("should throw on port below 1", () => {
       process.env.REDIS_PORT = "0";
       process.env.NODE_ENV = "development";

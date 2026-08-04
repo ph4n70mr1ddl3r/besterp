@@ -284,6 +284,34 @@ describe("McpService", () => {
       expect(ctx.idempotencyKey).toBe("key_01H3X8Q5Y2GX4K1A2B3C4D5E6F");
     });
 
+    it("should preserve token-shaped mixed-case idempotency keys verbatim (never mangle into [REDACTED_TOKEN])", () => {
+      // Regression: buildContext previously ran the key through
+      // sanitizeForLogOutput, which collapsed valid mixed-case alphanumeric
+      // keys into [REDACTED_TOKEN]. That breaks idempotency dedup (distinct
+      // requests would share one record) — the key must survive verbatim.
+      const mixedCaseKey = "req-aB3xY9zW1qR7cV2mN5pL8tJ4kH6fG9sD";
+      const ctx = mcpService.buildContext({
+        tenantId: "tenant-1",
+        userId: "user-1",
+        idempotencyKey: mixedCaseKey,
+      });
+      expect(ctx.idempotencyKey).toBe(mixedCaseKey);
+      expect(ctx.idempotencyKey).not.toBe("[REDACTED_TOKEN]");
+    });
+
+    it("should preserve idempotency keys containing SAFE_IDEMPOTENCY_KEY punctuation (must not HTML-strip)", () => {
+      // SAFE_IDEMPOTENCY_KEY = /^[!-~]+$/ explicitly permits `<`, `>`, `/`.
+      // buildContext must not run stripHtmlTags over the key, otherwise a
+      // valid key such as "invoice<42>/v1" would be rewritten and dedup broken.
+      const punctKey = "invoice<42>/v1";
+      const ctx = mcpService.buildContext({
+        tenantId: "tenant-1",
+        userId: "user-1",
+        idempotencyKey: punctKey,
+      });
+      expect(ctx.idempotencyKey).toBe(punctKey);
+    });
+
     it("should redact secret shapes in reasoning at the boundary (not just downstream)", () => {
       const ctx = mcpService.buildContext({
         tenantId: "tenant-1",

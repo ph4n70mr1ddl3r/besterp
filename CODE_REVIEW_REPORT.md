@@ -2,8 +2,61 @@
 
 ## Scope
 Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
-`mcp-tools`, `apps/api`) conducted on 2026-08-04. This is review 84;
-rounds 1–83 are documented in earlier revisions of this file and `CHANGES.md`.
+`mcp-tools`, `apps/api`) conducted on 2026-08-04. This is review 87;
+rounds 1–86 are documented in earlier revisions of this file and `CHANGES.md`.
+
+## Findings & Actions (round 87)
+
+### Fixed this round
+
+1. **🟡 `mcp.service.ts:validateIdempotencyKey` — valid idempotency keys were
+   mangled by `sanitizeForLogOutput(stripHtmlTags(raw))`, breaking the idempotency
+   dedup contract.** The idempotency key is the dedup identity for
+   `idempotency_record`: the middleware persists `context.idempotencyKey` verbatim
+   and looks records up by exact match. Running the key through `sanitizeForLogOutput`
+   collapsed valid mixed-case alphanumeric keys (≥ ~20 chars, e.g.
+   `req-aB3xY9zW1qR7cV2mN5pL8tJ4kH6fG9sD`) into `[REDACTED_TOKEN]`, so distinct
+   operations collapsed onto the same record and replays could hit a different
+   operation's cached result. `stripHtmlTags` additionally rewrote valid keys
+   containing `<`, `>`, `/` (all permitted by `SAFE_IDEMPOTENCY_KEY = /^[!-~]+$/`).
+   This also contradicted the documented design (round 84/85): identity fields are
+   charset-validated at `buildContext` but NOT sanitized there — sanitization belongs
+   to the durable sinks. Fixed by returning the raw trimmed key (already
+   printable-ASCII-validated, hence log-safe by construction). Updated the
+   `buildContext` doc comment to state the split explicitly. Regression tests added:
+   mixed-case token-shaped key preserved verbatim (never `[REDACTED_TOKEN]`), and a
+   key with `SAFE_IDEMPOTENCY_KEY` punctuation (`invoice<42>/v1`) preserved verbatim.
+
+2. **🟢 `queue.module.ts:resolvePort` — `Number.parseInt(REDIS_PORT, 10)` silently
+   truncated trailing garbage.** `REDIS_PORT=6380abc` parsed to `6380`, contradicting
+   the module's fail-closed posture (host/password guards reject any misconfiguration).
+   Switched to strict `Number()` parsing so `6380abc` → `NaN` → "Invalid Redis port".
+   Regression test added.
+
+### Reviewed but NOT changed (false positives / deferred)
+
+- **`mcp.service.ts:validateOptionalIds` — redundant `stripHtmlTags` on agentId/
+  conversationId:** after round 85 charset validation (`TENANT_ID_PATTERN`) the call is
+  provably a no-op; left in place as documented defense-in-depth.
+- **Prisma boot-time RLS drift guard (`user_session` force-RLS message):** re-verified
+  as an intentional regression test (`prisma.service.spec.ts` "refuses to boot when an
+  unexpected table has force RLS"); `user_session` exists only in the test mock, not
+  in `schema.prisma`. No schema drift.
+- **`idempotency.ts`/`audit-log.ts` durable sinks still run the key through
+  `redactKey(...)` for log lines only; the DB record key uses the raw context value
+  verbatim** — consistent with the fix.
+- **Tool-registry raw-input idempotency-key promotion path** re-verified: promoted
+  value is re-validated by the middleware's `SAFE_IDEMPOTENCY_KEY` check before use.
+
+## Test Results (round 87)
+```
+api:       352 passed (15 files)  (+3 — round 87 key-preservation + port parsing regressions)
+shared:    219 passed (4 files)   (unchanged)
+mcp-tools: 147 passed (4 files)   (unchanged)
+database:   26 passed, 10 skipped (2 files) (unchanged)
+────────────────────────────────────
+Total:     744 passed, 10 skipped
+```
 
 ## Findings & Actions (round 84)
 

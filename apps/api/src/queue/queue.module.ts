@@ -84,7 +84,10 @@ export class QueueModule {
 
   private static resolvePort(explicitPort?: number): number {
     if (explicitPort !== undefined) return this.validatePort(explicitPort);
-    if (process.env.REDIS_PORT) return this.validatePort(Number.parseInt(process.env.REDIS_PORT, 10));
+    // Number() (not parseInt) so trailing garbage like "6380abc" is rejected
+    // as invalid rather than silently truncated to 6380 — consistent with the
+    // fail-closed posture of the host/password guards.
+    if (process.env.REDIS_PORT) return this.validatePort(Number(process.env.REDIS_PORT));
     // Mirror the fail-closed posture of the host/password guards: silently
     // defaulting to 6380 in production could point the app at an unintended
     // Redis instance (e.g. an unrelated service on the same host) with no

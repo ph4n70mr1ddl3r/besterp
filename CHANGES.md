@@ -1,5 +1,16 @@
 # BestERP — Security & Architecture Fixes
 
+## Changes Applied (2026-08-04) — Code Review Round 87
+
+### 🟡 `apps/api/src/mcp/mcp.service.ts` — valid idempotency keys mangled by `sanitizeForLogOutput(stripHtmlTags(...))`, breaking idempotent dedup
+
+**Problem:** `validateIdempotencyKey` ran the validated key through `sanitizeForLogOutput(stripHtmlTags(raw))`. The idempotency key is the dedup identity for `idempotency_record` — the middleware persists `context.idempotencyKey` verbatim and replays are matched by exact key. `sanitizeForLogOutput` collapsed valid mixed-case alphanumeric keys (≥ ~20 chars) into `[REDACTED_TOKEN]`, so distinct operations collapsed onto the same record and a retry could be served another operation's cached result. `stripHtmlTags` additionally rewrote valid keys containing `<`, `>`, `/` (all permitted by `SAFE_IDEMPOTENCY_KEY = /^[!-~]+$/`). This also contradicted the round-84/85 design: identity fields are charset-validated at `buildContext`, sanitized only at the durable sinks.
+**Fix:** Return the raw trimmed key verbatim — it is printable-ASCII-validated, hence log-safe by construction. Updated the `buildContext` doc comment to state the identity/content split explicitly. Added 2 regression tests: (1) token-shaped mixed-case key preserved verbatim (never `[REDACTED_TOKEN]`), (2) key with `SAFE_IDEMPOTENCY_KEY` punctuation (`invoice<42>/v1`) preserved verbatim.
+
+### 🟢 `apps/api/src/queue/queue.module.ts` — `Number.parseInt(REDIS_PORT, 10)` silently truncated trailing garbage
+
+**Improvement:** `REDIS_PORT=6380abc` parsed to `6380` via `parseInt`, contradicting the module's fail-closed posture (host/password guards reject any misconfiguration). Switched to strict `Number()` parsing so `6380abc` → `NaN` → "Invalid Redis port". Regression test added.
+
 ## Changes Applied (2026-08-04) — Code Review Round 84
 
 ### 🟡 `apps/api/src/mcp/mcp.service.ts` — userId pattern validation now runs BEFORE sanitization

@@ -39,11 +39,14 @@ export class McpService implements OnModuleInit {
   /**
    * Build the MCP tool context from request overrides.
    * 
-   * All string inputs are sanitized to prevent secret leakage and XSS:
-   * - HTML tags stripped via stripHtmlTags
-   * - Secrets/URLs redacted via sanitizeForLogOutput
-   * - Whitespace trimmed
-   * - Length caps enforced via shared constants
+   * All string inputs are validated at this boundary to prevent secret
+   * leakage and XSS:
+   * - Identity fields (userId, agentId, conversationId, idempotencyKey) are
+   *   charset-validated and returned raw so they stay usable for correlation
+   *   and idempotent dedup; sanitization runs at the durable-sink surfaces.
+   * - Content fields (reasoning) have HTML tags stripped via stripHtmlTags
+   *   and secrets/URLs redacted via sanitizeForLogOutput.
+   * - Whitespace trimmed, length caps enforced via shared constants.
    * 
    * @param overrides - Context overrides including tenantId, userId, optional fields
    */
@@ -134,7 +137,14 @@ export class McpService implements OnModuleInit {
         { context: { field: "idempotencyKey" } }
       );
     }
-    return raw !== undefined ? sanitizeForLogOutput(stripHtmlTags(raw)) : undefined;
+    // Return the raw trimmed key verbatim. SAFE_IDEMPOTENCY_KEY already
+    // restricts the key to printable ASCII (no CR/LF/log-injection), so the
+    // value is log-safe by construction and must NOT be passed through
+    // sanitizeForLogOutput/stripHtmlTags here: it is the dedup identity for
+    // idempotency_record, and any transformation (redaction of mixed-case
+    // token-shaped keys, HTML-tag stripping of permitted `<>/` chars) would
+    // corrupt the key and collapse distinct requests onto the same record.
+    return raw;
   }
 
   private validateOptionalIds(overrides: { agentId?: string; conversationId?: string }): { agentId: string | undefined; conversationId: string | undefined } {
