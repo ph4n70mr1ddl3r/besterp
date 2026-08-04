@@ -16,11 +16,11 @@ if (!process.env.DATABASE_ADMIN_URL) {
   process.exit(1);
 }
 
-// Normalize NODE_ENV early (case-insensitive) so "Production"/"PRODUCTION"
+// Normalize NODE_ENV early (case-insensitive, trimmed) so " Production "
 // cannot bypass the guard below. This script runs as a standalone process
 // that does NOT go through main.ts's normalizeEnvironment().
 if (process.env.NODE_ENV) {
-  process.env.NODE_ENV = process.env.NODE_ENV.toLowerCase();
+  process.env.NODE_ENV = process.env.NODE_ENV.trim().toLowerCase();
 }
 
 // Destructive admin operation that bypasses RLS. Refuse to run against

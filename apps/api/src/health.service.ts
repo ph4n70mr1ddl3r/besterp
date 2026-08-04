@@ -108,7 +108,7 @@ export class HealthService implements OnModuleInit {
   async getHealth(): Promise<HealthStatus> {
     const timestamp = new Date().toISOString();
     const uptime = Math.round(process.uptime() * 1000); // ms since process started
-    const environment = process.env.NODE_ENV || "development";
+    const environment = process.env.NODE_ENV?.trim().toLowerCase() || "development";
 
     // Check database connectivity — use the app client (RLS-enforced path).
     // `SELECT 1` does not access any tenant-scoped table, so RLS policies
@@ -295,7 +295,7 @@ export class HealthService implements OnModuleInit {
     return {
       version: this.packageInfo.version,
       name: this.packageInfo.name,
-      environment: process.env.NODE_ENV || "development",
+      environment: process.env.NODE_ENV?.trim().toLowerCase() || "development",
       // Suppress filesystem-path errors in production to avoid information
       // disclosure about the container/server layout. Even in non-production,
       // scrub file paths / connection strings from the message so an
