@@ -6,7 +6,7 @@
 
 import { Injectable, Logger, OnModuleInit } from "@nestjs/common";
 import { PrismaService } from "./prisma/prisma.service.js";
-import { sanitizeForLogOutput, sanitizeLogMessage, resolveRedisTls, isDev, isProd } from "@besterp/shared";
+import { sanitizeForLogOutput, sanitizeLogMessage, resolveRedisTls, isDev, isProd, DEFAULT_REDIS_PORT } from "@besterp/shared";
 import * as fs from "node:fs/promises";
 import * as net from "node:net";
 import * as tls from "node:tls";
@@ -175,21 +175,21 @@ export class HealthService implements OnModuleInit {
     }
 
     // Mirror QueueModule's production guard: if REDIS_HOST is set but
-    // REDIS_PORT is absent, defaulting to 6380 silently could connect to an
+    // REDIS_PORT is absent, defaulting to DEFAULT_REDIS_PORT silently could connect to an
     // unintended Redis instance (the same footgun QueueModule refuses in
     // production). Log a warning in non-production so operators notice the
     // misconfiguration rather than probing the wrong service. In production
     // QueueModule throws before this code is reachable, so the warning only
-    // fires in staging/dev where both surfaces default to 6380.
+    // fires in staging/dev where both surfaces default to DEFAULT_REDIS_PORT.
     if (!process.env.REDIS_PORT && !isDev()) {
       this.warnOnce(
         "REDIS_HOST is set but REDIS_PORT is missing — " +
-        "defaulting to 6380. Set REDIS_PORT explicitly to avoid connecting " +
+        `defaulting to ${DEFAULT_REDIS_PORT}. Set REDIS_PORT explicitly to avoid connecting ` +
         "to an unintended Redis instance."
       );
     }
 
-    const redisPort = Number(process.env.REDIS_PORT || 6380);
+    const redisPort = Number(process.env.REDIS_PORT || DEFAULT_REDIS_PORT);
     if (!Number.isInteger(redisPort) || redisPort < 1 || redisPort > 65535) {
       this.warnOnce(
         `REDIS_PORT "${process.env.REDIS_PORT}" is invalid — skipping the Redis health check. ` +

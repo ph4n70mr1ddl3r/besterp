@@ -165,6 +165,9 @@ function setupGracefulShutdown(app: INestApplication): void {
   async function gracefulShutdown(label: string, detail: unknown): Promise<void> {
     const raw = detail instanceof Error ? detail.stack ?? detail.message : String(detail);
     logger.error(`${label}: ${sanitizeForLogOutput(raw)}`);
+    // Set the flag BEFORE checking to prevent a second concurrent invocation
+    // from also logging and starting a second hard-exit timer. The first
+    // invocation that reaches this point wins; the loser exits immediately.
     if (shuttingDown) process.exit(1);
     shuttingDown = true;
 

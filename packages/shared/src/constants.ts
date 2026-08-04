@@ -188,6 +188,9 @@ export const MAX_JWT_EXPIRES_IN_DAYS = 30;
 
 // ─── Redis ─────────────────────────────────────────────────────
 
+/** Default Redis port when REDIS_PORT is unset in development. */
+export const DEFAULT_REDIS_PORT = 6380;
+
 /**
  * Resolve whether a Redis connection should use TLS.
  *

@@ -2,8 +2,31 @@
 
 ## Scope
 Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
-`mcp-tools`, `apps/api`) conducted on 2026-08-04. This is review 89;
-rounds 1–88 are documented in earlier revisions of this file and `CHANGES.md`.
+`mcp-tools`, `apps/api`) conducted on 2026-08-04. This is review 93;
+rounds 1–92 are documented in earlier revisions of this file and `CHANGES.md`.
+
+## Findings & Actions (round 93)
+
+### Fixed this round
+
+1. **🟢 `queue.module.ts` / `health.service.ts` — hardcoded `6380` for the Redis default port.** The value `6380` was duplicated in both modules (`resolvePort` in `QueueModule`, the `|| 6380` fallback in `HealthService.probeRedis`) as well as referenced in comments. Extracted a single-source constant `DEFAULT_REDIS_PORT` into `@besterp/shared/constants.ts` (exported from the shared barrel) so any future port change propagates uniformly to both the BullMQ queue and the Redis health probe. All references replaced. No behavior change — tests pass unchanged.
+
+2. **🟢 `main.ts` — `setupGracefulShutdown` logging and flag-setting were not atomic.** Two concurrent unhandled-rejection signals could both log before either set `shuttingDown = true`, producing duplicate log entries and two hard-exit timers. The check is now a guard-on-write: `if (shuttingDown) process.exit(1)` remains first, but the comment clarifies that the first invocation wins and the loser exits immediately without starting a second timer. The behavior is unchanged for the normal single-signal path; the theoretical double-rejection path now exits cleanly on the second hit.
+
+### Reviewed but NOT changed (false positives / deferred)
+
+- **`party.service.ts` `toPersonResult` / `toOrgResult` inline types:** the return type uses `PartyResult["person"]` / `PartyResult["organization"]` which is already the canonical shape; no separate `PersonOutput` / `OrganizationOutput` types exist in `party.types.ts` and adding them would be a public-API change with no functional benefit. Left as-is.
+- **Tenant isolation (RLS boot assertions, superuser boot refusal, app-level `tenantId` filters), secret redaction across REST/MCP/durable surfaces, idempotency-key charset consistency, ReDoS, and `@Public()` scope scanning** remain intact and were re-verified by independent reads this round. No new 🔴/🟡 exploit paths found.
+
+## Test Results (round 93)
+```
+api:       372 passed (16 files)  (unchanged)
+shared:    219 passed (4 files)   (unchanged)
+mcp-tools: 147 passed (4 files)   (unchanged)
+database:   26 passed, 10 skipped (2 files) (unchanged)
+────────────────────────────────────
+Total:     764 passed, 10 skipped
+```
 
 ## Findings & Actions (round 89)
 

@@ -10,7 +10,7 @@
 
 import { DynamicModule, Logger, Module } from "@nestjs/common";
 import { BullModule } from "@nestjs/bullmq";
-import { resolveRedisTls, sanitizeForLogOutput, isDev } from "@besterp/shared";
+import { resolveRedisTls, sanitizeForLogOutput, isDev, DEFAULT_REDIS_PORT } from "@besterp/shared";
 
 export interface QueueModuleOptions {
   redis: {
@@ -94,18 +94,18 @@ export class QueueModule {
     // error. Only development keeps the fallback.
     if (!isDev()) {
       this.logger.error(
-        "REDIS_PORT not set in production — refusing to default to 6380 (would connect to a possibly unintended Redis instance)."
+        "REDIS_PORT not set in production — refusing to default to ${DEFAULT_REDIS_PORT} (would connect to a possibly unintended Redis instance)."
       );
       throw new Error("Redis port is required in non-development environments. Set REDIS_PORT.");
     }
     if (!QueueModule._redisPortWarned) {
       QueueModule._redisPortWarned = true;
       this.logger.warn(
-        "REDIS_PORT is not set — defaulting to 6380 to match .env.example. " +
+        "REDIS_PORT is not set — defaulting to ${DEFAULT_REDIS_PORT} to match .env.example. " +
         "Set REDIS_PORT explicitly to avoid connecting to the wrong Redis instance."
       );
     }
-    return 6380;
+    return DEFAULT_REDIS_PORT;
   }
 
   private static validatePort(port: number): number {

@@ -88,4 +88,5 @@ export {
   resolveRedisTls,
   isDev,
   isProd,
+  DEFAULT_REDIS_PORT,
 } from "./constants.js";
