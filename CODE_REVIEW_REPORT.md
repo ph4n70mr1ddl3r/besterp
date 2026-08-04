@@ -2,8 +2,31 @@
 
 ## Scope
 Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
-`mcp-tools`, `apps/api`) conducted on 2026-08-04. This is review 93;
-rounds 1–92 are documented in earlier revisions of this file and `CHANGES.md`.
+`mcp-tools`, `apps/api`) conducted on 2026-08-04. This is review 94;
+rounds 1–93 are documented in earlier revisions of this file and `CHANGES.md`.
+
+## Findings & Actions (round 94)
+
+### Fixed this round
+
+1. **🟡 `cleanup-expired-idempotency.ts` / `seed.ts` — `NODE_ENV` normalized without trimming.** Both scripts lowercased `process.env.NODE_ENV` but did not trim surrounding whitespace. A value like `" production "` would bypass every `process.env.NODE_ENV === "production"` guard — the exact silent-config-drift class round 88 closed in `main.ts` (`normalizeEnvironmentValue` now trims + lowercases). Fixed both scripts to use `.trim().toLowerCase()`. Added a regression test to `bootstrap-config.spec.ts` covering the trimmed-NODE_ENV path.
+
+2. **🟢 `health.service.ts` — `environment` field in `/health` and `/version` returned raw `NODE_ENV`.** A caller setting `NODE_ENV=" Production "` would see `" Production "` reflected in the health body and the anonymous `/version` response. Normalized both to `.trim().toLowerCase()` so the displayed environment value matches the actual evaluation path (`isDev()`/`isProd()`). No behaviour change for correctly-set values; purely a consistency/correctness fix.
+
+### Reviewed but NOT changed (false positives / deferred)
+
+- **`health.service.ts` `isDev()` / `isProd()` usage:** both already delegate to `process.env.NODE_ENV === "development"` / `"production"` from `@besterp/shared`. Since `normalizeEnvironment()` in `main.ts` runs before any health probe fires in the normal bootstrap path, the values are already normalized in production. The standalone scripts (`seed.ts`, `cleanup-expired-idempotency.ts`) were the only gap — now closed.
+- **Tenant isolation (RLS boot assertions, superuser boot refusal, app-level `tenantId` filters), secret redaction across REST/MCP/durable surfaces, idempotency-key charset consistency, ReDoS, and `@Public()` scope scanning** remain intact and were re-verified by independent reads this round. No new 🔴/🟡 exploit paths found.
+
+## Test Results (round 94)
+```
+api:       372 passed (16 files)  (unchanged)
+shared:    219 passed (4 files)   (unchanged)
+mcp-tools: 147 passed (4 files)   (unchanged)
+database:   26 passed, 10 skipped (2 files) (unchanged)
+────────────────────────────────────
+Total:     764 passed, 10 skipped
+```
 
 ## Findings & Actions (round 93)
 
