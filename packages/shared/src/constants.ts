@@ -206,3 +206,17 @@ export function resolveRedisTls(): boolean {
   if (["0", "false", "no"].includes(raw)) return false;
   return process.env.NODE_ENV !== "development";
 }
+
+/**
+ * Normalized development-environment check.
+ *
+ * Returns true when NODE_ENV has been normalised (via bootstrap-config's
+ * normalizeEnvironmentValue) to the literal string "development". Centralising
+ * this in @besterp/shared ensures every surface — the REST domain-exception
+ * filter, the health probe, and future modules — uses the same check rather
+ * than duplicating `process.env.NODE_ENV === "development"` inline, which is
+ * easy to get wrong (e.g. casing, missing trim) and silently inconsistent.
+ */
+export function isDev(): boolean {
+  return process.env.NODE_ENV === "development";
+}

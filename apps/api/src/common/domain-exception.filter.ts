@@ -17,13 +17,8 @@ import {
   stripHtmlTags, redactSensitiveFieldValues,
   EntityNotFoundError, DuplicateEntityError, ConcurrencyConflictError,
   MissingSubtypeDataError, InvalidTypeValueError, InvalidTenantIdError,
-  TenantContextFailedError,
+  TenantContextFailedError, isDev,
 } from "@besterp/shared";
-
-/** Normalized development-environment check — mirrors main.ts normalizeEnvironment(). */
-function isDev(): boolean {
-  return process.env.NODE_ENV === "development";
-}
 
 /**
  * Map a DomainError code to an HTTP status code.

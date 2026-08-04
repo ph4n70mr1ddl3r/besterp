@@ -11,7 +11,7 @@ import {
   ToolDefinition,
   ToolContext,
 } from "@besterp/mcp-tools";
-import { InvalidTypeValueError, sanitizeForLogOutput, stripHtmlTags } from "@besterp/shared";
+import { InvalidTypeValueError } from "@besterp/shared";
 
 /** Bounds the free-text `entity` filter so an unbounded string isn't allocated
  * and compared against every tool's entity (consistency with every other MCP
@@ -98,10 +98,10 @@ async function queryTypeTable(
     select: { [idField]: true, name: true, description: true, aiPromptHint: true },
   });
   return rows.map((r) => ({
-    id: typeof r[idField] === "string" ? sanitizeForLogOutput(stripHtmlTags(r[idField] as string)) : null,
-    name: typeof r.name === "string" ? sanitizeForLogOutput(stripHtmlTags(r.name)) : null,
-    description: typeof r.description === "string" ? sanitizeForLogOutput(stripHtmlTags(r.description)) : null,
-    aiPromptHint: typeof r.aiPromptHint === "string" ? sanitizeForLogOutput(stripHtmlTags(r.aiPromptHint)) : null,
+    id: typeof r[idField] === "string" ? r[idField] : null,
+    name: typeof r.name === "string" ? r.name : null,
+    description: typeof r.description === "string" ? r.description : null,
+    aiPromptHint: typeof r.aiPromptHint === "string" ? r.aiPromptHint : null,
   }));
 }
 
