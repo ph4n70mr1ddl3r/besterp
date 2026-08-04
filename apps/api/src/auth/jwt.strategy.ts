@@ -150,9 +150,8 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       // returning 401 to the client. A bare "tenantId failed format validation"
       // loses the specific cause (e.g. INVALID_TENANT_ID vs a validation error),
       // making debugging harder.
-      const logger = new Logger(JwtStrategy.name);
       const msg = e instanceof Error ? e.message : String(e);
-      logger.warn(`Tenant validation failed for token: ${msg}`);
+      _logger.warn(`Tenant validation failed for token: ${msg}`);
       throw new UnauthorizedException(
         "Invalid token: tenantId failed format validation."
       );

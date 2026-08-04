@@ -10,7 +10,7 @@
 
 import { DynamicModule, Logger, Module } from "@nestjs/common";
 import { BullModule } from "@nestjs/bullmq";
-import { resolveRedisTls, sanitizeForLogOutput } from "@besterp/shared";
+import { resolveRedisTls, sanitizeForLogOutput, isDev } from "@besterp/shared";
 
 export interface QueueModuleOptions {
   redis: {
@@ -32,7 +32,7 @@ export class QueueModule {
     // rather than erroring. Only development keeps the localhost fallback so a
     // local dev box can run without env wiring; production must set REDIS_HOST
     // explicitly (mirrors resolvePassword's production guard).
-    if (!rawHost && process.env.NODE_ENV?.toLowerCase() !== "development") {
+    if (!rawHost && !isDev()) {
       this.logger.error(
         "REDIS_HOST not set in production — refusing to default to localhost (would connect to an unintended Redis instance)."
       );
@@ -65,7 +65,7 @@ export class QueueModule {
     if (password !== undefined && password.trim().length === 0) {
       throw new Error("Redis password is set but empty. Provide a non-empty password or unset REDIS_PASSWORD.");
     }
-    if (!password && process.env.NODE_ENV?.toLowerCase() !== "development") {
+    if (!password && !isDev()) {
       this.logger.error(
         "REDIS_PASSWORD not set in production — refusing to connect without authentication."
       );
@@ -92,7 +92,7 @@ export class QueueModule {
     // defaulting to 6380 in production could point the app at an unintended
     // Redis instance (e.g. an unrelated service on the same host) with no
     // error. Only development keeps the fallback.
-    if (process.env.NODE_ENV?.toLowerCase() !== "development") {
+    if (!isDev()) {
       this.logger.error(
         "REDIS_PORT not set in production — refusing to default to 6380 (would connect to a possibly unintended Redis instance)."
       );

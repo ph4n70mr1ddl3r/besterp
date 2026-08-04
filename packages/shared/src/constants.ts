@@ -220,3 +220,17 @@ export function resolveRedisTls(): boolean {
 export function isDev(): boolean {
   return process.env.NODE_ENV === "development";
 }
+
+/**
+ * Normalized production-environment check.
+ *
+ * Returns true only when NODE_ENV is the literal string "production". This is
+ * the complement of {@link isDev} but NOT equivalent to `!isDev()`: values
+ * such as "staging", "test", or undefined are neither development nor
+ * production, and should NOT be treated as production for the purposes of
+ * information-disclosure guards. Mirrors the inline `process.env.NODE_ENV ===
+ * "production"` checks that existed in health.service.ts and health.controller.ts.
+ */
+export function isProd(): boolean {
+  return process.env.NODE_ENV === "production";
+}

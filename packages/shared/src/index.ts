@@ -87,4 +87,5 @@ export {
   MAX_JWT_EXPIRES_IN_DAYS,
   resolveRedisTls,
   isDev,
+  isProd,
 } from "./constants.js";

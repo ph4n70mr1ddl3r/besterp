@@ -157,23 +157,21 @@ export class McpService implements OnModuleInit {
     // so invalid chars must be rejected before sanitization runs — a value
     // containing e.g. `;` or `<` would otherwise only be caught later at the
     // tool-registry execution boundary, leaving a defense-in-depth gap.
-    const rawAgentId = agentId;
-    if (rawAgentId !== undefined && !TENANT_ID_PATTERN.test(rawAgentId)) {
+    if (agentId !== undefined && !TENANT_ID_PATTERN.test(agentId)) {
       throw new InvalidTypeValueError(
         "McpService.buildContext: agentId contains invalid characters. " +
           "Agent IDs may only contain alphanumeric characters, hyphens, and underscores.",
         { context: { field: "agentId" } }
       );
     }
-    const rawConversationId = conversationId;
-    if (rawConversationId !== undefined && !TENANT_ID_PATTERN.test(rawConversationId)) {
+    if (conversationId !== undefined && !TENANT_ID_PATTERN.test(conversationId)) {
       throw new InvalidTypeValueError(
         "McpService.buildContext: conversationId contains invalid characters. " +
           "Conversation IDs may only contain alphanumeric characters, hyphens, and underscores.",
         { context: { field: "conversationId" } }
       );
     }
-    return { agentId: rawAgentId, conversationId: rawConversationId };
+    return { agentId, conversationId };
   }
 
   private validateReasoning(value: string | undefined): string | undefined {

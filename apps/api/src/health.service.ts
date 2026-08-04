@@ -6,7 +6,7 @@
 
 import { Injectable, Logger, OnModuleInit } from "@nestjs/common";
 import { PrismaService } from "./prisma/prisma.service.js";
-import { sanitizeForLogOutput, sanitizeLogMessage, resolveRedisTls, isDev } from "@besterp/shared";
+import { sanitizeForLogOutput, sanitizeLogMessage, resolveRedisTls, isDev, isProd } from "@besterp/shared";
 import * as fs from "node:fs/promises";
 import * as net from "node:net";
 import * as tls from "node:tls";
@@ -275,7 +275,6 @@ export class HealthService implements OnModuleInit {
    */
   async getVersion(): Promise<VersionInfo> {
     await this.packageInfoReady;
-    const isProd = process.env.NODE_ENV === "production";
     // The /version endpoint is anonymous (@Public()), so it is reachable by
     // anyone — including unauthenticated attackers. Returning the exact
     // package name + semantic version in production fingerprints the build,
@@ -284,7 +283,7 @@ export class HealthService implements OnModuleInit {
     // production return only a generic, non-fingerprintable marker. Operators
     // still get the full triplet in non-production (dev/staging/preview), where
     // the build is not a deployed attack surface.
-    if (isProd) {
+    if (isProd()) {
       return {
         version: "redacted",
         name: "redacted",
