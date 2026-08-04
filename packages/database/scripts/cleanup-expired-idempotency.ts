@@ -7,7 +7,7 @@
 //   DATABASE_ADMIN_URL="..." npx tsx packages/database/scripts/cleanup-expired-idempotency.ts
 
 import { PrismaClient } from "@prisma/client";
-import { sanitizeForLogOutput } from "@besterp/shared";
+import { sanitizeForLogOutput, isDev } from "@besterp/shared";
 
 if (!process.env.DATABASE_ADMIN_URL) {
   console.error("DATABASE_ADMIN_URL is required for idempotency cleanup (bypasses RLS). " +
@@ -27,7 +27,7 @@ if (process.env.NODE_ENV) {
 // production unless explicitly opted in via ALLOW_CLEANUP_PRODUCTION=1 — a
 // cron misconfiguration pointing DATABASE_ADMIN_URL at prod must not wipe
 // expired idempotency records unattended.
-if (process.env.NODE_ENV === "production" && process.env.ALLOW_CLEANUP_PRODUCTION !== "1") {
+if (!isDev() && process.env.ALLOW_CLEANUP_PRODUCTION !== "1") {
   console.error(
     "Refusing to run idempotency cleanup in production without opt-in. " +
     "Set ALLOW_CLEANUP_PRODUCTION=1 to run against a production database."

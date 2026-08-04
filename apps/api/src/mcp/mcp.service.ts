@@ -173,9 +173,7 @@ export class McpService implements OnModuleInit {
         { context: { field: "conversationId" } }
       );
     }
-    const safeAgentId = rawAgentId !== undefined ? stripHtmlTags(rawAgentId) : undefined;
-    const safeConversationId = rawConversationId !== undefined ? stripHtmlTags(rawConversationId) : undefined;
-    return { agentId: safeAgentId, conversationId: safeConversationId };
+    return { agentId: rawAgentId, conversationId: rawConversationId };
   }
 
   private validateReasoning(value: string | undefined): string | undefined {

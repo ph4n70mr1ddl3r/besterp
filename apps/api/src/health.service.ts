@@ -6,7 +6,7 @@
 
 import { Injectable, Logger, OnModuleInit } from "@nestjs/common";
 import { PrismaService } from "./prisma/prisma.service.js";
-import { sanitizeForLogOutput, sanitizeLogMessage, resolveRedisTls } from "@besterp/shared";
+import { sanitizeForLogOutput, sanitizeLogMessage, resolveRedisTls, isDev } from "@besterp/shared";
 import * as fs from "node:fs/promises";
 import * as net from "node:net";
 import * as tls from "node:tls";
@@ -181,7 +181,7 @@ export class HealthService implements OnModuleInit {
     // misconfiguration rather than probing the wrong service. In production
     // QueueModule throws before this code is reachable, so the warning only
     // fires in staging/dev where both surfaces default to 6380.
-    if (!process.env.REDIS_PORT && process.env.NODE_ENV !== "development") {
+    if (!process.env.REDIS_PORT && !isDev()) {
       this.warnOnce(
         "REDIS_HOST is set but REDIS_PORT is missing — " +
         "defaulting to 6380. Set REDIS_PORT explicitly to avoid connecting " +

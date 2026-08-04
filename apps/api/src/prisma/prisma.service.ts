@@ -11,7 +11,7 @@
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from "@nestjs/common";
 import { PrismaClient } from "@prisma/client";
 import { createTenantClient, validateTenantIdEnhanced, CreateTenantClientOptions, TenantScopedClient } from "@besterp/database";
-import { MAX_TENANT_CACHE_SIZE, sanitizeForLogOutput } from "@besterp/shared";
+import { MAX_TENANT_CACHE_SIZE, sanitizeForLogOutput, isDev } from "@besterp/shared";
 
 // Cache configuration constants — exported for testing and override via env
 export const DEFAULT_MAX_METHOD_CACHE_SIZE = 1000;
@@ -77,7 +77,7 @@ export class PrismaService
 
   /** Log a debug message if DATABASE_ADMIN_URL is not set in development. */
   private warnIfMissingAdminUrl(): void {
-    if (!process.env.DATABASE_ADMIN_URL?.trim() && process.env.NODE_ENV === "development") {
+    if (!process.env.DATABASE_ADMIN_URL?.trim() && !isDev()) {
       this.logger.debug(
         "DATABASE_ADMIN_URL is not set in development — the admin " +
         "client falls back to DATABASE_URL. Audit logs and idempotency records " +
@@ -91,7 +91,7 @@ export class PrismaService
   /** Resolve the admin datasource URL, failing closed in production. */
   private static resolveAdminUrl(): string | undefined {
     const adminUrl = process.env.DATABASE_ADMIN_URL?.trim();
-    if (!adminUrl && process.env.NODE_ENV !== "development") {
+    if (!adminUrl && !isDev()) {
       throw new Error(
         "DATABASE_ADMIN_URL is not set. The admin client requires a superuser " +
         "connection string to bypass RLS for audit/idempotency operations."
@@ -103,7 +103,7 @@ export class PrismaService
   /** Validate that required env vars are present for the app client. */
   private validateAppClientEnv(): void {
     if (!process.env.DATABASE_URL) {
-      if (process.env.NODE_ENV === "production") {
+      if (!isDev()) {
         throw new Error(
           "DATABASE_URL environment variable is not set. " +
           "The app client requires DATABASE_URL to connect as the RLS-enforced role."
@@ -115,7 +115,7 @@ export class PrismaService
       );
     }
     if (!process.env.DATABASE_ADMIN_URL) {
-      if (process.env.NODE_ENV === "production") {
+      if (!isDev()) {
         throw new Error(
           "DATABASE_ADMIN_URL environment variable is not set. " +
           "The admin client requires DATABASE_ADMIN_URL to connect as a superuser " +
