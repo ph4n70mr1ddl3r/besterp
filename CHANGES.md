@@ -1,5 +1,25 @@
 # BestERP — Security & Architecture Fixes
 
+## Changes Applied (2026-08-04) — Code Review Round 89
+
+### 🟡 `apps/api/src/main.ts` — `trust proxy` never configured; rate limiter keyed on the proxy IP and logged `ERR_ERL_UNEXPECTED_X_FORWARDED_FOR` on every proxied request
+
+**Problem:** The app never called `app.set("trust proxy", …)`, so behind any reverse proxy / load balancer (which always appends `X-Forwarded-For`) two things happened, verified by reproducing against the installed `express-rate-limit@8.5.1`:
+1. The limiter's default `keyGenerator` validation (`ERR_ERL_UNEXPECTED_X_FORWARDED_FOR`) **logged a full error with stack trace on every proxied request** — a log-flood/noise DoS that drowns out real errors.
+2. `req.ip` resolved to the proxy/LB address, so **every client behind a given proxy shared one rate-limit bucket**: a single abusive caller throttled the whole proxy, and per-IP limits were effectively unenforced for everyone else.
+
+**Fix:** Added a pure resolver `resolveTrustProxyHops` to `bootstrap-config.ts` reading `TRUST_PROXY_HOPS` (default `0` = current fail-closed behavior, max `10`, fails fast on a non-integer/negative/out-of-range value). When set, `main.ts` applies `app.set("trust proxy", N)` and warns at boot that every proxy in front MUST overwrite inbound `X-Forwarded-For` headers. Numeric hop counts are used (never `trust proxy: true`) so a directly-connected client cannot spoof the header — but the knob is opt-in and only correct when the deployment genuinely has N proxies in front. Documented in `.env.example`. Added 5 regression tests.
+
+### 🟢 `apps/api/src/health.service.ts` — a typo'd `REDIS_PORT` surfaced as a misleading "Redis disconnected" state
+
+**Problem:** `Number(process.env.REDIS_PORT || 6380)` with `REDIS_PORT=abc` → `NaN`, and `socket.connect(NaN, host)` throws `ERR_SOCKET_BAD_PORT`, which the catch swallowed as the generic "Redis health check failed" warning — hiding a config typo. QueueModule already fails fast on an invalid port; the health surface was the gap.
+**Fix:** Extracted the probe into a private `probeRedis()` method (also keeping `getHealth` complexity within the lint budget). The port is validated before probing: an invalid value logs a clear once-per-process warning and reports `"disconnected"` (not `"not_configured"`) so the health payload's redis warning still surfaces. Regression test added (mocked `node:net`/`node:tls`).
+
+### 🟢 `apps/api/src/auth/tenant.guard.ts` — `agentId` lacked a length cap at the auth boundary
+
+**Problem:** `validateUserId` enforced `MAX_USER_ID_LENGTH` and `JwtStrategy` enforces `MAX_AGENT_ID_LENGTH`, but `TenantGuard.validateAgentId` only checked the charset. An over-length `agentId` that slipped past the strategy would reach `TenantContext` unchanged.
+**Fix:** Added the `MAX_AGENT_ID_LENGTH` cap (201+ chars → 401), mirroring the strategy, so `TenantContext` is length-safe by construction. Regression test added.
+
 ## Changes Applied (2026-08-04) — Code Review Round 88
 
 ### 🟡 `apps/api/src/main.ts` — `RATE_LIMIT_WINDOW_MS` / `RATE_LIMIT_MAX_PER_WINDOW` unvalidated (a typo silently disabled rate limiting)

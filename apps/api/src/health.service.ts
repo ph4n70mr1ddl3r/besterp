@@ -126,85 +126,7 @@ export class HealthService implements OnModuleInit {
     }
 
     // Check Redis connectivity if configured
-    let redisStatus: "connected" | "disconnected" | "not_configured" = "not_configured";
-    if (process.env.REDIS_HOST) {
-      // Mirror QueueModule's production guard: if REDIS_HOST is set but
-      // REDIS_PORT is absent, defaulting to 6380 silently could connect to
-      // an unintended Redis instance (the same footgun QueueModule now
-      // refuses in production). Log a warning in non-production so operators
-      // notice the misconfiguration rather than probing the wrong service.
-      // Note: in production QueueModule throws before this code is reachable,
-      // so the warning only fires in staging/dev where both surfaces default
-      // to 6380.
-      if (!process.env.REDIS_PORT && process.env.NODE_ENV !== "development") {
-        if (!HealthService._redisPortWarned) {
-          HealthService._redisPortWarned = true;
-          this.logger.warn(
-            "REDIS_HOST is set but REDIS_PORT is missing — " +
-            "defaulting to 6380. Set REDIS_PORT explicitly to avoid connecting " +
-            "to an unintended Redis instance."
-          );
-        }
-      }
-      try {
-        await new Promise<void>((resolve, reject) => {
-          const useTls = resolveRedisTls();
-          const redisPort = Number(process.env.REDIS_PORT || 6380);
-          const redisHost = String(process.env.REDIS_HOST);
-          const socket = useTls
-            ? tls.connect({ host: redisHost, port: redisPort, rejectUnauthorized: true })
-            : new net.Socket();
-          let responseBuffer = "";
-          const MAX_RESPONSE_BUFFER = 1024;
-          const timeout = setTimeout(() => {
-            socket.destroy();
-            reject(new Error("Redis connection timed out"));
-          }, 2000);
-          socket.on("connect", () => {
-            const redisPassword = process.env.REDIS_PASSWORD;
-            if (redisPassword) {
-              if (/[\r\n]/.test(redisPassword)) {
-                socket.destroy();
-                reject(new Error("Redis password contains invalid characters (newlines)"));
-                return;
-              }
-              socket.write(`AUTH ${redisPassword}\r\n`);
-            }
-            socket.write("*1\r\n$4\r\nPING\r\n");
-          });
-          socket.on("data", (data) => {
-            responseBuffer += data.toString();
-            if (responseBuffer.length > MAX_RESPONSE_BUFFER) {
-              clearTimeout(timeout);
-              socket.destroy();
-              reject(new Error("Redis response exceeded maximum buffer size"));
-              return;
-            }
-            if (responseBuffer.includes("+PONG\r\n") || responseBuffer.includes("+OK\r\n")) {
-              clearTimeout(timeout);
-              socket.destroy();
-              resolve();
-            }
-            if (responseBuffer.startsWith("-")) {
-              clearTimeout(timeout);
-              socket.destroy();
-              reject(new Error(`Redis error: ${sanitizeForLogOutput(responseBuffer.trim())}`));
-            }
-          });
-          socket.on("error", (err) => {
-            clearTimeout(timeout);
-            reject(err);
-          });
-          if (!useTls) {
-            (socket as net.Socket).connect(redisPort, redisHost);
-          }
-        });
-        redisStatus = "connected";
-      } catch {
-        this.logger.warn("Redis health check failed — background jobs may not work");
-        redisStatus = "disconnected";
-      }
-    }
+    const redisStatus = await this.probeRedis();
 
     // Get memory usage — track heap metrics consistently
     const memoryUsage = process.memoryUsage();
@@ -234,6 +156,116 @@ export class HealthService implements OnModuleInit {
       },
       ...(redisWarning ? { warning: redisWarning } : {}),
     };
+  }
+
+  /**
+   * Probe Redis connectivity and return a status.
+   *
+   * Returns "not_configured" when REDIS_HOST is unset. Warns (once per
+   * process) and skips the probe on a missing or invalid REDIS_PORT — mirroring
+   * QueueModule's fail-closed port validation so a config typo surfaces as a
+   * clear log warning rather than a misleading "disconnected" state
+   * (Number("abc") → NaN → connect() throws ERR_SOCKET_BAD_PORT). An invalid
+   * port is reported as "disconnected" (not "not_configured") so the health
+   * payload's redis warning still surfaces to operators.
+   */
+  private async probeRedis(): Promise<"connected" | "disconnected" | "not_configured"> {
+    if (!process.env.REDIS_HOST) {
+      return "not_configured";
+    }
+
+    // Mirror QueueModule's production guard: if REDIS_HOST is set but
+    // REDIS_PORT is absent, defaulting to 6380 silently could connect to an
+    // unintended Redis instance (the same footgun QueueModule refuses in
+    // production). Log a warning in non-production so operators notice the
+    // misconfiguration rather than probing the wrong service. In production
+    // QueueModule throws before this code is reachable, so the warning only
+    // fires in staging/dev where both surfaces default to 6380.
+    if (!process.env.REDIS_PORT && process.env.NODE_ENV !== "development") {
+      this.warnOnce(
+        "REDIS_HOST is set but REDIS_PORT is missing — " +
+        "defaulting to 6380. Set REDIS_PORT explicitly to avoid connecting " +
+        "to an unintended Redis instance."
+      );
+    }
+
+    const redisPort = Number(process.env.REDIS_PORT || 6380);
+    if (!Number.isInteger(redisPort) || redisPort < 1 || redisPort > 65535) {
+      this.warnOnce(
+        `REDIS_PORT "${process.env.REDIS_PORT}" is invalid — skipping the Redis health check. ` +
+        "Set REDIS_PORT to a valid port between 1 and 65535."
+      );
+      return "disconnected";
+    }
+
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const useTls = resolveRedisTls();
+        const redisHost = String(process.env.REDIS_HOST);
+        const socket = useTls
+          ? tls.connect({ host: redisHost, port: redisPort, rejectUnauthorized: true })
+          : new net.Socket();
+        let responseBuffer = "";
+        const MAX_RESPONSE_BUFFER = 1024;
+        const timeout = setTimeout(() => {
+          socket.destroy();
+          reject(new Error("Redis connection timed out"));
+        }, 2000);
+        socket.on("connect", () => {
+          const redisPassword = process.env.REDIS_PASSWORD;
+          if (redisPassword) {
+            if (/[\r\n]/.test(redisPassword)) {
+              socket.destroy();
+              reject(new Error("Redis password contains invalid characters (newlines)"));
+              return;
+            }
+            socket.write(`AUTH ${redisPassword}\r\n`);
+          }
+          socket.write("*1\r\n$4\r\nPING\r\n");
+        });
+        socket.on("data", (data) => {
+          responseBuffer += data.toString();
+          if (responseBuffer.length > MAX_RESPONSE_BUFFER) {
+            clearTimeout(timeout);
+            socket.destroy();
+            reject(new Error("Redis response exceeded maximum buffer size"));
+            return;
+          }
+          if (responseBuffer.includes("+PONG\r\n") || responseBuffer.includes("+OK\r\n")) {
+            clearTimeout(timeout);
+            socket.destroy();
+            resolve();
+          }
+          if (responseBuffer.startsWith("-")) {
+            clearTimeout(timeout);
+            socket.destroy();
+            reject(new Error(`Redis error: ${sanitizeForLogOutput(responseBuffer.trim())}`));
+          }
+        });
+        socket.on("error", (err) => {
+          clearTimeout(timeout);
+          reject(err);
+        });
+        if (!useTls) {
+          (socket as net.Socket).connect(redisPort, redisHost);
+        }
+      });
+      return "connected";
+    } catch {
+      this.logger.warn("Redis health check failed — background jobs may not work");
+      return "disconnected";
+    }
+  }
+
+  /**
+   * Emit a Redis-configuration warning exactly once per process, mirroring the
+   * deduplication used by QueueModule so load-balancer health-check polls do
+   * not flood operator logs.
+   */
+  private warnOnce(message: string): void {
+    if (HealthService._redisPortWarned) return;
+    HealthService._redisPortWarned = true;
+    this.logger.warn(message);
   }
 
   /**

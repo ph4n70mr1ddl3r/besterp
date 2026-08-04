@@ -23,6 +23,7 @@ import { verifyPublicEndpointsScope } from "./auth/public-scope.js";
 import {
   resolveHardExitTimeoutMs,
   resolveRateLimitConfig,
+  resolveTrustProxyHops,
   normalizeEnvironmentValue,
   DEFAULT_HARD_EXIT_TIMEOUT_MS,
   type RateLimitConfig,
@@ -285,9 +286,35 @@ async function bootstrap() {
     process.exit(1);
   }
 
+  // Resolve TRUST_PROXY_HOPS up front for the same fail-fast reason. When the
+  // app sits behind a reverse proxy / load balancer that does NOT set this,
+  // express-rate-limit v8 logs ERR_ERL_UNEXPECTED_X_FORWARDED_FOR on every
+  // proxied request AND keys every client on the proxy's IP (one shared
+  // bucket), so a single abusive caller throttles the whole proxy.
+  let trustProxyHops: number;
+  try {
+    trustProxyHops = resolveTrustProxyHops(process.env);
+  } catch (err) {
+    logger.error(err instanceof Error ? err.message : String(err));
+    process.exit(1);
+  }
+
   const app = await NestFactory.create(AppModule, { bodyParser: false });
 
   setupGracefulShutdown(app);
+
+  // Trust exactly the configured number of proxy hops for client-IP
+  // resolution. Opt-in and fail-closed: default 0 keeps req.ip tied to the
+  // socket peer so a directly-connected client cannot forge X-Forwarded-For.
+  if (trustProxyHops > 0) {
+    const expressApp = app.getHttpAdapter().getInstance() as express.Express;
+    expressApp.set("trust proxy", trustProxyHops);
+    logger.warn(
+      `TRUST_PROXY_HOPS=${trustProxyHops} — trusting that many reverse-proxy hops for client IPs. ` +
+      "Every proxy in front MUST overwrite inbound X-Forwarded-For headers, otherwise IP-based " +
+      "rate limiting can be bypassed by a directly-connected client."
+    );
+  }
 
   app.setGlobalPrefix("api");
 

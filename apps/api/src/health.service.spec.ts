@@ -4,6 +4,25 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { HealthService } from "./health.service.js";
 
+const { redisConnectMock } = vi.hoisted(() => ({ redisConnectMock: vi.fn() }));
+
+vi.mock("node:net", () => {
+  class MockSocket {
+    destroy() {}
+    on() {
+      return this;
+    }
+    write() {}
+    connect(...args: unknown[]) {
+      redisConnectMock(...args);
+    }
+  }
+  return { Socket: MockSocket };
+});
+vi.mock("node:tls", () => ({
+  connect: vi.fn(),
+}));
+
 function createMockPrisma(queryResult: any = [{ result: 1 }]) {
   return {
     appClient: {
@@ -55,6 +74,24 @@ describe("HealthService", () => {
       const result = await service.getHealth();
 
       expect(result.environment).toBe("staging");
+    });
+
+    it("should skip the Redis probe and report disconnected for an invalid REDIS_PORT", async () => {
+      // A typo'd REDIS_PORT (e.g. "abc") would otherwise feed NaN into
+      // socket.connect() and surface as a misleading "disconnected" state. The
+      // health check must skip the probe entirely (no connect attempt) and
+      // report the misconfiguration as a configured-but-disconnected Redis so
+      // the operator warning surfaces in the health payload.
+      vi.stubEnv("REDIS_HOST", "localhost");
+      vi.stubEnv("REDIS_PORT", "not-a-port");
+      redisConnectMock.mockClear();
+
+      const service = new HealthService(createMockPrisma());
+      const result = await service.getHealth();
+
+      expect(redisConnectMock).not.toHaveBeenCalled();
+      expect(result.redis).toBe("disconnected");
+      expect(result.warning).toContain("Redis");
     });
 
     it("should default environment to 'development' when NODE_ENV is unset", async () => {

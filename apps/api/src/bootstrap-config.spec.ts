@@ -2,10 +2,13 @@ import { describe, it, expect } from "vitest";
 import {
   resolveRateLimitConfig,
   resolveHardExitTimeoutMs,
+  resolveTrustProxyHops,
   normalizeEnvironmentValue,
   DEFAULT_RATE_LIMIT_WINDOW_MS,
   DEFAULT_RATE_LIMIT_MAX_PER_WINDOW,
   DEFAULT_HARD_EXIT_TIMEOUT_MS,
+  DEFAULT_TRUST_PROXY_HOPS,
+  MAX_TRUST_PROXY_HOPS,
 } from "./bootstrap-config.js";
 
 function env(overrides: Record<string, string | undefined>): NodeJS.ProcessEnv {
@@ -82,5 +85,33 @@ describe("normalizeEnvironmentValue", () => {
 
   it("returns an empty string unchanged", () => {
     expect(normalizeEnvironmentValue("")).toBe("");
+  });
+});
+
+describe("resolveTrustProxyHops", () => {
+  it("uses 0 (disabled) when unset or empty, keeping the fail-closed default", () => {
+    expect(resolveTrustProxyHops(env({}))).toBe(DEFAULT_TRUST_PROXY_HOPS);
+    expect(resolveTrustProxyHops(env({ TRUST_PROXY_HOPS: "" }))).toBe(DEFAULT_TRUST_PROXY_HOPS);
+  });
+
+  it("accepts 0 as an explicit opt-out", () => {
+    expect(resolveTrustProxyHops(env({ TRUST_PROXY_HOPS: "0" }))).toBe(0);
+  });
+
+  it("parses a valid hop count", () => {
+    expect(resolveTrustProxyHops(env({ TRUST_PROXY_HOPS: "1" }))).toBe(1);
+    expect(resolveTrustProxyHops(env({ TRUST_PROXY_HOPS: "3" }))).toBe(3);
+  });
+
+  it("rejects negative, fractional, and unparseable values", () => {
+    expect(() => resolveTrustProxyHops(env({ TRUST_PROXY_HOPS: "-1" }))).toThrow("TRUST_PROXY_HOPS");
+    expect(() => resolveTrustProxyHops(env({ TRUST_PROXY_HOPS: "1.5" }))).toThrow("TRUST_PROXY_HOPS");
+    expect(() => resolveTrustProxyHops(env({ TRUST_PROXY_HOPS: "abc" }))).toThrow("TRUST_PROXY_HOPS");
+    expect(() => resolveTrustProxyHops(env({ TRUST_PROXY_HOPS: "1abc" }))).toThrow("TRUST_PROXY_HOPS");
+  });
+
+  it("rejects hop counts above the sane maximum", () => {
+    expect(resolveTrustProxyHops(env({ TRUST_PROXY_HOPS: String(MAX_TRUST_PROXY_HOPS) }))).toBe(MAX_TRUST_PROXY_HOPS);
+    expect(() => resolveTrustProxyHops(env({ TRUST_PROXY_HOPS: String(MAX_TRUST_PROXY_HOPS + 1) }))).toThrow("TRUST_PROXY_HOPS");
   });
 });

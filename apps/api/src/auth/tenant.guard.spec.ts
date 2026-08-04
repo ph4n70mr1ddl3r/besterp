@@ -177,6 +177,17 @@ describe("TenantGuard", () => {
     expect(() => guard.canActivate(ctx)).toThrow(UnauthorizedException);
   });
 
+  it("throws UnauthorizedException when agentId exceeds the length cap", () => {
+    // Mirrors the JwtStrategy length cap so TenantContext is safe even if an
+    // over-length agentId somehow slips past the strategy.
+    (reflector.getAllAndOverride as any).mockReturnValue(false);
+    const ctx = makeContext({
+      user: { userId: "u1", tenantId: "t1", agentId: "x".repeat(201) },
+    });
+
+    expect(() => guard.canActivate(ctx)).toThrow(UnauthorizedException);
+  });
+
   it("accepts a valid agentId with only valid characters", () => {
     (reflector.getAllAndOverride as any).mockReturnValue(false);
     const ctx = makeContext({

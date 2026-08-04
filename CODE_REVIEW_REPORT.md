@@ -2,8 +2,71 @@
 
 ## Scope
 Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
-`mcp-tools`, `apps/api`) conducted on 2026-08-04. This is review 88;
-rounds 1–87 are documented in earlier revisions of this file and `CHANGES.md`.
+`mcp-tools`, `apps/api`) conducted on 2026-08-04. This is review 89;
+rounds 1–88 are documented in earlier revisions of this file and `CHANGES.md`.
+
+## Findings & Actions (round 89)
+
+### Fixed this round
+
+1. **🟡 `main.ts` — `trust proxy` never configured; behind any reverse proxy /
+   load balancer the rate limiter keyed every client on the proxy IP AND logged
+   `ERR_ERL_UNEXPECTED_X_FORWARDED_FOR` on every request.** express-rate-limit v8's
+   default `keyGenerator` runs a validation that (a) **logs a full error with stack
+   trace on every proxied request** whenever `X-Forwarded-For` is present while
+   `trust proxy` is disabled (verified by reproducing against the installed
+   `express-rate-limit@8.5.1`), and (b) resolves `req.ip` to the proxy/LB address, so
+   all users behind one proxy share a single rate-limit bucket — a single abusive
+   caller throttles the whole proxy and per-IP limits are effectively unbounded for
+   everyone else. Fix: new pure resolver `resolveTrustProxyHops` in
+   `bootstrap-config.ts` reads `TRUST_PROXY_HOPS` (default `0`, cap `10`, fails fast
+   on non-integer/negative/out-of-range); when set, `main.ts` applies
+   `app.set("trust proxy", N)` and warns at boot. Fail-closed by design: numeric hop
+   counts are not spoofable by a directly-connected client (unlike `trust proxy: true`),
+   but only trusted when the deployment actually has N proxies in front that
+   overwrite inbound `X-Forwarded-For`. Documented in `.env.example`. Regression tests
+   added.
+
+2. **🟢 `health.service.ts` — a typo'd `REDIS_PORT` (e.g. `abc`) silently surfaced as
+   a misleading "Redis disconnected" state.** `Number("abc")` → `NaN`, and
+   `socket.connect(NaN, host)` throws `ERR_SOCKET_BAD_PORT`, which the catch swallowed
+   as "Redis health check failed". QueueModule already fails fast on an invalid port;
+   the health surface was the gap. Fix: `probeRedis` (extracted to a private method to
+   keep `getHealth` complexity within the lint budget) validates the port before
+   probing — an invalid value logs a clear warning once per process and reports
+   `"disconnected"` (not `"not_configured"`) so the health payload's redis warning
+   still surfaces to operators. Regression test added (mocked `node:net`/`node:tls`).
+
+3. **🟢 `tenant.guard.ts` — `agentId` re-validated at the auth boundary without a
+   length cap.** `validateUserId` enforced `MAX_USER_ID_LENGTH` and `JwtStrategy`
+   enforces `MAX_AGENT_ID_LENGTH`, but `TenantGuard.validateAgentId` only checked the
+   charset. Added the `MAX_AGENT_ID_LENGTH` cap (201+ chars → 401) so an over-length
+   `agentId` can never reach `TenantContext` even if one slips past the strategy.
+   Regression test added.
+
+### Reviewed but NOT changed (false positives / deferred)
+
+- **`trust proxy: true` not used** — intentionally. Numeric hop counts are used
+  instead because `true` allows a directly-connected client to forge `X-Forwarded-For`
+  and bypass IP-based rate limiting (this is exactly what express-rate-limit's own
+  `ERR_ERL_PERMISSIVE_TRUST_PROXY` validation guards against).
+- **Rate limiter keying on the socket peer (`TRUST_PROXY_HOPS` unset)** — preserved as
+  the default. It over-throttles (never under-throttles) behind a proxy and is the
+  spoof-safe posture; operators opt into proxy-aware IP resolution explicitly.
+- **`REDIS_PORT` invalid when `REDIS_HOST` unset** — unreachable (Redis not configured
+  → `not_configured`), no warning needed.
+- **MCP path `agentId`** — already capped by `buildContext` (`MAX_AGENT_ID_LENGTH`);
+  the REST path was the only gap, now closed.
+
+## Test Results (round 89)
+```
+api:       372 passed (16 files)  (+7 — round 89 trust-proxy/REDIS_PORT/agentId regressions)
+shared:    219 passed (4 files)   (unchanged)
+mcp-tools: 147 passed (4 files)   (unchanged)
+database:   26 passed, 10 skipped (2 files) (unchanged)
+────────────────────────────────────
+Total:     764 passed, 10 skipped
+```
 
 ## Findings & Actions (round 88)
 

@@ -13,7 +13,7 @@ import { Request } from "express";
 import type { JwtValidatedUser } from "./jwt.strategy.js";
 import { IS_PUBLIC_KEY } from "./public.decorator.js";
 import { isPublicAllowedForHandler } from "./public-scope.js";
-import { validateTenantIdEnhancedForAuth, MAX_USER_ID_LENGTH, TENANT_ID_PATTERN } from "@besterp/shared";
+import { validateTenantIdEnhancedForAuth, MAX_USER_ID_LENGTH, MAX_AGENT_ID_LENGTH, TENANT_ID_PATTERN } from "@besterp/shared";
 
 @Injectable()
 export class TenantGuard implements CanActivate {
@@ -98,6 +98,13 @@ export class TenantGuard implements CanActivate {
       );
     }
     const rawAgentId = user.agentId?.trim() ?? "";
+    if (rawAgentId.length > MAX_AGENT_ID_LENGTH) {
+      // Mirrors the JwtStrategy length cap so TenantContext is safe even if a
+      // token somehow carries an over-length agentId past the strategy.
+      throw new UnauthorizedException(
+        "TenantGuard: agentId exceeds maximum allowed length."
+      );
+    }
     if (rawAgentId.length > 0 && !TENANT_ID_PATTERN.test(rawAgentId)) {
       throw new UnauthorizedException(
         "TenantGuard: agentId contains invalid characters. " +
