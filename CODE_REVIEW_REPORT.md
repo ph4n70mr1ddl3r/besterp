@@ -2,8 +2,68 @@
 
 ## Scope
 Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
-`mcp-tools`, `apps/api`) conducted on 2026-08-04. This is review 87;
-rounds 1–86 are documented in earlier revisions of this file and `CHANGES.md`.
+`mcp-tools`, `apps/api`) conducted on 2026-08-04. This is review 88;
+rounds 1–87 are documented in earlier revisions of this file and `CHANGES.md`.
+
+## Findings & Actions (round 88)
+
+### Fixed this round
+
+1. **🟡 `main.ts` — `RATE_LIMIT_WINDOW_MS` / `RATE_LIMIT_MAX_PER_WINDOW` were
+   read via bare `Number(...)` with no validation; a typo'd value silently
+   disabled rate limiting.** The rate limiter is the brute-force / MCP-tool-
+   exhaustion protection layer. `Number("abc")` → `NaN`, and the limiter's
+   `count > max` comparison is always false against `NaN` — so
+   `RATE_LIMIT_MAX_PER_WINDOW=abc` (or a trailing-garbage `300x`) silently turned
+   the control off at boot. Every other env knob (`PORT`, `JWT_EXPIRES_IN`,
+   `JWT_SECRET`) fails fast with a clear message; these two were the gap. Fixed by
+   resolving the config up front in `bootstrap()` via a new pure helper module
+   `apps/api/src/bootstrap-config.ts` (`resolveRateLimitConfig`): a set-but-invalid
+   value now aborts boot with `Invalid … Must be a positive integer.` The helper is
+   side-effect-free so it is unit-testable without executing `bootstrap()` (main.ts
+   has no spec file and imports would run `bootstrap()`). Regression tests added.
+
+2. **🟡 `main.ts` — a negative `HARD_EXIT_TIMEOUT_MS` silently destroyed graceful
+   shutdown.** The existing guard `Number.isFinite(rawTimeout)` accepts negatives,
+   and Node clamps negative `setTimeout` delays to 1 ms — so `HARD_EXIT_TIMEOUT_MS=-30`
+   made the hard-exit timer fire almost immediately on any shutdown signal,
+   force-killing in-flight requests instead of draining them. `resolveHardExitTimeoutMs`
+   now accepts only a non-negative finite value (`0` remains a legitimate "force exit
+   immediately" failover choice) and throws otherwise; `setupGracefulShutdown` warns
+   and falls back to the 10 s default. Regression tests added.
+
+3. **🟢 `main.ts` — `normalizeEnvironment` lowercased but did not trim `NODE_ENV`.**
+   A whitespace-padded `" production "` bypassed every `NODE_ENV === "production"`
+   guard in `main.ts`, `QueueModule`, and `HealthService` — the same silent-drift
+   class the existing case normalization already mitigated. `normalizeEnvironmentValue`
+   now trims + lowercases. Regression tests added.
+
+### Reviewed but NOT changed (false positives / deferred)
+
+- **`main.ts` rate-limit skip for `/api/health`** — re-verified: registered after
+  `app.setGlobalPrefix("api")` so `req.path` carries the prefixed path; intentional
+  so load-balancer polling isn't throttled.
+- **`HARD_EXIT_TIMEOUT_MS` set-but-empty / `"0"` handling** — `""` and unset both
+  fall back to the default; `"0"` is accepted deliberately (documented in the helper).
+  Behavior preserved from the previous `Number.isFinite` defaulting.
+- **`bootstrap-config.ts` extraction boundary** — only the three resolvers moved out;
+  `validateEnvironment` (JWT/Redis/required vars) intentionally remains in `main.ts`
+  because it orchestrates multiple validators and logs/exits as a unit.
+- **Tenant isolation (RLS boot assertions, superuser boot refusal, app-level
+  `tenantId` filters), secret redaction across REST/MCP/durable surfaces,
+  idempotency-key charset consistency, ReDoS, and `@Public()` scope scanning** remain
+  intact and were re-verified by independent reads this round. No new 🔴/🟡 exploit
+  paths beyond the three fixes above.
+
+## Test Results (round 88)
+```
+api:       365 passed (16 files)  (+13 — round 88 rate-limit/hard-exit/NODE_ENV regressions)
+shared:    219 passed (4 files)   (unchanged)
+mcp-tools: 147 passed (4 files)   (unchanged)
+database:   26 passed, 10 skipped (2 files) (unchanged)
+────────────────────────────────────
+Total:     757 passed, 10 skipped
+```
 
 ## Findings & Actions (round 87)
 

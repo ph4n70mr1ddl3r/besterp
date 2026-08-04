@@ -20,15 +20,39 @@ import express, { type Request, type Response, type NextFunction } from "express
 import "./common/tenant-context.js";
 import { resolveRequestId } from "./common/request-id.js";
 import { verifyPublicEndpointsScope } from "./auth/public-scope.js";
+import {
+  resolveHardExitTimeoutMs,
+  resolveRateLimitConfig,
+  normalizeEnvironmentValue,
+  DEFAULT_HARD_EXIT_TIMEOUT_MS,
+  type RateLimitConfig,
+} from "./bootstrap-config.js";
 
 const logger = new Logger("Bootstrap");
 
 function normalizeEnvironment(): void {
-  // Normalize NODE_ENV early so all downstream comparisons are case-insensitive.
-  // Without this, "PRODUCTION", "Production", or "production" would silently
-  // bypass production guards and fall back to development behavior.
-  if (process.env.NODE_ENV) {
-    process.env.NODE_ENV = process.env.NODE_ENV.toLowerCase();
+  // Normalize NODE_ENV early so all downstream comparisons are case-insensitive
+  // and whitespace-trimmed. Without this, "PRODUCTION", "Production", or a
+  // whitespace-padded " production " would silently bypass production guards
+  // and fall back to development behavior.
+  const normalized = normalizeEnvironmentValue(process.env.NODE_ENV);
+  if (normalized !== undefined) {
+    process.env.NODE_ENV = normalized;
+  }
+}
+
+/**
+ * Resolve HARD_EXIT_TIMEOUT_MS, warning and falling back to the default on an
+ * invalid value (unparseable, NaN, or negative). A negative value is the
+ * dangerous case: Node clamps negative setTimeout delays to 1 ms, silently
+ * converting graceful shutdown into an immediate forced exit.
+ */
+function resolveHardExitTimeout(env: NodeJS.ProcessEnv): number {
+  try {
+    return resolveHardExitTimeoutMs(env);
+  } catch (err) {
+    logger.warn(err instanceof Error ? err.message : String(err));
+    return DEFAULT_HARD_EXIT_TIMEOUT_MS;
   }
 }
 
@@ -134,8 +158,7 @@ function validateEnvironment(): void {
 }
 
 function setupGracefulShutdown(app: INestApplication): void {
-  const rawTimeout = Number(process.env.HARD_EXIT_TIMEOUT_MS);
-  const HARD_EXIT_TIMEOUT_MS = Number.isFinite(rawTimeout) ? rawTimeout : 10_000;
+  const HARD_EXIT_TIMEOUT_MS = resolveHardExitTimeout(process.env);
   let shuttingDown = false;
 
   async function gracefulShutdown(label: string, detail: unknown): Promise<void> {
@@ -251,6 +274,17 @@ async function bootstrap() {
   normalizeEnvironment();
   validateEnvironment();
 
+  // Resolve rate-limiter config up front so an invalid RATE_LIMIT_WINDOW_MS /
+  // RATE_LIMIT_MAX_PER_WINDOW (e.g. "abc" → NaN) fails fast at boot instead of
+  // silently disabling the brute-force protection control.
+  let rateLimitConfig: RateLimitConfig;
+  try {
+    rateLimitConfig = resolveRateLimitConfig(process.env);
+  } catch (err) {
+    logger.error(err instanceof Error ? err.message : String(err));
+    process.exit(1);
+  }
+
   const app = await NestFactory.create(AppModule, { bodyParser: false });
 
   setupGracefulShutdown(app);
@@ -262,8 +296,8 @@ async function bootstrap() {
   // approach so bursts are smoothed over time rather than allowing a full
   // quota every N seconds.
   const generalLimiter = rateLimit({
-    windowMs: (process.env.RATE_LIMIT_WINDOW_MS ? Number(process.env.RATE_LIMIT_WINDOW_MS) : 60_000),
-    max: process.env.RATE_LIMIT_MAX_PER_WINDOW ? Number(process.env.RATE_LIMIT_MAX_PER_WINDOW) : 300,
+    windowMs: rateLimitConfig.windowMs,
+    max: rateLimitConfig.max,
     standardHeaders: true,
     legacyHeaders: false,
     message: { statusCode: 429, error: "RATE_LIMITED", message: "Rate limit exceeded. Please slow down and retry." },

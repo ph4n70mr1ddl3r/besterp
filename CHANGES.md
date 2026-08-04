@@ -1,5 +1,21 @@
 # BestERP — Security & Architecture Fixes
 
+## Changes Applied (2026-08-04) — Code Review Round 88
+
+### 🟡 `apps/api/src/main.ts` — `RATE_LIMIT_WINDOW_MS` / `RATE_LIMIT_MAX_PER_WINDOW` unvalidated (a typo silently disabled rate limiting)
+
+**Problem:** The rate limiter read `Number(process.env.RATE_LIMIT_WINDOW_MS)` / `Number(process.env.RATE_LIMIT_MAX_PER_WINDOW)` with no validation. A misconfigured value like `RATE_LIMIT_MAX_PER_WINDOW=abc` parsed to `NaN`, which silently disabled the brute-force/MCP-exhaustion protection the limiter provides (the `count > max` comparison is always false against `NaN`). Every other env knob (`PORT`, `JWT_EXPIRES_IN`, `JWT_SECRET`) fails fast at boot with a clear message; these two did not.
+**Fix:** Resolved the config up front in `bootstrap()` via a new pure helper module `apps/api/src/bootstrap-config.ts` (`resolveRateLimitConfig`). A set-but-invalid value (non-positive, non-integer, or `NaN`) now aborts boot with `Invalid RATE_LIMIT_WINDOW_MS/MAX_PER_WINDOW "…". Must be a positive integer.` Extracted to a side-effect-free module so the logic is unit-testable without executing `bootstrap()`. Added 6 regression tests.
+
+### 🟡 `apps/api/src/main.ts` — negative `HARD_EXIT_TIMEOUT_MS` silently destroyed graceful shutdown
+
+**Problem:** `Number.isFinite(rawTimeout)` accepts negative numbers, and Node clamps negative `setTimeout` delays to 1 ms — so a typo like `HARD_EXIT_TIMEOUT_MS=-30` made the hard-exit timer fire almost immediately on any shutdown, silently converting graceful shutdown into an instant forced exit (in-flight requests killed).
+**Fix:** `resolveHardExitTimeoutMs` (same module) now accepts only a non-negative finite number of milliseconds (`0` remains a legitimate "force exit immediately" choice) and throws otherwise; `setupGracefulShutdown` warns and falls back to the 10 s default. Added 4 regression tests.
+
+### 🟢 `apps/api/src/main.ts` — `normalizeEnvironment` now trims `NODE_ENV`
+
+**Improvement:** `NODE_ENV` was lowercased but not trimmed, so a whitespace-padded `" production "` bypassed every `process.env.NODE_ENV === "production"` guard in `main.ts`, `QueueModule`, and `HealthService` — the same class of silent config drift the existing lowercase normalization was added to prevent. `normalizeEnvironmentValue` now trims + lowercases. Added 3 regression tests.
+
 ## Changes Applied (2026-08-04) — Code Review Round 87
 
 ### 🟡 `apps/api/src/mcp/mcp.service.ts` — valid idempotency keys mangled by `sanitizeForLogOutput(stripHtmlTags(...))`, breaking idempotent dedup
