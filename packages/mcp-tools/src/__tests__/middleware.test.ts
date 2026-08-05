@@ -7,6 +7,7 @@ import {
   auditLogMiddleware, 
   errorHandlerMiddleware 
 } from "../middleware/index.js";
+import { attachAuditWarning } from "../middleware/audit-log.js";
 import { ToolDefinition, ToolContext, ToolResult } from "../schema/tool-definition.js";
 import { DomainError } from "@besterp/shared";
 import { Prisma } from "@prisma/client";
@@ -155,6 +156,7 @@ describe("Idempotency Middleware", () => {
     mockFindInTransaction({
       idempotencyKey,
       status: "completed",
+      toolName: "test_tool",
       inputHash, // exact hash match
       result: { success: true, data: "existing result" },
     });
@@ -167,6 +169,40 @@ describe("Idempotency Middleware", () => {
     expect(result.replayed).toBe(true);
   });
 
+  it("should reject cross-tool reuse of an idempotency key (no wrong-tool replay)", async () => {
+    // Regression: the idempotency record is keyed by (idempotencyKey, tenantId)
+    // and the input hash covers the Zod-normalized input only — no tool
+    // component. A caller reusing a key for a DIFFERENT tool whose schema
+    // normalizes to an identical input would previously replay the first
+    // tool's cached result as if it were the second tool's, silently skipping
+    // the second operation's side effect. The stored toolName must be
+    // compared so cross-tool reuse surfaces as IDEMPOTENCY_KEY_MISMATCH.
+    const input = { test: "value" };
+    const idempotencyKey = "test-key";
+    const contextWithKey = { ...mockContext, idempotencyKey };
+
+    const { hashInput } = await import("@besterp/shared");
+    const inputHash = hashInput(input);
+
+    mockFindInTransaction({
+      idempotencyKey,
+      status: "completed",
+      toolName: "some_other_tool", // stored by a different tool
+      inputHash, // identical normalized input → identical hash
+      result: { success: true, data: "other tool's result" },
+    });
+
+    const middleware = idempotencyMiddleware(mockPrisma as any);
+    const result = await middleware(input, contextWithKey, mockDefinition, successNext({ success: true, data: "must NOT be skipped" }));
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe("IDEMPOTENCY_KEY_MISMATCH");
+    expect(result.error?.message).toContain("some_other_tool");
+    expect(result.replayed).toBeUndefined();
+    // The second tool must never receive the first tool's cached data as a replay.
+    expect(result.data).toBeUndefined();
+  });
+
   it("should reject input hash mismatch for completed record", async () => {
     const input = { test: "different value" };
     const idempotencyKey = "test-key";
@@ -175,6 +211,7 @@ describe("Idempotency Middleware", () => {
     mockFindInTransaction({
       idempotencyKey,
       status: "completed",
+      toolName: "test_tool",
       inputHash: "sha256:original",
       result: { success: true },
     });
@@ -198,6 +235,7 @@ describe("Idempotency Middleware", () => {
     mockFindInTransaction({
       idempotencyKey,
       status: "pending",
+      toolName: "test_tool",
       inputHash,
       createdAt: new Date(),
     });
@@ -217,6 +255,7 @@ describe("Idempotency Middleware", () => {
     mockFindInTransaction({
       idempotencyKey,
       status: "pending",
+      toolName: "test_tool",
       inputHash: "sha256:original",
       createdAt: new Date(),
     });
@@ -295,6 +334,7 @@ describe("Idempotency Middleware", () => {
           findUnique: vi.fn().mockResolvedValue({
             idempotencyKey,
             status: "failed",
+            toolName: "test_tool",
             inputHash, // Matching hash allows re-execution
           }),
           // The reset-to-pending update
@@ -332,6 +372,7 @@ describe("Idempotency Middleware", () => {
           findUnique: vi.fn().mockResolvedValue({
             idempotencyKey,
             status: "pending",
+            toolName: "test_tool",
             inputHash,
             createdAt: staleCreatedAt,
           }),
@@ -933,6 +974,36 @@ describe("Idempotency Middleware", () => {
 describe("Audit Log Middleware", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  describe("attachAuditWarning", () => {
+    it("merges the warning into a plain-object result without losing data", () => {
+      const out = attachAuditWarning({ success: true, data: { name: "Acme", count: 3 } });
+      expect(out.data).toMatchObject({ name: "Acme", count: 3 });
+      expect((out.data as Record<string, unknown>)._auditWarning).toContain("audit");
+    });
+
+    it("does NOT corrupt a string result (object spread of a string would produce numeric index keys)", () => {
+      // Regression: the old code spread result.data into an object literal,
+      // so a string result "ok" became { _auditWarning, 0: "o", 1: "k" }.
+      const out = attachAuditWarning({ success: true, data: "ok" });
+      expect(out.data).toEqual({ _auditWarning: expect.stringContaining("audit"), data: "ok" });
+    });
+
+    it("does NOT discard a number result (object spread of a number drops it)", () => {
+      const out = attachAuditWarning({ success: true, data: 42 });
+      expect(out.data).toEqual({ _auditWarning: expect.stringContaining("audit"), data: 42 });
+    });
+
+    it("does NOT convert an array result into numeric-keyed keys", () => {
+      const out = attachAuditWarning({ success: true, data: ["a", "b"] });
+      expect(out.data).toEqual({ _auditWarning: expect.stringContaining("audit"), data: ["a", "b"] });
+    });
+
+    it("returns just the warning for a null/undefined result", () => {
+      const out = attachAuditWarning({ success: true, data: null });
+      expect(out.data).toEqual({ _auditWarning: expect.stringContaining("audit") });
+    });
   });
 
   it("should log successful tool execution", async () => {

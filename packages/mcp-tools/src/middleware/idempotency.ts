@@ -210,7 +210,11 @@ async function acquireIdempotencyRecord(
         }
 
         if (record.status === "failed") {
-          if (record.inputHash !== inputHash) {
+          if (record.inputHash !== inputHash || record.toolName !== toolName) {
+            // Different input OR a different tool reusing the key: do NOT
+            // reset-and-re-execute — the caller must use a new key. Routing
+            // the existing record back surfaces the mismatch error via
+            // handleExistingRecord (which now also checks toolName).
             return { existing: record, created: false };
           }
           await tx.idempotencyRecord.update({
@@ -238,9 +242,10 @@ async function acquireIdempotencyRecord(
           if (pendingAge > IDEMPOTENCY_STALE_PENDING_THRESHOLD_MS) {
             // Stale pending record — the previous request likely crashed
             // before completing. Reset to pending so this request can proceed.
-            // Only allow reset if the input hash matches to prevent a stale
-            // record from being reset for a different operation.
-            if (record.inputHash !== inputHash) {
+            // Only allow reset if the input hash matches AND the tool is the
+            // same to prevent a stale record from being reset for a different
+            // operation or a different tool reusing the key.
+            if (record.inputHash !== inputHash || record.toolName !== toolName) {
               return { existing: record, created: false };
             }
             await tx.idempotencyRecord.update({
@@ -295,6 +300,27 @@ function handleExistingRecord(
   existing: IdempotencyRecord, inputHash: string,
   idempotencyKey: string, toolName: string,
 ): ToolResult {
+  // An idempotency key identifies ONE operation. The record's PK is
+  // (idempotencyKey, tenantId) and the input hash is computed over the
+  // Zod-normalized input only (no tool component), so a caller that reuses a
+  // key for a DIFFERENT tool with an identical input shape would otherwise
+  // replay the first tool's cached result as if it were the second tool's —
+  // silently skipping the second operation's side effect. The stored toolName
+  // is never compared today; reject any cross-tool reuse of a key as a
+  // mismatch so the agent must use a fresh key. Checked here (all status
+  // branches) so a completed replay, a pending in-progress record, and a
+  // failed record all surface the same actionable error.
+  if (existing.toolName !== toolName) {
+    return {
+      success: false,
+      error: {
+        code: "IDEMPOTENCY_KEY_MISMATCH",
+        message: `Idempotency key '${redactKey(idempotencyKey)}' was already used by tool '${sanitizeForLogOutput(existing.toolName)}'. ` +
+          `Use a new idempotency key for a different operation.`,
+        suggestedTools: [toolName],
+      },
+    };
+  }
   if (existing.status === "completed") {
     if (existing.inputHash !== inputHash) {
       return {

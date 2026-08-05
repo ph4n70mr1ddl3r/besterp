@@ -108,7 +108,7 @@ describe("RLS Extension", () => {
       const tx = {
         $queryRaw: vi.fn(),
         party: { findMany: vi.fn() },
-        partyRole: { create: vi.fn() },
+        partyRole: { create: vi.fn(), updateManyAndReturn: vi.fn() },
       };
       mockPrisma = {
         $executeRaw: vi.fn(),
@@ -124,7 +124,7 @@ describe("RLS Extension", () => {
           return undefined;
         }),
         party: { findMany: vi.fn() },
-        partyRole: { create: vi.fn() },
+        partyRole: { create: vi.fn(), updateManyAndReturn: vi.fn() },
       } as any;
     });
 
@@ -176,6 +176,34 @@ describe("RLS Extension", () => {
       
       expect(result).toBeDefined();
       expect(result.partyRoleId).toBe("123");
+      expect(mockPrisma.$transaction).toHaveBeenCalled();
+    });
+
+    it("should wrap updateManyAndReturn in tenant context (RLS unwrapped-method guard)", async () => {
+      // Regression: Prisma 6.19 exposes `updateManyAndReturn` on every model
+      // delegate. If it is omitted from DATA_METHODS, the get trap returns the
+      // raw delegate function bound to the shared app client, so the UPDATE
+      // runs WITHOUT set_tenant_context — under FORCE RLS it silently matches 0
+      // rows (caller believes rows were updated), and it is the same
+      // "unwrapped data method" footgun the hardening rounds eliminated for
+      // every other delegate method.
+      const client = createTenantClient(mockPrisma, "tenant-1");
+
+      mockPrisma.$transaction.mockImplementationOnce(async (fn) => {
+        const tx = {
+          $executeRaw: vi.fn().mockResolvedValue(undefined),
+          $executeRawUnsafe: vi.fn().mockResolvedValue(undefined),
+          partyRole: { updateManyAndReturn: vi.fn().mockResolvedValue([{ partyRoleId: "123" }]) },
+        };
+        return fn(tx);
+      });
+
+      const result = await client.partyRole.updateManyAndReturn({
+        where: { partyId: "party-123" },
+        data: { thruDate: new Date() },
+      });
+
+      expect(result).toEqual([{ partyRoleId: "123" }]);
       expect(mockPrisma.$transaction).toHaveBeenCalled();
     });
 

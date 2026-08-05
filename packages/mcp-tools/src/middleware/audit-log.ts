@@ -13,6 +13,31 @@ import { getErrorCode, sanitizeLogMessage, sanitizeForLogOutput, stripHtmlTags, 
 import { ToolMiddleware, ToolContext, ToolResult } from "../schema/tool-definition.js";
 import { truncateValue, capString, MAX_STORED_PAYLOAD_SIZE } from "./truncate.js";
 
+const AUDIT_DROP_WARNING =
+  "Some audit log entries were dropped due to high load. The operation succeeded but the durable audit trail may be incomplete.";
+
+/**
+ * Attach the audit-drop warning to a tool result without corrupting the
+ * payload.
+ *
+ * Object-spreading a non-object result would corrupt it: spreading a string
+ * produces numeric index keys (`"ok"` → `{ 0: "o", 1: "k" }`), a number is
+ * silently discarded, and an array's indices become keys. Only merge the
+ * warning INTO a plain-object result; for scalar/array results wrap the
+ * warning alongside the original value so the agent sees both the warning and
+ * the uncorrupted data.
+ */
+export function attachAuditWarning(result: ToolResult, warning = AUDIT_DROP_WARNING): ToolResult {
+  const data = result.data;
+  if (data != null && typeof data === "object" && !Array.isArray(data)) {
+    return { ...result, data: { _auditWarning: warning, ...(data as Record<string, unknown>) } };
+  }
+  if (data != null) {
+    return { ...result, data: { _auditWarning: warning, data } };
+  }
+  return { ...result, data: { _auditWarning: warning } };
+}
+
 /**
  * Create an audit log middleware backed by PostgreSQL.
  *
@@ -96,12 +121,7 @@ async function executeAndLog(prisma: PrismaClient, backpressure: BackpressureMan
   // is a regulatory issue. The warning does NOT affect success/data — the
   // tool still completed successfully; only the audit side-effect was lost.
   if (backpressure.wasDropDetected()) {
-    result = {
-      ...result,
-      data: result.data != null
-        ? { _auditWarning: "Some audit log entries were dropped due to high load. The operation succeeded but the durable audit trail may be incomplete.", ...(result.data as Record<string, unknown>) }
-        : { _auditWarning: "Some audit log entries were dropped due to high load. The operation succeeded but the durable audit trail may be incomplete." },
-    };
+    result = attachAuditWarning(result);
   }
 
   // The success payload returned to the AI agent must be redacted the SAME

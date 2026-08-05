@@ -99,8 +99,8 @@ export function validatePrismaClientForRls(prisma: PrismaClient): void {
 const DATA_METHODS = new Set([
   "findMany", "findUnique", "findFirst", "count", "aggregate", "groupBy",
   "findUniqueOrThrow", "findFirstOrThrow",
-  "create", "update", "delete", "upsert", "updateMany", "deleteMany",
-  "createMany", "createManyAndReturn",
+  "create", "update", "delete", "upsert", "updateMany", "updateManyAndReturn",
+  "deleteMany", "createMany", "createManyAndReturn",
 ]);
 
 /** Operations that should never be called on a tenant-scoped proxy. */

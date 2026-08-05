@@ -136,8 +136,6 @@ export const MAX_IDEMPOTENCY_KEY_LENGTH = 500;
  * rather than a structured error).
  */
 export const SAFE_IDEMPOTENCY_KEY = /^[!-~]+$/;
-
-/** TTL for idempotency records (24 hours in milliseconds). */
 export const IDEMPOTENCY_TTL_MS = 86_400_000;
 
 /** Maximum retries for idempotency serialization failures. */

@@ -195,6 +195,39 @@ function replaceDatabaseUrls(input: string): string {
     .replace(/amqps?:\/\/[^\s"']+/gi, "[MESSAGE_BROKER_URL]");
 }
 
+// Field-name alternation shared by the three free-text secret rules below.
+// Extracted to a single source of truth so the rules cannot drift from
+// `isSensitiveFieldName`: the previously fixed alternation missed composite
+// names like `refresh_token`, so a short/all-letter secret under one of those
+// names leaked verbatim while the identical value under `access_token` was
+// scrubbed — an asymmetric leak across log surfaces.
+//
+// `code`/`session` are deliberately EXCLUDED from this base list: round 64
+// removed them from the bare free-text/boundary rule because they over-redact
+// benign prose (`status code=200 ok`, `session=abc123`). The query-string and
+// quoted-value rules re-add them, since a URL param or a quoted value is
+// structured rather than prose.
+const SECRET_PARAM_ALTERNATION =
+  "key|token|id_token|access_token|refresh_token|auth_token|session_token|reset_token|grant_token|" +
+  "secret|secret_key|secretkey|access_key|accesskey|password|passwd|pwd|auth|api_key|apikey|" +
+  "client_secret|client_id|signature|sign|otp|bearer";
+const SECRET_PARAM_ALTERNATION_WITH_SESSION = `${SECRET_PARAM_ALTERNATION}|code|session`;
+
+// `String.raw` preserves regex backslash escapes verbatim, so each pattern
+// below is byte-for-byte the intended regex source.
+const QUERY_SECRET_PATTERN = new RegExp(
+  String.raw`(?<=[?&#;])((?:${SECRET_PARAM_ALTERNATION_WITH_SESSION})=)([^&;\s"']+)`,
+  "gi",
+);
+const BOUNDARY_SECRET_PATTERN = new RegExp(
+  String.raw`(^|[\s"'{([,;])((?:${SECRET_PARAM_ALTERNATION}))=([^}\]\s"'\` ,;]+)`,
+  "gi",
+);
+const QUOTED_SECRET_PATTERN = new RegExp(
+  String.raw`(^|[\s"'{([;,?])"?((?:${SECRET_PARAM_ALTERNATION_WITH_SESSION}))"?\s*[:=]\s*("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')`,
+  "gi",
+);
+
 /**
  * Redact secrets in URL query strings and fragments.
  *
@@ -204,10 +237,7 @@ function replaceDatabaseUrls(input: string): string {
  * leaves nothing sensitive behind.
  */
 function replaceQuerySecrets(input: string): string {
-  return input.replace(
-    /(?<=[?&#;])((?:key|token|id_token|access_token|secret|password|passwd|pwd|auth|api_key|apikey|client_secret|client_id|signature|sign|otp|code|session|bearer)=)([^&;\s"']+)/gi,
-    (_m, name) => `${name}[REDACTED]`,
-  );
+  return input.replace(QUERY_SECRET_PATTERN, (_m, name) => `${name}[REDACTED]`);
 }
 
 /**
@@ -215,20 +245,14 @@ function replaceQuerySecrets(input: string): string {
  * string, e.g. `password=hunter2` or `{"api_key":"sk_live_abc"}`.
  */
 function replaceBoundarySecrets(input: string): string {
-  return input.replace(
-    /(^|[\s"'{([,;])((?:key|token|id_token|access_token|secret|password|passwd|pwd|auth|api_key|apikey|client_secret|client_id|signature|sign|otp|bearer))=([^}\]\s"'`,;]+)/gi,
-    (_, lead, name) => `${lead}${name}=[REDACTED]`,
-  );
+  return input.replace(BOUNDARY_SECRET_PATTERN, (_, lead, name) => `${lead}${name}=[REDACTED]`);
 }
 
 /**
  * Redact secrets wrapped in quotes: `"api_key":"value"` or `password="value"`.
  */
 function replaceQuotedSecrets(input: string): string {
-  return input.replace(
-    /(^|[\s"'{([;,?])"?((?:key|token|id_token|access_token|secret|password|passwd|pwd|auth|api_key|apikey|client_secret|client_id|signature|sign|otp|code|session|bearer))"?\s*[:=]\s*("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')/gi,
-    (_, lead, name) => `${lead}${name}=[REDACTED]`,
-  );
+  return input.replace(QUOTED_SECRET_PATTERN, (_, lead, name) => `${lead}${name}=[REDACTED]`);
 }
 
 /** Redact Bearer tokens and JWTs. */
