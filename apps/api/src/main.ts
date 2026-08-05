@@ -11,7 +11,7 @@ import { NestFactory, DiscoveryService } from "@nestjs/core";
 import { Logger, ValidationPipe, type INestApplication } from "@nestjs/common";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
-import { sanitizeForLogOutput, JWT_EXPIRES_IN_REGEX, MAX_JWT_EXPIRES_IN_DAYS } from "@besterp/shared";
+import { sanitizeForLogOutput, JWT_EXPIRES_IN_REGEX, MAX_JWT_EXPIRES_IN_DAYS, isDev, isProd } from "@besterp/shared";
 import { isWeakSecret, MIN_JWT_SECRET_LENGTH } from "./auth/secret-strength.js";
 import { AppModule } from "./app.module.js";
 import express, { type Request, type Response, type NextFunction } from "express";
@@ -60,11 +60,11 @@ function resolveHardExitTimeout(env: NodeJS.ProcessEnv): number {
 function validateRequiredEnvVars(): void {
   const requiredInProduction = ["DATABASE_URL", "DATABASE_ADMIN_URL", "JWT_SECRET"];
   const missing = requiredInProduction.filter((v) => !process.env[v]);
-  if (missing.length > 0 && process.env.NODE_ENV === "production") {
+  if (missing.length > 0 && isProd()) {
     logger.error(`Missing required environment variables: ${missing.join(", ")}. Exiting.`);
     process.exit(1);
   }
-  if (!process.env.DATABASE_URL && process.env.NODE_ENV !== "production") {
+  if (!process.env.DATABASE_URL && !isProd()) {
     logger.warn("DATABASE_URL not set — database operations will fail. Set DATABASE_URL before running the API.");
   }
 }
@@ -109,7 +109,7 @@ function validateJwtExpiresIn(): void {
 function validateJwtSecretPresence(): void {
   // Fail if JWT_SECRET is missing in any non-development environment.
   // In development, a random ephemeral secret is generated instead.
-  if (!process.env.JWT_SECRET && process.env.NODE_ENV !== "development") {
+  if (!process.env.JWT_SECRET && !isProd()) {
     logger.error(
       "JWT_SECRET is not set. This is required in non-development environments. " +
       "Set JWT_SECRET before running the API."
@@ -147,7 +147,7 @@ function validateRedisConfig(): void {
   // confusing QueueModule init throw inside NestFactory.create.
   const REDIS_WARN_VARS = ["REDIS_HOST", "REDIS_PORT", "REDIS_PASSWORD"];
   const missingRedis = REDIS_WARN_VARS.filter((v) => !process.env[v]);
-  if (missingRedis.length > 0 && process.env.NODE_ENV === "production") {
+  if (missingRedis.length > 0 && isProd()) {
     logger.warn(`Missing Redis env vars: ${missingRedis.join(", ")}. Queues and background jobs will fail.`);
   }
 }
@@ -214,7 +214,7 @@ function parseAllowedOrigins(): string[] {
   // Fall back to restrictive localhost origins in development so that
   // error-middleware CORS headers (which bypass the main CORS middleware)
   // still allow cross-origin error reads from local frontend dev servers.
-  if (process.env.NODE_ENV === "development") {
+  if (isDev()) {
     return [
       "http://localhost:3000",
       "http://localhost:3001",
@@ -233,7 +233,7 @@ function isAllowedOrigin(origin: string | undefined, allowed: string[]): boolean
 function configureCors(app: INestApplication, allowedOrigins: string[]): void {
   if (allowedOrigins.length > 0) {
     const isExplicitConfig = process.env.CORS_ORIGINS != null;
-    if (!isExplicitConfig && process.env.NODE_ENV === "development") {
+    if (!isExplicitConfig && isDev()) {
       logger.warn(
         "CORS_ORIGINS not set — using restrictive localhost origins for development. " +
         "Set CORS_ORIGINS for non-standard dev ports."
@@ -253,7 +253,7 @@ function configureCors(app: INestApplication, allowedOrigins: string[]): void {
     "Without this, cross-origin requests will be blocked by the browser. " +
     "Set CORS_ORIGINS and restart the application."
   );
-  if (process.env.NODE_ENV === "production") {
+  if (isProd()) {
     logger.error("CORS_ORIGINS is required in production. Exiting.");
     process.exit(1);
   }

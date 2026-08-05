@@ -17,7 +17,7 @@ import { PassportStrategy } from "@nestjs/passport";
 import { ExtractJwt, Strategy } from "passport-jwt";
 import { randomBytes } from "node:crypto";
 import { validateTenantIdEnhanced } from "@besterp/database";
-import { MAX_USER_ID_LENGTH, MAX_AGENT_ID_LENGTH, MAX_ROLE_LENGTH, MAX_TENANT_ID_LENGTH } from "@besterp/shared";
+import { MAX_USER_ID_LENGTH, MAX_AGENT_ID_LENGTH, MAX_ROLE_LENGTH, MAX_TENANT_ID_LENGTH, isProd } from "@besterp/shared";
 
 export interface JwtPayload {
   sub: string;      // user ID
@@ -55,7 +55,7 @@ export function resolveJwtSecret(): string {
     _jwtSecretCache.value = secret;
     return secret;
   }
-  if (process.env.NODE_ENV === "production") {
+  if (isProd()) {
     throw new Error("JWT_SECRET must be set in production. Refusing to start with insecure default.");
   }
   _logger.warn(

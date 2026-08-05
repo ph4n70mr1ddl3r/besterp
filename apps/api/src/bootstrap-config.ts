@@ -62,7 +62,7 @@ export function resolveHardExitTimeoutMs(env: NodeJS.ProcessEnv): number {
  * Normalize NODE_ENV: trim surrounding whitespace and lowercase.
  *
  * Trimming matters because `" production "` (whitespace-padded) would bypass
- * every `process.env.NODE_ENV === "production"` guard in main.ts, QueueModule,
+ * every normalized NODE_ENV check in main.ts, QueueModule,
  * and HealthService — exactly the class of silent config drift the existing
  * lowercase normalization was added to prevent.
  */

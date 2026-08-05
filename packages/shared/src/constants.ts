@@ -205,7 +205,7 @@ export function resolveRedisTls(): boolean {
   const raw = (process.env.REDIS_TLS ?? "").toLowerCase();
   if (["1", "true", "yes"].includes(raw)) return true;
   if (["0", "false", "no"].includes(raw)) return false;
-  return process.env.NODE_ENV !== "development";
+  return !isDev();
 }
 
 /**
