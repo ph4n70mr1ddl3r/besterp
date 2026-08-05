@@ -149,15 +149,29 @@ export class PrismaService
   /** Read and clamp cache size env vars to valid ranges. */
   private initializeCacheSizes(): void {
     const rawMethodCache = process.env.PRISMA_MAX_METHOD_CACHE_SIZE;
-    if (rawMethodCache && Number.isNaN(Number(rawMethodCache))) {
-      this.logger.warn(`PRISMA_MAX_METHOD_CACHE_SIZE="${rawMethodCache}" is not a valid number — using default ${DEFAULT_MAX_METHOD_CACHE_SIZE}.`);
+    if (rawMethodCache) {
+      const parsed = Number(rawMethodCache);
+      if (Number.isNaN(parsed)) {
+        this.logger.warn(`PRISMA_MAX_METHOD_CACHE_SIZE="${rawMethodCache}" is not a valid number — using default ${DEFAULT_MAX_METHOD_CACHE_SIZE}.`);
+      } else if (parsed === 0) {
+        this.logger.warn(`PRISMA_MAX_METHOD_CACHE_SIZE=0 is not allowed — clamping to minimum of 1.`);
+      }
+      this.maxMethodCacheSize = Math.min(100_000, Math.max(1, parsed || DEFAULT_MAX_METHOD_CACHE_SIZE));
+    } else {
+      this.maxMethodCacheSize = DEFAULT_MAX_METHOD_CACHE_SIZE;
     }
-    this.maxMethodCacheSize = Math.min(100_000, Math.max(1, Number(rawMethodCache) || DEFAULT_MAX_METHOD_CACHE_SIZE));
     const rawDelegateCache = process.env.PRISMA_MAX_DELEGATE_CACHE_SIZE;
-    if (rawDelegateCache && Number.isNaN(Number(rawDelegateCache))) {
-      this.logger.warn(`PRISMA_MAX_DELEGATE_CACHE_SIZE="${rawDelegateCache}" is not a valid number — using default ${DEFAULT_MAX_DELEGATE_CACHE_SIZE}.`);
+    if (rawDelegateCache) {
+      const parsed = Number(rawDelegateCache);
+      if (Number.isNaN(parsed)) {
+        this.logger.warn(`PRISMA_MAX_DELEGATE_CACHE_SIZE="${rawDelegateCache}" is not a valid number — using default ${DEFAULT_MAX_DELEGATE_CACHE_SIZE}.`);
+      } else if (parsed === 0) {
+        this.logger.warn(`PRISMA_MAX_DELEGATE_CACHE_SIZE=0 is not allowed — clamping to minimum of 1.`);
+      }
+      this.maxDelegateCacheSize = Math.min(100_000, Math.max(1, parsed || DEFAULT_MAX_DELEGATE_CACHE_SIZE));
+    } else {
+      this.maxDelegateCacheSize = DEFAULT_MAX_DELEGATE_CACHE_SIZE;
     }
-    this.maxDelegateCacheSize = Math.min(100_000, Math.max(1, Number(rawDelegateCache) || DEFAULT_MAX_DELEGATE_CACHE_SIZE));
   }
 
   async onModuleInit() {
