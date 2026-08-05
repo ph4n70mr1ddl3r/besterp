@@ -410,4 +410,3 @@ export class ToolRegistry {
 }
 
 // NOTE: No singleton is exported. Create instances via `new ToolRegistry()`.
-// This avoids shared mutable state across modules.

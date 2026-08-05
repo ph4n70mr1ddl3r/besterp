@@ -94,6 +94,25 @@ describe("HealthService", () => {
       expect(result.warning).toContain("Redis");
     });
 
+    it("should skip the Redis probe and report disconnected when REDIS_PORT is explicitly '0'", async () => {
+      // REDIS_PORT="0" must NOT silently fall back to DEFAULT_REDIS_PORT (6380).
+      // The || operator treats "0" as falsy, so the explicit undefined check
+      // in probeRedis() ensures an operator who sets port=0 gets a validation
+      // error and a clear warning rather than connecting to the wrong port.
+      vi.stubEnv("REDIS_HOST", "localhost");
+      vi.stubEnv("REDIS_PORT", "0");
+      redisConnectMock.mockClear();
+
+      const service = new HealthService(createMockPrisma());
+      const result = await service.getHealth();
+
+      expect(redisConnectMock).not.toHaveBeenCalled();
+      expect(result.redis).toBe("disconnected");
+      // The REDIS_PORT-specific validation warning goes to the logger; the
+      // health body uses the generic disconnected warning regardless of cause.
+      expect(result.warning).toContain("Redis");
+    });
+
     it("should default environment to 'development' when NODE_ENV is unset", async () => {
       vi.stubEnv("NODE_ENV", undefined);
       const service = new HealthService(createMockPrisma());

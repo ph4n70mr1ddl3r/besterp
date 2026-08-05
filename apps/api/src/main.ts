@@ -441,9 +441,16 @@ async function bootstrap() {
   }
 
   const port = parsePort();
+  let listenAddr = `http://localhost:${port}`;
   try {
-    await app.listen(port);
-    logger.log(`BestERP API running on http://localhost:${port}`);
+    const server = await app.listen(port);
+    const addr = server.address();
+    if (addr) {
+      const address = typeof addr === "string" ? addr : addr?.address ?? "localhost";
+      const network = address === "::" || address === "0.0.0.0" ? "0.0.0.0" : address;
+      listenAddr = `http://${network}:${port}`;
+    }
+    logger.log(`BestERP API running on ${listenAddr}`);
   } catch (err) {
     logger.error(`Failed to listen on port ${port}: ${sanitizeForLogOutput(err instanceof Error ? err.message : String(err))}`);
     try {

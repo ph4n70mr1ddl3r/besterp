@@ -189,7 +189,7 @@ export class HealthService implements OnModuleInit {
       );
     }
 
-    const redisPort = Number(process.env.REDIS_PORT || DEFAULT_REDIS_PORT);
+    const redisPort = process.env.REDIS_PORT !== undefined ? Number(process.env.REDIS_PORT) : DEFAULT_REDIS_PORT;
     if (!Number.isInteger(redisPort) || redisPort < 1 || redisPort > 65535) {
       this.warnOnce(
         `REDIS_PORT "${process.env.REDIS_PORT}" is invalid — skipping the Redis health check. ` +
