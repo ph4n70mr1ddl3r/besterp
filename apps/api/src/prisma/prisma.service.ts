@@ -330,9 +330,7 @@ export class PrismaService
       // table" check unreachable: rows could only ever come from the enumerated
       // list, so a new tenant table added to rls-setup.sql (and applied) but
       // omitted here would simply never be inspected and the boot check would
-      // pass vacuously — a new tenant table added to rls-setup.sql but omitted
-      // here would simply never be inspected and the boot check would pass
-      // vacuously. By querying everything, we can diff the actual force-RLS set
+      // pass vacuously. By querying everything, we can diff the actual force-RLS set
       // against the authoritative enumeration and refuse to boot on either side
       // of the diff.
       const rows = await this._appClient.$queryRaw<{ relname: string; relrowsecurity: boolean; relforcerowsecurity: boolean }[]>`
