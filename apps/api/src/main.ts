@@ -15,6 +15,7 @@ import { sanitizeForLogOutput, JWT_EXPIRES_IN_REGEX, MAX_JWT_EXPIRES_IN_DAYS, is
 import { isWeakSecret, MIN_JWT_SECRET_LENGTH } from "./auth/secret-strength.js";
 import { AppModule } from "./app.module.js";
 import express, { type Request, type Response, type NextFunction } from "express";
+import type { Server } from "node:http";
 // Import tenant-context for the Express module augmentation (req.requestId).
 // This must remain imported so TypeScript recognises requestId on the Request type.
 import "./common/tenant-context.js";
@@ -274,6 +275,14 @@ function parsePort(): number {
   return port;
 }
 
+function resolveListenAddress(port: number, server: Server): string {
+  const addr = server.address();
+  if (!addr) return `http://localhost:${port}`;
+  const address = typeof addr === "string" ? addr : addr?.address ?? "localhost";
+  const network = address === "::" || address === "0.0.0.0" ? "0.0.0.0" : address;
+  return `http://${network}:${port}`;
+}
+
 async function bootstrap() {
   normalizeEnvironment();
   validateEnvironment();
@@ -441,15 +450,9 @@ async function bootstrap() {
   }
 
   const port = parsePort();
-  let listenAddr = `http://localhost:${port}`;
   try {
     const server = await app.listen(port);
-    const addr = server.address();
-    if (addr) {
-      const address = typeof addr === "string" ? addr : addr?.address ?? "localhost";
-      const network = address === "::" || address === "0.0.0.0" ? "0.0.0.0" : address;
-      listenAddr = `http://${network}:${port}`;
-    }
+    const listenAddr = resolveListenAddress(port, server);
     logger.log(`BestERP API running on ${listenAddr}`);
   } catch (err) {
     logger.error(`Failed to listen on port ${port}: ${sanitizeForLogOutput(err instanceof Error ? err.message : String(err))}`);
