@@ -1149,13 +1149,13 @@ export class PartyService {
     return {
       partyId: party.partyId,
       name: party.name,
-      partyType: party.partyType?.name ? party.partyType.name : "UNKNOWN",
+      partyType: party.partyType.name ?? "UNKNOWN",
       description: party.description,
       person: party.person ? this.toPersonResult(party.person) : null,
       organization: party.organization ? this.toOrgResult(party.organization) : null,
       roles: (party.roles ?? []).map((r) => ({
         partyRoleId: r.partyRoleId,
-        roleTypeName: r.roleType?.name ? r.roleType.name : "UNKNOWN",
+        roleTypeName: r.roleType?.name ?? "UNKNOWN",
         fromDate: r.fromDate ? r.fromDate.toISOString() : null,
         thruDate: r.thruDate?.toISOString() ?? null,
       })),

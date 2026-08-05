@@ -54,6 +54,12 @@ export class HealthService implements OnModuleInit {
    * Mirrors the same deduplication pattern used by QueueModule (static flag).
    */
   private static _redisPortWarned = false;
+  /**
+   * Per-process flag so the generic connection-failure warning fires exactly
+   * once per process. Without this, a permanently-down Redis floods logs on
+   * every health-check poll (e.g. every 5s from a load balancer).
+   */
+  private static _redisConnectionWarned = false;
 
   constructor(private readonly prisma: PrismaService) {}
 
@@ -252,7 +258,7 @@ export class HealthService implements OnModuleInit {
       });
       return "connected";
     } catch {
-      this.logger.warn("Redis health check failed — background jobs may not work");
+      this.warnConnectionFailed();
       return "disconnected";
     }
   }
@@ -266,6 +272,18 @@ export class HealthService implements OnModuleInit {
     if (HealthService._redisPortWarned) return;
     HealthService._redisPortWarned = true;
     this.logger.warn(message);
+  }
+
+  /**
+   * Emit a generic Redis-connection-failure warning exactly once per process,
+   * mirroring the same deduplication pattern. The connection-failure path
+   * (catch block in probeRedis) was previously unconditional and would
+   * flood logs on every health-check poll when Redis is permanently down.
+   */
+  private warnConnectionFailed(): void {
+    if (HealthService._redisConnectionWarned) return;
+    HealthService._redisConnectionWarned = true;
+    this.logger.warn("Redis health check failed — background jobs may not work");
   }
 
   /**
