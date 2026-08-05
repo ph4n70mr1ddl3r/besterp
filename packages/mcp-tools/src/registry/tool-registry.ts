@@ -161,7 +161,7 @@ export class ToolRegistry {
       // `name` is attacker-controlled (the requested tool) and this result
       // bypasses errorHandlerMiddleware, so a crafted name embedding a secret
       // (e.g. `foo?api_key=sk_live_abc`) would otherwise reach the agent
-      // unsanitized (round 48).
+      // unsanitized.
       const safeName = sanitizeForLogOutput(name);
       const safeSimilar = similar.map((s) => sanitizeForLogOutput(s));
       return {

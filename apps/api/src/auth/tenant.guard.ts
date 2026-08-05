@@ -25,7 +25,7 @@ export class TenantGuard implements CanActivate {
       context.getClass(),
     ]);
     if (isPublic) {
-      // @Public() is only permitted on HealthController (see jwt-auth.guard).
+      // @Public() is only permitted on HealthController (see public-scope.ts).
       // Fail closed if any other controller opts out of authentication.
       isPublicAllowedForHandler(context);
       return true;

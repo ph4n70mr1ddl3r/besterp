@@ -202,11 +202,10 @@ function replaceDatabaseUrls(input: string): string {
 // names leaked verbatim while the identical value under `access_token` was
 // scrubbed — an asymmetric leak across log surfaces.
 //
-// `code`/`session` are deliberately EXCLUDED from this base list: round 64
-// removed them from the bare free-text/boundary rule because they over-redact
-// benign prose (`status code=200 ok`, `session=abc123`). The query-string and
-// quoted-value rules re-add them, since a URL param or a quoted value is
-// structured rather than prose.
+// `code`/`session` are deliberately EXCLUDED from this base list because they
+// over-redact benign prose (`status code=200 ok`, `session=abc123`). The
+// query-string and quoted-value rules re-add them, since a URL param or a
+// quoted value is structured rather than prose.
 const SECRET_PARAM_ALTERNATION =
   "key|token|id_token|access_token|refresh_token|auth_token|session_token|reset_token|grant_token|" +
   "secret|secret_key|secretkey|access_key|accesskey|password|passwd|pwd|auth|api_key|apikey|" +

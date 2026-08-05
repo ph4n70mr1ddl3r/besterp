@@ -1084,10 +1084,14 @@ export class PartyService {
   }
 
   /** Validate that a value looks like a UUID. Gives a clear error instead of
-   *  an opaque Prisma P2023 error for malformed IDs from MCP tool callers. */
+   *  an opaque Prisma P2023 error for malformed IDs from MCP tool callers.
+   *  Trims first to stay consistent with every other service-layer validator
+   *  (requireStringField, requireValidDate, parseFromDate all trim before
+   *  checking). A UUID padded with whitespace is valid once trimmed. */
   private static requireUuid(value: string, field: string): void {
-    if (!UUID_REGEX.test(value)) {
-      const safeValue = sanitizeForLogOutput(stripHtmlTags(value));
+    const trimmed = value.trim();
+    if (!UUID_REGEX.test(trimmed)) {
+      const safeValue = sanitizeForLogOutput(stripHtmlTags(trimmed));
       throw new InvalidTypeValueError(
         `Invalid '${field}': must be a valid UUID.`,
         { suggestedTools: ["search_parties", "get_party"], context: { field, received: safeValue } }
