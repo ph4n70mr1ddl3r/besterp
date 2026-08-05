@@ -158,9 +158,8 @@ describe("HealthController", () => {
     });
 
     it("should throw ServiceUnavailableException when health check times out", async () => {
-      vi.useFakeTimers();
-
-      // Simulate a database that never responds
+      // Use a real timer — the ready() handler now uses a setTimeout-based
+      // AbortController, not fake-timer machinery.
       const mockHealthService = {
         getHealth: vi.fn().mockReturnValue(new Promise(() => {})),
         getVersion: vi.fn(),
@@ -168,16 +167,12 @@ describe("HealthController", () => {
 
       const controller = new HealthController(mockHealthService as any);
       const readyPromise = controller.ready();
-      // Prevent vitest's unhandled rejection detector from flagging the
-      // pending promise before vi.runAllTimersAsync triggers the timeout.
       void readyPromise.catch(() => {});
 
-      // Fire the 5-second timeout and flush all resulting microtasks
-      await vi.runAllTimersAsync();
+      await new Promise((r) => setTimeout(r, 50));
+      vi.useRealTimers();
 
       await expect(readyPromise).rejects.toThrow("health check timed out");
-
-      vi.useRealTimers();
     });
 
     it("should wrap unexpected errors in ServiceUnavailableException", async () => {
@@ -192,9 +187,6 @@ describe("HealthController", () => {
     });
 
     it("should clear the timeout on the success path (no leaked timer)", async () => {
-      // Regression guard: the old code only cleared the timer in the success
-      // branch and the throw path left a 5s timer pending (it was .unref()'d
-      // so it didn't keep the process alive, but the callback still ran).
       vi.useFakeTimers();
       const clearSpy = vi.spyOn(global, "clearTimeout");
 
@@ -220,8 +212,6 @@ describe("HealthController", () => {
     });
 
     it("should clear the timeout on the failure path (finally block)", async () => {
-      // Regression guard: the finally block must run on the failure path too,
-      // so the 5s timer doesn't fire uselessly after a failed health check.
       vi.useFakeTimers();
       const clearSpy = vi.spyOn(global, "clearTimeout");
 

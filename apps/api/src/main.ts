@@ -34,9 +34,8 @@ const logger = new Logger("Bootstrap");
 
 function normalizeEnvironment(): void {
   // Normalize NODE_ENV early so all downstream comparisons are case-insensitive
-  // and whitespace-trimmed. Without this, "PRODUCTION", "Production", or a
-  // whitespace-padded " production " would silently bypass production guards
-  // and fall back to development behavior.
+  // and whitespace-trimmed. Without this, "PRODUCTION" or " production " would
+  // silently bypass production guards.
   const normalized = normalizeEnvironmentValue(process.env.NODE_ENV);
   if (normalized !== undefined) {
     process.env.NODE_ENV = normalized;

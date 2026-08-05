@@ -34,7 +34,7 @@ function domainErrorToStatus(error: DomainError): number {
     case MissingSubtypeDataError.CODE:
     case InvalidTypeValueError.CODE:
       return 422;
-    case TenantContextFailedError.CODE: // used by rls-extension
+    case TenantContextFailedError.CODE:
       return 503;
     default:
       return 500;
@@ -43,13 +43,11 @@ function domainErrorToStatus(error: DomainError): number {
 
 /**
  * Sanitize DomainError.context values before including them in HTTP responses.
- * Strips control characters (newlines, tabs, ANSI escapes) from string values
- * to prevent log injection if the response body is ever logged by a monitoring
- * tool or API client, redacts values stored under sensitive-named keys
- * (password, apiKey, …) so a secret attached under a sensitive-named context
- * key reaches REST dev clients as "[REDACTED]" — matching the key-based
- * redaction the MCP error-handler applies to the same DomainError.context for
- * AI agents — and guards against container cycles.
+ * Strips control characters from string values to prevent log injection, and
+ * redacts values stored under sensitive-named keys (password, apiKey, …) so a
+ * secret attached under a sensitive-named context key reaches REST dev clients
+ * as "[REDACTED]" — matching the key-based redaction the MCP error-handler
+ * applies to the same DomainError.context for AI agents.
  */
 
 @Catch()
@@ -96,24 +94,11 @@ export class DomainExceptionFilter implements ExceptionFilter {
     const body: Record<string, unknown> = {
       statusCode: status,
       error: exception.code,
-      // DomainError messages frequently embed user-supplied input (invalid
-      // values, received fields, malformed dates), e.g.
-      //   `Invalid fromDate format: ${trimmed}.`
-      //   `${field} is not a valid ISO 8601 date. Received: ${value}.`
-      // Those values are only .trim()'d upstream, so interior control chars
-      // (newlines, tabs, ANSI escapes), raw HTML/scripts, AND sensitive
-      // connection strings / tokens (e.g. a `postgres://user:pass@…` echoed
-      // via a downstream error, or a `Bearer …` token) survive into the
-      // message. Reflecting the message verbatim into the response body
-      // re-opens the same log/response-injection surface that
-      // redactSensitiveFieldValues() closes for context values — and unlike
-      // context this field is sent in BOTH dev and production for non-500
-      // DomainErrors.
-      // sanitizeForLogOutput runs control-char/ANSI stripping FIRST and then
-      // redacts URLs/secrets/tokens (matching the MCP error-handler), and
-      // stripHtmlTags last for stored-XSS defense. This keeps the existing
-      // "_"-substitution + HTML-strip semantics while closing the
-      // secret-disclosure gap that the parallel MCP surface did not have.
+      // DomainError messages embed user-supplied input (invalid values, received
+      // fields, malformed dates). These values survive upstream .trim() and may
+      // contain control chars, HTML, or secrets (connection strings, tokens).
+      // sanitizeForLogOutput strips control chars/ANSI and redacts URLs/secrets;
+      // stripHtmlTags runs last for stored-XSS defense.
       message: status === 500 && !dev
         ? "An unexpected error occurred"
         : stripHtmlTags(sanitizeForLogOutput(exception.message)),
@@ -131,13 +116,8 @@ export class DomainExceptionFilter implements ExceptionFilter {
     const status = exception.getStatus();
     const exceptionResponse = exception.getResponse();
 
-    // Strip internal details from HttpException responses in every environment
-    // EXCEPT development. Some NestJS exceptions (e.g., ValidationPipe errors)
-    // include the full validation error array, which could leak internal
-    // field names or logic. Production hardening must NOT depend on an exact
-    // "production" NODE_ENV: staging / preview / uat deployments that run under
-    // any other value would otherwise return raw error bodies (information
-    // disclosure). Only the explicit development environment is permissive.
+    // Only the explicit development environment is permissive; staging/preview/
+    // uat deployments must NOT return raw error bodies.
     const dev = isDev();
     if (typeof exceptionResponse === "string") {
       response.status(status).json({ statusCode: status, message: stripHtmlTags(sanitizeForLogOutput(exceptionResponse)) });
@@ -145,22 +125,14 @@ export class DomainExceptionFilter implements ExceptionFilter {
     }
     if (!dev && typeof exceptionResponse === "object" && exceptionResponse !== null) {
       const res = exceptionResponse as Record<string, unknown>;
-      // Keep only safe, client-facing fields; drop validation details, stack, etc.
       const safeBody: Record<string, unknown> = { statusCode: status };
       if (typeof res.message === "string") {
-        // A custom/upstream HttpException may carry a secret-shaped value
-        // (connection string, Bearer token, ?token=…) directly in its string
-        // message. Scrub it the same way the array-validation branch and the
-        // DomainError path do, so a REST client cannot extract a secret that
-        // an AI agent would not see.
+        // Scrub secret-shaped values (connection strings, Bearer tokens) the
+        // same way the array-validation and DomainError paths do.
         safeBody.message = stripHtmlTags(sanitizeForLogOutput(res.message));
       } else if (Array.isArray(res.message)) {
-        // ValidationPipe errors carry an array of per-field detail strings
-        // like "field must be shorter than or equal to 500 characters" or
-        // "field must be an enum value". Strip user-supplied values (the
-        // last quoted token or trailing received value) while preserving the
-        // field name and constraint description so clients know which field
-        // failed and why.
+        // Strip user-supplied values from per-field detail strings while
+        // preserving the field name and constraint description.
         const cleaned: string[] = res.message
           .map((m) => {
             if (typeof m !== "string") return "Validation error";
@@ -169,10 +141,6 @@ export class DomainExceptionFilter implements ExceptionFilter {
               .replace(/\s*"[^"]*"\s*$/, "")
               .replace(/[.,;:]\s*$/, "")
               .trim() || m.split(" ")[0] || "Validation error";
-            // A custom validator may embed a connection-string/secret-shaped
-            // value directly in the message. Scrub it the same way the MCP
-            // error-handler scrubs agent-facing errors so a REST client cannot
-            // extract a secret that an AI agent would not see.
             return sanitizeForLogOutput(stripped);
           })
           .filter(Boolean);
@@ -187,9 +155,8 @@ export class DomainExceptionFilter implements ExceptionFilter {
       return;
     }
 
-    // By this point exceptionResponse is null or a non-object primitive.
-    // In dev, reflect it for debugging; in production use a safe generic body
-    // so internal fields (stack traces, validation internals, etc.) cannot leak.
+    // In dev, reflect exceptionResponse for debugging; in production use a
+    // safe generic body so internal fields cannot leak.
     if (!dev) {
       response.status(status).json({ statusCode: status });
       return;
@@ -211,13 +178,9 @@ export class DomainExceptionFilter implements ExceptionFilter {
     const dev = isDev();
     const responseMessage = dev && exception instanceof Error
       ? stripHtmlTags(sanitizeForLogOutput(exception.message))
-          // Strip internal file paths that could leak implementation details.
-          // A Prisma/driver error message may embed an absolute path like
-          // `/opt/app/node_modules/@prisma/client/runtime/edge.js` which aids
-          // an attacker in fingerprinting the deployment. Collapse to [PATH].
-          // Require a leading `/` or Windows drive letter so bare filenames
-          // like "config.json" in prose are NOT collapsed (the previous regex
-          // matched any segment ending in a known extension).
+          // Collapse absolute file paths that could leak implementation details
+          // (e.g. /opt/app/node_modules/…) to [PATH]. Require a leading / or
+          // Windows drive letter so bare filenames in prose are not affected.
           .replace(/(^|\s)(?:\/(?:[^\s'":/]+\/)+[^\s'":/]+\.(?:js|ts|json|env|yaml|yml|sql|pem|key|cert|config|conf|toml)|[A-Za-z]:\\[^\s'":]+\.(?:js|ts|json|env|yaml|yml|sql|pem|key|cert|config|conf|toml))/g, "$1[PATH]")
       : "Internal server error";
     response.status(500).json({

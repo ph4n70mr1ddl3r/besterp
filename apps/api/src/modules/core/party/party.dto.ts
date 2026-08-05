@@ -242,13 +242,11 @@ export class CreatePartyDto {
   @Type(() => CreateOrganizationDto)
   organization?: CreateOrganizationDto;
 
-  // Cross-field: correct subtype must be present for the chosen partyType
+  // Cross-field validators run against the full DTO instance, not just this field.
+  // _subtypeCheck is a phantom field (does not exist in the request body) — required
+  // because class-validator executes decorators on the class, not on a specific value.
   @Validate(PartySubtypeMatchConstraint)
-  // Cross-field: only the matching subtype should be provided
   @Validate(PartySubtypeExclusiveConstraint)
-  // NOTE: _subtypeCheck is a phantom field — it does not exist in the request body.
-  // class-validator runs all decorators on the DTO, so cross-field validators
-  // placed here execute against the full DTO instance, not just this field.
   _subtypeCheck?: unknown;
 }
 
