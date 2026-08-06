@@ -83,7 +83,7 @@ export class PrismaService
         "connection string to bypass RLS for audit/idempotency operations."
       );
     }
-    return adminUrl ?? process.env.DATABASE_URL;
+    return adminUrl || process.env.DATABASE_URL;
   }
 
   /** Validate that required env vars are present for the app client. */
