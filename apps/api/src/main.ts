@@ -64,7 +64,7 @@ function validateRequiredEnvVars(): void {
     logger.error(`Missing required environment variables: ${missing.join(", ")}. Exiting.`);
     process.exit(1);
   }
-  if (!process.env.DATABASE_URL && !isProd()) {
+  if (!process.env.DATABASE_URL && isDev()) {
     logger.warn("DATABASE_URL not set — database operations will fail. Set DATABASE_URL before running the API.");
   }
 }
@@ -109,7 +109,13 @@ function validateJwtExpiresIn(): void {
 function validateJwtSecretPresence(): void {
   // Fail if JWT_SECRET is missing in any non-development environment.
   // In development, a random ephemeral secret is generated instead.
-  if (!process.env.JWT_SECRET && !isProd()) {
+  //
+  // Uses `!isDev()` (not `!isProd()`): isDev and isProd are NOT complements
+  // ("test"/"staging"/unset NODE_ENV are neither), and `!isProd()` would
+  // wrongly reject development — where the ephemeral-secret fallback in
+  // JwtStrategy is the documented behaviour — while silently allowing a
+  // missing secret in any non-production, non-development environment.
+  if (!process.env.JWT_SECRET && !isDev()) {
     logger.error(
       "JWT_SECRET is not set. This is required in non-development environments. " +
       "Set JWT_SECRET before running the API."

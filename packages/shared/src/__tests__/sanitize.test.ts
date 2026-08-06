@@ -815,6 +815,54 @@ describe("sanitizeForLogOutput — ULID identity IDs are preserved", () => {
     expect(sanitizeForLogOutput("token AbCdEfGhIjKlMnOpQrStUvWxYz0123456789 leaked")).toContain("[REDACTED_TOKEN]");
     expect(sanitizeForLogOutput("secret a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6 leaked")).toContain("[REDACTED_TOKEN]");
   });
+
+  it("preserves lowercase ULIDs (Anthropic/Claude identity IDs)", () => {
+    // Regression: the ULID whitelist was uppercase-only, but Anthropic/Claude
+    // user/conversation/thread IDs are lowercase ULIDs in practice. A
+    // lowercase-only whitelist redacted exactly the IDs this rule exists to
+    // preserve — audit trails became unsearchable by ID.
+    expect(sanitizeForLogOutput("01h3x8q5y2gx4k1a2b3c4d5e6f")).toBe("01h3x8q5y2gx4k1a2b3c4d5e6f");
+    expect(sanitizeForLogOutput("conv_01h3x8q5y2gx4k1a2b3c4d5e6f")).toBe("conv_01h3x8q5y2gx4k1a2b3c4d5e6f");
+    expect(sanitizeForLogOutput("usr_01h3x8q5y2gx4k1a2b3c4d5e6f")).toBe("usr_01h3x8q5y2gx4k1a2b3c4d5e6f");
+    expect(sanitizeForLogOutput("party 01h3x8q5y2gx4k1a2b3c4d5e6f created")).toBe(
+      "party 01h3x8q5y2gx4k1a2b3c4d5e6f created",
+    );
+  });
+
+  it("does not let the case-insensitive ULID whitelist escape-route a secret", () => {
+    // A lowercase letter+digit run that is NOT ULID-shaped (wrong length or
+    // includes non-ULID chars) must still be redacted.
+    expect(sanitizeForLogOutput("token 01h3x8q5y2gx4k1a2b3c4d5e leaked")).toContain("[REDACTED_TOKEN]");
+  });
+});
+
+describe("sanitizeForLogOutput — colon/space-separated secrets and Basic auth", () => {
+  it("redacts colon-separated secrets in free text (name: value)", () => {
+    // Regression: `name: value` is the canonical YAML/config/log format and
+    // was previously left verbatim (only `name=value` was matched).
+    const r = sanitizeForLogOutput("login failed password: hunter2 retry");
+    expect(r).not.toContain("hunter2");
+    expect(r).toContain("password=[REDACTED]");
+    expect(sanitizeForLogOutput("token: 5f4dcc3b5aa765d61d8327deb882cf99")).not.toContain("5f4dcc3b5aa765d61d8327deb882cf99");
+  });
+
+  it("redacts space-separated assignment secrets (name = value)", () => {
+    const r = sanitizeForLogOutput("client_secret = abc123xyz configured");
+    expect(r).not.toContain("abc123xyz");
+    expect(r).toContain("client_secret=[REDACTED]");
+  });
+
+  it("redacts Basic auth credentials", () => {
+    const r = sanitizeForLogOutput("Authorization: Basic dXNlcjpwYXNz");
+    expect(r).not.toContain("dXNlcjpwYXNz");
+    expect(r).toContain("Basic [REDACTED]");
+  });
+
+  it("does NOT corrupt lowercase 'basic' prose", () => {
+    expect(sanitizeForLogOutput("basic principles of design")).toBe("basic principles of design");
+    expect(sanitizeForLogOutput("Basic requirements are met")).toBe("Basic requirements are met");
+    expect(sanitizeForLogOutput("basic skills needed")).toBe("basic skills needed");
+  });
 });
 
 describe("sanitizePostalAddress", () => {

@@ -237,6 +237,21 @@ function checkOversized(encoded: Uint8Array, effectiveMax: number): ReturnType<t
 }
 
 /**
+ * Size-check a string that will be persisted as JSONB, accounting for the
+ * 2-byte JSON quote overhead: the stored form of a top-level string is
+ * `"…"`, so a string of exactly `effectiveMax` raw bytes would otherwise be
+ * stored as `effectiveMax + 2` — violating the "never returns a stored form
+ * larger than the limit" guarantee. The marker is still built from the RAW
+ * bytes so `_originalSize`/`_preview` describe the original value, not its
+ * quoted JSON form.
+ */
+function checkOversizedStoredString(raw: string, effectiveMax: number): ReturnType<typeof truncationMarker> | null {
+  const encoded = textEncoder.encode(raw);
+  const stored = textEncoder.encode(JSON.stringify(raw));
+  return stored.byteLength > effectiveMax ? truncationMarker(encoded) : null;
+}
+
+/**
  * Check whether a value should be handled as a terminal primitive
  * (string, number, boolean, bigint, symbol, function, Date, null, undefined).
  * Returns the normalised form or undefined if the value is a non-primitive object.
@@ -254,24 +269,26 @@ function normalisePrimitive(value: unknown, effectiveMax: number): { normalised:
   if (typeof value === "string") {
     // Strings are JSON-safe — encode directly to check byte length without
     // the intermediate JSON.stringify("string") → "\"string\"" expansion.
-    return { normalised: value, marker: checkOversized(textEncoder.encode(value), effectiveMax) };
+    // The quote bytes ARE accounted for by checkOversizedStoredString so the
+    // stored JSONB form can never exceed the limit.
+    return { normalised: value, marker: checkOversizedStoredString(value, effectiveMax) };
   }
   if (typeof value === "boolean" || typeof value === "number") {
     const serialised = JSON.stringify(value);
     return { normalised: value, marker: checkOversized(textEncoder.encode(serialised), effectiveMax) };
   }
   if (typeof value === "bigint") {
-    return { normalised: value.toString(), marker: checkOversized(textEncoder.encode(value.toString()), effectiveMax) };
+    return { normalised: value.toString(), marker: checkOversizedStoredString(value.toString(), effectiveMax) };
   }
   if (typeof value === "symbol") return { normalised: { _error: "Cannot serialize Symbol value" }, marker: null };
   if (typeof value === "function") return { normalised: { _error: "Cannot serialize Function value" }, marker: null };
   if (value instanceof Date) {
     const iso = value.toISOString();
     // Encode the ISO string directly — no JSON.stringify round-trip needed
-    // since ISO strings are already valid JSON-safe content. The previous
-    // code double-encoded (JSON.stringify wraps the string in quotes),
-    // inflating the byte count by 2 and producing an inaccurate size check.
-    return { normalised: iso, marker: checkOversized(textEncoder.encode(iso), effectiveMax) };
+    // since ISO strings are already valid JSON-safe content. The quote bytes
+    // ARE accounted for by checkOversizedStoredString, so the stored JSONB
+    // form (a quoted ISO string) is bounded by the limit.
+    return { normalised: iso, marker: checkOversizedStoredString(iso, effectiveMax) };
   }
   return undefined;
 }

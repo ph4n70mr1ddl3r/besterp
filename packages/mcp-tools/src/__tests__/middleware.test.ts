@@ -1004,6 +1004,16 @@ describe("Audit Log Middleware", () => {
       const out = attachAuditWarning({ success: true, data: null });
       expect(out.data).toEqual({ _auditWarning: expect.stringContaining("audit") });
     });
+
+    it("does NOT let a tool's own _auditWarning field override the injected warning", () => {
+      // Regression: the warning was set first and the tool's data spread
+      // second, so a tool result carrying its own `_auditWarning` key silently
+      // replaced the compliance-critical audit-gap notice. The injected
+      // warning must always win.
+      const out = attachAuditWarning({ success: true, data: { _auditWarning: "tool's own message", value: 1 } });
+      expect(out.data).toMatchObject({ value: 1 });
+      expect((out.data as Record<string, unknown>)._auditWarning).toContain("audit");
+    });
   });
 
   it("should log successful tool execution", async () => {

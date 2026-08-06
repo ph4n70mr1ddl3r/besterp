@@ -30,7 +30,11 @@ const AUDIT_DROP_WARNING =
 export function attachAuditWarning(result: ToolResult, warning = AUDIT_DROP_WARNING): ToolResult {
   const data = result.data;
   if (data != null && typeof data === "object" && !Array.isArray(data)) {
-    return { ...result, data: { _auditWarning: warning, ...(data as Record<string, unknown>) } };
+    // Spread the tool's own fields first, then set `_auditWarning` LAST so a
+    // tool result that happens to carry its own `_auditWarning` key cannot
+    // overwrite the injected audit-gap warning — the compliance-critical
+    // notice (backpressure drops) must always win.
+    return { ...result, data: { ...(data as Record<string, unknown>), _auditWarning: warning } };
   }
   if (data != null) {
     return { ...result, data: { _auditWarning: warning, data } };

@@ -72,20 +72,6 @@ export class PrismaService
     this.validateAppClientEnv();
     this.initializeAppClient();
     this.initializeCacheSizes();
-    this.warnIfMissingAdminUrl();
-  }
-
-  /** Log a warning if DATABASE_ADMIN_URL is not set outside development. */
-  private warnIfMissingAdminUrl(): void {
-    if (!process.env.DATABASE_ADMIN_URL?.trim() && !isDev()) {
-      this.logger.warn(
-        "DATABASE_ADMIN_URL is not set — the admin " +
-        "client falls back to DATABASE_URL. Audit logs and idempotency records " +
-        "(which use the admin client to bypass RLS) will be silently rejected " +
-        "by RLS policies. Set DATABASE_ADMIN_URL to a superuser connection " +
-        "string or accept that audit data will not persist."
-      );
-    }
   }
 
   /** Resolve the admin datasource URL, failing closed in production. */

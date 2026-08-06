@@ -449,6 +449,62 @@ describe("ToolRegistry", () => {
       // Context value should win — input should not override it
       expect(contextReceived[0].idempotencyKey).toBe("from-context");
     });
+
+    it("should promote an over-length idempotencyKey so the middleware fails closed", async () => {
+      // Regression: the promotion guard previously dropped out-of-contract
+      // keys (over-length, empty) instead of promoting them, which silently
+      // disabled idempotency protection (the middleware no-ops when context
+      // has no key) instead of returning INVALID_IDEMPOTENCY_KEY.
+      const contextReceived: ToolContext[] = [];
+      const captureMw: ToolMiddleware = async (_input, ctx, _def, next) => {
+        contextReceived.push(ctx);
+        return next(_input, ctx);
+      };
+
+      registry.addGlobalMiddleware(captureMw);
+      registry.register({
+        name: "test_idem_tool3",
+        description: "test",
+        inputSchema: z.object({ idempotencyKey: z.string() }),
+        riskLevel: "low",
+        handler: async () => ({ success: true }),
+      });
+
+      await registry.execute(
+        "test_idem_tool3",
+        { idempotencyKey: "x".repeat(600) },
+        { tenantId: "t1", userId: "u1", services: {} },
+      );
+
+      // The over-length key must reach the middleware (fail closed), not be
+      // dropped so idempotency silently becomes a no-op.
+      expect(contextReceived[0].idempotencyKey).toBe("x".repeat(600));
+    });
+
+    it("should promote an empty idempotencyKey so the middleware fails closed", async () => {
+      const contextReceived: ToolContext[] = [];
+      const captureMw: ToolMiddleware = async (_input, ctx, _def, next) => {
+        contextReceived.push(ctx);
+        return next(_input, ctx);
+      };
+
+      registry.addGlobalMiddleware(captureMw);
+      registry.register({
+        name: "test_idem_tool4",
+        description: "test",
+        inputSchema: z.object({ idempotencyKey: z.string() }),
+        riskLevel: "low",
+        handler: async () => ({ success: true }),
+      });
+
+      await registry.execute(
+        "test_idem_tool4",
+        { idempotencyKey: "" },
+        { tenantId: "t1", userId: "u1", services: {} },
+      );
+
+      expect(contextReceived[0].idempotencyKey).toBe("");
+    });
   });
 });
 

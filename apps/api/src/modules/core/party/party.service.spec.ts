@@ -384,6 +384,34 @@ describe("PartyService", () => {
       await expect(partyService.createParty(input)).rejects.toThrow("HTML");
     });
 
+    it("should reject an HTML-only party name (defense-in-depth)", async () => {
+      // The entire name is consumed by stripHtmlTags, leaving no visible
+      // characters. The boundary layers strip HTML first, so this guard only
+      // fires for direct/internal callers — it must still reject.
+      const input: CreatePartyInput = {
+        tenantId: "tenant-1",
+        partyType: "PERSON",
+        name: "<script>alert(1)</script>",
+        person: { firstName: "John", lastName: "Doe" },
+      } as any;
+
+      await expect(partyService.createParty(input)).rejects.toThrow(InvalidTypeValueError);
+      await expect(partyService.createParty(input)).rejects.toThrow("visible characters after HTML sanitization");
+    });
+
+    it("should reject a whitespace-only description", async () => {
+      const input: CreatePartyInput = {
+        tenantId: "tenant-1",
+        partyType: "PERSON",
+        name: "John Doe",
+        description: "   ",
+        person: { firstName: "John", lastName: "Doe" },
+      } as any;
+
+      await expect(partyService.createParty(input)).rejects.toThrow(InvalidTypeValueError);
+      await expect(partyService.createParty(input)).rejects.toThrow("whitespace-only");
+    });
+
     it("should trim gender and middleName fields", async () => {
       mockAdminTypes();
       const input: CreatePartyInput = {
@@ -1186,6 +1214,23 @@ describe("PartyService", () => {
 
     it("should throw InvalidTypeValueError for tenantId exceeding max length", async () => {
       await expect(partyService.getParty("x".repeat(101), "12345678-1234-1234-1234-123456789abc")).rejects.toThrow(InvalidTypeValueError);
+    });
+
+    it("should accept a whitespace-padded UUID after trimming", async () => {
+      // requireUuid's documented contract: a UUID padded with whitespace is
+      // valid once trimmed. Boundary layers (Zod/class-validator) reject
+      // padding upstream, so this only matters for direct callers — but the
+      // trim-before-validate behavior must not regress.
+      const mockDb = {
+        party: { findUnique: vi.fn().mockResolvedValue(null) },
+      };
+      mockPrismaService.tenantScoped.mockReturnValue(mockDb);
+
+      await expect(
+        partyService.getParty("tenant-1", "  12345678-1234-1234-1234-123456789abc  ")
+      ).rejects.toThrow(EntityNotFoundError);
+      const callArg = (mockDb.party.findUnique.mock.calls[0]?.[0]) as Record<string, unknown>;
+      expect(callArg.where).toEqual(expect.objectContaining({ partyId: "12345678-1234-1234-1234-123456789abc" }));
     });
 
     it("should throw EntityNotFoundError for valid UUID but non-existent party (ensure toPartyResult not called)", async () => {

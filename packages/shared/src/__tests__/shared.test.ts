@@ -152,6 +152,14 @@ describe("UUID_REGEX / EMAIL_REGEX sanity check", () => {
     // A legitimate 2+ char TLD still matches.
     expect(EMAIL_REGEX.test("user@example.io")).toBe(true);
   });
+  it("EMAIL_REGEX rejects numeric or digit-containing TLDs", () => {
+    // Regression: the final TLD segment allowed `[a-zA-Z0-9]`, so
+    // `example.123` / `example.c0m` validated even though a numeric TLD never
+    // exists. Aligns with Zod `.email()` and class-validator `@IsEmail`.
+    expect(EMAIL_REGEX.test("user@example.123")).toBe(false);
+    expect(EMAIL_REGEX.test("user@example.c0m")).toBe(false);
+    expect(EMAIL_REGEX.test("user@example.2day")).toBe(false);
+  });
 });
 
 describe("JWT_EXPIRES_IN_REGEX (token lifetime)", () => {

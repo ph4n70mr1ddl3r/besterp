@@ -218,8 +218,15 @@ const QUERY_SECRET_PATTERN = new RegExp(
   String.raw`(?<=[?&#;])((?:${SECRET_PARAM_ALTERNATION_WITH_SESSION})=)([^&;\s"']+)`,
   "gi",
 );
+// `name: value` and `name = value` are the canonical YAML/config/log forms
+// (`password: hunter2`, `client_secret = abc`) and were previously left
+// verbatim because the pattern required `name=value` with no separator
+// whitespace. Allow an optional `:` or `=` with optional surrounding
+// whitespace. The quoted-value rule (QUOTED_SECRET_PATTERN) still owns
+// quoted values: its `"…"` value class is excluded here, so `password:
+// "hunter2"` continues to flow to that rule unchanged.
 const BOUNDARY_SECRET_PATTERN = new RegExp(
-  String.raw`(^|[\s"'{([,;])((?:${SECRET_PARAM_ALTERNATION}))=([^}\]\s"'\` ,;]+)`,
+  String.raw`(^|[\s"'{([,;])((?:${SECRET_PARAM_ALTERNATION}))\s*[:=]\s*([^}\]\s"'\` ,;]+)`,
   "gi",
 );
 const QUOTED_SECRET_PATTERN = new RegExp(
@@ -254,10 +261,18 @@ function replaceQuotedSecrets(input: string): string {
   return input.replace(QUOTED_SECRET_PATTERN, (_, lead, name) => `${lead}${name}=[REDACTED]`);
 }
 
-/** Redact Bearer tokens and JWTs. */
+/** Redact Bearer tokens, Basic auth credentials, and JWTs. */
 function replaceBearerAndJwtTokens(input: string): string {
   return input
     .replace(/\bBearer\s+[A-Za-z0-9._-]+/gi, "Bearer [REDACTED]")
+    // Basic auth: `<Basic base64>`. The `Basic` scheme is matched
+    // case-insensitively via explicit `[Bb]` classes (NOT the `i` flag, which
+    // would also make the token character class case-insensitive and corrupt
+    // prose like "basic principles" → the token must contain at least one
+    // uppercase letter, digit, `+`, `/`, or `=` padding, which pure-lowercase
+    // prose words never do. base64 of ASCII credentials almost always mixes
+    // cases and/or carries digits/padding.
+    .replace(/\b[Bb][Aa][Ss][Ii][Cc]\s+[A-Za-z0-9+/=]*[A-Z0-9+/=][A-Za-z0-9+/=]*/g, "Basic [REDACTED]")
     .replace(/\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g, "[REDACTED_JWT]");
 }
 
@@ -288,9 +303,17 @@ const REDACTED_PLACEHOLDERS = /^\[REDACTED(?:_[A-Z_]+)?\]$/;
 // Must be whitelisted or legitimate identity values would be destroyed to
 // "[REDACTED_TOKEN]" everywhere they are logged/persisted (buildContext,
 // error-handler, audit-log). Charset excludes I/L/O/U per the Crockford spec.
-const ULID_PATTERN = /^[0-9][0-9A-HJKMNP-TV-Z]{25}$/;
+//
+// Accept BOTH uppercase and lowercase: Anthropic/Claude identity IDs are
+// lowercase ULIDs in practice (e.g. `conv_01h3x8q5y2gx4k1a2b3c4d5e6f`), and a
+// lowercase-only whitelist would redact exactly the IDs this rule exists to
+// preserve — defeating its stated purpose (audit trails become unsearchable by
+// ID). The all-lowercase letter run below does not catch these (they contain
+// digits), so both cases must be explicit.
+const ULID_CHARSET = "0-9A-HJKMNP-TV-Za-hjkmnp-tv-z";
+const ULID_PATTERN = new RegExp(`^[0-9][${ULID_CHARSET}]{25}$`);
 // Prefixed forms such as `usr_<ULID>`, `agent_<ULID>`, `conv_<ULID>`.
-const PREFIXED_ULID_PATTERN = /^[a-z][a-z0-9]{0,19}_[0-9][0-9A-HJKMNP-TV-Z]{25}$/;
+const PREFIXED_ULID_PATTERN = new RegExp(`^[a-z][a-z0-9]{0,19}_[0-9][${ULID_CHARSET}]{25}$`);
 
 function replaceGenericLongToken(input: string): string {
   return input.replace(/[A-Za-z0-9_./=+-]{20,128}/g, (match) => {

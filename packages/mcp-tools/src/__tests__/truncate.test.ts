@@ -104,6 +104,21 @@ describe("truncateValue", () => {
     }
   });
 
+  it("never returns a top-level string whose JSONB form exceeds the limit", () => {
+    // Regression: a top-level string was size-checked as raw UTF-8 bytes, so
+    // a string of exactly MAX bytes was kept but stored as `"…"` = MAX + 2.
+    // The stored JSONB form (which the limit is documented to bound) must
+    // never exceed MAX_STORED_PAYLOAD_SIZE.
+    const exact = "a".repeat(MAX_STORED_PAYLOAD_SIZE);
+    const result = truncateValue(exact) as { _truncated?: boolean };
+    const reencoded = new TextEncoder().encode(JSON.stringify(result));
+    expect(reencoded.byteLength).toBeLessThanOrEqual(MAX_STORED_PAYLOAD_SIZE);
+    if (result._truncated) {
+      // When truncated, _originalSize still reports the true raw byte count.
+      expect(result._originalSize).toBe(MAX_STORED_PAYLOAD_SIZE);
+    }
+  });
+
   it("returns an error marker for unserializable (circular) input", () => {
     const circular: Record<string, unknown> = {};
     circular.self = circular;

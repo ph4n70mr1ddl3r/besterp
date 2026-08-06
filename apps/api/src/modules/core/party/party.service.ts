@@ -475,7 +475,7 @@ export class PartyService {
 
     // Validate partyId format — MCP tools don't go through the REST controller's
     // requireUuid(), so we need defense-in-depth at the service layer.
-    PartyService.requireUuid(partyId, "partyId");
+    partyId = PartyService.requireUuid(partyId, "partyId");
 
     const db: TenantScopedClient = this.prisma.tenantScoped(trimmedTenantId);
 
@@ -574,12 +574,14 @@ export class PartyService {
   // ─── Add Party Role ───────────────────────────────────────────
 
   async addPartyRole(input: AddPartyRoleInput): Promise<PartyRoleResult> {
-    const { tenantId, partyId, roleType, fromDate } = input;
+    const { tenantId, partyId: rawPartyId, roleType, fromDate } = input;
 
     // Validate tenantId format — defense-in-depth for MCP callers that bypass DTO/Zod
     const trimmedTenantId = PartyService.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "add role", "add_party_role");
 
-    PartyService.requireUuid(partyId, "partyId");
+    // requireUuid returns the trimmed value so a whitespace-padded UUID is
+    // used consistently in the queries below (see the doc comment).
+    const partyId = PartyService.requireUuid(rawPartyId, "partyId");
 
     const db: TenantScopedClient = this.prisma.tenantScoped(trimmedTenantId);
 
@@ -774,12 +776,12 @@ export class PartyService {
   // ─── Add Contact Mechanism ────────────────────────────────────
 
   async addContactMechanism(input: AddContactMechanismInput): Promise<ContactMechanismResult> {
-    const { tenantId, partyId, contactMechanismType, postalAddress, telecomNumber, emailAddress } = input;
+    const { tenantId, partyId: rawPartyId, contactMechanismType, postalAddress, telecomNumber, emailAddress } = input;
 
     // Validate tenantId format — defense-in-depth for MCP callers that bypass DTO/Zod
     const trimmedTenantId = PartyService.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "add contact", "add_contact_mechanism");
 
-    PartyService.requireUuid(partyId, "partyId");
+    const partyId = PartyService.requireUuid(rawPartyId, "partyId");
 
     const db: TenantScopedClient = this.prisma.tenantScoped(trimmedTenantId);
 
@@ -1088,16 +1090,17 @@ export class PartyService {
    *  Trims first to stay consistent with every other service-layer validator
    *  (requireStringField, requireValidDate, parseFromDate all trim before
    *  checking). A UUID padded with whitespace is valid once trimmed. */
-  private static requireUuid(value: string, field: string): void {
-    const trimmed = value.trim();
-    if (!UUID_REGEX.test(trimmed)) {
-      const safeValue = sanitizeForLogOutput(stripHtmlTags(trimmed));
-      throw new InvalidTypeValueError(
-        `Invalid '${field}': must be a valid UUID.`,
-        { suggestedTools: ["search_parties", "get_party"], context: { field, received: safeValue } }
-      );
-    }
-  }
+   private static requireUuid(value: string, field: string): string {
+     const trimmed = value.trim();
+     if (!UUID_REGEX.test(trimmed)) {
+       const safeValue = sanitizeForLogOutput(stripHtmlTags(trimmed));
+       throw new InvalidTypeValueError(
+         `Invalid '${field}': must be a valid UUID.`,
+         { suggestedTools: ["search_parties", "get_party"], context: { field, received: safeValue } }
+       );
+     }
+     return trimmed;
+   }
 
   /** Validate that a date string parses to a real Date.
    *  Defense-in-depth — the DTO path validates with @IsDateString and

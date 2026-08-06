@@ -12,7 +12,7 @@ import {
   ToolContext,
   RiskLevel,
 } from "../schema/tool-definition.js";
-import { MAX_IDEMPOTENCY_KEY_LENGTH, sanitizeForLogOutput, redactSensitiveFieldValues, validateTenantIdEnhancedForAuth, MAX_USER_ID_LENGTH, MAX_AGENT_ID_LENGTH, MAX_CONVERSATION_ID_LENGTH, TENANT_ID_PATTERN } from "@besterp/shared";
+import { sanitizeForLogOutput, redactSensitiveFieldValues, validateTenantIdEnhancedForAuth, MAX_USER_ID_LENGTH, MAX_AGENT_ID_LENGTH, MAX_CONVERSATION_ID_LENGTH, TENANT_ID_PATTERN } from "@besterp/shared";
 import { isSensitiveField } from "../middleware/sensitive-fields.js";
 
 const VALID_RISK_LEVELS: readonly RiskLevel[] = ["none", "low", "medium", "high", "critical"];
@@ -182,11 +182,19 @@ export class ToolRegistry {
     // but the middleware reads from context — not from parsed input.
     // Runtime guard: only treat non-null objects as potential sources;
     // primitives (number, string, boolean) cannot have an idempotencyKey.
+    //
+    // Fail closed: promote ANY present string key (including empty or
+    // over-length) so the idempotency middleware — which returns
+    // INVALID_IDEMPOTENCY_KEY for empty/over-length/unsafe keys — can
+    // reject it. Silently dropping an out-of-contract key here would
+    // disable idempotency protection for that call (a retry could
+    // duplicate a write) with no error, contradicting the middleware's
+    // fail-closed contract.
     const raw = (rawInput != null && typeof rawInput === "object" && !Array.isArray(rawInput))
       ? rawInput as Record<string, unknown>
       : null;
     const effectiveContext: ToolContext =
-      raw?.idempotencyKey && typeof raw.idempotencyKey === "string" && raw.idempotencyKey.length <= MAX_IDEMPOTENCY_KEY_LENGTH && !context.idempotencyKey
+      typeof raw?.idempotencyKey === "string" && !context.idempotencyKey
         ? { ...context, idempotencyKey: raw.idempotencyKey }
         : context;
 

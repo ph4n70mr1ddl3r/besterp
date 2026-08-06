@@ -20,16 +20,22 @@ export const UUID_REGEX: RegExp =
 /**
  * Pragmatic email validation regex — accepts the vast majority of real-world
  * addresses while rejecting obvious garbage (missing `@`, missing domain,
- * embedded whitespace, missing TLD). Intentionally NOT RFC 5322-compliant:
- * strict compliance produces a regex thousands of characters long and still
- * rejects addresses that are valid in practice (e.g. `user+tag@example.com`).
+ * embedded whitespace, missing TLD, numeric-only TLD). Intentionally NOT RFC
+ * 5322-compliant: strict compliance produces a regex thousands of characters
+ * long and still rejects addresses that are valid in practice (e.g.
+ * `user+tag@example.com`).
+ *
+ * The final TLD segment is alpha-only (`[a-zA-Z]{2,}`): numeric or
+ * digit-containing TLDs like `example.123` / `example.c0m` never exist in
+ * practice and are rejected, matching the rejection behavior of Zod's
+ * `.email()` and class-validator's `@IsEmail` so all three surfaces agree.
  *
  * Used by:
  * - PartyService.addContactMechanism (email type)
  * - Zod schemas in party-tools.ts (via .email() — kept aligned by tests)
  * - DTOs in party.dto.ts (via class-validator's @IsEmail — kept aligned by tests)
  */
-export const EMAIL_REGEX: RegExp = /^(?!\.)(?!.*\.\.)[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+(?<!\.)@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*\.[a-zA-Z0-9]{2,}(?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$/;
+export const EMAIL_REGEX: RegExp = /^(?!\.)(?!.*\.\.)[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+(?<!\.)@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*\.[a-zA-Z]{2,}(?:[a-zA-Z-]{0,61}[a-zA-Z])?$/;
 
 /**
  * E.164 country code validation — `+` followed by 1 to 3 digits, first digit

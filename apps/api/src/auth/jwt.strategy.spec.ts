@@ -26,7 +26,7 @@ vi.mock("passport-jwt", () => ({
 }));
 
 // Re-import after mocks are in place.
-const { JwtStrategy, resetJwtSecretCache } = await import("./jwt.strategy.js");
+const { JwtStrategy, resetJwtSecretCache, resolveJwtSecret } = await import("./jwt.strategy.js");
 
 function makeStrategy() {
   // The constructor reads JWT_SECRET / NODE_ENV from process.env. The
@@ -36,6 +36,36 @@ function makeStrategy() {
   vi.stubEnv("NODE_ENV", "test");
   return new JwtStrategy();
 }
+
+describe("resolveJwtSecret", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    resetJwtSecretCache();
+  });
+
+  it("throws in production when JWT_SECRET is missing", () => {
+    // Security-critical boot guard: the documented behavior is "In production,
+    // JWT_SECRET is required". A production process must refuse to start with
+    // an insecure ephemeral secret.
+    vi.stubEnv("NODE_ENV", "production");
+    delete process.env.JWT_SECRET;
+    expect(() => resolveJwtSecret()).toThrow(/JWT_SECRET must be set in production/);
+  });
+
+  it("uses the configured secret when set", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("JWT_SECRET", "configured-secret");
+    expect(resolveJwtSecret()).toBe("configured-secret");
+  });
+
+  it("generates an ephemeral secret in development when unset", () => {
+    vi.stubEnv("NODE_ENV", "development");
+    delete process.env.JWT_SECRET;
+    const secret = resolveJwtSecret();
+    expect(typeof secret).toBe("string");
+    expect(secret.length).toBeGreaterThanOrEqual(32);
+  });
+});
 
 describe("JwtStrategy.validate", () => {
   let strategy: InstanceType<typeof JwtStrategy>;
