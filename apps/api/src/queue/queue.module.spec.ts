@@ -99,6 +99,17 @@ describe("QueueModule", () => {
       expect(module).toBeDefined();
     });
 
+    it("should throw when an explicit empty password is passed (not silently fall back to env)", () => {
+      // Regression guard (round 105): `explicitPassword || process.env.REDIS_PASSWORD`
+      // treated `""` as falsy and silently fell through to the env var.
+      // With `??`, an explicitly-passed empty string is preserved and caught
+      // by the downstream empty-password guard.
+      process.env.NODE_ENV = "development";
+      process.env.REDIS_PASSWORD = "env-secret";
+      expect(() => QueueModule.forRoot({ redis: { host: "localhost", port: 6379, password: "" } }))
+        .toThrow("Redis password is set but empty");
+    });
+
     it("should use REDIS_PASSWORD env var when no explicit password", () => {
       process.env.REDIS_PASSWORD = "env-password";
       process.env.NODE_ENV = "development";

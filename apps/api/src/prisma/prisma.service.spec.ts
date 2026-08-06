@@ -139,6 +139,27 @@ describe("PrismaService", () => {
     });
   });
 
+  describe("cache-size env resolution", () => {
+    it("clamps an explicit 0 to 1 (not the default)", () => {
+      // Regression guard (round 105): `parsed || defaultSize` treated `0`
+      // as falsy and silently promoted it to the default (1000), defeating
+      // the warning that `0` is not allowed. The fix uses `??` so `0`
+      // reaches the clamp and is correctly mapped to the minimum of 1.
+      process.env.PRISMA_MAX_METHOD_CACHE_SIZE = "0";
+      const service = new PrismaService();
+      // Access the private cache-size field via cast to verify the clamp.
+      const maxSize = (service as unknown as { maxMethodCacheSize: number }).maxMethodCacheSize;
+      expect(maxSize).toBe(1);
+    });
+
+    it("uses the default when the env var is unset", () => {
+      delete process.env.PRISMA_MAX_METHOD_CACHE_SIZE;
+      const service = new PrismaService();
+      const maxSize = (service as unknown as { maxMethodCacheSize: number }).maxMethodCacheSize;
+      expect(maxSize).toBe(1000);
+    });
+  });
+
   describe("admin and appClient getters", () => {
     it("admin should return the base (admin) PrismaClient", () => {
       const service = new PrismaService();

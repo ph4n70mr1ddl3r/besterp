@@ -61,7 +61,12 @@ export class QueueModule {
   }
 
   private static resolvePassword(explicitPassword?: string): string | undefined {
-    const password = explicitPassword || process.env.REDIS_PASSWORD;
+    // Use `??` (not `||`) so an explicitly-passed empty string is preserved
+    // and caught by the downstream empty-password guard. With `||`,
+    // `""` would silently fall through to the env var, letting an operator
+    // who set `password: ""` in options get the env password instead of a
+    // clear error about the empty explicit value.
+    const password = explicitPassword ?? process.env.REDIS_PASSWORD;
     if (password !== undefined && password.trim().length === 0) {
       throw new Error("Redis password is set but empty. Provide a non-empty password or unset REDIS_PASSWORD.");
     }

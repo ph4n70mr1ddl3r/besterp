@@ -140,7 +140,10 @@ export class PrismaService
     } else if (parsed === 0) {
       this.logger.warn(`${varName}=0 is not allowed — clamping to minimum of 1.`);
     }
-    return Math.min(100_000, Math.max(1, parsed || defaultSize));
+    // Use `parsed ?? defaultSize` so an explicit `0` is NOT silently
+    // promoted to the default (the `||` operator treats `0` as falsy). The
+    // clamp below still enforces the [1, 100_000] range.
+    return Math.min(100_000, Math.max(1, parsed ?? defaultSize));
   }
 
   /** Read and clamp cache size env vars to valid ranges. */
