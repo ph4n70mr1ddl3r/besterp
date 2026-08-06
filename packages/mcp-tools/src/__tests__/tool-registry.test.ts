@@ -172,6 +172,27 @@ describe("ToolRegistry", () => {
       expect(result.error?.code).toBe("INVALID_USER_ID");
     });
 
+    it("should accept a whitespace-padded userId and trim it before executing the handler", async () => {
+      // Regression guard: validateContextIdentity previously rejected any
+      // userId with leading/trailing whitespace, inconsistent with
+      // McpService.buildContext and TenantGuard which both trim and accept.
+      const handler = vi.fn().mockResolvedValue({ success: true, data: {} });
+      registry.register({
+        name: "noop",
+        description: "No-op tool",
+        inputSchema: z.object({}),
+        riskLevel: "none",
+        handler,
+      });
+      const result = await registry.execute("noop", {}, {
+        tenantId: "tenant-1",
+        userId: "  user-1  ",
+        services: {},
+      });
+      expect(result.success).toBe(true);
+      expect(handler).toHaveBeenCalled();
+    });
+
     it("should accept valid optional agentId/conversationId and reach the handler", async () => {
       const handler = vi.fn().mockResolvedValue({ success: true, data: {} });
       registry.register({

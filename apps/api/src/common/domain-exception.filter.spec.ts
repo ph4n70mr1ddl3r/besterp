@@ -88,10 +88,11 @@ describe("DomainExceptionFilter", () => {
       filter.catch(error, ctx.host);
 
       expect(ctx.captured.sentStatus).toBe(500);
-      // Production replaces the internal message for unmapped 500 codes.
+      // Production replaces both the message and error code for unmapped 500
+      // codes so no internal details leak to the client.
       expect(ctx.captured.body).toMatchObject({
         statusCode: 500,
-        error: "TOTALLY_UNKNOWN_CODE",
+        error: "INTERNAL_ERROR",
         message: "An unexpected error occurred",
       });
     });
@@ -108,6 +109,25 @@ describe("DomainExceptionFilter", () => {
 
       expect(ctx.captured.body).not.toHaveProperty("suggestedTools");
       expect(ctx.captured.body).not.toHaveProperty("context");
+    });
+
+    it("sanitizes control characters embedded in the DomainError error code", () => {
+      // The error code field is reflected to the client and must be sanitized
+      // the same way the message field is — a custom DomainError could embed
+      // control chars or ANSI in its code.
+      process.env.NODE_ENV = "development";
+      const ctx = createMockHost();
+      const error = new DomainError(
+        `INVALID\x1b[31mTEST\x1b[0m`,
+        "boom"
+      );
+
+      filter.catch(error, ctx.host);
+
+      const body = ctx.captured.body as Record<string, unknown>;
+      expect((body.error as string)).not.toContain("\x1b");
+      expect((body.error as string)).not.toContain("[31m");
+      expect((body.error as string)).not.toContain("[0m");
     });
 
     it("sanitizes control characters embedded in the DomainError message", () => {

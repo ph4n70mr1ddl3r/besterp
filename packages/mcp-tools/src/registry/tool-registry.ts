@@ -286,11 +286,11 @@ export class ToolRegistry {
     if (typeof context.userId !== "string") {
       return this.contextIdentityError("INVALID_USER_ID", "user identifier");
     }
-    const trimmedUserId = context.userId.trim();
-    if (context.userId !== trimmedUserId) {
-      return this.contextIdentityError("INVALID_USER_ID", "user identifier");
-    }
-    const userId = trimmedUserId;
+    // Trim userId to match the behavior of McpService.buildContext and
+    // TenantGuard — both accept whitespace-padded values by trimming them.
+    // Reject only after trimming so a whitespace-only value is caught by
+    // the length/pattern checks below, not by the trim-equality guard.
+    const userId = context.userId.trim();
     if (userId.length === 0 || userId.length > MAX_USER_ID_LENGTH || !TENANT_ID_PATTERN.test(userId)) {
       return this.contextIdentityError("INVALID_USER_ID", "user identifier");
     }

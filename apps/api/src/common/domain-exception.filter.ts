@@ -93,7 +93,14 @@ export class DomainExceptionFilter implements ExceptionFilter {
     const dev = isDev();
     const body: Record<string, unknown> = {
       statusCode: status,
-      error: exception.code,
+      // Sanitize the error code to strip any control characters or ANSI
+      // sequences that a custom DomainError subclass might embed. While
+      // built-in codes are constants, the code field is user-controllable
+      // via the DomainError constructor, and must not reach the client
+      // verbatim any more than the message field does.
+      error: status === 500 && !dev
+        ? "INTERNAL_ERROR"
+        : sanitizeForLogOutput(exception.code),
       // DomainError messages embed user-supplied input (invalid values, received
       // fields, malformed dates). These values survive upstream .trim() and may
       // contain control chars, HTML, or secrets (connection strings, tokens).
