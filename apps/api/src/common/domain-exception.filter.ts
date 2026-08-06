@@ -144,10 +144,12 @@ export class DomainExceptionFilter implements ExceptionFilter {
           .map((m) => {
             if (typeof m !== "string") return "Validation error";
             const stripped = m
-              .replace(/\s*received\s*:\s*"[^"]*"\s*$/i, "")
-              .replace(/\s*"[^"]*"\s*$/, "")
-              .replace(/[.,;:]\s*$/, "")
-              .trim() || m.split(" ")[0] || "Validation error";
+               .replace(/\s*received\s*:\s*"[^"]*"\s*$/i, "")
+               .replace(/\s*received\s*:\s*'[^']*'\s*$/i, "")
+               .replace(/\s*"[^"]*"\s*$/, "")
+               .replace(/\s*'[^']*'\s*$/, "")
+               .replace(/[.,;:]\s*$/, "")
+               .trim() || m.split(" ")[0] || "Validation error";
             return sanitizeForLogOutput(stripped);
           })
           .filter(Boolean);
