@@ -253,7 +253,7 @@ export class HealthService implements OnModuleInit {
           reject(err);
         });
         if (!useTls) {
-          (socket as net.Socket).connect(redisPort, redisHost);
+          socket.connect(redisPort, redisHost);
         }
       });
       return "connected";

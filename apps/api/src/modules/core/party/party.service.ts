@@ -1090,17 +1090,17 @@ export class PartyService {
    *  Trims first to stay consistent with every other service-layer validator
    *  (requireStringField, requireValidDate, parseFromDate all trim before
    *  checking). A UUID padded with whitespace is valid once trimmed. */
-   private static requireUuid(value: string, field: string): string {
-     const trimmed = value.trim();
-     if (!UUID_REGEX.test(trimmed)) {
-       const safeValue = sanitizeForLogOutput(stripHtmlTags(trimmed));
-       throw new InvalidTypeValueError(
-         `Invalid '${field}': must be a valid UUID.`,
-         { suggestedTools: ["search_parties", "get_party"], context: { field, received: safeValue } }
-       );
-     }
-     return trimmed;
-   }
+  private static requireUuid(value: string, field: string): string {
+    const trimmed = value.trim();
+    if (!UUID_REGEX.test(trimmed)) {
+      const safeValue = sanitizeForLogOutput(stripHtmlTags(trimmed));
+      throw new InvalidTypeValueError(
+        `Invalid '${field}': must be a valid UUID.`,
+        { suggestedTools: ["search_parties", "get_party"], context: { field, received: safeValue } }
+      );
+    }
+    return trimmed;
+  }
 
   /** Validate that a date string parses to a real Date.
    *  Defense-in-depth — the DTO path validates with @IsDateString and

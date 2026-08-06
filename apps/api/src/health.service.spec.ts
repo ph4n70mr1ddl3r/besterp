@@ -1,7 +1,7 @@
 // Unit tests for HealthService
 // Tests health status computation, version info, and package.json loading
 
-import { describe, it, expect, vi, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { HealthService } from "./health.service.js";
 
 const { redisConnectMock } = vi.hoisted(() => ({ redisConnectMock: vi.fn() }));
@@ -37,6 +37,14 @@ function createMockPrisma(queryResult: any = [{ result: 1 }]) {
 }
 
 describe("HealthService", () => {
+  beforeEach(() => {
+    // Reset per-process static warning flags so each test starts with a clean
+    // slate — otherwise a prior test that triggered the REDIS_PORT or
+    // connection-failure warning would suppress the same warning in later tests.
+    (HealthService as unknown as { _redisPortWarned: boolean; _redisConnectionWarned: boolean })._redisPortWarned = false;
+    (HealthService as unknown as { _redisPortWarned: boolean; _redisConnectionWarned: boolean })._redisConnectionWarned = false;
+  });
+
   afterEach(() => {
     vi.unstubAllEnvs();
   });

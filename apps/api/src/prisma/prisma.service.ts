@@ -95,10 +95,9 @@ export class PrismaService
           "The app client requires DATABASE_URL to connect as the RLS-enforced role."
         );
       }
-      this.logger.warn(
-        "DATABASE_URL is not set — database operations will fail. " +
-        "Set DATABASE_URL before running the API."
-      );
+      // Note: main.ts's validateEnvironment() already warns about missing
+      // DATABASE_URL in development. This block only exists as a safety net
+      // for direct PrismaService construction outside the bootstrap path.
     }
     if (!process.env.DATABASE_ADMIN_URL) {
       if (!isDev()) {
