@@ -25,7 +25,11 @@ export class QueueModule {
   private static readonly logger = new Logger(QueueModule.name);
 
   private static resolveRedisOptions(options?: Partial<QueueModuleOptions>): { host: string; port: number; password: string | undefined; tls: { rejectUnauthorized: boolean } | undefined } {
-    const rawHost = options?.redis?.host || process.env.REDIS_HOST;
+    // Use `??` (not `||`) so an explicitly-passed empty host string is
+    // preserved and caught by the downstream empty-host guard below, instead
+    // of silently falling through to the env var — mirroring the explicit
+    // empty-value handling in resolvePassword.
+    const rawHost = options?.redis?.host ?? process.env.REDIS_HOST;
     // Fail closed in non-development: a silently-defaulted localhost Redis in
     // production is a misconfiguration footgun — the app would connect to an
     // unintended (and unauthenticated, if REDIS_PASSWORD is also unset) Redis

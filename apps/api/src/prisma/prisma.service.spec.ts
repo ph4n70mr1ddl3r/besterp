@@ -158,6 +158,28 @@ describe("PrismaService", () => {
       const maxSize = (service as unknown as { maxMethodCacheSize: number }).maxMethodCacheSize;
       expect(maxSize).toBe(1000);
     });
+
+    it("uses the default (not NaN) when the env var is not a valid number", () => {
+      // Regression guard: `Number("abc")` is NaN and `Math.max(1, NaN)` is
+      // NaN, so an invalid value previously returned NaN from initCacheSize.
+      // A NaN maxSize never triggers an LRU eviction, so the tenant-client
+      // caches would grow without bound despite the "using default" warning.
+      process.env.PRISMA_MAX_METHOD_CACHE_SIZE = "abc";
+      const service = new PrismaService();
+      const maxSize = (service as unknown as { maxMethodCacheSize: number }).maxMethodCacheSize;
+      expect(maxSize).toBe(1000);
+      expect(Number.isNaN(maxSize)).toBe(false);
+    });
+
+    it("treats a whitespace-only env var as unset (default)", () => {
+      // Regression guard: `Number("   ")` is 0, so a whitespace-only value
+      // was previously mistaken for an explicit `0` and clamped to 1. It is
+      // an unset-like value and should resolve to the default, matching `""`.
+      process.env.PRISMA_MAX_METHOD_CACHE_SIZE = "   ";
+      const service = new PrismaService();
+      const maxSize = (service as unknown as { maxMethodCacheSize: number }).maxMethodCacheSize;
+      expect(maxSize).toBe(1000);
+    });
   });
 
   describe("admin and appClient getters", () => {

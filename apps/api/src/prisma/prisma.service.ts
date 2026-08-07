@@ -133,17 +133,28 @@ export class PrismaService
 
   /** Read and clamp a cache-size env var to a valid range [1, 100_000]. */
   private initCacheSize(raw: string | undefined, defaultSize: number, varName: string): number {
-    if (!raw) return defaultSize;
-    const parsed = Number(raw);
+    const trimmed = raw?.trim();
+    // Treat unset and empty/whitespace-only values as "use the default".
+    // `Number("   ")` is 0, so without the trim a whitespace-only value would
+    // be mistaken for an explicit `0` and clamped to 1 instead of the default.
+    if (!trimmed) return defaultSize;
+    const parsed = Number(trimmed);
     if (Number.isNaN(parsed)) {
+      // Must NOT fall through to the clamp: `Number("abc")` is NaN, and
+      // `Math.max(1, NaN)` is NaN — a NaN maxSize never triggers an LRU
+      // eviction, so the tenant-client caches would grow without bound
+      // despite the "using default" warning. Return the default instead.
       this.logger.warn(`${varName}="${raw}" is not a valid number — using default ${defaultSize}.`);
-    } else if (parsed === 0) {
+      return defaultSize;
+    }
+    if (parsed === 0) {
+      // An explicit `0` is a deliberate value, distinct from unset — it is
+      // NOT silently promoted to the default. It is clamped to the minimum of
+      // 1 so the caches remain functional.
       this.logger.warn(`${varName}=0 is not allowed — clamping to minimum of 1.`);
     }
-    // Use `parsed ?? defaultSize` so an explicit `0` is NOT silently
-    // promoted to the default (the `||` operator treats `0` as falsy). The
-    // clamp below still enforces the [1, 100_000] range.
-    return Math.min(100_000, Math.max(1, parsed ?? defaultSize));
+    // Clamp to the [1, 100_000] range.
+    return Math.min(100_000, Math.max(1, parsed));
   }
 
   /** Read and clamp cache size env vars to valid ranges. */

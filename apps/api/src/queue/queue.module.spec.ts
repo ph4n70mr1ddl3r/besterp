@@ -197,6 +197,17 @@ describe("QueueModule", () => {
       process.env.NODE_ENV = "development";
       expect(() => QueueModule.forRoot()).toThrow("Redis host is required");
     });
+
+    it("should throw when an explicit empty host is passed (not silently fall back to env)", () => {
+      // Regression guard (round 105 parity): `options.redis.host || process.env.REDIS_HOST`
+      // treated `""` as falsy and silently fell through to the env var. With
+      // `??`, an explicitly-passed empty string is preserved and caught by the
+      // downstream empty-host guard — matching the password resolution fix.
+      process.env.NODE_ENV = "development";
+      process.env.REDIS_HOST = "env-host.example.com";
+      expect(() => QueueModule.forRoot({ redis: { host: "", port: 6379 } }))
+        .toThrow("Redis host is required");
+    });
   });
 
   describe("registerQueue", () => {
