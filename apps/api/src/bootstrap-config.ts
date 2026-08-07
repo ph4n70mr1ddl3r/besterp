@@ -6,14 +6,13 @@
 // (logging, process.exit, or falling back to a default).
 
 import type { Logger } from "@nestjs/common";
-import { normalizeEnvironmentValue as _normalizeEnvironmentValue } from "@besterp/shared";
 
 // Re-export normalizeEnvironmentValue from @besterp/shared so existing
 // @besterp/api import sites (main.ts, health.service.ts) continue to work
 // without changing their import paths. The canonical definition lives in
 // @besterp/shared; this barrel-style re-export preserves backwards compat
 // for any future internal consumers that import from bootstrap-config.
-export const normalizeEnvironmentValue = _normalizeEnvironmentValue;
+export { normalizeEnvironmentValue } from "@besterp/shared";
 
 export interface RateLimitConfig {
   windowMs: number;

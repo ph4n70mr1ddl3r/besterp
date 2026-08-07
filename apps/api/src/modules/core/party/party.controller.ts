@@ -45,9 +45,7 @@ export class PartyController {
   private getTenantContext(req: ExpressRequest): TenantContext {
     const ctx = req.tenantContext;
     if (!ctx?.tenantId) {
-      throw new UnauthorizedException(
-        "Invalid authentication context."
-      );
+      throw new UnauthorizedException("Tenant context is missing. Authentication failed.");
     }
     return ctx;
   }

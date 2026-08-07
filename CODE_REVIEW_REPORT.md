@@ -2,8 +2,36 @@
 
 ## Scope
 Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
-`mcp-tools`, `apps/api`) conducted on 2026-08-07. This is review 110;
-rounds 1–109 are documented in earlier revisions of this file and `CHANGES.md`.
+`mcp-tools`, `apps/api`) conducted on 2026-08-07. This is review 111;
+rounds 1–110 are documented in earlier revisions of this file and `CHANGES.md`.
+
+## Findings & Actions (round 111)
+
+### Fixed this round
+
+1. **🔴 `seed.ts:230` — `console.error(e)` dumps raw Error with stack trace to operator console.** The catch handler passed the raw Error object directly to `console.error`. Node's default Error serialization includes the full stack trace, leaking internal filesystem paths (e.g. `/opt/app/node_modules/...`) to anyone with console access. **Fix:** changed to `console.error(e instanceof Error ? e.message : String(e))` so only the error message surface reaches the operator console, consistent with every other error-handling path in the codebase.
+
+2. **🟡 `bootstrap-config.ts` — dead import alias after round 110 re-export change.** Round 110 left a `normalizeEnvironmentValue as _normalizeEnvironmentValue` import alongside a `const normalizeEnvironmentValue = _normalizeEnvironmentValue` assignment. The round 111 barrel re-export (`export { normalizeEnvironmentValue } from "@besterp/shared"`) made the import and const assignment both unused, triggering `@typescript-eslint/no-unused-vars`. **Fix:** removed the now-redundant import and const alias, keeping only the clean `export { normalizeEnvironmentValue } from "@besterp/shared"` declaration.
+
+3. **🟡 `party.controller.ts` — unhelpful error message in `getTenantContext`.** The fallback `UnauthorizedException("Invalid authentication context.")` was vague — it could mean missing JWT, expired token, or a tenant-scope issue, and gives the operator no actionable signal. **Fix:** changed to `"Tenant context is missing. Authentication failed."` which makes the failure mode explicit without leaking internal state.
+
+### Reviewed but NOT changed (false positives / deferred)
+
+- **`discovery-tools.ts` dynamic Prisma delegate access (`prisma as unknown as Record<string, unknown>`)** — intentional: the `TYPE_TABLE_MAP` keys are compile-time enum values (`PARTY_TYPE | ROLE_TYPE | CONTACT_MECHANISM_TYPE`), and the runtime guard validates the delegate has `findMany` before casting. No injection surface.
+- **`rls-extension.ts` dynamic property access (`tx as unknown as Record<string, unknown>`)** — intentional and guarded: the Prisma `$transaction` callback receives a typed `TransactionClient`, but model access via dynamic property is the only way to resolve the model name from the proxy. The `typeof delegate === "function"` and `typeof delegate !== "object"` guards prevent bypass.
+- **Tenant isolation (RLS boot assertions, superuser boot refusal, app-level `tenantId` filters), secret redaction across REST/MCP/durable surfaces, idempotency-key charset consistency, ReDoS, and `@Public()` scope scanning** remain intact and were re-verified by independent reads this round. No new 🔴/🟡 exploit paths found.
+- **`normalizeEnvironmentValue` in `health.service.ts`** — correctly imports from `./bootstrap-config.js` (the re-export), which itself imports from `@besterp/shared`. The round 111 change only removed the intermediate const alias; the runtime import path is unchanged.
+- **`TenantContext` interface** — matches `TenantGuard` runtime assignment; `userId` and `agentId` are present.
+
+## Test Results (round 111)
+```
+api:       391 passed (16 files)  (unchanged)
+shared:    226 passed (4 files)   (unchanged)
+mcp-tools: 158 passed (4 files)   (unchanged)
+database:   27 passed, 10 skipped (2 files) (DB-backed; unchanged)
+────────────────────────────────────
+Total:     802 passed, 10 skipped
+```
 
 ## Findings & Actions (round 110)
 
