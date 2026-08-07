@@ -2,8 +2,38 @@
 
 ## Scope
 Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
-`mcp-tools`, `apps/api`) conducted on 2026-08-07. This is review 107;
-rounds 1–106 are documented in earlier revisions of this file and `CHANGES.md`.
+`mcp-tools`, `apps/api`) conducted on 2026-08-07. This is review 108;
+rounds 1–107 are documented in earlier revisions of this file and `CHANGES.md`.
+
+## Findings & Actions (round 108)
+
+### Fixed this round
+
+1. **🔴 `party.service.ts:createPartyRoleTransaction` — `ON CONFLICT DO NOTHING` on a partial unique index without specifying the conflict target.** The `party_role_active_unique` index is a partial index (`WHERE thru_date IS NULL`). Prisma's auto-generated conflict target for `ON CONFLICT DO NOTHING` on a partial unique index does not include the partial-index predicate, so the conflict detection could fire on a row where `thru_date IS NOT NULL` (an expired role) rather than the active-row target — causing `add_party_role` to silently return 0 rows and throw `ConcurrencyRetryError` on a non-race, non-duplicate insert. **Fix:** explicitly specify `ON CONFLICT ("party_id", "role_type_id") WHERE "thru_date" IS NULL DO NOTHING` so the conflict target matches the partial index exactly. Regression test added (active-role duplicate returns `DuplicateEntityError` with existing role date, not `ConcurrencyRetryError`).
+
+2. **🟡 `domain-exception.filter.ts` — non-500 `DomainError` paths logged at `warn` level, flooding operator logs with expected domain errors.** Every `EntityNotFoundError` (404), `DuplicateEntityError` (409), `InvalidTypeValueError` (422), and `TenantContextFailedError` (503) emitted a `warn` log line. For high-traffic endpoints (search, role assignment), this produced hundreds of warn entries per minute for normal operational errors — drowning out genuine warnings. **Fix:** changed the non-500 path from `logger.warn` to `logger.debug`, preserving the full sanitized message for operational debugging while keeping the operator log signal-to-noise ratio healthy. 500-path (unknown codes) remains at `error`.
+
+3. **🟢 `party.service.ts:toPartyResult` — dead `?? "UNKNOWN"` fallback on `partyType.name`.** `partyType` is always included in the query (`include: { partyType: true }`), and the Prisma schema enforces a non-null `partyTypeId` FK to `party_type`. The `partyType` relation is never null for a valid query result, so the `?? "UNKNOWN"` fallback was unreachable dead code. **Fix:** removed the `?? "UNKNOWN"` so a null `partyType.name` (schema drift) surfaces as a clear `TypeError` rather than silently returning `"UNKNOWN"`.
+
+4. **🟢 `cleanup-expired-idempotency.ts` — advisory lock queries used template-literal interpolation instead of parameterized binding.** `SELECT pg_try_advisory_lock(${ADVISORY_LOCK_KEY})` and `SELECT pg_advisory_unlock(${ADVISORY_LOCK_KEY})` worked because the value is a numeric constant, but the pattern was inconsistent with the rest of the script (all other queries use `$1` parameter binding). **Fix:** replaced with `$1` parameterized form (`SELECT pg_try_advisory_lock($1)`, `[ADVISORY_LOCK_KEY]`) for consistency and to eliminate any future risk if the constant is ever replaced with user input.
+
+5. **🟢 `tenant.guard.ts` — missing rationale comment for `TENANT_ID_PATTERN` on `userId`.** The pattern check was present but undocumented; a future contributor might not understand why ULID-style IDs (which include hyphens) are accepted by an alphanumeric-looking pattern. **Fix:** added a comment explaining that all BestERP identifiers are ULID-style strings (26-char sortable IDs using Crockford base32 plus optional hyphens) and that the pattern is deliberately permissive to accept any valid ULID while rejecting control characters and whitespace that could be used for log injection.
+
+### Reviewed but NOT changed (false positives / deferred)
+
+- **`TenantContext` interface missing `userId`/`agentId` fields** — the interface in `tenant-context.ts` only declares `tenantId`, but `TenantGuard` sets all three on `request.tenantContext`. The Express module augmentation adds `tenantContext?: TenantContext` but the guard assigns `{ tenantId, userId, agentId }`. TypeScript accepts this because the interface is used as a constraint, not a structural match on the assignment. No functional issue — the guard's runtime behavior is correct.
+- **`discovery-tools.ts` dynamic Prisma delegate access (`prisma as unknown as Record<string, unknown>`)** — intentional: the `TYPE_TABLE_MAP` keys are compile-time enum values, and the runtime guard validates the delegate exists before casting. No injection surface.
+- **Tenant isolation (RLS boot assertions, superuser boot refusal, app-level `tenantId` filters), secret redaction across REST/MCP/durable surfaces, idempotency-key charset consistency, ReDoS, and `@Public()` scope scanning** remain intact and were re-verified by independent reads this round. No new 🔴/🟡 exploit paths found.
+
+## Test Results (round 108)
+```
+api:       391 passed (16 files)  (unchanged)
+shared:    226 passed (4 files)   (unchanged)
+mcp-tools: 158 passed (4 files)   (unchanged)
+database:   27 passed, 10 skipped (2 files) (DB-backed; unchanged)
+────────────────────────────────────
+Total:     802 passed, 10 skipped
+```
 
 ## Findings & Actions (round 107)
 
