@@ -69,10 +69,7 @@ async function main() {
   // Application-scoped advisory lock key — arbitrary constant. Two
   // concurrent runs of this script (e.g., overlapping cron triggers) will
   // serialise on this lock so they don't double-scan the same rows.
-  const ADVISORY_LOCK_KEY = 0x62657374657270; // 'besterp' in ASCII hex bytes
-  let totalDeleted = 0;
-  let before = 0;
-  let after = 0;
+  const _ADVISORY_LOCK_KEY = 0x62657374657270; // 'besterp' in ASCII hex bytes
 
   // Run the entire cleanup — advisory lock acquisition, scan, and
   // batched deletes — inside a single interactive transaction so every
@@ -87,7 +84,7 @@ async function main() {
     async (tx) => {
       const lockResult = await tx.$queryRaw<Array<{ pg_try_advisory_lock: boolean }>>`
         SELECT pg_try_advisory_lock($1)
-      `, [ADVISORY_LOCK_KEY];
+      `, [_ADVISORY_LOCK_KEY];
       const lockAcquired = lockResult[0]?.pg_try_advisory_lock === true;
       if (!lockAcquired) {
         return { skipped: true as const, deleted: 0, before: 0, after: 0 };
@@ -135,7 +132,8 @@ async function main() {
 
       const afterCount = await tx.idempotencyRecord.count();
       try {
-        await tx.$queryRaw`SELECT pg_advisory_unlock($1)`, [ADVISORY_LOCK_KEY];
+        const _unlockResult = await tx.$queryRaw`SELECT pg_advisory_unlock($1)`, [_ADVISORY_LOCK_KEY];
+        void _unlockResult;
       } catch (e) {
         console.warn("Could not release advisory lock:", sanitizeForLogOutput(e instanceof Error ? e.message : String(e)));
       }
@@ -150,9 +148,9 @@ async function main() {
     return;
   }
 
-  totalDeleted = result.deleted;
-  before = result.before;
-  after = result.after;
+  const totalDeleted = result.deleted;
+  const before = result.before;
+  const after = result.after;
 
   console.log("Idempotency cleanup complete:");
   console.log(`   Records before: ${before}`);

@@ -10,8 +10,15 @@ export default tseslint.config(
         projectService: {
           allowDefaultProject: [
             "packages/database/src/__tests__/*.ts",
+            "packages/database/prisma/*.ts",
+            "packages/database/scripts/*.ts",
+            "packages/database/spikes/*.ts",
             "packages/mcp-tools/src/__tests__/*.ts",
             "packages/shared/src/__tests__/*.ts",
+            "apps/api/vitest.config.ts",
+            "packages/database/vitest.config.ts",
+            "packages/mcp-tools/vitest.config.ts",
+            "packages/shared/vitest.config.ts",
           ],
           maximumDefaultProjectFileMatchCount_THIS_WILL_SLOW_DOWN_LINTING: 20,
         },
@@ -63,7 +70,8 @@ export default tseslint.config(
       "**/*.js",
       "**/*.d.ts",
       "packages/database/prisma/migrations/",
-      "packages/mcp-tools/spikes/",
+      "packages/database/spikes/",
+      "**/spikes/",
     ],
   },
 );
