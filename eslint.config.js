@@ -39,7 +39,7 @@ export default tseslint.config(
       "@typescript-eslint/no-floating-promises": "error",
 
       // General code quality
-      "no-console": "off", // Allow console in server code
+      "no-console": ["error", { allow: ["warn", "error"] }],
       "no-debugger": "error",
       "no-duplicate-imports": "error",
       eqeqeq: ["error", "always", { null: "ignore" }],
@@ -60,6 +60,14 @@ export default tseslint.config(
       "@typescript-eslint/no-explicit-any": "off",
       "max-lines-per-function": "off",
       "max-nested-callbacks": "off",
+    },
+  },
+  {
+    // Standalone CLI scripts (seed, cleanup) use console.log for human-readable
+    // output and are not subject to the server code no-console rule.
+    files: ["**/scripts/*.ts", "packages/database/prisma/*.ts"],
+    rules: {
+      "no-console": "off",
     },
   },
   {

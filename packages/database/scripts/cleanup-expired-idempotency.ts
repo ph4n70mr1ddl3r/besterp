@@ -105,9 +105,10 @@ async function main() {
       // failed) records are reaped; a stale pending row is recovered by the
       // runtime STALE_PENDING_THRESHOLD_MS reset, not by this job.
       const cutoff = new Date();
-      let batchDeleted: number;
-      // Declared OUTSIDE the do block so the while condition can reference it.
-      let expired: Array<{ idempotencyKey: string; tenantId: string }>;
+      // Captured across iterations so the while condition below can reference
+      // it. Declared here (not inside the do block) so the while condition
+      // can see it without a trailing-semicolon lint warning on the `let`.
+      let expired: Array<{ idempotencyKey: string; tenantId: string }> | undefined;
       do {
         // orderBy ensures deterministic iteration so the oldest expired rows
         // are always cleaned first (helps with retention SLAs).
@@ -117,17 +118,15 @@ async function main() {
           select: { idempotencyKey: true, tenantId: true },
           take: BATCH_SIZE,
         });
-        if (expired.length === 0) break;
+        if (!expired.length) break;
 
-        const del = await tx.idempotencyRecord.deleteMany({
+        deleted += (await tx.idempotencyRecord.deleteMany({
           where: {
             OR: expired.map((r) => ({
               idempotencyKey_tenantId: { idempotencyKey: r.idempotencyKey, tenantId: r.tenantId },
             })),
           },
-        });
-        batchDeleted = del.count;
-        deleted += batchDeleted;
+        })).count;
       } while (expired.length === BATCH_SIZE);
 
       const afterCount = await tx.idempotencyRecord.count();
