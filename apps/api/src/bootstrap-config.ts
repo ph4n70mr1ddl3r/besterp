@@ -6,6 +6,14 @@
 // (logging, process.exit, or falling back to a default).
 
 import type { Logger } from "@nestjs/common";
+import { normalizeEnvironmentValue as _normalizeEnvironmentValue } from "@besterp/shared";
+
+// Re-export normalizeEnvironmentValue from @besterp/shared so existing
+// @besterp/api import sites (main.ts, health.service.ts) continue to work
+// without changing their import paths. The canonical definition lives in
+// @besterp/shared; this barrel-style re-export preserves backwards compat
+// for any future internal consumers that import from bootstrap-config.
+export const normalizeEnvironmentValue = _normalizeEnvironmentValue;
 
 export interface RateLimitConfig {
   windowMs: number;
@@ -66,19 +74,6 @@ export function resolveHardExitTimeoutMs(env: NodeJS.ProcessEnv): number {
     );
   }
   return value;
-}
-
-/**
- * Normalize NODE_ENV: trim surrounding whitespace and lowercase.
- *
- * Trimming matters because `" production "` (whitespace-padded) would bypass
- * every normalized NODE_ENV check in main.ts, QueueModule,
- * and HealthService — exactly the class of silent config drift the existing
- * lowercase normalization was added to prevent.
- */
-export function normalizeEnvironmentValue(raw: string | undefined): string | undefined {
-  if (raw === undefined) return undefined;
-  return raw.trim().toLowerCase();
 }
 
 /**

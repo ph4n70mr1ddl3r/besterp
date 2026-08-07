@@ -209,6 +209,23 @@ export function resolveRedisTls(): boolean {
 }
 
 /**
+ * Normalize NODE_ENV: trim surrounding whitespace and lowercase.
+ *
+ * Trimming matters because `" production "` (whitespace-padded) would bypass
+ * every normalized NODE_ENV check in main.ts, QueueModule, HealthService,
+ * and standalone scripts — exactly the class of silent config drift the
+ * lowercase normalization was added to prevent.
+ *
+ * Exported from @besterp/shared so standalone scripts (seed, cleanup) that
+ * do not run through main.ts's normalizeEnvironment() can still use the
+ * same normalization contract without importing from @besterp/api.
+ */
+export function normalizeEnvironmentValue(raw: string | undefined): string | undefined {
+  if (raw === undefined) return undefined;
+  return raw.trim().toLowerCase();
+}
+
+/**
  * Normalized development-environment check.
  *
  * Returns true when NODE_ENV has been normalised (via bootstrap-config's

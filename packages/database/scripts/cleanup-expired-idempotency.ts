@@ -7,8 +7,7 @@
 //   DATABASE_ADMIN_URL="..." npx tsx packages/database/scripts/cleanup-expired-idempotency.ts
 
 import { PrismaClient } from "@prisma/client";
-import { sanitizeForLogOutput, isDev } from "@besterp/shared";
-import { normalizeEnvironmentValue } from "../../api/src/bootstrap-config.js";
+import { sanitizeForLogOutput, isDev, normalizeEnvironmentValue } from "@besterp/shared";
 
 if (!process.env.DATABASE_ADMIN_URL) {
   console.error("DATABASE_ADMIN_URL is required for idempotency cleanup (bypasses RLS). " +

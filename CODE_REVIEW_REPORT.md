@@ -2,8 +2,30 @@
 
 ## Scope
 Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
-`mcp-tools`, `apps/api`) conducted on 2026-08-07. This is review 109;
-rounds 1–108 are documented in earlier revisions of this file and `CHANGES.md`.
+`mcp-tools`, `apps/api`) conducted on 2026-08-07. This is review 110;
+rounds 1–109 are documented in earlier revisions of this file and `CHANGES.md`.
+
+## Findings & Actions (round 110)
+
+### Fixed this round
+
+1. **🔴 `cleanup-expired-idempotency.ts` — `normalizeEnvironmentValue` imported from `@besterp/api` via bare relative path.** The cleanup script used `import { normalizeEnvironmentValue } from "../../api/src/bootstrap-config.js"`, which is a cross-workspace dependency from `@besterp/database` into `@besterp/api`. When `@besterp/database` is published as a standalone package this path will not resolve correctly (Node resolves workspace-local paths differently from `node_modules`). **Fix:** moved `normalizeEnvironmentValue` from `@besterp/api/bootstrap-config.ts` to `@besterp/shared/src/constants.ts` where it semantically belongs (it is a pure env-normalization helper with no NestJS dependency). `@besterp/api/bootstrap-config.ts` now re-exports it as a barrel alias so all existing `@besterp/api` import sites (`main.ts`, `health.service.ts`) continue to work unchanged. `@besterp/shared/src/index.ts` was updated to export it. `cleanup-expired-idempotency.ts` now imports from `@besterp/shared` via the normal workspace resolution path. `seed.ts` was also updated to use the centralized `normalizeEnvironmentValue` instead of its own inline `.trim().toLowerCase()`. No behavioural change — only the source-of-truth moved to the correct package boundary.
+
+### Reviewed but NOT changed (false positives / deferred)
+
+- **Tenant isolation (RLS boot assertions, superuser boot refusal, app-level `tenantId` filters), secret redaction across REST/MCP/durable surfaces, idempotency-key charset consistency, ReDoS, and `@Public()` scope scanning** remain intact and were re-verified by independent reads this round. No new 🔴/🟡 exploit paths found.
+- **`TenantContext` interface** — already fixed in round 109; `userId` and `agentId` are declared and match `TenantGuard` runtime assignment.
+- **`discovery-tools.ts` dynamic Prisma delegate access** — intentional and guarded; no injection surface.
+
+## Test Results (round 110)
+```
+api:       391 passed (16 files)  (unchanged)
+shared:    226 passed (4 files)   (unchanged)
+mcp-tools: 158 passed (4 files)   (unchanged)
+database:   27 passed, 10 skipped (2 files) (DB-backed; unchanged)
+────────────────────────────────────
+Total:     802 passed, 10 skipped
+```
 
 ## Findings & Actions (round 109)
 

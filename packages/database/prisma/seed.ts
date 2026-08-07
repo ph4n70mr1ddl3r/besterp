@@ -1,4 +1,5 @@
 import { PrismaClient } from "@prisma/client";
+import { normalizeEnvironmentValue } from "@besterp/shared";
 
 // Normalize NODE_ENV early (case-insensitive, trimmed) so "Production" or
 // "PRODUCTION" or " Production " cannot bypass the production-seed guard
@@ -8,7 +9,7 @@ import { PrismaClient } from "@prisma/client";
 // `=== "production"` check and seed hard-coded test tenants (tenant-acme,
 // tenant-globex) into a real database. Mirrors main.ts's normalizeEnvironment().
 if (process.env.NODE_ENV) {
-  process.env.NODE_ENV = process.env.NODE_ENV.trim().toLowerCase();
+  process.env.NODE_ENV = normalizeEnvironmentValue(process.env.NODE_ENV);
 }
 
 // Seed uses admin connection to bypass RLS for creating tenant records
