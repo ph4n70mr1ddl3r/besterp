@@ -82,6 +82,12 @@ export class TenantGuard implements CanActivate {
         "TenantGuard: userId exceeds maximum allowed length."
       );
     }
+    // userId/agentId use TENANT_ID_PATTERN (alphanumeric + hyphens + underscores)
+    // because all identifiers in BestERP are generated as ULID-style strings
+    // (26-char sortable IDs using [0-9A-HJKMNP-TV-Z] plus optional hyphens).
+    // The pattern is deliberately permissive enough to accept any valid ULID
+    // while rejecting control characters and whitespace that could be used
+    // for log injection. UUIDs (with hyphens) also match this pattern.
     if (!TENANT_ID_PATTERN.test(userId)) {
       throw new UnauthorizedException(
         "TenantGuard: userId contains invalid characters. " +

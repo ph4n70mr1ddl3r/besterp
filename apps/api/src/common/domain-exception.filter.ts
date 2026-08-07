@@ -85,7 +85,7 @@ export class DomainExceptionFilter implements ExceptionFilter {
         `Unknown DomainError code '${exception.code}' — add a mapping in domainErrorToStatus(). Context: ${JSON.stringify(redactSensitiveFieldValues(exception.context))}. Suggested tools: ${JSON.stringify(exception.suggestedTools)}.`
       );
     } else {
-      this.logger.warn(
+      this.logger.debug(
         `DomainError [${exception.code}]: ${sanitizeForLogOutput(exception.message)}`
       );
     }

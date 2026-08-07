@@ -86,8 +86,8 @@ async function main() {
   const result = await prisma.$transaction(
     async (tx) => {
       const lockResult = await tx.$queryRaw<Array<{ pg_try_advisory_lock: boolean }>>`
-        SELECT pg_try_advisory_lock(${ADVISORY_LOCK_KEY})
-      `;
+        SELECT pg_try_advisory_lock($1)
+      `, [ADVISORY_LOCK_KEY];
       const lockAcquired = lockResult[0]?.pg_try_advisory_lock === true;
       if (!lockAcquired) {
         return { skipped: true as const, deleted: 0, before: 0, after: 0 };
@@ -135,7 +135,7 @@ async function main() {
 
       const afterCount = await tx.idempotencyRecord.count();
       try {
-        await tx.$queryRaw`SELECT pg_advisory_unlock(${ADVISORY_LOCK_KEY})`;
+        await tx.$queryRaw`SELECT pg_advisory_unlock($1)`, [ADVISORY_LOCK_KEY];
       } catch (e) {
         console.warn("Could not release advisory lock:", sanitizeForLogOutput(e instanceof Error ? e.message : String(e)));
       }

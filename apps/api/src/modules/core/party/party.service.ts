@@ -722,7 +722,7 @@ export class PartyService {
         const result = await tx.$queryRaw<{ partyRoleId: string; fromDate: Date; thruDate: Date | null }[]>`
           INSERT INTO "party_role" ("party_id", "role_type_id", "from_date")
           VALUES (${partyId}, ${roleTypeId}, ${roleFromDate})
-          ON CONFLICT DO NOTHING
+          ON CONFLICT ("party_id", "role_type_id") WHERE "thru_date" IS NULL DO NOTHING
           RETURNING "party_role_id" AS "partyRoleId", "from_date" AS "fromDate", "thru_date" AS "thruDate"
         `;
 
@@ -1152,7 +1152,7 @@ export class PartyService {
     return {
       partyId: party.partyId,
       name: party.name,
-      partyType: party.partyType.name ?? "UNKNOWN",
+      partyType: party.partyType.name,
       description: party.description,
       person: party.person ? this.toPersonResult(party.person) : null,
       organization: party.organization ? this.toOrgResult(party.organization) : null,
