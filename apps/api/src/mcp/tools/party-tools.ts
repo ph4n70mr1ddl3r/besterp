@@ -179,9 +179,18 @@ function sanitizedString(min: number, max: number) {
 
 /** Optional trimmed string that rejects whitespace-only input.
  *  Trims, strips HTML/script payloads, and normalises empty/whitespace-only input
- *  to undefined. Used for optional fields and search filters. */
+ *  to undefined. Used for optional fields and search filters.
+ *
+ *  The length cap is enforced on the TRIMMED value (the `.pipe` below), not on
+ *  the raw input: a value padded with whitespace to just over `max` is valid
+ *  once trimmed, and the service layer (PartyService.requireMaxLength) and the
+ *  required-field helper `sanitizedString` both length-check the trimmed value.
+ *  A pre-transform `.max()` would reject exactly the padded-but-valid inputs
+ *  the other surfaces accept — a cross-surface inconsistency. DoS resistance is
+ *  unaffected: stripHtmlTags enforces its own 100 KB input cap before any
+ *  length check runs. */
 function optionalFilteredString(max: number) {
-  return z.string().max(max)
+  return z.string()
     .optional()
     .transform(s => {
       if (s === undefined) return undefined;

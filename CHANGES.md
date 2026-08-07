@@ -1,5 +1,19 @@
 # BestERP — Security & Architecture Fixes
 
+## Changes Applied (2026-08-07) — Code Review Round 107
+
+### 🟡 `apps/api/src/bootstrap-config.ts` — whitespace-only `HARD_EXIT_TIMEOUT_MS` parsed as an explicit `0` → instant forced exit on shutdown
+
+**Problem:** `resolveHardExitTimeoutMs` only skipped `undefined`/`""` values; `Number("  ")` is `0`, so a whitespace-only `HARD_EXIT_TIMEOUT_MS` (a config typo) resolved to `0`. `main.ts` then installed a 0ms hard-exit timer and the first shutdown signal fired `process.exit(1)` immediately — silently destroying graceful shutdown (in-flight requests killed). This is the exact damage class round 88 closed for negative values (Node clamps a negative `setTimeout` delay to 1ms), and contradicts round 106's "whitespace-only = unset" convention for numeric env knobs (`PRISMA_CLIENT_CACHE_SIZE`). A non-string falsy `raw` (`HARD_EXIT_TIMEOUT_MS=0` from Docker) also reached `raw.trim` and threw — a fatal boot crash.
+
+**Fix:** `resolveHardExitTimeoutMs` trims the raw value first so a whitespace-only value is treated as unset → the 10s default; a `" 25000 "`-style padded value parses normally. `resolveTrustProxyHops` gets the same trim (its result is unchanged — `Number("  ")` was already 0 — but the intent is now explicit and identical to its sibling). `parsePositiveInteger` is deliberately left fail-loud on whitespace: a rate-limit/JSON-PARSE-INPUT knob is a security control where a set-but-invalid value must abort boot (round 88), whereas a whitespace `HARD_EXIT_TIMEOUT_MS` must not silently become the destructive 0. Added 3 regression tests.
+
+### 🟢 `apps/api/src/mcp/tools/party-tools.ts` — `optionalFilteredString` length-checked the RAW untrimmed string, rejecting padded-but-valid values the rest of the stack accepts
+
+**Problem:** `optionalFilteredString` ran `.max(max)` on the raw input BEFORE the trim+strip transform, so an optional field (`description`, `middleName`, `gender`, `taxId`, `addressLine2`, …) of exactly `max` chars plus trailing whitespace was rejected — while the required-field helper `sanitizedString` and the service layer (`PartyService.requireMaxLength`, which trims first) both accept it. A cross-surface inconsistency of the same class round 50 closed for email.
+
+**Fix:** Removed the pre-transform `.max()`; the `.pipe(z.string().max(max).optional())` enforces the cap on the trimmed/stripped value, matching `sanitizedString` and the service layer. DoS resistance is unchanged — `stripHtmlTags` enforces its own 100 KB input cap before any length check runs. Added 2 regression tests (a 1000-char `description` + trailing space accepted and normalized to 1000 chars; a genuinely-over-max 1001-char value still rejected with `INVALID_INPUT`).
+
 ## Changes Applied (2026-08-04) — Code Review Round 89
 
 ### 🟡 `apps/api/src/main.ts` — `trust proxy` never configured; rate limiter keyed on the proxy IP and logged `ERR_ERL_UNEXPECTED_X_FORWARDED_FOR` on every proxied request

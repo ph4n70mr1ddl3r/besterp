@@ -2,8 +2,31 @@
 
 ## Scope
 Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
-`mcp-tools`, `apps/api`) conducted on 2026-08-04. This is review 94;
-rounds 1–93 are documented in earlier revisions of this file and `CHANGES.md`.
+`mcp-tools`, `apps/api`) conducted on 2026-08-07. This is review 107;
+rounds 1–106 are documented in earlier revisions of this file and `CHANGES.md`.
+
+## Findings & Actions (round 107)
+
+### Fixed this round
+
+1. **🟡 `bootstrap-config.ts` `resolveHardExitTimeoutMs` — whitespace-only env value parsed as an explicit `0` → instant forced exit.** The resolver only skipped `undefined`/`""`; `Number("  ")` is `0`, so a config typo like `HARD_EXIT_TIMEOUT_MS="  "` installed a **0ms hard-exit timer** in `main.ts`. The first shutdown signal then fired `process.exit(1)` immediately, killing in-flight requests — the same damage class round 88 closed for negative values (Node clamps negative `setTimeout` delays to 1ms). A non-string falsy `raw` (Docker `-e HARD_EXIT_TIMEOUT_MS=0`) also crashed `raw.trim` at boot. **Fix:** trim the raw value first so whitespace-only → default (10s); `resolveTrustProxyHops` gets the same trim for consistency (behavior unchanged, result is already 0). `parsePositiveInteger` deliberately remains fail-loud on whitespace because those are security controls where set-but-invalid must abort boot. 3 regression tests added.
+
+2. **🟢 `party-tools.ts` `optionalFilteredString` — length cap applied to the RAW untrimmed string.** `.max(max)` ran before the trim+strip transform, so a padded-but-valid optional field (`description` = 1000 chars + `" "`) was rejected, while the required-field helper (`sanitizedString`), the service layer (`requireMaxLength`, trims first), and the MCP-tools middleware all accept the same value. **Fix:** moved the length cap to the post-transform `.pipe`, matching the required-field path. DoS resistance unchanged (`stripHtmlTags` caps input at 100 KB before any length check). 2 regression tests added.
+
+### Reviewed but NOT changed (false positives / deferred)
+
+- **`bootstrap-config.ts` `parsePositiveInteger`** (rate-limit window, JSON parse input cap, Prisma cache size): intentionally keeps throwing on whitespace-only input. A set-but-invalid value for a security/limits knob must fail the boot loudly (round 88), not silently fall back to a default — distinct from the hard-exit timeout, where falling back to the 10s default is safe and the destructive option is `0`.
+- **Tenant isolation (RLS boot assertions, superuser boot refusal, app-level `tenantId` filters), secret redaction across REST/MCP/durable surfaces, idempotency-key charset consistency, ReDoS, and `@Public()` scope scanning** remain intact and were re-verified by independent reads this round. No new 🔴/🟡 exploit paths found.
+
+## Test Results (round 107)
+```
+api:       391 passed (16 files)  (was 372 at round 94)
+shared:    226 passed (4 files)   (was 219 at round 94)
+mcp-tools: 158 passed (4 files)   (was 147 at round 94)
+database:   27 passed, 10 skipped (2 files) (DB-backed; unchanged)
+────────────────────────────────────
+Total:     802 passed, 10 skipped
+```
 
 ## Findings & Actions (round 94)
 

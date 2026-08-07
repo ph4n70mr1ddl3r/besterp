@@ -70,6 +70,19 @@ describe("resolveHardExitTimeoutMs", () => {
   it("throws on an unparseable value", () => {
     expect(() => resolveHardExitTimeoutMs(env({ HARD_EXIT_TIMEOUT_MS: "abc" }))).toThrow("HARD_EXIT_TIMEOUT_MS");
   });
+
+  it("treats a whitespace-only value as unset — NOT as an explicit 0ms hard exit", () => {
+    // Regression guard (round 107): `Number("  ")` is 0, so a whitespace-only
+    // value was previously parsed as an explicit 0 — a 0ms hard-exit timer
+    // forces an immediate process.exit on any shutdown, silently destroying
+    // graceful shutdown (the same damage class as the negative-value case).
+    expect(resolveHardExitTimeoutMs(env({ HARD_EXIT_TIMEOUT_MS: "   " }))).toBe(DEFAULT_HARD_EXIT_TIMEOUT_MS);
+    expect(resolveHardExitTimeoutMs(env({ HARD_EXIT_TIMEOUT_MS: "\t" }))).toBe(DEFAULT_HARD_EXIT_TIMEOUT_MS);
+  });
+
+  it("parses a whitespace-padded valid value", () => {
+    expect(resolveHardExitTimeoutMs(env({ HARD_EXIT_TIMEOUT_MS: " 25000 " }))).toBe(25_000);
+  });
 });
 
 describe("normalizeEnvironmentValue", () => {
@@ -113,5 +126,9 @@ describe("resolveTrustProxyHops", () => {
   it("rejects hop counts above the sane maximum", () => {
     expect(resolveTrustProxyHops(env({ TRUST_PROXY_HOPS: String(MAX_TRUST_PROXY_HOPS) }))).toBe(MAX_TRUST_PROXY_HOPS);
     expect(() => resolveTrustProxyHops(env({ TRUST_PROXY_HOPS: String(MAX_TRUST_PROXY_HOPS + 1) }))).toThrow("TRUST_PROXY_HOPS");
+  });
+
+  it("treats a whitespace-only value as unset (the fail-closed 0 default)", () => {
+    expect(resolveTrustProxyHops(env({ TRUST_PROXY_HOPS: "   " }))).toBe(DEFAULT_TRUST_PROXY_HOPS);
   });
 });

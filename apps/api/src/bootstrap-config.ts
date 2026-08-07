@@ -47,7 +47,15 @@ export function resolveRateLimitConfig(env: NodeJS.ProcessEnv): RateLimitConfig 
  * `setTimeout` delays to 1 ms).
  */
 export function resolveHardExitTimeoutMs(env: NodeJS.ProcessEnv): number {
-  const raw = env.HARD_EXIT_TIMEOUT_MS;
+  // Trim FIRST so a whitespace-only value is treated as "unset" (default)
+  // rather than parsed as an explicit `0`. `Number("  ")` is 0, and a 0ms
+  // hard-exit timer fires an immediate `process.exit(1)` on the first
+  // shutdown — silently destroying graceful shutdown (in-flight requests
+  // killed). This is the same damage class as the negative-value guard below,
+  // and mirrors the whitespace-as-unset convention applied to PRISMA cache
+  // sizes in round 106 (`Number("   ")` === 0 must not be mistaken for an
+  // explicit value).
+  const raw = env.HARD_EXIT_TIMEOUT_MS?.trim();
   if (raw === undefined || raw === "") return DEFAULT_HARD_EXIT_TIMEOUT_MS;
   const value = Number(raw);
   if (!Number.isFinite(value) || value < 0) {
@@ -86,7 +94,11 @@ export function normalizeEnvironmentValue(raw: string | undefined): string | und
  * proxied request).
  */
 export function resolveTrustProxyHops(env: NodeJS.ProcessEnv): number {
-  const raw = env.TRUST_PROXY_HOPS;
+  // Trim FIRST so whitespace-only is treated as unset (→ the fail-closed 0
+  // default), mirroring resolveHardExitTimeoutMs. `Number("  ")` is 0 so the
+  // result is identical to today, but the intent is explicit and the value
+  // cannot be confused with an operator-typed `0`.
+  const raw = env.TRUST_PROXY_HOPS?.trim();
   if (raw === undefined || raw === "") return DEFAULT_TRUST_PROXY_HOPS;
   const value = Number(raw);
   if (!Number.isInteger(value) || value < 0 || value > MAX_TRUST_PROXY_HOPS) {

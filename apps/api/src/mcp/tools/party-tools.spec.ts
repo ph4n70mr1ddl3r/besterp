@@ -192,6 +192,39 @@ describe("Party MCP Tools", () => {
         expect.objectContaining({ name: "Jane Doe" })
       );
     });
+
+    it("should accept an optional field padded to just over the max length (length is checked after trim)", async () => {
+      // Regression guard (round 107): optionalFilteredString previously
+      // length-checked the RAW untrimmed string, so `description` of exactly
+      // MAX_PARTY_DESCRIPTION_LENGTH chars + trailing whitespace was rejected —
+      // while the required-field schema (sanitizedString) and the service layer
+      // (which trims before length-checking) both accept it.
+      const description = `${"x".repeat(1000)} `;
+      const result = await registry.execute("create_party", {
+        partyType: "PERSON",
+        name: "Jane Doe",
+        description,
+        person: { firstName: "Jane", lastName: "Doe" },
+      }, createContext({ partyService: mockPartyService }));
+
+      expect(result.success).toBe(true);
+      expect(mockPartyService.createParty).toHaveBeenCalledWith(
+        expect.objectContaining({ description: "x".repeat(1000) })
+      );
+    });
+
+    it("should still reject an optional field whose trimmed value exceeds the max length", async () => {
+      const result = await registry.execute("create_party", {
+        partyType: "PERSON",
+        name: "Jane Doe",
+        description: "x".repeat(1001),
+        person: { firstName: "Jane", lastName: "Doe" },
+      }, createContext({ partyService: mockPartyService }));
+
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe("INVALID_INPUT");
+      expect(mockPartyService.createParty).not.toHaveBeenCalled();
+    });
   });
 
   describe("get_party", () => {
