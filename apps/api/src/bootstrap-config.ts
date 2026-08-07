@@ -5,6 +5,8 @@
 // executing bootstrap(). main.ts owns the process-facing consequences
 // (logging, process.exit, or falling back to a default).
 
+import type { Logger } from "@nestjs/common";
+
 export interface RateLimitConfig {
   windowMs: number;
   max: number;
@@ -77,6 +79,35 @@ export function resolveHardExitTimeoutMs(env: NodeJS.ProcessEnv): number {
 export function normalizeEnvironmentValue(raw: string | undefined): string | undefined {
   if (raw === undefined) return undefined;
   return raw.trim().toLowerCase();
+}
+
+/**
+ * Read and clamp a cache-size env var to a valid range [1, 100_000].
+ *
+ * Treats unset/empty/whitespace-only values as "use the default". `Number("   ")`
+ * is 0, so the raw value is trimmed first to avoid mistaking whitespace-only
+ * input for an explicit `0`. An explicit `0` is clamped to 1 (caches must stay
+ * functional); an unparseable value emits a warning and falls back to the
+ * default. Exported so PrismaService can delegate to it rather than duplicating
+ * the guard logic.
+ */
+export function normalizeCacheSize(
+  raw: string | undefined,
+  defaultSize: number,
+  varName: string,
+  logger: Logger,
+): number {
+  const trimmed = raw?.trim();
+  if (!trimmed) return defaultSize;
+  const parsed = Number(trimmed);
+  if (Number.isNaN(parsed)) {
+    logger.warn(`${varName}="${raw}" is not a valid number — using default ${defaultSize}.`);
+    return defaultSize;
+  }
+  if (parsed === 0) {
+    logger.warn(`${varName}=0 is not allowed — clamping to minimum of 1.`);
+  }
+  return Math.min(100_000, Math.max(1, parsed));
 }
 
 /**

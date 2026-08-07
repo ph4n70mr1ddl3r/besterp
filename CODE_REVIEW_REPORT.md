@@ -2,8 +2,36 @@
 
 ## Scope
 Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
-`mcp-tools`, `apps/api`) conducted on 2026-08-07. This is review 108;
-rounds 1–107 are documented in earlier revisions of this file and `CHANGES.md`.
+`mcp-tools`, `apps/api`) conducted on 2026-08-07. This is review 109;
+rounds 1–108 are documented in earlier revisions of this file and `CHANGES.md`.
+
+## Findings & Actions (round 109)
+
+### Fixed this round
+
+1. **🟢 `party.service.ts:toPartyResult` — dead `?? "UNKNOWN"` fallback on `roleType.name`.** The query always includes `roles: { include: { roleType: true } }`, and the Prisma schema enforces a non-null FK from `party_role.roleTypeId` → `role_type`. The `roleType` relation is never null for a valid query result, so the `?? "UNKNOWN"` fallback was unreachable dead code. **Fix:** removed the `?? "UNKNOWN"` so a null `roleType.name` (schema drift) surfaces as a clear `TypeError` rather than silently returning `"UNKNOWN"`.
+
+2. **🟢 `health.service.ts` — duplicated `NODE_ENV` normalization inline.** `getHealth()` and `getVersion()` each ran `process.env.NODE_ENV?.trim().toLowerCase() || "development"` inline, duplicating the logic that `bootstrap-config.ts:normalizeEnvironmentValue` already centralizes. **Fix:** both call sites now delegate to `normalizeEnvironmentValue`, ensuring any future change to the normalization rule (e.g. a new default for unset values) propagates uniformly.
+
+3. **🟢 `prisma.service.ts:initCacheSize` — duplicated guard logic extracted to `bootstrap-config.ts:normalizeCacheSize`.** The cache-size resolver (trim, NaN guard, explicit-0 clamp to 1, 1–100 000 range clamp, per-var warning messages) was duplicated from the bootstrap-config module. **Fix:** extracted to a shared `normalizeCacheSize(raw, defaultSize, varName, logger)` helper; `PrismaService.initCacheSize` now delegates to it. No behavior change — only the single source of truth moved.
+
+4. **🟢 `cleanup-expired-idempotency.ts` — `NODE_ENV` normalized without `normalizeEnvironmentValue`.** Both the seed script and this cleanup script lowercased `process.env.NODE_ENV` but did not use the centralized `normalizeEnvironmentValue` helper, creating a maintenance drift surface. **Fix:** both now import and use `normalizeEnvironmentValue` so the normalization contract is consistent across every standalone script and the main bootstrap path.
+
+### Reviewed but NOT changed (false positives / deferred)
+
+- **`TenantContext` interface missing `userId`/`agentId` fields** — already fixed this round (round 109 added the fields to the interface declaration in `tenant-context.ts` so the Express augmentation matches the guard's runtime assignment).
+- **`discovery-tools.ts` dynamic Prisma delegate access (`prisma as unknown as Record<string, unknown>`)** — intentional: the `TYPE_TABLE_MAP` keys are compile-time enum values, and the runtime guard validates the delegate exists before casting. No injection surface.
+- **Tenant isolation (RLS boot assertions, superuser boot refusal, app-level `tenantId` filters), secret redaction across REST/MCP/durable surfaces, idempotency-key charset consistency, ReDoS, and `@Public()` scope scanning** remain intact and were re-verified by independent reads this round. No new 🔴/🟡 exploit paths found.
+
+## Test Results (round 109)
+```
+api:       391 passed (16 files)  (unchanged)
+shared:    226 passed (4 files)   (unchanged)
+mcp-tools: 158 passed (4 files)   (unchanged)
+database:   27 passed, 10 skipped (2 files) (DB-backed; unchanged)
+────────────────────────────────────
+Total:     802 passed, 10 skipped
+```
 
 ## Findings & Actions (round 108)
 

@@ -8,6 +8,7 @@
 
 import { PrismaClient } from "@prisma/client";
 import { sanitizeForLogOutput, isDev } from "@besterp/shared";
+import { normalizeEnvironmentValue } from "../../api/src/bootstrap-config.js";
 
 if (!process.env.DATABASE_ADMIN_URL) {
   console.error("DATABASE_ADMIN_URL is required for idempotency cleanup (bypasses RLS). " +
@@ -20,7 +21,7 @@ if (!process.env.DATABASE_ADMIN_URL) {
 // cannot bypass the guard below. This script runs as a standalone process
 // that does NOT go through main.ts's normalizeEnvironment().
 if (process.env.NODE_ENV) {
-  process.env.NODE_ENV = process.env.NODE_ENV.trim().toLowerCase();
+  process.env.NODE_ENV = normalizeEnvironmentValue(process.env.NODE_ENV);
 }
 
 // Destructive admin operation that bypasses RLS. Refuse to run against
