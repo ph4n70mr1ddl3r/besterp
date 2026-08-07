@@ -206,10 +206,14 @@ function replaceDatabaseUrls(input: string): string {
 // over-redact benign prose (`status code=200 ok`, `session=abc123`). The
 // query-string and quoted-value rules re-add them, since a URL param or a
 // quoted value is structured rather than prose.
-const SECRET_PARAM_ALTERNATION =
-  "key|token|id_token|access_token|refresh_token|auth_token|session_token|reset_token|grant_token|" +
-  "secret|secret_key|secretkey|access_key|accesskey|password|passwd|pwd|auth|api_key|apikey|" +
-  "client_secret|client_id|signature|sign|otp|bearer";
+const SECRET_PARAM_NAMES = Object.freeze(new Set([
+  "key", "token", "id_token", "access_token", "refresh_token", "auth_token",
+  "session_token", "reset_token", "grant_token", "secret", "secret_key",
+  "secretkey", "access_key", "accesskey", "password", "passwd", "pwd",
+  "auth", "api_key", "apikey", "client_secret", "client_id", "signature",
+  "sign", "otp", "bearer",
+]));
+const SECRET_PARAM_ALTERNATION = Array.from(SECRET_PARAM_NAMES).sort().join("|");
 const SECRET_PARAM_ALTERNATION_WITH_SESSION = `${SECRET_PARAM_ALTERNATION}|code|session`;
 
 // `String.raw` preserves regex backslash escapes verbatim, so each pattern

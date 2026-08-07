@@ -359,11 +359,14 @@ export class PartyService {
     }
   }
 
-  /** Extract the conflicting field name from a Prisma error's metadata. */
+  /** Extract the conflicting field name(s) from a Prisma error's metadata.
+   *  For compound unique constraints `meta.target` is an array of field names;
+   *  join them so the error message is accurate (e.g. "same tenantId and email"
+   *  rather than just "same tenantId"). */
   private static resolveConflictField(err: { meta?: Record<string, unknown> }): string {
     const target = err.meta?.target;
     if (Array.isArray(target) && target.length > 0 && typeof target[0] === "string") {
-      return target[0];
+      return target.join(" and ");
     }
     return "this record";
   }

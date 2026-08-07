@@ -65,8 +65,12 @@ export function pluralize(entity: string): string {
   const lower = entity.toLowerCase();
   const irregular = IRREGULAR_PLURALS[lower];
   if (irregular) return preserveCasing(entity, irregular);
-  if (isConsonantYEnding(lower)) return preserveCasing(entity, entity.slice(0, -1) + "ies");
+  // Words already ending in "ves" (e.g. "knives", "lives") are already in
+  // their plural form — returning them as-is avoids double-pluralization
+  // ("kniveses", "liveses") which would be wrong. The sibilant-ending rule
+  // below would catch these, so we short-circuit first.
   if (lower.endsWith("ves")) return entity;
+  if (isConsonantYEnding(lower)) return preserveCasing(entity, entity.slice(0, -1) + "ies");
   if (isSibilantEnding(lower)) return preserveCasing(entity, entity + "es");
   if (isConsonantOEnding(lower)) return preserveCasing(entity, entity + "es");
   return preserveCasing(entity, entity + "s");

@@ -398,7 +398,7 @@ export class ToolRegistry {
       // would otherwise leak the "password" key in the path array.
       const sanitizedPath = path.map((p) => sanitizeForLogOutput(p));
       const redacted: Record<string, unknown> = {
-        code: issue.code ?? "custom",
+        code: sanitizeForLogOutput(String(issue.code ?? "custom")),
         // A Zod issue message can echo the offending input verbatim (e.g.
         // "Expected string, received {raw password}"), so run it through the
         // deep redactor as well as the length/char sanitizer.
