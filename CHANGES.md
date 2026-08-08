@@ -1,5 +1,19 @@
 # BestERP — Security & Architecture Fixes
 
+## Changes Applied (2026-08-08) — Code Review Round 114
+
+### 🟢 `apps/api/src/modules/core/party/party.service.ts` — dead fabricated-timestamp fallbacks on `fromDate`
+
+**Problem:** `PartyRole.fromDate` is `NOT NULL` in the schema (DB default `now()`), so two `?? new Date().toISOString()` fallbacks were unreachable — and silently fabricated timestamps if the invariant ever drifted (same dead-fallback class removed in rounds 108–109).
+
+**Fix:** Removed both fallbacks (`addPartyRole` result mapping and the `addPartyRoleTransaction` duplicate-error path). A `null` `fromDate` now fails loudly with a `TypeError` instead of inventing data; comments document the NOT NULL invariant. Added 3 regression tests (DB-stored `fromDate` returned verbatim; null `fromDate` rejects loudly; duplicate error reports the existing role's real DB `fromDate`).
+
+### 🟡 `apps/api/src/main.ts` — middleware order left 429/preflight responses without `x-request-id`
+
+**Problem:** The request-ID middleware ran after helmet, the health-aware rate limiter, and CORS. Body-parser 413/400 responses carry the header, but rate-limited 429s and CORS preflight OPTIONS short-circuited before the middleware — so the abusive traffic you most want to correlate lacked a request ID.
+
+**Fix:** Moved the request-ID middleware directly after helmet (kept first for security headers), before the limiter and CORS, so every early-exit response carries the correlation header.
+
 ## Changes Applied (2026-08-08) — Code Review Round 113
 
 ### 🟡 `apps/api/src/mcp/tools/discovery-tools.ts` — `list_available_tools` `entity` filter silently returned an empty list for whitespace-only input

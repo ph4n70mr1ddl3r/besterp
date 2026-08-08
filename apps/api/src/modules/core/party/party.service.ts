@@ -644,7 +644,12 @@ export class PartyService {
       partyRoleId: role.partyRoleId,
       partyId: role.partyId,
       roleTypeName: role.roleType.name,
-      fromDate: role.fromDate ? role.fromDate.toISOString() : new Date().toISOString(),
+      // PartyRole.fromDate is NOT NULL (schema default now()), so it is always
+      // present. No fallback: if schema drift ever made it nullable, a
+      // TypeError here surfaces the corruption instead of fabricating a
+      // timestamp that was never persisted (round-114 review — mirrors the
+      // round-108/109 removal of dead `?? "UNKNOWN"` fallbacks).
+      fromDate: role.fromDate.toISOString(),
       thruDate: role.thruDate?.toISOString() ?? null,
     };
   }
@@ -736,7 +741,11 @@ export class PartyService {
             where: { partyId, roleTypeId, thruDate: null, party: { tenantId } },
           });
           if (existingRole) {
-            const fromDate = existingRole.fromDate ? existingRole.fromDate.toISOString() : new Date().toISOString();
+            // existingRole.fromDate is NOT NULL (schema default now()), so no
+            // fallback is needed — a fabricated `new Date().toISOString()` here
+            // would report a start date that was never persisted (round-114
+            // review, same class as the `?? "UNKNOWN"` removals in rounds 108/109).
+            const fromDate = existingRole.fromDate.toISOString();
             throw new DuplicateEntityError(
               `Party '${partyId}' already has active role '${trimmedRoleType}'. Existing role started on ${fromDate}. ` +
               `To change a party's role, first end the current role by setting a thruDate, then re-call add_party_role.`,

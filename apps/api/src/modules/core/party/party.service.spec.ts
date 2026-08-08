@@ -833,6 +833,131 @@ describe("PartyService", () => {
       expect(result.roleTypeName).toBe("Customer");
     });
 
+    it("should return the DB-stored fromDate, not a fabricated now() timestamp (regression, round 114)", async () => {
+      // PartyRole.fromDate is NOT NULL (schema default now()), so the returned
+      // fromDate must always be the value persisted by the INSERT, never a
+      // fabricated `new Date()`. Before round 114 the mapping fell back to
+      // `new Date().toISOString()` on a falsy fromDate — a dead branch that
+      // would silently report a start date that was never stored if the column
+      // ever became nullable. Pin the mapping to the DB value.
+      mockAdminTypes();
+      const storedFromDate = new Date("2024-03-15T10:30:00.000Z");
+      const input = {
+        tenantId: "tenant-1",
+        partyId: "12345678-1234-1234-1234-123456789abc",
+        roleType: "Customer",
+      };
+
+      const mockDb = {
+        roleType: {
+          findUnique: vi.fn().mockResolvedValue({ roleTypeId: "rt-customer" }),
+        },
+        $transaction: vi.fn().mockImplementation(async (fn) => {
+          const tx = {
+            party: { findUnique: vi.fn().mockResolvedValue({ partyId: "12345678-1234-1234-1234-123456789abc" }) },
+            $queryRaw: vi.fn().mockResolvedValue([{ partyRoleId: "role-123", fromDate: storedFromDate, thruDate: null }]),
+            partyRole: {
+              findUnique: vi.fn().mockResolvedValue({
+                partyRoleId: "role-123",
+                partyId: "12345678-1234-1234-1234-123456789abc",
+                roleTypeId: "rt-customer",
+                fromDate: storedFromDate,
+                thruDate: null,
+                roleType: { name: "Customer", roleTypeId: "rt-customer" },
+              }),
+            },
+          };
+          return fn(tx);
+        }),
+      };
+      mockPrismaService.tenantScoped.mockReturnValue(mockDb);
+
+      const result = await partyService.addPartyRole(input);
+
+      expect(result.fromDate).toBe(storedFromDate.toISOString());
+    });
+
+    it("should fail loudly on a null fromDate instead of fabricating a timestamp (regression, round 114)", async () => {
+      // Lock in the fail-loud contract: a null fromDate (impossible per the
+      // NOT NULL schema, but a schema-drift signal if it ever happens) must
+      // propagate as a TypeError, not be papered over with a fabricated now().
+      mockAdminTypes();
+      const input = {
+        tenantId: "tenant-1",
+        partyId: "12345678-1234-1234-1234-123456789abc",
+        roleType: "Customer",
+      };
+
+      const mockDb = {
+        roleType: {
+          findUnique: vi.fn().mockResolvedValue({ roleTypeId: "rt-customer" }),
+        },
+        $transaction: vi.fn().mockImplementation(async (fn) => {
+          const tx = {
+            party: { findUnique: vi.fn().mockResolvedValue({ partyId: "12345678-1234-1234-1234-123456789abc" }) },
+            $queryRaw: vi.fn().mockResolvedValue([{ partyRoleId: "role-123", fromDate: null, thruDate: null }]),
+            partyRole: {
+              findUnique: vi.fn().mockResolvedValue({
+                partyRoleId: "role-123",
+                partyId: "12345678-1234-1234-1234-123456789abc",
+                roleTypeId: "rt-customer",
+                fromDate: null,
+                thruDate: null,
+                roleType: { name: "Customer", roleTypeId: "rt-customer" },
+              }),
+            },
+          };
+          return fn(tx);
+        }),
+      };
+      mockPrismaService.tenantScoped.mockReturnValue(mockDb);
+
+      await expect(partyService.addPartyRole(input)).rejects.toThrow(TypeError);
+    });
+
+    it("should report the existing role's DB fromDate in the duplicate error (regression, round 114)", async () => {
+      // The duplicate-role error message interpolates the existing role's
+      // start date. It must be the persisted fromDate, never a fabricated now().
+      mockAdminTypes();
+      const existingFromDate = new Date("2024-01-10T08:00:00.000Z");
+      const input = {
+        tenantId: "tenant-1",
+        partyId: "12345678-1234-1234-1234-123456789abc",
+        roleType: "Customer",
+      };
+
+      const mockDb = {
+        roleType: {
+          findUnique: vi.fn().mockResolvedValue({ roleTypeId: "rt-customer" }),
+        },
+        $transaction: vi.fn().mockImplementation(async (fn) => {
+          const tx = {
+            party: { findUnique: vi.fn().mockResolvedValue({ partyId: "12345678-1234-1234-1234-123456789abc" }) },
+            $queryRaw: vi.fn().mockResolvedValue([]),
+            partyRole: {
+              findFirst: vi.fn().mockResolvedValue({
+                partyRoleId: "existing-role",
+                partyId: "12345678-1234-1234-1234-123456789abc",
+                roleTypeId: "rt-customer",
+                fromDate: existingFromDate,
+                thruDate: null,
+              }),
+            },
+          };
+          return fn(tx);
+        }),
+      };
+      mockPrismaService.tenantScoped.mockReturnValue(mockDb);
+
+      try {
+        await partyService.addPartyRole(input);
+        expect.fail("expected DuplicateEntityError to be thrown");
+      } catch (err) {
+        expect(err).toBeInstanceOf(DuplicateEntityError);
+        expect((err as DuplicateEntityError).message).toContain(existingFromDate.toISOString());
+      }
+    });
+
     it("should emit snake_case column names in the ON CONFLICT INSERT (regression)", async () => {
       // Regression guard: the raw $queryRaw INSERT targeted the DB columns by
       // camelCase names ("partyId", "roleTypeId", ...) even though the physical

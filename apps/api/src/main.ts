@@ -361,6 +361,26 @@ async function bootstrap() {
   // and other early-exit paths also carry security headers.
   app.use(helmet());
 
+  // Request ID middleware for correlation across logs, traces, and audit.
+  // Derives the ID from the `x-request-id` header when it is a safe printable
+  // token; otherwise generates a UUID v4. The header is untrusted client
+  // input, so resolveRequestId validates it before it is reflected into the
+  // response header and stored on req.requestId (defense-in-depth against
+  // header/log injection).
+  //
+  // Registered BEFORE the rate limiter and CORS so that early-exit responses
+  // also carry the correlation ID: rate-limited 429s and CORS preflight
+  // OPTIONS previously short-circuited before this middleware ran, leaving the
+  // abusive traffic you most want to correlate without an `x-request-id` —
+  // an inconsistency with body-parser 413/400 responses, which are handled
+  // later in the chain and DO receive the header (round-114 review).
+  app.use((req: Request, res: Response, next: NextFunction) => {
+    const requestId = resolveRequestId(req.headers["x-request-id"]);
+    req.requestId = requestId;
+    res.setHeader("x-request-id", requestId);
+    next();
+  });
+
   // Skip rate limiter for health/readiness endpoints — load balancers and
   // orchestrators poll these frequently, and rate-limiting them can cause
   // false-positive health failures and premature instance de-registration.
@@ -373,19 +393,6 @@ async function bootstrap() {
 
   const allowedOrigins = parseAllowedOrigins();
   configureCors(app, allowedOrigins);
-
-  // Request ID middleware for correlation across logs, traces, and audit.
-  // Derives the ID from the `x-request-id` header when it is a safe printable
-  // token; otherwise generates a UUID v4. The header is untrusted client
-  // input, so resolveRequestId validates it before it is reflected into the
-  // response header and stored on req.requestId (defense-in-depth against
-  // header/log injection).
-  app.use((req: Request, res: Response, next: NextFunction) => {
-    const requestId = resolveRequestId(req.headers["x-request-id"]);
-    req.requestId = requestId;
-    res.setHeader("x-request-id", requestId);
-    next();
-  });
 
   // Limit request body size to 1 MB to prevent DoS via oversized payloads.
   // Uses the raw express middleware since NestFactory.create({ bodyParser: false })

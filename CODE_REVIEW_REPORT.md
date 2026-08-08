@@ -2,8 +2,32 @@
 
 ## Scope
 Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
-`mcp-tools`, `apps/api`) conducted on 2026-08-08. This is review 113;
-rounds 1–112 are documented in earlier revisions of this file and `CHANGES.md`.
+`mcp-tools`, `apps/api`) conducted on 2026-08-08. This is review 114;
+rounds 1–113 are documented in earlier revisions of this file and `CHANGES.md`.
+
+## Findings & Actions (round 114)
+
+### Fixed this round
+
+1. **🟢 `party.service.ts` — dead fabricated-timestamp fallbacks on `fromDate`.** `PartyRole.fromDate` is `NOT NULL` in the schema (DB default `now()`), so two `?? new Date().toISOString()` fallbacks were unreachable and, worse, silently fabricated timestamps if the invariant ever drifted (mirrors the dead `?? "UNKNOWN"` fallbacks removed in rounds 108–109). **Fix:** removed both fallbacks (`addPartyRole` result mapping and the `addPartyRoleTransaction` duplicate-error path), which now fail loudly with a `TypeError` instead of inventing data. Comments document the NOT NULL invariant. Added 3 regression tests (DB-stored `fromDate` returned verbatim; null `fromDate` rejects loudly; duplicate error reports the existing role's real DB `fromDate`).
+
+2. **🟡 `main.ts` — middleware order left 429/preflight responses without `x-request-id`.** The request-ID middleware was registered AFTER helmet, the health-aware rate limiter, and `configureCors`. Body-parser 413/400 responses are handled later in the chain and carry the header, but rate-limited 429s and CORS preflight OPTIONS short-circuited before the middleware ran — so the exact abusive traffic you want to correlate lacked a request ID. **Fix:** moved the request-ID middleware directly after helmet (kept first for security headers), before the limiter and CORS, so every early-exit response carries the correlation header.
+
+### Reviewed but NOT changed (false positives / deferred)
+
+- **Tenant isolation (RLS boot assertions, superuser boot refusal, app-level `tenantId` filters), secret redaction across REST/MCP/durable surfaces, idempotency-key charset consistency, ReDoS, and `@Public()` scope scanning** remain intact and were re-verified by independent reads this round. No new 🔴/🟡 exploit paths found.
+- **`formatPartyRoleResult` `fromDate` mapping (`party.service.ts` ~line 1165)** keeps its tolerant `r.fromDate ? r.fromDate.toISOString() : null` shape for the `PartyResult` search/list surface, where older reads may legitimately surface nulls from pre-migration rows; this is a display mapping, not a fabrication, so it does not share the fail-loud contract of the write-path fixes above. Kept as-is; documented for future readers.
+- **`bootstrap-config.ts` cache-size fractional values** — `PRISMA_CLIENT_CACHE_SIZE=1.5` yields a fractional LRU max; harmless (LRU compares `map.size >= maxSize`, so 1.5 behaves like 2) and never a security issue; deferred (unchanged from round 113).
+
+## Test Results (round 114)
+```
+api:       396 passed (16 files)  (+3 regression tests vs round 113)
+shared:    224 passed (4 files)   (unchanged)
+mcp-tools: 158 passed (4 files)   (unchanged)
+database:   27 passed, 10 skipped (2 files) (DB-backed; unchanged)
+────────────────────────────────────
+Total:     805 passed, 10 skipped
+```
 
 ## Findings & Actions (round 113)
 
