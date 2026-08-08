@@ -43,7 +43,20 @@ Use this to discover what operations you can perform in the ERP system.
 Each tool listing includes its risk level and confirmation requirements.`,
 
     inputSchema: z.object({
-      entity: z.string().max(MAX_ENTITY_LENGTH).optional().describe("Filter tools by entity (e.g., 'party', 'order')"),
+      // Trim, and normalize whitespace-only input to no filter — the same
+      // convention as optionalFilteredString (round 107): a whitespace-only
+      // optional filter means "no filter", never a match-nothing empty string
+      // (which would silently return zero tools). Length is capped on the
+      // TRIMMED value for consistency with every other MCP string input.
+      entity: z.string()
+        .optional()
+        .transform((s) => {
+          if (s === undefined) return undefined;
+          const trimmed = s.trim();
+          return trimmed.length === 0 ? undefined : trimmed;
+        })
+        .pipe(z.string().max(MAX_ENTITY_LENGTH).optional())
+        .describe("Filter tools by entity (e.g., 'party', 'order')"),
     }),
 
     riskLevel: "none",
@@ -54,7 +67,7 @@ Each tool listing includes its risk level and confirmation requirements.`,
       const input = inputRaw as { entity?: string };
       let tools = registry.getDiscoveryInfo();
       if (input.entity) {
-        const filter = input.entity.trim().toLowerCase();
+        const filter = input.entity.toLowerCase();
         tools = tools.filter((t) => (t.entity ?? "").toLowerCase() === filter);
       }
       return {

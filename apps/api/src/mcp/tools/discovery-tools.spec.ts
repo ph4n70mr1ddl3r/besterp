@@ -78,6 +78,27 @@ describe("Discovery MCP Tools", () => {
       expect(data.totalAvailable).toBe(0);
     });
 
+    it("should normalize whitespace-only entity to no filter (regression guard, round 113)", async () => {
+      // Before round 113, whitespace-only input passed the schema, was trimmed
+      // to "", and compared as "" === (t.entity ?? "") — which never matches,
+      // silently returning ZERO tools. Per the round-107 convention (see
+      // optionalFilteredString), whitespace-only optional filters mean "no
+      // filter", same as omitting the field entirely.
+      const result = await registry.execute("list_available_tools", { entity: "   " }, createContext());
+
+      expect(result.success).toBe(true);
+      const data = result.data as { tools: unknown[] };
+      expect(data.tools.length).toBeGreaterThan(0);
+    });
+
+    it("should trim whitespace around entity before filtering", async () => {
+      const result = await registry.execute("list_available_tools", { entity: "  tool  " }, createContext());
+
+      expect(result.success).toBe(true);
+      const data = result.data as { tools: { entity: string }[] };
+      expect(data.tools.every((t) => t.entity === "tool")).toBe(true);
+    });
+
     it("should include discovery note", async () => {
       const result = await registry.execute("list_available_tools", {}, createContext());
 

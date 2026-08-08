@@ -1,5 +1,19 @@
 # BestERP — Security & Architecture Fixes
 
+## Changes Applied (2026-08-08) — Code Review Round 113
+
+### 🟡 `apps/api/src/mcp/tools/discovery-tools.ts` — `list_available_tools` `entity` filter silently returned an empty list for whitespace-only input
+
+**Problem:** A whitespace-only `entity` (`"   "`) passed the old schema (`z.string().max(64).optional()` — no trim, no empty normalization), then the handler trimmed it to `""` and compared `"" === (t.entity ?? "")`. Every tool declares a non-empty entity, so that comparison never matches and the tool returned zero results — silently narrowing the listing to nothing. This is the exact footgun round 107 removed from `optionalFilteredString`, where a whitespace-only optional filter means *no filter*.
+
+**Fix:** The schema now mirrors `optionalFilteredString` (`z.string().optional().transform()` trims and maps empty/whitespace-only to `undefined`, `.pipe(z.string().max(64).optional())` caps length on the TRIMMED value). A whitespace-only `entity` now returns all tools, and surrounding whitespace is trimmed before matching. Added 2 regression tests.
+
+### 🟡 `apps/api/src/main.ts` — unbounded `app.close()` on the listen-failure path could leave a half-initialized process running
+
+**Problem:** The `catch` around `app.listen()` awaited `app.close()` with no hard-exit bound, while `gracefulShutdown` bounds teardown with an unref'd hard-exit timer. If teardown hung after a listen failure (e.g. a stuck database connection pool), the process would never exit.
+
+**Fix:** Extracted `closeWithTimeout(app, label, timeoutMs)` — hard-exit timer + `unref()` + `finally` clear, close errors propagating to the caller — and used it in both `gracefulShutdown` (identical behaviour, logic now shared) and the listen-failure path (same `HARD_EXIT_TIMEOUT_MS` default).
+
 ## Changes Applied (2026-08-07) — Code Review Round 107
 
 ### 🟡 `apps/api/src/bootstrap-config.ts` — whitespace-only `HARD_EXIT_TIMEOUT_MS` parsed as an explicit `0` → instant forced exit on shutdown

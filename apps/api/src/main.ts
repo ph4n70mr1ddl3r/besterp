@@ -164,6 +164,25 @@ function validateEnvironment(): void {
   validateRedisConfig();
 }
 
+/**
+ * Close the app, bounded by a hard-exit timer. If `app.close()` hangs (e.g. a
+ * stuck database connection pool during teardown), the unref'd timer forces
+ * the process to exit so a shutdown path can never leave a half-dead process
+ * running. The caller decides the exit code; close errors propagate.
+ */
+async function closeWithTimeout(app: INestApplication, label: string, timeoutMs: number): Promise<void> {
+  const hardExitTimer = setTimeout(() => {
+    logger.error(`${label} exceeded ${timeoutMs}ms — forcing exit.`);
+    process.exit(1);
+  }, timeoutMs);
+  hardExitTimer.unref();
+  try {
+    await app.close();
+  } finally {
+    clearTimeout(hardExitTimer);
+  }
+}
+
 function setupGracefulShutdown(app: INestApplication): void {
   const HARD_EXIT_TIMEOUT_MS = resolveHardExitTimeout(process.env);
   let shuttingDown = false;
@@ -177,21 +196,13 @@ function setupGracefulShutdown(app: INestApplication): void {
     if (shuttingDown) process.exit(1);
     shuttingDown = true;
 
-    const hardExitTimer = setTimeout(() => {
-      logger.error(`Graceful shutdown exceeded ${HARD_EXIT_TIMEOUT_MS}ms — forcing exit.`);
-      process.exit(1);
-    }, HARD_EXIT_TIMEOUT_MS);
-    hardExitTimer.unref();
-
     try {
-      await app.close();
+      await closeWithTimeout(app, "Graceful shutdown", HARD_EXIT_TIMEOUT_MS);
       process.exit(0);
     } catch (closeErr) {
       const errorDetail = closeErr instanceof Error ? closeErr.stack ?? closeErr.message : String(closeErr);
       logger.error(`Error during graceful shutdown: ${sanitizeForLogOutput(errorDetail)}`);
       process.exit(1);
-    } finally {
-      clearTimeout(hardExitTimer);
     }
   }
 
@@ -462,7 +473,10 @@ async function bootstrap() {
   } catch (err) {
     logger.error(`Failed to listen on port ${port}: ${sanitizeForLogOutput(err instanceof Error ? err.message : String(err))}`);
     try {
-      await app.close();
+      // Bounded close (same pattern as graceful shutdown): if app teardown
+      // hangs after a listen failure, force-exit rather than leave a
+      // half-initialized process running.
+      await closeWithTimeout(app, "Listen-failure shutdown", resolveHardExitTimeout(process.env));
     } catch (closeErr) {
       logger.debug(`App close error after listen failure: ${sanitizeForLogOutput(closeErr instanceof Error ? closeErr.message : String(closeErr))}`);
     }

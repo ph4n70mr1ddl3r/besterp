@@ -2,8 +2,33 @@
 
 ## Scope
 Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
-`mcp-tools`, `apps/api`) conducted on 2026-08-07. This is review 111;
-rounds 1–110 are documented in earlier revisions of this file and `CHANGES.md`.
+`mcp-tools`, `apps/api`) conducted on 2026-08-08. This is review 113;
+rounds 1–112 are documented in earlier revisions of this file and `CHANGES.md`.
+
+## Findings & Actions (round 113)
+
+### Fixed this round
+
+1. **🟡 `discovery-tools.ts` — `list_available_tools` `entity` filter silently returned an empty list for whitespace-only input.** A whitespace-only `entity` (`"   "`) passed the old schema (`z.string().max(MAX_ENTITY_LENGTH).optional()` — no trim, no empty normalization), then the handler trimmed it to `""` and compared `"" === (t.entity ?? "")`. Since every tool declares a non-empty entity, that comparison never matches, so the tool returned zero results — the exact "silently narrows to nothing" behaviour round 107 removed from `optionalFilteredString`, which normalizes whitespace-only optional filters to *no filter*. **Fix:** the schema now mirrors `optionalFilteredString`: `.optional().transform()` trims and maps empty/whitespace-only to `undefined`, `.pipe(z.string().max(MAX_ENTITY_LENGTH).optional())` enforces the length cap on the TRIMMED value (round-107 convention — a whitespace-padded value over the cap stays valid once trimmed), and the handler lowercases the pre-trimmed value. Added 2 regression tests (whitespace-only → all tools; surrounding whitespace trimmed before filtering).
+
+2. **🟡 `main.ts` — unbounded `await app.close()` on the listen-failure path.** The `catch` around `app.listen()` awaited `app.close()` with no hard-exit bound, unlike `gracefulShutdown`, which bounds teardown with an unref'd hard-exit timer. If teardown hung after a listen failure (e.g. a stuck database connection pool), the process would stay alive in a half-initialized state instead of failing fast. **Fix:** extracted `closeWithTimeout(app, label, timeoutMs)` (hard-exit timer + `unref()` + `finally` clear; close errors propagate to the caller) and used it in both `gracefulShutdown` (behaviour identical, logic now shared — the inline timer/finally were removed) and the listen-failure path (same `HARD_EXIT_TIMEOUT_MS` default from `resolveHardExitTimeout`).
+
+### Reviewed but NOT changed (false positives / deferred)
+
+- **Tenant isolation (RLS boot assertions, superuser boot refusal, app-level `tenantId` filters), secret redaction across REST/MCP/durable surfaces, idempotency-key charset consistency, ReDoS, and `@Public()` scope scanning** remain intact and were re-verified by independent reads this round. No new 🔴/🟡 exploit paths found.
+- **Full-file re-reads this round** — every previously-truncated source is now read in full: `party.service.ts` (1190 lines), `prisma.service.ts`, `idempotency.ts`, `error-handler.ts`, `audit-log.ts`, `sanitize.ts`, `main.ts`, `tool-registry.ts`, `party-tools.ts`, `discovery-tools.ts`, `truncate.ts`, `tool-definition.ts`, `health.service.ts`, `party.dto.ts`, `party.types.ts`, `seed.ts`, `bootstrap-config.ts`, `rls-extension.ts`, `cleanup-expired-idempotency.ts`, plus the `auth/`, `common/`, `queue/`, and `mcp/` sources. Greps confirmed no stray `TODO`/`FIXME`/`console.log`/`process.exit` outside the documented boot/shutdown/script paths (the 3 `eslint-disable` comments in `sanitize.ts` and the 1 `@ts-expect-error` in `tool-registry.test.ts` are intentional with justifications). No other genuine defects found.
+- **CI pipeline (`ci.yml`)** — the `test` job regenerates the Prisma client because the `lint-build` job's `actions/cache` entry is job-scoped (not reused across jobs), and `test` is serialized behind `needs: lint-build`. Both are minor efficiency observations, not correctness bugs; deferred.
+- **`bootstrap-config.ts` cache-size fractional values** — `parsePositiveInteger` clamps to the integer range but `PRISMA_CLIENT_CACHE_SIZE=1.5` yields a fractional LRU max; harmless (LRU compares `map.size >= maxSize`, so 1.5 behaves like 2) and never a security issue; deferred.
+
+## Test Results (round 113)
+```
+api:       393 passed (16 files)  (+2 regression tests)
+shared:    224 passed (4 files)   (unchanged since round 112)
+mcp-tools: 158 passed (4 files)   (unchanged)
+database:   27 passed, 10 skipped (2 files) (DB-backed; unchanged)
+────────────────────────────────────
+Total:     802 passed, 10 skipped
+```
 
 ## Findings & Actions (round 111)
 
