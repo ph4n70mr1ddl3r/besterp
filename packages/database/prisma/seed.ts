@@ -1,5 +1,5 @@
 import { PrismaClient } from "@prisma/client";
-import { normalizeEnvironmentValue } from "@besterp/shared";
+import { normalizeEnvironmentValue, sanitizeForLogOutput } from "@besterp/shared";
 import { assertSeedAllowed } from "../src/seed-guard.js";
 
 // Normalize NODE_ENV early (case-insensitive, trimmed) so "Production" or
@@ -212,7 +212,14 @@ async function main() {
 
 main()
   .catch((e) => {
-    console.error(e instanceof Error ? e.message : String(e));
+    // Sanitize like the sibling cleanup script does: a Prisma/driver
+    // connection error's message embeds the datasource URL verbatim
+    // (DATABASE_ADMIN_URL — credentials + host), and the seed connects via
+    // that URL. `console.error(e.message)` would print the password to the
+    // terminal / container stdout capture, exactly the leak the rest of the
+    // codebase scrubs at every durable sink. The assertSeedAllowed guard
+    // throws a clean message, but Prisma errors reach this path too.
+    console.error(sanitizeForLogOutput(e instanceof Error ? e.message : String(e)));
     process.exitCode = 1;
   })
   .finally(async () => {

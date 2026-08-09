@@ -54,7 +54,7 @@ export class DomainError extends Error {
       // structured serializer for audit logs / idempotency records) cannot leak
       // a secret verbatim — matching what the REST `DomainExceptionFilter` and
       // the MCP `error-handler` already apply to `error.message` before
-      // reflecting/persisting it. `code` is a short allowlisted constant, safe.
+      // reflecting/persisting it.
       message: sanitizeForLogOutput(this.message),
       suggestedTools: this.suggestedTools,
       // Redact values stored under sensitive-named keys (password, apiKey, …)

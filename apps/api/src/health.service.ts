@@ -90,10 +90,23 @@ export class HealthService implements OnModuleInit {
    * the whole API from a public endpoint. Caching the result for a few seconds
    * bounds socket churn to one per TTL regardless of request rate. Load
    * balancers poll at 5–10s intervals, so the staleness window is invisible in
-   * practice.
+   * practice. The result cache collapses SEQUENTIAL polls; the in-flight
+   * Promise dedup (see {@link #redisProbeInflight}) collapses CONCURRENT
+   * bursts so the "one per TTL" bound holds even under a request flood.
    */
   private static readonly REDIS_PROBE_CACHE_TTL_MS = 5_000;
   private redisProbeCache: { timestamp: number; status: "connected" | "disconnected" | "not_configured" } | undefined;
+  /**
+   * The currently-running Redis probe (if any). A result cache alone does
+   * NOT bound socket churn under a concurrent burst: N requests that all
+   * arrive before the first probe resolves each miss the empty cache and
+   * each open their own socket — the exact socket-exhaustion DoS the cache
+   * was added to prevent on the anonymous /health endpoint. Tracking the
+   * in-flight Promise lets every concurrent caller await the SAME probe, so
+   * only ONE socket is opened per probe window regardless of burst size.
+   * Cleared in the `finally` of the originating probeRedis call.
+   */
+  private redisProbeInflight: Promise<"connected" | "disconnected" | "not_configured"> | undefined;
 
   constructor(private readonly prisma: PrismaService) {}
 
@@ -218,9 +231,37 @@ export class HealthService implements OnModuleInit {
     if (this.redisProbeCache && now - this.redisProbeCache.timestamp < HealthService.REDIS_PROBE_CACHE_TTL_MS) {
       return this.redisProbeCache.status;
     }
+    // Dedupe CONCURRENT probes: a result cache alone collapses polls that
+    // arrive after the first resolves, but a burst of N requests arriving
+    // before the first probe resolves all miss the empty cache and each open
+    // their own socket. Awaiting the same in-flight Promise guarantees only
+    // ONE socket per probe window regardless of burst size — the "regardless
+    // of request rate" bound the cache's doc comment states. The probe never
+    // rejects (it maps every failure to "disconnected"), so the `finally` is
+    // guaranteed to run and clear the slot.
+    if (this.redisProbeInflight) {
+      return this.redisProbeInflight;
+    }
+    const probe = this.runRedisProbe();
+    this.redisProbeInflight = probe;
+    try {
+      const status = await probe;
+      this.redisProbeCache = { timestamp: Date.now(), status };
+      return status;
+    } finally {
+      this.redisProbeInflight = undefined;
+    }
+  }
 
+  /**
+   * Execute one Redis probe and return its status WITHOUT touching the cache
+   * or in-flight tracking — {@link probeRedis} owns those. Extracted so the
+   * cache/dedup wrapper stays small and the probe body (env validation +
+   * socket I/O) is independently readable. Never throws: every failure path
+   * (no host, bad port, socket error) maps to a status string.
+   */
+  private async runRedisProbe(): Promise<"connected" | "disconnected" | "not_configured"> {
     if (!process.env.REDIS_HOST) {
-      this.redisProbeCache = { timestamp: now, status: "not_configured" };
       return "not_configured";
     }
 
@@ -252,7 +293,6 @@ export class HealthService implements OnModuleInit {
         `REDIS_PORT "${process.env.REDIS_PORT}" is invalid — skipping the Redis health check. ` +
         "Set REDIS_PORT to a valid port between 1 and 65535."
       );
-      this.redisProbeCache = { timestamp: now, status: "disconnected" };
       return "disconnected";
     }
 
@@ -262,12 +302,9 @@ export class HealthService implements OnModuleInit {
       // host than the one BullMQ/ioredis actually connected to, causing a
       // false "disconnected" while the queue worked fine.
       const redisHost = String(process.env.REDIS_HOST).trim();
-      const status = await this.probeRedisConnection(redisHost, redisPort);
-      this.redisProbeCache = { timestamp: now, status };
-      return status;
+      return await this.probeRedisConnection(redisHost, redisPort);
     } catch {
       this.warnConnectionFailed();
-      this.redisProbeCache = { timestamp: now, status: "disconnected" };
       return "disconnected";
     }
   }

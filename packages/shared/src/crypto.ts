@@ -321,8 +321,9 @@ function countKeys(value: unknown, ancestors?: Set<object>, depth = 0): number {
   // (e.g. a 15k-level nested array) would blow the call stack inside countKeys
   // with a RangeError BEFORE the documented MAX_HASH_DEPTH guard in
   // sortKeysDeep ever runs — defeating the stack-overflow DoS protection the
-  // architecture explicitly documents. The range check uses `>=` to match
-  // sortKeysDeep exactly, so both recursion passes reject at the same depth.
+  // architecture explicitly documents. The range check uses `>` (depth must
+  // exceed the limit) to match sortKeysDeep exactly, so both recursion passes
+  // reject at the same depth.
   if (depth > MAX_HASH_DEPTH) {
     throw new InvalidTypeValueError(
       `Input exceeds maximum nesting depth of ${MAX_HASH_DEPTH}. Refusing to hash to prevent stack overflow.`

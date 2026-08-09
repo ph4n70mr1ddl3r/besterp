@@ -345,6 +345,32 @@ describe("HealthService", () => {
       expect((await p2).redis).toBe("connected");
     });
 
+    it("dedupes a CONCURRENT burst to a single socket (in-flight Promise)", async () => {
+      // Regression (round 116): the result cache collapses SEQUENTIAL polls,
+      // but a burst of N requests arriving before the first probe resolves
+      // all miss the empty cache and each open their own socket — defeating
+      // the socket-exhaustion DoS bound on the anonymous /health endpoint.
+      // Every concurrent caller must await the SAME in-flight probe so only
+      // ONE socket is opened regardless of burst size.
+      vi.stubEnv("REDIS_HOST", "localhost");
+      vi.stubEnv("REDIS_PORT", "6379");
+      const service = new HealthService(createMockPrisma());
+
+      // Fire 5 concurrent polls WITHOUT resolving the probe yet — they all
+      // enter probeRedis before any socket completes.
+      const polls = Array.from({ length: 5 }, () => service.getHealth());
+      // A single probe (socket) should have been started for all of them.
+      await vi.waitFor(() => expect(socketMocks.length).toBe(1));
+      const sock = socketMocks[0]!;
+      sock.emit("connect");
+      sock.emit("data", "+PONG\r\n");
+
+      const results = await Promise.all(polls);
+      for (const r of results) expect(r.redis).toBe("connected");
+      expect(socketMocks.length).toBe(1);
+      expect(redisConnectMock).toHaveBeenCalledTimes(1);
+    });
+
     it("treats an empty/whitespace REDIS_PORT as unset and falls back to the default port", async () => {
       // Regression (round 115): `REDIS_PORT=` / `REDIS_PORT="   "` previously
       // Number()'d to 0 and reported "disconnected" while the queue connected
