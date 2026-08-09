@@ -221,6 +221,23 @@ describe("ConcurrencyConflictError", () => {
     expect(JSON.stringify(json.cause)).toContain("[DATABASE_URL]");
   });
 
+  it("sanitizes a secret-bearing code in toJSON (durable-sink leak)", () => {
+    // `code` is user-controllable for custom DomainError subclasses. toJSON is
+    // the canonical serializer for audit logs / idempotency records, so a
+    // control/ANSI/secret-embedded `code` must not reach those sinks verbatim.
+    // Regression (round 115): previously only `message`/`context` were
+    // sanitized, leaving the `code` field as an asymmetric leak path — a
+    // code of "X?api_key=secret" or "OK\u001b[31m" survived JSON.stringify.
+    const urlError = new DomainError("ERR?api_key=supersecret123", "op failed");
+    const urlJson = urlError.toJSON();
+    expect(JSON.stringify(urlJson.code)).not.toContain("supersecret123");
+    expect(JSON.stringify(urlJson.code)).toContain("[REDACTED]");
+
+    const controlError = new DomainError("OK\u001b[31mred", "op failed");
+    const controlJson = controlError.toJSON();
+    expect(controlJson.code).not.toContain("\u001b");
+  });
+
   it("redacts secrets in non-Error object cause as sanitized string", () => {
     const error = new ConcurrencyConflictError("operation failed", {
       cause: { raw: "postgres://user:secretpass@db.internal" },

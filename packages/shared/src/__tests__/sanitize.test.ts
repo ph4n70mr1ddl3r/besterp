@@ -380,6 +380,29 @@ describe("sanitizeLogMessage", () => {
     expect(result).toContain("and color");
   });
 
+  it("replaces U+2028 line separator and U+2029 paragraph separator with underscores", () => {
+    // Regression (round 115): U+2028/U+2029 are NOT treated as line terminators
+    // by the JS regex engines' `\n`/`\r` classes or `^`/`$` anchors, but the
+    // JSON standard treats them as unescaped raw line breaks — so a log message
+    // containing them serializes to a control-char-containing JSON payload that
+    // can break one-line-per-event log pipelines. They must be normalized like
+    // every other line terminator instead of passing through verbatim.
+    expect(sanitizeLogMessage("a\u2028b")).toBe("a_b");
+    expect(sanitizeLogMessage("a\u2029b")).toBe("a_b");
+    expect(sanitizeLogMessage("a\u2028\u2029b")).toBe("a__b");
+    expect(sanitizeLogMessage("a\u2028b\u2029c")).toBe("a_b_c");
+    // Both standalone and embedded in otherwise-normal text.
+    expect(sanitizeLogMessage("ok")).toBe("ok");
+    expect(sanitizeLogMessage("\u2028")).toBe("_");
+  });
+
+  it("replaces U+2028 line separator and U+2029 paragraph separator via sanitizeForLogOutput", () => {
+    // Same fix surfaced through the sanitizeForLogOutput entry point used by
+    // the error filter / errors.toJSON.
+    expect(sanitizeForLogOutput("a\u2028b\u2029c")).toBe("a_b_c");
+    expect(sanitizeForLogOutput("fine")).toBe("fine");
+  });
+
   it("strips OSC sequences (ESC ] ... ST/BEL)", () => {
     expect(sanitizeLogMessage("\x1b]0;MyTitle\x07content")).toBe("content");
     expect(sanitizeLogMessage("\x1b]2;NewTitle\x1b\\text")).toBe("text");

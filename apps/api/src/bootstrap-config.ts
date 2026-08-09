@@ -21,11 +21,19 @@ export interface RateLimitConfig {
 
 export const DEFAULT_RATE_LIMIT_WINDOW_MS = 60_000;
 export const DEFAULT_RATE_LIMIT_MAX_PER_WINDOW = 300;
+// Sane upper bounds for the rate-limit knobs. `parsePositiveInteger` already
+// rejects non-numeric values, but a set-but-huge finite value (e.g.
+// `RATE_LIMIT_MAX_PER_WINDOW=300000000` — a typo for "300") passed the integer
+// check and silently disabled rate limiting, the exact failure mode the
+// function's doc comment claims to prevent. Capping both knobs at values well
+// above any legitimate configuration turns such a typo into a loud boot error.
+export const MAX_RATE_LIMIT_WINDOW_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+export const MAX_RATE_LIMIT_MAX_PER_WINDOW = 1_000_000;
 export const DEFAULT_HARD_EXIT_TIMEOUT_MS = 10_000;
 export const DEFAULT_TRUST_PROXY_HOPS = 0;
 export const MAX_TRUST_PROXY_HOPS = 10;
 
-function parsePositiveInteger(name: string, raw: string | undefined, fallback: number): number {
+function parsePositiveInteger(name: string, raw: string | undefined, fallback: number, max?: number): number {
   // An unset or empty value means "use the default". Any value that is set but
   // not a positive integer is an operator misconfiguration — fail loudly
   // rather than silently disabling the control (e.g. RATE_LIMIT_MAX_PER_WINDOW
@@ -35,13 +43,19 @@ function parsePositiveInteger(name: string, raw: string | undefined, fallback: n
   if (!Number.isInteger(value) || value <= 0) {
     throw new Error(`Invalid ${name} "${raw}". Must be a positive integer.`);
   }
+  // A set-but-huge finite value (e.g. a typo'd "300000000" for "300") would
+  // otherwise pass the integer check and silently disable the control. Cap it
+  // so the misconfiguration fails fast at boot instead.
+  if (max !== undefined && value > max) {
+    throw new Error(`Invalid ${name} "${raw}". Must not exceed ${max}.`);
+  }
   return value;
 }
 
 export function resolveRateLimitConfig(env: NodeJS.ProcessEnv): RateLimitConfig {
   return {
-    windowMs: parsePositiveInteger("RATE_LIMIT_WINDOW_MS", env.RATE_LIMIT_WINDOW_MS, DEFAULT_RATE_LIMIT_WINDOW_MS),
-    max: parsePositiveInteger("RATE_LIMIT_MAX_PER_WINDOW", env.RATE_LIMIT_MAX_PER_WINDOW, DEFAULT_RATE_LIMIT_MAX_PER_WINDOW),
+    windowMs: parsePositiveInteger("RATE_LIMIT_WINDOW_MS", env.RATE_LIMIT_WINDOW_MS, DEFAULT_RATE_LIMIT_WINDOW_MS, MAX_RATE_LIMIT_WINDOW_MS),
+    max: parsePositiveInteger("RATE_LIMIT_MAX_PER_WINDOW", env.RATE_LIMIT_MAX_PER_WINDOW, DEFAULT_RATE_LIMIT_MAX_PER_WINDOW, MAX_RATE_LIMIT_MAX_PER_WINDOW),
   };
 }
 

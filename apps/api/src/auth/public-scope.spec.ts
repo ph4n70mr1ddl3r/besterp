@@ -94,6 +94,25 @@ describe("verifyPublicEndpointsScope", () => {
     ).toThrowError(/OtherController \(controller-level @Public\(\)\)/);
   });
 
+  it("throws when a @Public() handler is inherited from a shared base controller", () => {
+    // Regression (round 115): the scan only inspected own properties, so a
+    // @Public() handler defined on a non-registered base class and inherited by
+    // a registered subclass slipped past the deploy-time abort (the per-request
+    // check still threw, but only once an attacker actually hit the route).
+    // The scan must walk the full prototype chain to catch inherited handlers.
+    class SharedBase {
+      healthCheck() {}
+    }
+    class DerivedController extends SharedBase {}
+    Reflect.defineMetadata(IS_PUBLIC_KEY, true, SharedBase.prototype.healthCheck);
+    expect(() =>
+      verifyPublicEndpointsScope(fakeDiscovery([
+        { clazz: HealthController },
+        { clazz: DerivedController },
+      ]))
+    ).toThrowError(/DerivedController\.healthCheck\(\)/);
+  });
+
   it("lists every offending endpoint", () => {
     class BadA {
       leak() {}

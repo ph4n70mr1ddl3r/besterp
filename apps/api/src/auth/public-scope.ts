@@ -52,22 +52,34 @@ export function verifyPublicEndpointsScope(discovery: DiscoveryService): void {
     if (!controllerClass) continue;
     if (controllerClass === HealthController) continue;
 
-    const prototype = (controllerClass as { prototype?: object }).prototype;
-    if (!prototype) continue;
-
     const isPublicOnController = Reflect.getMetadata(IS_PUBLIC_KEY, controllerClass) === true;
     if (isPublicOnController) {
       offenders.push(`${controllerClass.name} (controller-level @Public())`);
       continue;
     }
 
-    const methodNames = Object.getOwnPropertyNames(prototype);
-    for (const methodName of methodNames) {
-      const descriptor = Object.getOwnPropertyDescriptor(prototype, methodName);
-      if (!descriptor || typeof descriptor.value !== "function") continue;
-      if (Reflect.getMetadata(IS_PUBLIC_KEY, descriptor.value) === true) {
-        offenders.push(`${controllerClass.name}.${methodName}()`);
+    // Walk the FULL prototype chain, not just own properties. A @Public()
+    // handler defined on a shared base controller and inherited by a
+    // non-Health subclass would otherwise slip past this scan (the base class
+    // is not itself a registered controller, so it is never inspected). The
+    // per-request check still throws at runtime (the strict `!==
+    // HealthController` comparison also rejects subclasses), but the deploy-
+    // time abort guarantee — the stated purpose of this scan — would be
+    // silently weakened. Walk base classes so inherited handlers are flagged
+    // too; stop at Object.prototype (no controller behavior there).
+    let prototype = (controllerClass as { prototype?: object }).prototype ?? null;
+    const seen = new Set<object>();
+    while (prototype && prototype !== Object.prototype && !seen.has(prototype)) {
+      seen.add(prototype);
+      const methodNames = Object.getOwnPropertyNames(prototype);
+      for (const methodName of methodNames) {
+        const descriptor = Object.getOwnPropertyDescriptor(prototype, methodName);
+        if (!descriptor || typeof descriptor.value !== "function") continue;
+        if (Reflect.getMetadata(IS_PUBLIC_KEY, descriptor.value) === true) {
+          offenders.push(`${controllerClass.name}.${methodName}()`);
+        }
       }
+      prototype = Object.getPrototypeOf(prototype);
     }
   }
 

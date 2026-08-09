@@ -1,5 +1,6 @@
 import { PrismaClient } from "@prisma/client";
 import { normalizeEnvironmentValue } from "@besterp/shared";
+import { assertSeedAllowed } from "../src/seed-guard.js";
 
 // Normalize NODE_ENV early (case-insensitive, trimmed) so "Production" or
 // "PRODUCTION" or " Production " cannot bypass the production-seed guard
@@ -25,29 +26,13 @@ const prisma = new PrismaClient({
 });
 
 async function main() {
-  // Refuse to run in production or staging. Seed is for local/dev only and
-  // inserts hard-coded test tenants (tenant-acme, tenant-globex) that must
-  // never appear in a real environment.
-  //
-  // The NODE_ENV check alone is bypassable: an operator pointing
-  // DATABASE_ADMIN_URL at a production database while leaving NODE_ENV unset
-  // or set to "development" (a common container-env reuse mistake) would
-  // silently seed test tenants into prod. So seeding additionally requires an
-  // explicit opt-in via ALLOW_SEED=1 — there is no safe default that permits
-  // the destructive insert without a deliberate signal.
-  if (process.env.NODE_ENV === "production" || process.env.NODE_ENV === "staging") {
-    throw new Error(
-      "Refusing to seed in NODE_ENV=" + process.env.NODE_ENV + ". " +
-      "Set NODE_ENV to something other than 'production' or 'staging' to run the seed."
-    );
-  }
-  if (!process.env.ALLOW_SEED || process.env.ALLOW_SEED !== "1") {
-    throw new Error(
-      "Refusing to seed: ALLOW_SEED is not set to '1'. " +
-      "Seeding inserts hard-coded test tenants and must be explicitly enabled. " +
-      "Run with ALLOW_SEED=1 to seed local/dev databases only."
-    );
-  }
+  // Refuse to seed into any non-local environment without an explicit opt-in.
+  // The allowlist + ALLOW_SEED logic lives in assertSeedAllowed (see there for
+  // the rationale and the history of bypasses); keeping it in a separate module
+  // lets it be unit-tested (this script self-executes and cannot be imported).
+  // Note: NODE_ENV was already normalized to lowercase above, but the guard
+  // normalizes again defensively so it is safe when called with a raw value.
+  assertSeedAllowed(process.env.NODE_ENV, process.env.ALLOW_SEED);
 
   console.log("[SEED] Seeding type tables with AI-facing descriptions...\n");
 

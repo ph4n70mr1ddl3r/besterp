@@ -3,18 +3,44 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { HealthService } from "./health.service.js";
+import { DEFAULT_REDIS_PORT } from "@besterp/shared";
 
-const { redisConnectMock } = vi.hoisted(() => ({ redisConnectMock: vi.fn() }));
+const { redisConnectMock, socketMocks } = vi.hoisted(() => ({
+  redisConnectMock: vi.fn(),
+  socketMocks: [] as Array<{
+    writes: string[];
+    handlers: Record<string, (data?: unknown) => void>;
+    destroyed: boolean;
+    emit: (event: string, data?: unknown) => void;
+  }>,
+}));
 
 vi.mock("node:net", () => {
   class MockSocket {
-    destroy() {}
-    on() {
+    writes: string[];
+    handlers: Record<string, (data?: unknown) => void>;
+    destroyed: boolean;
+    constructor() {
+      this.writes = [];
+      this.handlers = {};
+      this.destroyed = false;
+      socketMocks.push(this);
+    }
+    destroy() {
+      this.destroyed = true;
+    }
+    on(event: string, handler: (data?: unknown) => void) {
+      this.handlers[event] = handler;
       return this;
     }
-    write() {}
+    write(chunk: string) {
+      this.writes.push(chunk);
+    }
     connect(...args: unknown[]) {
       redisConnectMock(...args);
+    }
+    emit(event: string, data?: unknown) {
+      this.handlers[event]?.(data);
     }
   }
   return { Socket: MockSocket };
@@ -22,6 +48,14 @@ vi.mock("node:net", () => {
 vi.mock("node:tls", () => ({
   connect: vi.fn(),
 }));
+
+/** Emit the connect + data sequence a real probe would receive to reach a result. */
+async function runProbe(frames: string[]): Promise<void> {
+  await vi.waitFor(() => expect(socketMocks.length).toBeGreaterThan(0));
+  const sock = socketMocks[socketMocks.length - 1]!;
+  sock.emit("connect");
+  for (const frame of frames) sock.emit("data", frame);
+}
 
 function createMockPrisma(queryResult: any = [{ result: 1 }]) {
   return {
@@ -43,6 +77,8 @@ describe("HealthService", () => {
     // connection-failure warning would suppress the same warning in later tests.
     (HealthService as unknown as { _redisPortWarned: boolean; _redisConnectionWarned: boolean })._redisPortWarned = false;
     (HealthService as unknown as { _redisPortWarned: boolean; _redisConnectionWarned: boolean })._redisConnectionWarned = false;
+    socketMocks.length = 0;
+    redisConnectMock.mockClear();
   });
 
   afterEach(() => {
@@ -217,6 +253,112 @@ describe("HealthService", () => {
       });
       const result = await service.getVersion();
       expect(JSON.stringify(result.warning)).not.toContain("/srv/app/dist");
+    });
+  });
+
+  describe("probeRedis", () => {
+    beforeEach(() => {
+      // Force the plaintext (net.Socket) path: with NODE_ENV unset,
+      // resolveRedisTls() returns true and the probe would use tls.connect
+      // (a bare vi.fn() in tests) instead of the socket we assert on.
+      vi.stubEnv("REDIS_TLS", "0");
+    });
+
+    it("frames AUTH as a RESP array so a space-bearing password survives transport", async () => {
+      // Regression (round 115): the probe wrote an inline command
+      // (`AUTH my redis pass\r\n`), which Redis splits on whitespace — a
+      // passphrase with a space produced WRONGPASS and a permanent false
+      // "disconnected" while the real queue (ioredis, RESP bulk strings)
+      // connected fine. The probe must emit `*2\r\n$4\r\nAUTH\r\n$13\r\n…`.
+      vi.stubEnv("REDIS_HOST", "localhost");
+      vi.stubEnv("REDIS_PORT", "6379");
+      vi.stubEnv("REDIS_PASSWORD", "my redis pass");
+      const service = new HealthService(createMockPrisma());
+
+      const resultPromise = service.getHealth();
+      await runProbe(["+OK\r\n", "+PONG\r\n"]);
+      const result = await resultPromise;
+
+      expect(result.redis).toBe("connected");
+      const writes = socketMocks[0]!.writes.join("");
+      expect(writes).toContain("*2\r\n$4\r\nAUTH\r\n$13\r\nmy redis pass\r\n");
+      expect(writes).not.toContain("AUTH my redis pass");
+      expect(writes).toContain("*1\r\n$4\r\nPING\r\n");
+    });
+
+    it("does NOT resolve as connected on AUTH +OK alone — only +PONG proves command execution", async () => {
+      // Regression (round 115): the previous probe resolved on any +OK, so a
+      // degraded Redis that accepted AUTH but could not run PING reported
+      // "connected" and hid the outage. The result must only settle on the
+      // PING round-trip (+PONG).
+      vi.stubEnv("REDIS_HOST", "localhost");
+      vi.stubEnv("REDIS_PORT", "6379");
+      const service = new HealthService(createMockPrisma());
+
+      let settled = false;
+      const resultPromise = service.getHealth().finally(() => {
+        settled = true;
+      });
+      await vi.waitFor(() => expect(socketMocks.length).toBeGreaterThan(0));
+      const sock = socketMocks[0]!;
+      sock.emit("connect");
+      sock.emit("data", "+OK\r\n");
+      // Give any (incorrect) early resolve a chance to fire.
+      await new Promise((r) => setTimeout(r, 50));
+      expect(settled).toBe(false);
+
+      sock.emit("data", "+PONG\r\n");
+      const result = await resultPromise;
+      expect(result.redis).toBe("connected");
+    });
+
+    it("reports disconnected on -WRONGPASS from AUTH", async () => {
+      vi.stubEnv("REDIS_HOST", "localhost");
+      vi.stubEnv("REDIS_PORT", "6379");
+      const service = new HealthService(createMockPrisma());
+
+      const resultPromise = service.getHealth();
+      await runProbe(["-WRONGPASS invalid username-password pair or user is disabled.\r\n"]);
+      const result = await resultPromise;
+
+      expect(result.redis).toBe("disconnected");
+      expect(result.warning).toContain("Redis");
+    });
+
+    it("serves a cached result so a second poll opens no new socket (DoS bound)", async () => {
+      // Regression (round 115): the anonymous /health endpoint opened a fresh
+      // outbound socket per request, so an unauthenticated attacker hammering
+      // it could exhaust FDs / Redis maxclients. The short-TTL cache must
+      // collapse concurrent/frequent polls to one socket per TTL.
+      vi.stubEnv("REDIS_HOST", "localhost");
+      vi.stubEnv("REDIS_PORT", "6379");
+      const service = new HealthService(createMockPrisma());
+
+      const p1 = service.getHealth();
+      await runProbe(["+PONG\r\n"]);
+      await p1;
+      const p2 = service.getHealth();
+      await p2;
+
+      expect(socketMocks.length).toBe(1);
+      expect(redisConnectMock).toHaveBeenCalledTimes(1);
+      expect((await p2).redis).toBe("connected");
+    });
+
+    it("treats an empty/whitespace REDIS_PORT as unset and falls back to the default port", async () => {
+      // Regression (round 115): `REDIS_PORT=` / `REDIS_PORT="   "` previously
+      // Number()'d to 0 and reported "disconnected" while the queue connected
+      // on the dev default — a monitoring blind spot.
+      vi.stubEnv("REDIS_HOST", "localhost");
+      vi.stubEnv("REDIS_PORT", "   ");
+      const service = new HealthService(createMockPrisma());
+
+      const resultPromise = service.getHealth();
+      await runProbe(["+PONG\r\n"]);
+      const result = await resultPromise;
+
+      expect(result.redis).toBe("connected");
+      expect(redisConnectMock).toHaveBeenCalledWith(DEFAULT_REDIS_PORT, "localhost");
     });
   });
 });

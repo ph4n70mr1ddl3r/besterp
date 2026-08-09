@@ -1405,6 +1405,34 @@ describe("PartyService", () => {
       });
       expect(result.offset).toBe(0);
     });
+
+    it("should reject an oversized name filter instead of issuing a multi-KB ILIKE query", async () => {
+      // Regression (round 115): the name/partyType/roleType filters had no
+      // upper bound, so a direct/internal caller bypassing the DTO/Zod caps
+      // could feed a multi-KB ILIKE pattern against the pg_trgm index — a
+      // mild CPU/memory DoS vector. The filters now enforce the same maximum
+      // lengths as the create/update surfaces.
+      await expect(
+        partyService.searchParties({
+          tenantId: "tenant-1",
+          name: "x".repeat(501),
+        })
+      ).rejects.toThrow(InvalidTypeValueError);
+      await expect(
+        partyService.searchParties({
+          tenantId: "tenant-1",
+          roleType: "y".repeat(101),
+        })
+      ).rejects.toThrow(InvalidTypeValueError);
+      // In-bounds filters still work.
+      const mockDb = {
+        party: { count: vi.fn().mockResolvedValue(0), findMany: vi.fn().mockResolvedValue([]) },
+      };
+      mockPrismaService.tenantScoped.mockReturnValue(mockDb);
+      const ok = await partyService.searchParties({ tenantId: "tenant-1", name: "acme", roleType: "employee" });
+      expect(ok.items).toEqual([]);
+      expect(ok.total).toBe(0);
+    });
   });
 
   describe("addPartyRole edge cases", () => {
@@ -1538,6 +1566,45 @@ describe("PartyService", () => {
       expect(result.contactMechanismId).toBe("contact-123");
       expect(result.contactMechanismType).toBe("POSTAL_ADDRESS");
       expect(result.postalAddress?.addressLine1).toBe("123 Main St");
+    });
+
+    it("should reject a postal address whose required field sanitizes to empty (defense-in-depth)", async () => {
+      // Regression (round 115): required-field validation ran on the RAW
+      // input, so an HTML-only value like addressLine1="<script>" passed the
+      // "non-empty" check but sanitized to "" before storage — the boundary
+      // layers (REST DTO, MCP Zod) reject it earlier, so this is
+      // defense-in-depth for direct/internal callers, mirroring the
+      // post-sanitization name/firstName/lastName checks in createParty.
+      mockAdminTypes();
+      const input = {
+        tenantId: "tenant-1",
+        partyId: "12345678-1234-1234-1234-123456789abc",
+        contactMechanismType: "POSTAL_ADDRESS" as const,
+        postalAddress: {
+          addressLine1: "<script>",
+          city: "Anytown",
+          country: "US",
+        },
+      } as any;
+
+      const mockDb = {
+        contactMechanismType: {
+          findUnique: vi.fn().mockResolvedValue({ contactMechanismTypeId: "cmt-postal" }),
+        },
+        $transaction: vi.fn().mockImplementation(async (fn) => {
+          const tx = {
+            party: {
+              findUnique: vi.fn().mockResolvedValue({ partyId: "12345678-1234-1234-1234-123456789abc" }),
+            },
+          };
+          return fn(tx);
+        }),
+      };
+
+      mockPrismaService.tenantScoped.mockReturnValue(mockDb);
+
+      await expect(partyService.addContactMechanism(input)).rejects.toThrow(InvalidTypeValueError);
+      await expect(partyService.addContactMechanism(input)).rejects.toThrow(/addressLine1/);
     });
 
     it("should validate required postal address fields", async () => {
@@ -2323,6 +2390,43 @@ describe("PartyService", () => {
           person: { firstName: "John", lastName: "Doe" },
         })
       ).rejects.toThrow(InvalidTypeValueError);
+    });
+
+    it("re-throws P1xxx connection/engine errors instead of mapping them to InvalidTypeValueError", async () => {
+      // Regression (round 115): a transient DB outage (P1001 can't reach the
+      // database, P1002 timed out, P1017 server closed the connection) was
+      // mapped to InvalidTypeValueError — telling the client their input was
+      // wrong (422) when the real cause was infrastructure. These must surface
+      // as the original error so the REST filter returns a retryable 500 and
+      // the MCP error-handler treats it as server-side.
+      // PrismaClientInitializationError carries no `code`; simulate the
+      // known-request form so the /^P1\d{3}$/ branch is exercised.
+      const knownError = new Prisma.PrismaClientKnownRequestError(
+        "Can't reach database server at `db:5432`",
+        { code: "P1001", clientVersion: "6.8.0" }
+      );
+      const mockDb = {
+        $transaction: vi.fn().mockRejectedValue(knownError),
+      };
+      mockPrismaService.tenantScoped.mockReturnValue(mockDb);
+
+      await expect(
+        partyService.createParty({
+          tenantId: "tenant-1",
+          partyType: "PERSON",
+          name: "John Doe",
+          person: { firstName: "John", lastName: "Doe" },
+        })
+      ).rejects.toThrow(knownError);
+      // Must NOT be reclassified as a caller-input error.
+      await expect(
+        partyService.createParty({
+          tenantId: "tenant-1",
+          partyType: "PERSON",
+          name: "John Doe",
+          person: { firstName: "John", lastName: "Doe" },
+        })
+      ).rejects.not.toThrow(InvalidTypeValueError);
     });
   });
 });

@@ -9,6 +9,8 @@ import {
   DEFAULT_HARD_EXIT_TIMEOUT_MS,
   DEFAULT_TRUST_PROXY_HOPS,
   MAX_TRUST_PROXY_HOPS,
+  MAX_RATE_LIMIT_WINDOW_MS,
+  MAX_RATE_LIMIT_MAX_PER_WINDOW,
 } from "./bootstrap-config.js";
 
 function env(overrides: Record<string, string | undefined>): NodeJS.ProcessEnv {
@@ -46,6 +48,19 @@ describe("resolveRateLimitConfig", () => {
     expect(() => resolveRateLimitConfig(env({ RATE_LIMIT_MAX_PER_WINDOW: "0" }))).toThrow();
     expect(() => resolveRateLimitConfig(env({ RATE_LIMIT_MAX_PER_WINDOW: "-5" }))).toThrow();
     expect(() => resolveRateLimitConfig(env({ RATE_LIMIT_WINDOW_MS: "1.5" }))).toThrow();
+  });
+
+  it("rejects values above the sane maximum (bounded-knob regression)", () => {
+    // Regression (round 115): parsePositiveInteger accepted any magnitude, so a
+    // typo like RATE_LIMIT_MAX_PER_WINDOW=999999999999 disabled rate limiting
+    // for all practical purposes (never hit) — a silent security downgrade.
+    // Both knobs now clamp/reject at explicit caps.
+    expect(resolveRateLimitConfig(env({ RATE_LIMIT_WINDOW_MS: String(MAX_RATE_LIMIT_WINDOW_MS), RATE_LIMIT_MAX_PER_WINDOW: String(MAX_RATE_LIMIT_MAX_PER_WINDOW) }))).toEqual({
+      windowMs: MAX_RATE_LIMIT_WINDOW_MS,
+      max: MAX_RATE_LIMIT_MAX_PER_WINDOW,
+    });
+    expect(() => resolveRateLimitConfig(env({ RATE_LIMIT_WINDOW_MS: String(MAX_RATE_LIMIT_WINDOW_MS + 1) }))).toThrow("RATE_LIMIT_WINDOW_MS");
+    expect(() => resolveRateLimitConfig(env({ RATE_LIMIT_MAX_PER_WINDOW: String(MAX_RATE_LIMIT_MAX_PER_WINDOW + 1) }))).toThrow("RATE_LIMIT_MAX_PER_WINDOW");
   });
 });
 

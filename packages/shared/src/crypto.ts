@@ -315,44 +315,55 @@ function sortPrimitive(value: unknown): unknown {
  * Handles problematic types like BigInt, Symbol, undefined values,
  * Maps, and Sets.
  */
-function countKeys(value: unknown, ancestors?: Set<object>): number {
+function countKeys(value: unknown, ancestors?: Set<object>, depth = 0): number {
   if (value === null || value === undefined || typeof value !== "object") return 0;
+  // Mirror sortKeysDeep's depth guard. Without this, a deeply-nested input
+  // (e.g. a 15k-level nested array) would blow the call stack inside countKeys
+  // with a RangeError BEFORE the documented MAX_HASH_DEPTH guard in
+  // sortKeysDeep ever runs — defeating the stack-overflow DoS protection the
+  // architecture explicitly documents. The range check uses `>=` to match
+  // sortKeysDeep exactly, so both recursion passes reject at the same depth.
+  if (depth > MAX_HASH_DEPTH) {
+    throw new InvalidTypeValueError(
+      `Input exceeds maximum nesting depth of ${MAX_HASH_DEPTH}. Refusing to hash to prevent stack overflow.`
+    );
+  }
   ancestors = ancestors ?? new Set<object>();
   if (ancestors.has(value)) return 0;
   ancestors.add(value);
   try {
-    if (Array.isArray(value)) return countArrayKeys(value, ancestors);
-    if (value instanceof Map) return countMapKeys(value, ancestors);
-    if (value instanceof Set) return countSetKeys(value, ancestors);
-    if (value instanceof Error) return countErrorKeys(value, ancestors);
-    return countObjectKeys(value as Record<string, unknown>, ancestors);
+    if (Array.isArray(value)) return countArrayKeys(value, ancestors, depth);
+    if (value instanceof Map) return countMapKeys(value, ancestors, depth);
+    if (value instanceof Set) return countSetKeys(value, ancestors, depth);
+    if (value instanceof Error) return countErrorKeys(value, ancestors, depth);
+    return countObjectKeys(value as Record<string, unknown>, ancestors, depth);
   } finally {
     ancestors.delete(value);
   }
 }
 
-function countArrayKeys(value: unknown[], ancestors: Set<object>): number {
+function countArrayKeys(value: unknown[], ancestors: Set<object>, depth: number): number {
   let count = value.length;
-  for (const item of value) count += countKeys(item, ancestors);
+  for (const item of value) count += countKeys(item, ancestors, depth + 1);
   return count;
 }
 
-function countMapKeys(value: Map<unknown, unknown>, ancestors: Set<object>): number {
+function countMapKeys(value: Map<unknown, unknown>, ancestors: Set<object>, depth: number): number {
   let count = value.size;
   for (const [k, v] of value) {
-    count += countKeys(k, ancestors);
-    count += countKeys(v, ancestors);
+    count += countKeys(k, ancestors, depth + 1);
+    count += countKeys(v, ancestors, depth + 1);
   }
   return count;
 }
 
-function countSetKeys(value: Set<unknown>, ancestors: Set<object>): number {
+function countSetKeys(value: Set<unknown>, ancestors: Set<object>, depth: number): number {
   let count = value.size;
-  for (const v of value) count += countKeys(v, ancestors);
+  for (const v of value) count += countKeys(v, ancestors, depth + 1);
   return count;
 }
 
-function countErrorKeys(value: Error, ancestors: Set<object>): number {
+function countErrorKeys(value: Error, ancestors: Set<object>, depth: number): number {
   // Count the keys on the Error object itself (name, message, ...), then
   // recurse through cause so a deep cause chain is accurately counted —
   // otherwise an input like { cause: Error(cause: Error(cause: …)) }
@@ -360,15 +371,15 @@ function countErrorKeys(value: Error, ancestors: Set<object>): number {
   // the full chain, risking stack overflow before the depth guard fires.
   let count = Object.keys(value).length;
   if (value.cause != null && typeof value.cause === "object") {
-    count += countKeys(value.cause, ancestors);
+    count += countKeys(value.cause, ancestors, depth + 1);
   }
   return count;
 }
 
-function countObjectKeys(value: Record<string, unknown>, ancestors: Set<object>): number {
+function countObjectKeys(value: Record<string, unknown>, ancestors: Set<object>, depth: number): number {
   const entries = Object.entries(value);
   let count = entries.length;
-  for (const [, v] of entries) count += countKeys(v, ancestors);
+  for (const [, v] of entries) count += countKeys(v, ancestors, depth + 1);
   return count;
 }
 

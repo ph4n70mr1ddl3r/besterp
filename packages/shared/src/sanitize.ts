@@ -418,6 +418,14 @@ export function sanitizeLogMessage(message: string): string {
     // create misleading log entries (e.g., U+202E RIGHT-TO-LEFT OVERRIDE).
     // eslint-disable-next-line no-misleading-character-class
     .replace(/[\u200B\u200C\u200D\u200E\u200F\u2060-\u2069\u202A-\u202E\u061C\uFEFF]/g, "")
+    // U+2028 (LINE SEPARATOR) and U+2029 (PARAGRAPH SEPARATOR) are ECMA-262
+    // line terminators that fall in the gap between the ranges stripped above
+    // (\u2060-\u2069 and \u202A-\u202E). Many terminals/log viewers render
+    // them as real line breaks, so an attacker embedding \u2028 in a
+    // user-controlled message could forge an extra log line — the exact
+    // log-injection class this function prevents. Map them to "_" like the
+    // C0 line breaks below.
+    .replace(/[\u2028\u2029]/g, "_")
     .replace(/[\r\n\t\x00-\x08\x0b\x0c\x0e-\x1f\x7f\x80-\x9f]/g, "_");
   /* eslint-enable no-control-regex */
 }

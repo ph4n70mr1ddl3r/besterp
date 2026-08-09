@@ -6,8 +6,8 @@
 // production response-scrubbing behavior (including the generic fallback
 // message for ValidationPipe array messages).
 
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { HttpException, HttpStatus, type ArgumentsHost } from "@nestjs/common";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { HttpException, HttpStatus, Logger, type ArgumentsHost } from "@nestjs/common";
 import type { Response } from "express";
 import { DomainExceptionFilter } from "./domain-exception.filter.js";
 import {
@@ -109,6 +109,29 @@ describe("DomainExceptionFilter", () => {
 
       expect(ctx.captured.body).not.toHaveProperty("suggestedTools");
       expect(ctx.captured.body).not.toHaveProperty("context");
+    });
+
+    it("sanitizes a secret/ANSI-bearing unknown code in the 500 log line", () => {
+      // Regression (round 115): the unknown-code log line interpolated
+      // `exception.code` verbatim. `code` is user-controllable via the
+      // DomainError constructor, so a code carrying `?api_key=…` or ANSI would
+      // reach the log sink unsanitized while the response body was scrubbed —
+      // an asymmetric leak. The log line must run the code through
+      // sanitizeForLogOutput like every other reflected field.
+      process.env.NODE_ENV = "production";
+      const ctx = createMockHost();
+      const error = new DomainError("UNKNOWN?api_key=supersecretvalue", "boom");
+      const errorSpy = vi.spyOn(Logger.prototype, "error").mockImplementation(() => undefined);
+      try {
+        filter.catch(error, ctx.host);
+        expect(errorSpy).toHaveBeenCalledTimes(1);
+        const logged = errorSpy.mock.calls[0]![0] as string;
+        expect(logged).toContain("UNKNOWN");
+        expect(logged).not.toContain("supersecretvalue");
+        expect(logged).toContain("api_key=[REDACTED]");
+      } finally {
+        errorSpy.mockRestore();
+      }
     });
 
     it("sanitizes control characters embedded in the DomainError error code", () => {

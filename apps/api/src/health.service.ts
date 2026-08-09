@@ -14,6 +14,24 @@ import * as tls from "node:tls";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
+/**
+ * Encode a Redis RESP (REdis Serialization Protocol) array of bulk strings.
+ *
+ * `*N\r\n$len\r\nvalue\r\n...` — the length-prefixed framing means values are
+ * parsed by byte count, NOT split on whitespace, so a password containing
+ * spaces (accepted by the real queue via ioredis) survives transport. The
+ * probe previously used inline-command framing (`AUTH ${password}\r\n`), which
+ * Redis splits on whitespace — a passphrase with a space produced WRONGPASS
+ * and a permanent false "disconnected".
+ */
+function encodeRespArray(parts: string[]): string {
+  const chunks = [`*${parts.length}\r\n`];
+  for (const part of parts) {
+    chunks.push(`$${Buffer.byteLength(part, "utf8")}\r\n${part}\r\n`);
+  }
+  return chunks.join("");
+}
+
 export interface HealthStatus {
   status: "ok" | "error";
   timestamp: string;
@@ -61,6 +79,21 @@ export class HealthService implements OnModuleInit {
    * every health-check poll (e.g. every 5s from a load balancer).
    */
   private static _redisConnectionWarned = false;
+
+  /**
+   * Short-TTL cache for the Redis probe. `/api/health` is @Public() and
+   * deliberately bypasses the general rate limiter (load balancers poll it
+   * frequently), and each probe opens a fresh TCP/TLS socket to Redis held for
+   * up to 2s. Without a cache, an unauthenticated attacker hammering the
+   * endpoint opens a new outbound socket per request and can exhaust the
+   * process's file descriptors (EMFILE) or Redis `maxclients` — taking down
+   * the whole API from a public endpoint. Caching the result for a few seconds
+   * bounds socket churn to one per TTL regardless of request rate. Load
+   * balancers poll at 5–10s intervals, so the staleness window is invisible in
+   * practice.
+   */
+  private static readonly REDIS_PROBE_CACHE_TTL_MS = 5_000;
+  private redisProbeCache: { timestamp: number; status: "connected" | "disconnected" | "not_configured" } | undefined;
 
   constructor(private readonly prisma: PrismaService) {}
 
@@ -177,7 +210,17 @@ export class HealthService implements OnModuleInit {
    * payload's redis warning still surfaces to operators.
    */
   private async probeRedis(): Promise<"connected" | "disconnected" | "not_configured"> {
+    // Serve a short-lived cached result (see REDIS_PROBE_CACHE_TTL_MS) so the
+    // socket-per-request DoS surface on the anonymous /health endpoint stays
+    // bounded. "not_configured" results open no socket, but caching them too
+    // keeps the control flow uniform.
+    const now = Date.now();
+    if (this.redisProbeCache && now - this.redisProbeCache.timestamp < HealthService.REDIS_PROBE_CACHE_TTL_MS) {
+      return this.redisProbeCache.status;
+    }
+
     if (!process.env.REDIS_HOST) {
+      this.redisProbeCache = { timestamp: now, status: "not_configured" };
       return "not_configured";
     }
 
@@ -196,72 +239,117 @@ export class HealthService implements OnModuleInit {
       );
     }
 
-    const redisPort = process.env.REDIS_PORT !== undefined ? Number(process.env.REDIS_PORT) : DEFAULT_REDIS_PORT;
+    // Treat unset AND empty/whitespace-only REDIS_PORT as "not configured",
+    // mirroring QueueModule.resolvePort (which falls back to the dev default
+    // for falsy values). The previous `!== undefined` check made an empty
+    // `.env` value (`REDIS_PORT=`) Number() to 0 and report the probe as
+    // "disconnected" while the real queue connected fine — a monitoring blind
+    // spot. The `?.trim()` also keeps a `" 6380 "`-padded value parseable.
+    const rawPort = process.env.REDIS_PORT?.trim();
+    const redisPort = rawPort ? Number(rawPort) : DEFAULT_REDIS_PORT;
     if (!Number.isInteger(redisPort) || redisPort < 1 || redisPort > 65535) {
       this.warnOnce(
         `REDIS_PORT "${process.env.REDIS_PORT}" is invalid — skipping the Redis health check. ` +
         "Set REDIS_PORT to a valid port between 1 and 65535."
       );
+      this.redisProbeCache = { timestamp: now, status: "disconnected" };
       return "disconnected";
     }
 
     try {
-      await new Promise<void>((resolve, reject) => {
-        const useTls = resolveRedisTls();
-        const redisHost = String(process.env.REDIS_HOST);
-        const socket = useTls
-          ? tls.connect({ host: redisHost, port: redisPort, rejectUnauthorized: true })
-          : new net.Socket();
-        let responseBuffer = "";
-        const MAX_RESPONSE_BUFFER = 1024;
-        const timeout = setTimeout(() => {
-          socket.destroy();
-          reject(new Error("Redis connection timed out"));
-        }, 2000);
-        socket.on("connect", () => {
-          const redisPassword = process.env.REDIS_PASSWORD;
-          if (redisPassword) {
-            if (/[\r\n]/.test(redisPassword)) {
-              socket.destroy();
-              reject(new Error("Redis password contains invalid characters (newlines)"));
-              return;
-            }
-            socket.write(`AUTH ${redisPassword}\r\n`);
-          }
-          socket.write("*1\r\n$4\r\nPING\r\n");
-        });
-        socket.on("data", (data) => {
-          responseBuffer += data.toString();
-          if (responseBuffer.length > MAX_RESPONSE_BUFFER) {
-            clearTimeout(timeout);
-            socket.destroy();
-            reject(new Error("Redis response exceeded maximum buffer size"));
-            return;
-          }
-          if (responseBuffer.includes("+PONG\r\n") || responseBuffer.includes("+OK\r\n")) {
-            clearTimeout(timeout);
-            socket.destroy();
-            resolve();
-          }
-          if (responseBuffer.startsWith("-")) {
-            clearTimeout(timeout);
-            socket.destroy();
-            reject(new Error(`Redis error: ${sanitizeForLogOutput(responseBuffer.trim())}`));
-          }
-        });
-        socket.on("error", (err) => {
-          clearTimeout(timeout);
-          reject(err);
-        });
-        if (!useTls) {
-          socket.connect(redisPort, redisHost);
-        }
-      });
-      return "connected";
+      // Trim the host so a whitespace-padded REDIS_HOST matches how the queue
+      // resolves it — the previous untrimmed value would probe a different
+      // host than the one BullMQ/ioredis actually connected to, causing a
+      // false "disconnected" while the queue worked fine.
+      const redisHost = String(process.env.REDIS_HOST).trim();
+      const status = await this.probeRedisConnection(redisHost, redisPort);
+      this.redisProbeCache = { timestamp: now, status };
+      return status;
     } catch {
       this.warnConnectionFailed();
+      this.redisProbeCache = { timestamp: now, status: "disconnected" };
       return "disconnected";
     }
+  }
+
+  /**
+   * Open a single TCP/TLS socket to Redis and run an AUTH (when a password is
+   * configured) followed by PING, resolving "connected" only once the PING
+   * round-trip returns +PONG.
+   */
+  private async probeRedisConnection(redisHost: string, redisPort: number): Promise<"connected" | "disconnected"> {
+    return new Promise<"connected" | "disconnected">((resolve, reject) => {
+      const useTls = resolveRedisTls();
+      const socket = useTls
+        ? tls.connect({ host: redisHost, port: redisPort, rejectUnauthorized: true })
+        : new net.Socket();
+      let responseBuffer = "";
+      const MAX_RESPONSE_BUFFER = 1024;
+      const timeout = setTimeout(() => {
+        socket.destroy();
+        reject(new Error("Redis connection timed out"));
+      }, 2000);
+      socket.on("connect", () => {
+        const redisPassword = process.env.REDIS_PASSWORD;
+        if (redisPassword) {
+          // NUL bytes are the only value RESP bulk strings cannot transport
+          // safely through Node's socket.write (they are legal in Redis auth
+          // passwords but would be truncated by the C++ write layer). Spaces
+          // and other whitespace ARE valid and are handled correctly by the
+          // RESP framing below — the previous inline-command form
+          // (`AUTH ${password}\r\n`) split on whitespace, so a passphrase
+          // like "my redis pass" (which the real queue accepts via ioredis's
+          // RESP bulk-string AUTH) was parsed as `AUTH user pass` and failed
+          // with WRONGPASS — a permanent false "disconnected" on an otherwise
+          // healthy queue.
+          if (redisPassword.includes("\0")) {
+            socket.destroy();
+            reject(new Error("Redis password contains a NUL byte"));
+            return;
+          }
+          socket.write(encodeRespArray(["AUTH", redisPassword]));
+        }
+        socket.write(encodeRespArray(["PING"]));
+      });
+      socket.on("data", (data) => {
+        responseBuffer += data.toString();
+        if (responseBuffer.length > MAX_RESPONSE_BUFFER) {
+          clearTimeout(timeout);
+          socket.destroy();
+          reject(new Error("Redis response exceeded maximum buffer size"));
+          return;
+        }
+        // Only a +PONG (the PING round-trip) proves the connection can execute
+        // commands. The previous code also resolved on +OK — an AUTH success
+        // frame — which settled the promise before PING had been validated, so
+        // a degraded Redis that accepted AUTH but failed command execution
+        // reported "connected" and hid the outage the probe exists to detect.
+        // AUTH +OK is never a terminal success here because PING is always
+        // sent after it.
+        if (responseBuffer.includes("+PONG\r\n")) {
+          clearTimeout(timeout);
+          socket.destroy();
+          resolve("connected");
+          return;
+        }
+        // Errors can arrive before +PONG (e.g. -WRONGPASS from AUTH, or
+        // -NOAUTH when no password was sent but Redis requires one). The
+        // buffer may already contain a leading +OK from AUTH, so match any
+        // line that starts with `-` rather than only the whole buffer.
+        if (/(^|\r\n)-/.test(responseBuffer)) {
+          clearTimeout(timeout);
+          socket.destroy();
+          reject(new Error(`Redis error: ${sanitizeForLogOutput(responseBuffer.trim())}`));
+        }
+      });
+      socket.on("error", (err) => {
+        clearTimeout(timeout);
+        reject(err);
+      });
+      if (!useTls) {
+        socket.connect(redisPort, redisHost);
+      }
+    });
   }
 
   /**

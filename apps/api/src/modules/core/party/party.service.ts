@@ -467,6 +467,16 @@ export class PartyService {
     if (!code) throw err;
     if (!/^P\d{4}$/.test(code)) throw err;
 
+    // P1xxx codes are connection/engine-level failures (P1000 auth failed,
+    // P1001 can't reach the database, P1002 timed out, P1017 server closed the
+    // connection). These are infrastructure failures, not caller-input errors:
+    // mapping them to InvalidTypeValueError would surface a transient DB
+    // outage to clients as "your input was wrong" (422) instead of a
+    // retryable server error. Re-throw the original error so the REST filter
+    // returns a generic 500 and the MCP error-handler treats it as a
+    // server-side failure.
+    if (/^P1\d{3}$/.test(code)) throw err;
+
     return PartyService.throwMappedPrismaError(code, err as { code: string; meta?: Record<string, unknown> }, retryTool, suggestTool, entityName);
   }
 
@@ -525,7 +535,7 @@ export class PartyService {
     // Build where clause after validation to ensure tenantId is validated first
     const where: Prisma.PartyWhereInput = { tenantId: trimmedTenantId };
 
-    const trimmedName = PartyService.requireNonEmptyFilter(name, "name", ["search_parties"]);
+    const trimmedName = PartyService.requireNonEmptyFilter(name, "name", MAX_PARTY_NAME_LENGTH, ["search_parties"]);
     if (trimmedName) {
       // Use contains for flexible partial matching (case-insensitive).
       // Trim whitespace to avoid useless LIKE '%  %' queries.
@@ -533,12 +543,12 @@ export class PartyService {
       where.name = { contains: trimmedName, mode: "insensitive" };
     }
 
-    const trimmedPartyType = PartyService.requireNonEmptyFilter(partyType, "partyType", ["search_parties"]);
+    const trimmedPartyType = PartyService.requireNonEmptyFilter(partyType, "partyType", MAX_ROLE_TYPE_LENGTH, ["search_parties"]);
     if (trimmedPartyType) {
       where.partyType = { name: { equals: trimmedPartyType, mode: "insensitive" } };
     }
 
-    const trimmedRoleType = PartyService.requireNonEmptyFilter(roleType, "roleType", ["search_parties", "get_type_table_values"]);
+    const trimmedRoleType = PartyService.requireNonEmptyFilter(roleType, "roleType", MAX_ROLE_TYPE_LENGTH, ["search_parties", "get_type_table_values"]);
     if (trimmedRoleType) {
       where.roles = { some: { roleType: { name: { equals: trimmedRoleType, mode: "insensitive" } } } };
     }
@@ -945,6 +955,42 @@ export class PartyService {
     }
   }
 
+  /**
+   * Sanitize a postal address ONCE and reject it if any required field
+   * sanitizes to empty. Extracted from createContactMechanismTransaction to
+   * keep that transaction's cyclomatic complexity within the lint cap.
+   *
+   * The raw-value checks in validateContactMechanismSubtype validate the
+   * PRE-strip input, so an HTML-only value like addressLine1="<script>"
+   * passes there but sanitizes to "" before storage. The boundary layers
+   * (REST DTO sanitizeTransform, MCP Zod) both reject that before it reaches
+   * the service, so this is defense-in-depth for direct/internal callers
+   * (mirrors the post-sanitization name/firstName/lastName checks in
+   * createParty).
+   *
+   * Returns the sanitized postal address (used directly for the create) or
+   * undefined when the type is not POSTAL_ADDRESS.
+   */
+  private static assertSanitizedPostalUsable(
+    type: string,
+    postalAddress: AddContactMechanismInput["postalAddress"],
+  ): ReturnType<typeof sanitizePostalAddress> | undefined {
+    if (type !== "POSTAL_ADDRESS" || !postalAddress) return undefined;
+    const sanitized = sanitizePostalAddress(postalAddress);
+    const missingPostalFields = [
+      { field: "addressLine1", value: sanitized.addressLine1 },
+      { field: "city", value: sanitized.city },
+      { field: "country", value: sanitized.country },
+    ].filter((f) => f.value.trim().length === 0).map((f) => f.field);
+    if (missingPostalFields.length > 0) {
+      throw new InvalidTypeValueError(
+        `${missingPostalFields.join(", ")} must contain visible characters after HTML sanitization.`,
+        { suggestedTools: ["add_contact_mechanism"], context: { contactMechanismType: "POSTAL_ADDRESS", fields: missingPostalFields } }
+      );
+    }
+    return sanitized;
+  }
+
   private async createContactMechanismTransaction(
     db: TenantScopedClient,
     tenantId: string, partyId: string, type: string,
@@ -988,11 +1034,21 @@ export class PartyService {
           await PartyService.checkTelecomDuplicate(tx, partyId, tenantId, sanitizedCountryCode, sanitizedAreaCode, sanitizedLineNumber);
         }
 
+        // Sanitize the postal address ONCE so the stored value and the
+        // post-sanitization emptiness checks below agree. The raw-value checks
+        // in validateContactMechanismSubtype validate the pre-strip input, so
+        // an HTML-only value like addressLine1="<script>" passes there but
+        // sanitizes to "" — the boundary layers (REST DTO sanitizeTransform,
+        // MCP Zod) both reject that before it reaches the service, so this is
+        // defense-in-depth for direct/internal callers (mirrors the
+        // post-sanitization name/firstName/lastName checks in createParty).
+        const sanitizedPostal = PartyService.assertSanitizedPostalUsable(type, postalAddress);
+
         return tx.contactMechanism.create({
           data: {
             contactMechanismTypeId,
             tenantId,
-            postalAddress: type === "POSTAL_ADDRESS" && postalAddress ? { create: sanitizePostalAddress(postalAddress) } : undefined,
+            postalAddress: sanitizedPostal ? { create: sanitizedPostal } : undefined,
             telecomNumber: type === "TELECOM_NUMBER" && telecomNumber ? { create: sanitizeTelecomNumber(telecomNumber) } : undefined,
             emailAddress: type === "EMAIL_ADDRESS" && normalizedEmail 
               ? { create: { email: normalizedEmail, tenantId } } 
@@ -1038,10 +1094,15 @@ export class PartyService {
 
   /** Validate and trim an optional search filter. Returns trimmed value or undefined.
    *  Rejects whitespace-only input — a caller who types "   " probably meant
-   *  a real filter, and silently widening the query to "return all" is a footgun. */
+   *  a real filter, and silently widening the query to "return all" is a footgun.
+   *  Also enforces a maximum length so a direct/internal caller bypassing the
+   *  DTO/Zod caps cannot feed a multi-KB ILIKE pattern against the pg_trgm
+   *  index (a mild CPU/memory DoS vector the other two validation surfaces
+   *  prevent). */
   private static requireNonEmptyFilter(
     value: string | undefined | null,
     fieldName: string,
+    maxLength: number,
     suggestedTools: string[],
   ): string | undefined {
     if (value === undefined || value === null) return undefined;
@@ -1050,6 +1111,12 @@ export class PartyService {
       throw new InvalidTypeValueError(
         `${fieldName} filter cannot be whitespace-only.`,
         { suggestedTools, context: { field: fieldName } }
+      );
+    }
+    if (trimmed.length > maxLength) {
+      throw new InvalidTypeValueError(
+        `${fieldName} filter is too long (${trimmed.length} characters, max ${maxLength}).`,
+        { suggestedTools, context: { field: fieldName, length: trimmed.length, maxLength } }
       );
     }
     return trimmed;

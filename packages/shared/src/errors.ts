@@ -41,7 +41,13 @@ export class DomainError extends Error {
   toJSON(): Record<string, unknown> {
     return {
       name: this.name,
-      code: this.code,
+      // `code` is a short allowlisted constant for built-in errors, but it is
+      // user-controllable via the DomainError constructor for custom
+      // subclasses (the REST filter already documents this). toJSON is the
+      // canonical serializer for durable sinks (audit logs, idempotency
+      // records), so a control/ANSI-embedded `code` must not reach those sinks
+      // verbatim — sanitize it the same way `message` and `context` are.
+      code: sanitizeForLogOutput(this.code),
       // `message` routinely echoes user-supplied input (connection strings,
       // `?api_key=…`). Sanitize it here for defense-in-depth so any caller that
       // serializes a DomainError via `JSON.stringify(error)` (the canonical

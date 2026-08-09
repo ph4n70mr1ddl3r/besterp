@@ -310,6 +310,27 @@ describe("hashInput", () => {
     expect(() => hashInput({ a: { b: { c: 1 } } })).not.toThrow();
   });
 
+  it("should throw InvalidTypeValueError (not RangeError) on pathological nesting (stack-overflow regression)", () => {
+    // Regression (round 115): countKeys recursed without any depth guard, so a
+    // nested array ~15k levels deep blew the call stack with a RangeError
+    // BEFORE sortKeysDeep's documented MAX_HASH_DEPTH (100) guard ever ran.
+    // The depth check now lives in BOTH passes so the input is rejected at the
+    // same depth by countKeys (the first recursion) instead of crashing.
+    //
+    // 15k levels is chosen to exceed the previous natural stack limit: with
+    // ~2 frames per level the old code overflowed well below 15k, so this test
+    // fails (RangeError, not InvalidTypeValueError) if the guard regresses.
+    let deep: unknown = [];
+    for (let i = 0; i < 15_000; i++) {
+      deep = [deep];
+    }
+    expect(() => hashInput(deep)).toThrow(InvalidTypeValueError);
+    expect(() => hashInput(deep)).toThrow(/maximum nesting depth/);
+
+    // Shallow input is unaffected.
+    expect(() => hashInput([[[1]]])).not.toThrow();
+  });
+
   it("should preserve full Error.cause depth (no silent collision across cause depths)", () => {
     // Regression guard: Error.cause is recursively serialized with the same
     // depth/canonicalisation as any other value. Two inputs whose only
