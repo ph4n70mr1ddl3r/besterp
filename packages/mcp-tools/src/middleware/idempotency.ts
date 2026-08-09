@@ -153,6 +153,22 @@ function delay(ms: number): Promise<void> {
   });
 }
 
+/**
+ * Compute a jittered backoff delay for the idempotency retry loops.
+ *
+ * Returns the deterministic backoff (`base * (attempt + 1)`) PLUS up to one
+ * `base` interval of random jitter. Under P2034 serialization contention —
+ * the exact scenario these loops exist to handle — concurrent transactions
+ * fail at the same instant and, with deterministic backoff alone, retry at
+ * identical intervals: synchronized bursts that immediately re-contend (the
+ * thundering-herd pattern). Jitter de-synchronizes the retries so they spread
+ * out. Mirrors the additive jitter already applied by
+ * QueueModule.redisRetryStrategy for the same reason.
+ */
+function retryDelayMs(base: number, attempt: number): number {
+  return base * (attempt + 1) + Math.random() * base;
+}
+
 function logIdempotencyWarn(message: string): void {
   try {
     process.stderr.write(`[Idempotency] ${JSON.stringify({ timestamp: new Date().toISOString(), message })}\n`);
@@ -263,7 +279,7 @@ async function acquireIdempotencyRecord(
     } catch (e) {
       const code = getErrorCode(e);
       if (code === "P2034" && attempt < LAST_RETRY_ATTEMPT) {
-        await delay(IDEMPOTENCY_RETRY_BASE_DELAY_MS * (attempt + 1));
+        await delay(retryDelayMs(IDEMPOTENCY_RETRY_BASE_DELAY_MS, attempt));
         continue;
       }
       // Non-P2034 errors (connection failures, auth errors, schema mismatches)
@@ -579,7 +595,7 @@ async function updateIdempotencyRecordWithRetry(
         return;
       }
       if (attempt < LAST_RETRY_ATTEMPT) {
-        await delay(IDEMPOTENCY_RETRY_BASE_DELAY_MS * (attempt + 1));
+        await delay(retryDelayMs(IDEMPOTENCY_RETRY_BASE_DELAY_MS, attempt));
         continue;
       }
       const detail = updateErr instanceof Error ? updateErr.message : String(updateErr);

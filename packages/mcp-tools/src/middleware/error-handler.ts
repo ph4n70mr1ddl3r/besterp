@@ -16,11 +16,11 @@ import {
 } from "@besterp/shared";
 import { ToolMiddleware, ToolResult } from "../schema/tool-definition.js";
 
-// ─── Depth guard ─────────────────────────────────────────────────
-// Uses the canonical MAX_REDACTION_DEPTH from @besterp/shared so the
-// error-handler cannot diverge from the audit-log / shared redactor and
-// silently drop data from deep-but-legitimate DomainError.context trees.
-// Keeping the local alias makes the import dependency explicit.
+// All redaction in this file (sensitive-named keys, string-leaf sanitization,
+// and recursion-depth bounding) is delegated entirely to the shared
+// `redactSensitiveFieldValues` (imported below), which owns MAX_REDACTION_DEPTH.
+// There is no local depth guard — the shared redactor is the single source of
+// truth so this agent-facing surface cannot diverge from the audit-log surface.
 
 function extractPrismaError(error: unknown): { code: string | undefined; meta: { target?: string | string[] } | undefined } {
   if (error != null && typeof error === "object") {
