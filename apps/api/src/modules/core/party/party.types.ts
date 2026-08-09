@@ -51,11 +51,11 @@ export interface PartyResult {
   roles: Array<{
     partyRoleId: string;
     roleTypeName: string;
-    fromDate: string | null;
+    fromDate: string;
     thruDate: string | null;
   }>;
-  createdAt: string | null;
-  updatedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
 }
 
 // ─── Search Parties ───────────────────────────────────────────────

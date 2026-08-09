@@ -1238,11 +1238,19 @@ export class PartyService {
       roles: party.roles.map((r) => ({
         partyRoleId: r.partyRoleId,
         roleTypeName: r.roleType.name,
-        fromDate: r.fromDate ? r.fromDate.toISOString() : null,
+        // PartyRole.fromDate is NOT NULL (schema default now()), so no
+        // nullable fallback — mirrors addPartyRole's return and the
+        // round-108/109/114 removal of dead `?? null` fallbacks. A
+        // TypeError here surfaces schema drift instead of fabricating a
+        // null timestamp that could never have persisted. thruDate IS
+        // nullable (DateTime?), so it keeps the `?? null` fallback.
+        fromDate: r.fromDate.toISOString(),
         thruDate: r.thruDate?.toISOString() ?? null,
       })),
-      createdAt: party.createdAt ? party.createdAt.toISOString() : null,
-      updatedAt: party.updatedAt ? party.updatedAt.toISOString() : null,
+      // createdAt (@default(now())) and updatedAt (@updatedAt) are both
+      // NOT NULL — same rationale as fromDate above.
+      createdAt: party.createdAt.toISOString(),
+      updatedAt: party.updatedAt.toISOString(),
     };
   }
 
