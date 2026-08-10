@@ -299,9 +299,14 @@ export class ToolRegistry {
     // controlled value would bloat those rows and bypass the validation that
     // tenantId/userId receive. They are optional, but when present they must
     // match the same character/length contract as the other identity fields.
-    const idFieldError = this.validateOptionalIdentityField(context.agentId, "agentId", MAX_AGENT_ID_LENGTH)
-      ?? this.validateOptionalIdentityField(context.conversationId, "conversationId", MAX_CONVERSATION_ID_LENGTH);
-    if (idFieldError) return idFieldError;
+    // Validate agentId first; if it is absent or valid, fall through to
+    // conversationId. Using explicit `if` / `else` instead of `??` makes the
+    // short-circuit semantics obvious and avoids the cognitive load of
+    // reading `??` as "if-null-then-try-the-next-field".
+    const agentIdError = this.validateOptionalIdentityField(context.agentId, "agentId", MAX_AGENT_ID_LENGTH);
+    if (agentIdError) return agentIdError;
+    const conversationIdError = this.validateOptionalIdentityField(context.conversationId, "conversationId", MAX_CONVERSATION_ID_LENGTH);
+    if (conversationIdError) return conversationIdError;
     return null;
   }
 

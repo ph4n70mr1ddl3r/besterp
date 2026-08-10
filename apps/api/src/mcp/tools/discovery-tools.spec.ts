@@ -159,6 +159,38 @@ describe("Discovery MCP Tools", () => {
       expect(typeof first!.id).toBe("string");
       expect(typeof first!.name).toBe("string");
     });
+
+    it("should sanitize description and aiPromptHint before reflecting to the agent (regression guard, round 124)", async () => {
+      // Type table description/aiPromptHint are admin-authored global reference
+      // data, but they flow to the AI agent via the tool result and are
+      // persisted to the cross-tenant durable audit sink — the same surfaces
+      // that scrub every other string leaf. A corrupt or attacker-influenced
+      // value in the type table must not reach the agent or the audit row
+      // verbatim. SanitizeForLogOutput collapses URLs/paths/secrets and
+      // strips control chars; the test confirms it runs on both fields.
+      const controlInjectedPrisma = {
+        partyType: {
+          findMany: vi.fn().mockResolvedValue([
+            { partyTypeId: "pt-person", name: "PERSON", description: "http://evil.com?key=sk_live_abc123", aiPromptHint: "<script>alert(1)</script>" },
+          ]),
+        },
+        roleType: { findMany: vi.fn().mockResolvedValue([]) },
+        contactMechanismType: { findMany: vi.fn().mockResolvedValue([]) },
+      } as any;
+
+      const controlRegistry = new ToolRegistry();
+      registerDiscoveryTools(controlRegistry, controlInjectedPrisma);
+
+      const result = await controlRegistry.execute("get_type_table_values", { typeName: "PARTY_TYPE" }, createContext());
+
+      expect(result.success).toBe(true);
+      const data = result.data as { values: { description: string | null; aiPromptHint: string | null }[] };
+      const row = data.values[0]!;
+      expect(row.description).not.toContain("sk_live_abc123");
+      expect(row.description).not.toContain("evil.com");
+      expect(row.aiPromptHint).not.toContain("<script>");
+      expect(row.aiPromptHint).not.toContain("alert");
+    });
   });
 
   describe("tool metadata", () => {

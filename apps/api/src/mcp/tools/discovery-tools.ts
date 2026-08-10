@@ -11,7 +11,7 @@ import {
   ToolDefinition,
   ToolContext,
 } from "@besterp/mcp-tools";
-import { InvalidTypeValueError } from "@besterp/shared";
+import { InvalidTypeValueError, sanitizeForLogOutput, stripHtmlTags } from "@besterp/shared";
 
 /** Bounds the free-text `entity` filter so an unbounded string isn't allocated
  * and compared against every tool's entity (consistency with every other MCP
@@ -140,9 +140,26 @@ Type tables are the ERP's vocabulary — they define what classifications are av
       const config = TYPE_TABLE_MAP[input.typeName];
       const values = await queryTypeTable(prisma, config.delegateKey, config.idField);
 
+      // Run description and aiPromptHint through stripHtmlTags +
+      // sanitizeForLogOutput as defense-in-depth. These fields are admin-
+      // authored global reference data (not user input), but they flow to
+      // the AI agent via the tool result and are persisted to the cross-
+      // tenant durable audit sink — the same surfaces that scrub every
+      // other string leaf. A corrupt or attacker-influenced value in the
+      // type table would otherwise reach the agent and the audit row
+      // verbatim, inconsistent with the sanitization applied everywhere
+      // else (round-124 review). stripHtmlTags first so any HTML
+      // injection is stripped; sanitizeForLogOutput second so URLs,
+      // paths, and secret-shaped tokens are collapsed/redacted.
+      const sanitizedValues = values.map((v) => ({
+        ...v,
+        description: v.description !== null ? sanitizeForLogOutput(stripHtmlTags(v.description)) : null,
+        aiPromptHint: v.aiPromptHint !== null ? sanitizeForLogOutput(stripHtmlTags(v.aiPromptHint)) : null,
+      }));
+
       return {
         success: true,
-        data: { typeName: input.typeName, values, totalAvailable: values.length },
+        data: { typeName: input.typeName, values: sanitizedValues, totalAvailable: sanitizedValues.length },
       };
     },
   };

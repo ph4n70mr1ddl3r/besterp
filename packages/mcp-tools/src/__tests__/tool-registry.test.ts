@@ -211,6 +211,23 @@ describe("ToolRegistry", () => {
       expect(handler).toHaveBeenCalled();
     });
 
+    it("should validate agentId first, then conversationId, and reject the first invalid field found (round 124 readability refactor)", async () => {
+      // Both agentId and conversationId are invalid, but the agentId path
+      // must be evaluated first. The previous `??` form produced the same
+      // result but was harder to read; the explicit if/else form used
+      // today preserves the same short-circuit semantics.
+      const result = await registry.execute("list_available_tools", {}, {
+        ...mockContext,
+        agentId: "bad agent!",
+        conversationId: "also bad!",
+      });
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe("INVALID_CONTEXT_ID");
+      // The error must reference the agentId field, not conversationId,
+      // because agentId is checked first and the short-circuit returns.
+      expect(result.error?.message).toContain("agentId");
+    });
+
     it("should execute a tool with valid Zod input", async () => {
       const handler = vi.fn().mockResolvedValue({ success: true, data: { name: "result" } });
       registry.register({
