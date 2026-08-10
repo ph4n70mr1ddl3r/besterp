@@ -1127,7 +1127,7 @@ export class PartyService {
     field: string,
     maxLength: number,
     parentType: string,
-    tool = "create_party",
+    tool = "list_available_tools",
   ): string {
     const trimmed = value?.trim() ?? "";
     if (trimmed.length === 0) {

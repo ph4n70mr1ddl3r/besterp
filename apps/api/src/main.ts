@@ -27,6 +27,7 @@ import {
   resolveTrustProxyHops,
   normalizeEnvironmentValue,
   DEFAULT_HARD_EXIT_TIMEOUT_MS,
+  resolvePort,
   type RateLimitConfig,
 } from "./bootstrap-config.js";
 
@@ -232,15 +233,21 @@ function parseAllowedOrigins(): string[] {
   // error-middleware CORS headers (which bypass the main CORS middleware)
   // still allow cross-origin error reads from local frontend dev servers.
   if (isDev()) {
-    return [
-      "http://localhost:3000",
-      "http://localhost:3001",
-      "http://localhost:5173",
-      "http://localhost:5174",
-    ];
+    return [...DEV_LOCALHOST_ORIGINS];
   }
   return [];
 }
+
+/**
+ * Localhost origins allowed in development when CORS_ORIGINS is unset.
+ * Covers the common dev-server ports (NestJS default, Vite, Next.js).
+ */
+const DEV_LOCALHOST_ORIGINS: readonly string[] = Object.freeze([
+  "http://localhost:3000",
+  "http://localhost:3001",
+  "http://localhost:5173",
+  "http://localhost:5174",
+]);
 
 function isAllowedOrigin(origin: string | undefined, allowed: string[]): boolean {
   if (!origin || allowed.length === 0) return false;
@@ -277,13 +284,8 @@ function configureCors(app: INestApplication, allowedOrigins: string[]): void {
 }
 
 function parsePort(): number {
-  const rawPort = process.env.PORT || "3000";
-  const port = Number(rawPort);
-  if (!Number.isInteger(port) || port < 1 || port > 65535) {
-    logger.error(`Invalid PORT "${rawPort}". Must be an integer between 1 and 65535.`);
-    process.exit(1);
-  }
-  if (rawPort === "3000" && !process.env.PORT) {
+  const { value: port, isDefault } = resolvePort(process.env);
+  if (isDefault) {
     logger.warn(
       "PORT not set — defaulting to 3000. Set PORT explicitly in production."
     );

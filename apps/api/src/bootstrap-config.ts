@@ -30,6 +30,8 @@ export const MAX_RATE_LIMIT_MAX_PER_WINDOW = 1_000_000;
 export const DEFAULT_HARD_EXIT_TIMEOUT_MS = 10_000;
 export const DEFAULT_TRUST_PROXY_HOPS = 0;
 export const MAX_TRUST_PROXY_HOPS = 10;
+export const DEFAULT_PORT = 3000;
+export const MAX_PORT = 65535;
 
 function parsePositiveInteger(name: string, raw: string | undefined, fallback: number, max?: number): number {
   // An unset or empty value means "use the default". Any value that is set but
@@ -48,6 +50,24 @@ function parsePositiveInteger(name: string, raw: string | undefined, fallback: n
     throw new Error(`Invalid ${name} "${raw}". Must not exceed ${max}.`);
   }
   return value;
+}
+
+/**
+ * Resolve the HTTP listen port from the environment.
+ *
+ * Defaults to `DEFAULT_PORT` when unset or empty. Rejects non-integer,
+ * out-of-range, or negative values by throwing — mirroring
+ * `parsePositiveInteger` so a typo fails fast at boot rather than
+ * silently listening on an unexpected port.
+ *
+ * Returns `{ value, isDefault }` so the caller can warn exactly once when
+ * the default port was chosen (operators should set PORT explicitly in
+ * production).
+ */
+export function resolvePort(env: NodeJS.ProcessEnv): { value: number; isDefault: boolean } {
+  const raw = env.PORT;
+  const value = parsePositiveInteger("PORT", raw, DEFAULT_PORT, MAX_PORT);
+  return { value, isDefault: raw === undefined || raw === "" };
 }
 
 export function resolveRateLimitConfig(env: NodeJS.ProcessEnv): RateLimitConfig {

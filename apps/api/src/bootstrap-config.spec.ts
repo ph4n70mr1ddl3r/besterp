@@ -3,6 +3,7 @@ import {
   resolveRateLimitConfig,
   resolveHardExitTimeoutMs,
   resolveTrustProxyHops,
+  resolvePort,
   normalizeEnvironmentValue,
   DEFAULT_RATE_LIMIT_WINDOW_MS,
   DEFAULT_RATE_LIMIT_MAX_PER_WINDOW,
@@ -11,6 +12,8 @@ import {
   MAX_TRUST_PROXY_HOPS,
   MAX_RATE_LIMIT_WINDOW_MS,
   MAX_RATE_LIMIT_MAX_PER_WINDOW,
+  DEFAULT_PORT,
+  MAX_PORT,
 } from "./bootstrap-config.js";
 
 function env(overrides: Record<string, string | undefined>): NodeJS.ProcessEnv {
@@ -145,5 +148,41 @@ describe("resolveTrustProxyHops", () => {
 
   it("treats a whitespace-only value as unset (the fail-closed 0 default)", () => {
     expect(resolveTrustProxyHops(env({ TRUST_PROXY_HOPS: "   " }))).toBe(DEFAULT_TRUST_PROXY_HOPS);
+  });
+});
+
+describe("resolvePort", () => {
+  it("uses the default when unset", () => {
+    const result = resolvePort(env({}));
+    expect(result.value).toBe(DEFAULT_PORT);
+    expect(result.isDefault).toBe(true);
+  });
+
+  it("uses the default when the variable is an empty string", () => {
+    const result = resolvePort(env({ PORT: "" }));
+    expect(result.value).toBe(DEFAULT_PORT);
+    expect(result.isDefault).toBe(true);
+  });
+
+  it("parses a valid port number", () => {
+    const result = resolvePort(env({ PORT: "8080" }));
+    expect(result.value).toBe(8080);
+    expect(result.isDefault).toBe(false);
+  });
+
+  it("rejects non-integer values", () => {
+    expect(() => resolvePort(env({ PORT: "abc" }))).toThrow("PORT");
+    expect(() => resolvePort(env({ PORT: "1.5" }))).toThrow("PORT");
+  });
+
+  it("rejects zero, negative, and out-of-range values", () => {
+    expect(() => resolvePort(env({ PORT: "0" }))).toThrow("PORT");
+    expect(() => resolvePort(env({ PORT: "-1" }))).toThrow("PORT");
+    expect(() => resolvePort(env({ PORT: String(MAX_PORT + 1) }))).toThrow("PORT");
+  });
+
+  it("accepts the maximum valid port", () => {
+    const result = resolvePort(env({ PORT: String(MAX_PORT) }));
+    expect(result.value).toBe(MAX_PORT);
   });
 });
