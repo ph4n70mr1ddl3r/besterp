@@ -225,8 +225,7 @@ export class PrismaService
       // Detect superuser privilege directly rather than by role name. A role
       // can be granted SUPERUSER (or renamed) independently of its name, and
       // superusers BYPASS all RLS policies — silently disabling tenant
-      // isolation for every tenant-scoped query. Querying pg_roles catches the
-      // privilege regardless of how the role is named.
+      // isolation. Querying pg_roles catches the privilege regardless of name.
       const [privResult] = await this._appClient.$queryRaw<[{ rolsuper: boolean; rolbypassrls: boolean }]>`
         SELECT rolsuper, rolbypassrls FROM pg_roles WHERE rolname = current_user
       `;
@@ -239,9 +238,8 @@ export class PrismaService
         throw new Error(msg);
       }
       // rolbypassrls (BYPASSRLS) is the authoritative privilege: roles with it
-      // skip row-level-security policies entirely, so tenant isolation is
-      // silently disabled for every tenant-scoped query. rolsuper also implies
-      // BYPASSRLS, so checking both is belt-and-braces.
+      // skip RLS entirely. rolsuper also implies BYPASSRLS, so checking both
+      // is belt-and-braces.
       const isSuperuser =
         privResult.rolsuper === true || privResult.rolbypassrls === true;
       if (isSuperuser) {
@@ -289,11 +287,7 @@ export class PrismaService
   private async verifyRlsEnabled(): Promise<void> {
     // The exact set of tables that rls-setup.sql enables RLS + FORCE on.
     // Keep this in sync with rls-setup.sql. Unquoted Postgres identifiers are
-    // stored lowercased in pg_class.relname, so the list must be lowercase to
-    // match. Previously this list contained "party_relationship" and
-    // "audit_log", which do not exist as tables (the real ones are
-    // "party_role" and "ai_action_log") — so the check could pass vacuously and
-    // give false assurance of tenant isolation at boot.
+    // stored lowercased in pg_class.relname, so the list must be lowercase to match.
     const tenantTables = [
       "party",
       "contact_mechanism",
@@ -310,12 +304,8 @@ export class PrismaService
     try {
       // Query ALL force-RLS tables in `public` (do NOT pre-filter by
       // `= ANY(tenantTables)`). A pre-filter would make the "unexpected extra
-      // table" check unreachable: rows could only ever come from the enumerated
-      // list, so a new tenant table added to rls-setup.sql (and applied) but
-      // omitted here would simply never be inspected and the boot check would
-      // pass vacuously. By querying everything, we can diff the actual force-RLS set
-      // against the authoritative enumeration and refuse to boot on either side
-      // of the diff.
+      // table" check unreachable — a new tenant table added to rls-setup.sql
+      // but omitted here would pass the boot check vacuously.
       const rows = await this._appClient.$queryRaw<{ relname: string; relrowsecurity: boolean; relforcerowsecurity: boolean }[]>`
         SELECT c.relname, c.relrowsecurity, c.relforcerowsecurity
         FROM pg_class c
@@ -323,26 +313,21 @@ export class PrismaService
         WHERE n.nspname = 'public' AND c.relkind = 'r'
       `;
       const found = new Set(rows.map((r) => r.relname));
-      // A table missing entirely from pg_class is a coverage gap: rls-setup.sql
-      // enabled RLS on it but the table isn't present (or was renamed), so
-      // tenant isolation for that data cannot be verified. Refuse to boot
-      // rather than silently assuming it's fine.
+      // A table missing from pg_class is a coverage gap: rls-setup.sql enabled
+      // RLS on it but the table isn't present (or was renamed), so tenant
+      // isolation for that data cannot be verified. Refuse to boot.
       const notFound = tenantTables.filter((t) => !found.has(t));
-      // Only tenant-scoped tables (those in tenantTables) are expected to have
-      // RLS + FORCE applied. Global reference tables (party_type, role_type,
-      // contact_mechanism_type, …) are intentionally NOT RLS-enforced — they are
-      // shared vocabulary read via the admin client. Filtering `missing` over
-      // the FULL set of public tables would wrongly flag those global tables and
-      // cause a false "RLS NOT enabled" boot failure on every deployment.
+      // Global reference tables (party_type, role_type, contact_mechanism_type)
+      // are intentionally NOT RLS-enforced — they are shared vocabulary read via
+      // the admin client. Filtering `missing` over the FULL set of public tables
+      // would wrongly flag those global tables and cause a false boot failure.
       const missing = rows.filter(
         (r) => tenantTables.includes(r.relname) && (!r.relrowsecurity || !r.relforcerowsecurity),
       );
       // A force-RLS table in the database that is NOT in tenantTables means a
-      // new tenant table was added to rls-setup.sql (and applied) but this
-      // authoritative list was not updated — its tenant isolation goes
-      // unverified. Refuse to boot so the gap is caught rather than silently
-      // accepted. Global (non-tenant) tables never have FORCE RLS applied, so
-      // this only fires on genuinely tenant-scoped tables.
+      // new tenant table was added to rls-setup.sql but the verification list
+      // was not updated. Global (non-tenant) tables never have FORCE RLS applied,
+      // so this only fires on genuinely tenant-scoped tables.
       const forceRlsNames = new Set(rows.filter((r) => r.relforcerowsecurity).map((r) => r.relname));
       const unexpected = new Set([...forceRlsNames].filter((n) => !tenantTables.includes(n)));
       if (notFound.length > 0 || missing.length > 0 || unexpected.size > 0) {

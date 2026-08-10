@@ -115,20 +115,7 @@ export class McpService implements OnModuleInit {
   }
 
   private validateTenantId(value: string): string {
-    if (typeof value !== "string") {
-      throw new InvalidTypeValueError(
-        "McpService.buildContext: tenantId must be a string.",
-        { context: { field: "tenantId", receivedType: typeof value } }
-      );
-    }
-    const trimmed = value.trim();
-    if (trimmed.length === 0) {
-      throw new InvalidTypeValueError(
-        "McpService.buildContext: tenantId must not be empty or whitespace-only.",
-        { context: { field: "tenantId", receivedType: typeof value } }
-      );
-    }
-    return validateTenantIdEnhanced(trimmed);
+    return validateTenantIdEnhanced(value);
   }
 
   private validateUserId(value: string): string {

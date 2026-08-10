@@ -9,9 +9,7 @@ import type { Logger } from "@nestjs/common";
 
 // Re-export normalizeEnvironmentValue from @besterp/shared so existing
 // @besterp/api import sites (main.ts, health.service.ts) continue to work
-// without changing their import paths. The canonical definition lives in
-// @besterp/shared; this barrel-style re-export preserves backwards compat
-// for any future internal consumers that import from bootstrap-config.
+// without changing their import paths.
 export { normalizeEnvironmentValue } from "@besterp/shared";
 
 export interface RateLimitConfig {
@@ -73,11 +71,8 @@ export function resolveHardExitTimeoutMs(env: NodeJS.ProcessEnv): number {
   // Trim FIRST so a whitespace-only value is treated as "unset" (default)
   // rather than parsed as an explicit `0`. `Number("  ")` is 0, and a 0ms
   // hard-exit timer fires an immediate `process.exit(1)` on the first
-  // shutdown — silently destroying graceful shutdown (in-flight requests
-  // killed). This is the same damage class as the negative-value guard below,
-  // and mirrors the whitespace-as-unset convention applied to PRISMA cache
-  // sizes in round 106 (`Number("   ")` === 0 must not be mistaken for an
-  // explicit value).
+  // shutdown — silently destroying graceful shutdown. Mirrors the same
+  // whitespace-as-unset convention applied to PRISMA cache sizes.
   const raw = env.HARD_EXIT_TIMEOUT_MS?.trim();
   if (raw === undefined || raw === "") return DEFAULT_HARD_EXIT_TIMEOUT_MS;
   const value = Number(raw);
@@ -135,8 +130,7 @@ export function normalizeCacheSize(
 export function resolveTrustProxyHops(env: NodeJS.ProcessEnv): number {
   // Trim FIRST so whitespace-only is treated as unset (→ the fail-closed 0
   // default), mirroring resolveHardExitTimeoutMs. `Number("  ")` is 0 so the
-  // result is identical to today, but the intent is explicit and the value
-  // cannot be confused with an operator-typed `0`.
+  // result is identical to today, but the intent is explicit.
   const raw = env.TRUST_PROXY_HOPS?.trim();
   if (raw === undefined || raw === "") return DEFAULT_TRUST_PROXY_HOPS;
   const value = Number(raw);

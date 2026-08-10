@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { McpService } from "./mcp.service.js";
-import { DomainError, InvalidTypeValueError } from "@besterp/shared";
+import { DomainError, InvalidTypeValueError, InvalidTenantIdError } from "@besterp/shared";
 
 function createMcpService() {
   const mockPrisma = {
@@ -57,19 +57,19 @@ describe("McpService", () => {
     });
 
     it("should reject null tenant ID", () => {
-      // typeof null === "object", so the string check catches it before trim.
+      // typeof null === "object", so validateTenantIdEnhanced throws InvalidTenantIdError.
       expect(() =>
         mcpService.buildContext({
           tenantId: null as unknown as string,
           userId: "user-123",
         })
-      ).toThrow(InvalidTypeValueError);
+      ).toThrow(InvalidTenantIdError);
       expect(() =>
         mcpService.buildContext({
           tenantId: null as unknown as string,
           userId: "user-123",
         })
-      ).toThrow(/tenantId must be a string/);
+      ).toThrow(/Tenant ID must be a non-empty string/);
     });
 
     it("should reject empty tenant ID", () => {
