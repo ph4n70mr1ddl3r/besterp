@@ -25,18 +25,7 @@ const prisma = new PrismaClient({
   datasourceUrl: process.env.DATABASE_ADMIN_URL,
 });
 
-async function main() {
-  // Refuse to seed into any non-local environment without an explicit opt-in.
-  // The allowlist + ALLOW_SEED logic lives in assertSeedAllowed (see there for
-  // the rationale and the history of bypasses); keeping it in a separate module
-  // lets it be unit-tested (this script self-executes and cannot be imported).
-  // Note: NODE_ENV was already normalized to lowercase above, but the guard
-  // normalizes again defensively so it is safe when called with a raw value.
-  assertSeedAllowed(process.env.NODE_ENV, process.env.ALLOW_SEED);
-
-  console.log("[SEED] Seeding type tables with AI-facing descriptions...\n");
-
-  // ─── Party Types ─────────────────────────────────────────────
+async function seedPartyTypes(prisma: PrismaClient): Promise<number> {
   const partyTypes = await Promise.all([
     prisma.partyType.upsert({
       where: { partyTypeId: "pt-person" },
@@ -73,8 +62,10 @@ async function main() {
     }),
   ]);
   console.log(`  [OK] ${partyTypes.length} party types seeded`);
+  return partyTypes.length;
+}
 
-  // ─── Role Types ──────────────────────────────────────────────
+async function seedRoleTypes(prisma: PrismaClient): Promise<number> {
   const roleTypes = await Promise.all([
     prisma.roleType.upsert({
       where: { roleTypeId: "rt-customer" },
@@ -133,8 +124,10 @@ async function main() {
     }),
   ]);
   console.log(`  [OK] ${roleTypes.length} role types seeded`);
+  return roleTypes.length;
+}
 
-  // ─── Contact Mechanism Types ─────────────────────────────────
+async function seedContactTypes(prisma: PrismaClient): Promise<number> {
   const contactTypes = await Promise.all([
     prisma.contactMechanismType.upsert({
       where: { contactMechanismTypeId: "cmt-postal" },
@@ -168,8 +161,10 @@ async function main() {
     }),
   ]);
   console.log(`  [OK] ${contactTypes.length} contact mechanism types seeded\n`);
+  return contactTypes.length;
+}
 
-  // ─── Seed tenant organizations ───────────────────────────────
+async function seedTenants(prisma: PrismaClient): Promise<[string, string]> {
   const tenantA = await prisma.party.upsert({
     where: { partyId: "tenant-acme" },
     update: {},
@@ -207,6 +202,25 @@ async function main() {
   });
 
   console.log(`  [OK] 2 seed tenants created: ${tenantA.name}, ${tenantB.name}\n`);
+  return [tenantA.name, tenantB.name];
+}
+
+async function main() {
+  // Refuse to seed into any non-local environment without an explicit opt-in.
+  // The allowlist + ALLOW_SEED logic lives in assertSeedAllowed (see there for
+  // the rationale and the history of bypasses); keeping it in a separate module
+  // lets it be unit-tested (this script self-executes and cannot be imported).
+  // Note: NODE_ENV was already normalized to lowercase above, but the guard
+  // normalizes again defensively so it is safe when called with a raw value.
+  assertSeedAllowed(process.env.NODE_ENV, process.env.ALLOW_SEED);
+
+  console.log("[SEED] Seeding type tables with AI-facing descriptions...\n");
+
+  await seedPartyTypes(prisma);
+  await seedRoleTypes(prisma);
+  await seedContactTypes(prisma);
+  await seedTenants(prisma);
+
   console.log("[SEED] Seeding complete!");
 }
 

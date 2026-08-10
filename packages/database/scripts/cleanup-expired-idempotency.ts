@@ -69,7 +69,14 @@ async function main() {
   // Application-scoped advisory lock key — arbitrary constant. Two
   // concurrent runs of this script (e.g., overlapping cron triggers) will
   // serialise on this lock so they don't double-scan the same rows.
-  const _ADVISORY_LOCK_KEY = 0x62657374657270; // 'besterp' in ASCII hex bytes
+  //
+  // MUST be an exact integer representable by Number (< 2^53): Prisma binds a
+  // JS number as float8, and pg_try_advisory_lock(bigint) has no implicit cast
+  // from double precision, so a value outside Number.MAX_SAFE_INTEGER (like
+  // the previous 'besterp' 7-byte literal 0x62657374657270 ≈ 2.77e16) would
+  // round on the wire and fail — or bind to a different key than intended.
+  // 'bester' (6 bytes) fits comfortably in the safe range.
+  const _ADVISORY_LOCK_KEY = 0x626573746572; // 'bester' in ASCII hex bytes
 
   // Run the entire cleanup — advisory lock acquisition, scan, and
   // batched deletes — inside a single interactive transaction so every
@@ -82,9 +89,16 @@ async function main() {
   // pg_advisory_unlock is still issued for clarity/early release).
   const result = await prisma.$transaction(
     async (tx) => {
+      // Prisma tagged-template interpolation binds the value as a bound
+      // parameter. The previous revision wrote `SELECT pg_try_advisory_lock($1)`
+      // followed by `, [key]` AFTER the template — a comma-operator expression
+      // (`const x = await q, [key]` parses as TWO const declarations), which is
+      // a hard parse error ("A destructuring declaration must have an
+      // initializer") that aborted the script before it ever ran. Interpolating
+      // via ${...} is the only form Prisma binds.
       const lockResult = await tx.$queryRaw<Array<{ pg_try_advisory_lock: boolean }>>`
-        SELECT pg_try_advisory_lock($1)
-      `, [_ADVISORY_LOCK_KEY];
+        SELECT pg_try_advisory_lock(${_ADVISORY_LOCK_KEY})
+      `;
       const lockAcquired = lockResult[0]?.pg_try_advisory_lock === true;
       if (!lockAcquired) {
         return { skipped: true as const, deleted: 0, before: 0, after: 0 };
@@ -122,8 +136,14 @@ async function main() {
 
         deleted += (await tx.idempotencyRecord.deleteMany({
           where: {
+            // The compound-PK field `idempotencyKey_tenantId` exists only on
+            // Prisma's WhereUniqueInput, NOT on WhereInput — `deleteMany`'s
+            // `where` is a WhereInput, so the previous `idempotencyKey_tenantId`
+            // selector threw "Unknown argument" at runtime and cleaned nothing.
+            // Match on the two scalar filter fields instead.
             OR: expired.map((r) => ({
-              idempotencyKey_tenantId: { idempotencyKey: r.idempotencyKey, tenantId: r.tenantId },
+              idempotencyKey: r.idempotencyKey,
+              tenantId: r.tenantId,
             })),
           },
         })).count;
@@ -131,7 +151,7 @@ async function main() {
 
       const afterCount = await tx.idempotencyRecord.count();
       try {
-        const _unlockResult = await tx.$queryRaw`SELECT pg_advisory_unlock($1)`, [_ADVISORY_LOCK_KEY];
+        const _unlockResult = await tx.$queryRaw`SELECT pg_advisory_unlock(${_ADVISORY_LOCK_KEY})`;
         void _unlockResult;
       } catch (e) {
         console.warn("Could not release advisory lock:", sanitizeForLogOutput(e instanceof Error ? e.message : String(e)));

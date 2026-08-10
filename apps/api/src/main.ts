@@ -346,6 +346,14 @@ async function bootstrap() {
 
   app.setGlobalPrefix("api");
 
+  // Allowed origins are needed by the rate-limiter's custom 429 handler (below)
+  // to attach CORS headers to rate-limited responses. The main CORS middleware
+  // is registered AFTER the rate limiter and never runs for a short-circuited
+  // 429, so without this a cross-origin client could not read the error body
+  // (round-119 review). The same `allowedOrigins` instance is passed to
+  // configureCors() below.
+  const allowedOrigins = parseAllowedOrigins();
+
   // Rate limiting — protects against brute-force auth attacks, MCP tool
   // exhaustion, and scraping of public endpoints. Uses a sliding window
   // approach so bursts are smoothed over time rather than allowing a full
@@ -355,7 +363,15 @@ async function bootstrap() {
     max: rateLimitConfig.max,
     standardHeaders: true,
     legacyHeaders: false,
-    message: { statusCode: 429, error: "RATE_LIMITED", message: "Rate limit exceeded. Please slow down and retry." },
+    // Custom handler so 429 responses carry CORS headers, mirroring how the
+    // body-parser 413/400 error middleware sets them (setCorsHeaders is a
+    // function declaration, hoisted, so it is usable here despite being
+    // defined later in bootstrap). The message option is not used when a
+    // handler is provided, so the body is reproduced verbatim.
+    handler: (req: Request, res: Response) => {
+      setCorsHeaders(res, req.headers.origin);
+      res.status(429).json({ statusCode: 429, error: "RATE_LIMITED", message: "Rate limit exceeded. Please slow down and retry." });
+    },
   });
   // Helmet security headers — register FIRST so rate-limit 429 responses
   // and other early-exit paths also carry security headers.
@@ -391,7 +407,6 @@ async function bootstrap() {
     return generalLimiter(req, res, next);
   });
 
-  const allowedOrigins = parseAllowedOrigins();
   configureCors(app, allowedOrigins);
 
   // Limit request body size to 1 MB to prevent DoS via oversized payloads.

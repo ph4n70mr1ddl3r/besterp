@@ -190,8 +190,15 @@ function createBackpressureManager(prisma: PrismaClient): BackpressureManager {
           entry.settled = true;
           const idx = writeQueue.indexOf(entry);
           if (idx !== -1) writeQueue.splice(idx, 1);
+          // Count slot-timeout drops the same way queue-full drops are counted
+          // (droppedCount/dropDetected) so getStats() and the drop-detector in
+          // getErrorStats reflect them. Previously only the queue-full path
+          // bumped these counters, so a sustained write-slot stall showed
+          // "0 dropped" in health stats despite entries being silently lost.
+          droppedCount++;
+          dropDetected = true;
           try {
-            process.stderr.write(`[AuditLog] Write slot timeout after ${AUDIT_WRITE_QUEUE_TIMEOUT_MS}ms — dropping audit entry\n`);
+            process.stderr.write(`[AuditLog] Write slot timeout after ${AUDIT_WRITE_QUEUE_TIMEOUT_MS}ms — dropping audit entry (total dropped: ${droppedCount})\n`);
           } catch {
             // stderr may be closed.
           }
@@ -201,8 +208,10 @@ function createBackpressureManager(prisma: PrismaClient): BackpressureManager {
       } catch {
         // setTimeout can fail under extreme memory pressure — drop immediately
         // rather than leaving the entry in the queue without a timer.
+        droppedCount++;
+        dropDetected = true;
         try {
-          process.stderr.write(`[AuditLog] Failed to create timeout for write slot — dropping audit entry\n`);
+          process.stderr.write(`[AuditLog] Failed to create timeout for write slot — dropping audit entry (total dropped: ${droppedCount})\n`);
         } catch {
           // stderr may be closed.
         }

@@ -133,17 +133,13 @@ export function capString(value: unknown, maxBytes: number): string {
 }
 
 /**
- * Recursively normalise a value to a JSON-safe form, converting nested
- * Map/Set to arrays. `JSON.stringify` silently converts Map/Set to `{}`,
- * so a Map nested inside an array/object would otherwise be dropped entirely
- * from the persisted payload (data-loss, not a leak). A depth guard prevents
- * a pathological/cyclic nested structure from running away — circular
- * references within Map/Set values are rejected rather than silently lost.
+ * Normalise a non-primitive container (Map, Set, Array, plain object) for
+ * JSON serialisation. Returns the converted value or throws on cycles.
+ * Extracted from {@link normaliseForTruncation} to keep that function's
+ * cyclomatic complexity under the lint cap — each container type would
+ * otherwise add three branches (instanceof + seen.has + try/finally).
  */
-function normaliseForTruncation(value: unknown, seen: WeakSet<object> = new WeakSet()): unknown {
-  if (value === null || value === undefined) return value;
-  if (typeof value !== "object") return value;
-
+function normaliseContainer(value: object, seen: WeakSet<object>): unknown {
   if (value instanceof Map) {
     if (seen.has(value)) throw new Error("Circular reference in Map value");
     seen.add(value);
@@ -181,17 +177,45 @@ function normaliseForTruncation(value: unknown, seen: WeakSet<object> = new Weak
     return value;
   }
   // Plain object (null-prototype safe since WeakSet only keys objects).
+  // Functions that are enumerable properties of a plain object (e.g. toJSON)
+  // are passed through unmodified so JSON.stringify can invoke them; the
+  // function-leaf check in normaliseForTruncation only applies to direct
+  // function values, not to functions stored as object properties.
   if (seen.has(value)) throw new Error("Circular reference in object value");
   seen.add(value);
   try {
     const out: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(value)) {
-      out[k] = normaliseForTruncation(v, seen);
+      out[k] = typeof v === "function" ? v : normaliseForTruncation(v, seen);
     }
     return out;
   } finally {
     seen.delete(value);
   }
+}
+
+/**
+ * Recursively normalise a value to a JSON-safe form, converting nested
+ * Map/Set to arrays. `JSON.stringify` silently converts Map/Set to `{}`,
+ * so a Map nested inside an array/object would otherwise be dropped entirely
+ * from the persisted payload (data-loss, not a leak). A depth guard prevents
+ * a pathological/cyclic nested structure from running away — circular
+ * references within Map/Set values are rejected rather than silently lost.
+ */
+function normaliseForTruncation(value: unknown, seen: WeakSet<object> = new WeakSet()): unknown {
+  if (value === null || value === undefined) return value;
+  // Convert nested non-JSON leaves the same way the top-level path
+  // (normalisePrimitive) does. Without this, a single nested BigInt made
+  // JSON.stringify throw on the FIRST leaf, so `serializeObjectValue` caught
+  // it and replaced the ENTIRE payload with `{ _error: "Failed to serialize
+  // value" }` — Prisma returns BigInts for count/decimal columns, so a legit
+  // tool result with one nested BigInt (e.g. `{ stats: { count: 100n } }`)
+  // was stored as a garbage marker in both the audit `toolOutput` and the
+  // idempotency `result`, and replayed to the agent as that garbage.
+  if (typeof value === "bigint") return value.toString();
+  if (typeof value === "symbol") return { _error: "Cannot serialize Symbol value" };
+  if (typeof value !== "object") return value;
+  return normaliseContainer(value as object, seen);
 }
 
 /**

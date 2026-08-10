@@ -79,6 +79,16 @@ export class HealthService implements OnModuleInit {
    * every health-check poll (e.g. every 5s from a load balancer).
    */
   private static _redisConnectionWarned = false;
+  /**
+   * Per-process flag so the DB health-check failure logs exactly once per
+   * process. Redis failures dedupe via {@link warnConnectionFailed}; the DB
+   * catch block below logged at `error` on EVERY poll, so a permanently-down
+   * database flooded operator logs at the same cadence the load balancer polls
+   * `/api/health`. Note: like the Redis flag this never resets on recovery —
+   * recovery is visible via the status flipping back to "connected", and
+   * production alerts should watch the status, not the log line.
+   */
+  private static _dbConnectionLogged = false;
 
   /**
    * Short-TTL cache for the Redis probe. `/api/health` is @Public() and
@@ -172,9 +182,12 @@ export class HealthService implements OnModuleInit {
       await this.prisma.appClient.$queryRaw`SELECT 1`;
       databaseStatus = "connected";
     } catch (error) {
-      this.logger.error(
-        `Database health check failed: ${sanitizeForLogOutput(error instanceof Error ? error.message : String(error))}`
-      );
+      // Dedupe like the Redis probes: load balancers poll /api/health every
+      // few seconds, and without this an outage floods `error` logs on every
+      // poll for the duration. The first failure carries the full sanitized
+      // message for diagnosis; subsequent polls stay silent (status flips to
+      // "disconnected" in the response body, which is what monitors consume).
+      this.logDbHealthCheckFailed(error);
       databaseStatus = "disconnected";
     }
 
@@ -410,6 +423,20 @@ export class HealthService implements OnModuleInit {
     if (HealthService._redisConnectionWarned) return;
     HealthService._redisConnectionWarned = true;
     this.logger.warn("Redis health check failed — background jobs may not work");
+  }
+
+  /**
+   * Log a DB health-check failure at `error` exactly once per process,
+   * mirroring the static-flag dedup of {@link warnConnectionFailed}. The
+   * first poll logs the sanitized message (diagnosis); later polls are
+   * suppressed so a sustained outage cannot spam operator logs.
+   */
+  private logDbHealthCheckFailed(error: unknown): void {
+    if (HealthService._dbConnectionLogged) return;
+    HealthService._dbConnectionLogged = true;
+    this.logger.error(
+      `Database health check failed: ${sanitizeForLogOutput(error instanceof Error ? error.message : String(error))}`
+    );
   }
 
   /**

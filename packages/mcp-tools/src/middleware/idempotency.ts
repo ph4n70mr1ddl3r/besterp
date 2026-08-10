@@ -237,7 +237,20 @@ async function acquireIdempotencyRecord(
             // Composite PK (idempotencyKey, tenantId) — select via the
             // compound unique selector.
             where: { idempotencyKey_tenantId: { idempotencyKey, tenantId } },
-            data: { status: "pending", inputHash, expiresAt: new Date(Date.now() + IDEMPOTENCY_TTL_MS), error: Prisma.DbNull },
+            data: {
+              status: "pending", inputHash,
+              // Bump createdAt so the reset CLAIMS the record as a fresh
+              // execution. Without it, a concurrent retry (or a second call
+              // arriving seconds after this reset) re-reads the same record,
+              // still sees createdAt older than
+              // IDEMPOTENCY_STALE_PENDING_THRESHOLD_MS, and resets AGAIN —
+              // re-executing the side effect instead of returning
+              // REQUEST_IN_PROGRESS. The stale-pending path exists to recover
+              // CRASHED requests; a record that has just been claimed by a
+              // live execution must look fresh to everyone else.
+              createdAt: new Date(),
+              expiresAt: new Date(Date.now() + IDEMPOTENCY_TTL_MS), error: Prisma.DbNull,
+            },
           });
           return { existing: null, created: true };
         }
@@ -250,7 +263,7 @@ async function acquireIdempotencyRecord(
           if (!record.createdAt) {
             await tx.idempotencyRecord.update({
               where: { idempotencyKey_tenantId: { idempotencyKey, tenantId } },
-              data: { status: "pending", inputHash, expiresAt: new Date(Date.now() + IDEMPOTENCY_TTL_MS), error: Prisma.DbNull },
+              data: { status: "pending", inputHash, createdAt: new Date(), expiresAt: new Date(Date.now() + IDEMPOTENCY_TTL_MS), error: Prisma.DbNull },
             });
             return { existing: null, created: true };
           }
@@ -266,7 +279,10 @@ async function acquireIdempotencyRecord(
             }
             await tx.idempotencyRecord.update({
               where: { idempotencyKey_tenantId: { idempotencyKey, tenantId } },
-              data: { status: "pending", inputHash, expiresAt: new Date(Date.now() + IDEMPOTENCY_TTL_MS), error: Prisma.DbNull },
+              // Bump createdAt here too (see the failed→pending path above) so
+              // this reclaimed record is not instantly re-flagged as stale by a
+              // concurrent retry of the same key.
+              data: { status: "pending", inputHash, createdAt: new Date(), expiresAt: new Date(Date.now() + IDEMPOTENCY_TTL_MS), error: Prisma.DbNull },
             });
             return { existing: null, created: true };
           }
