@@ -310,9 +310,7 @@ export class PartyService {
           const rawBirthDate = sanitizedPerson.birthDate;
           const parsedBirthDate = rawBirthDate ? new Date(rawBirthDate) : null;
           // Belt-and-suspenders: requireValidDate already rejects non-ISO
-          // strings, but this guards against any future call path that
-          // bypasses it. Invalid Date propagates as NaN through Prisma
-          // and would store a corrupt timestamp silently.
+          // strings, but this guards against any future bypass path.
           if (parsedBirthDate && isNaN(parsedBirthDate.getTime())) {
             throw new InvalidTypeValueError(
               `birthDate produced an invalid Date`,

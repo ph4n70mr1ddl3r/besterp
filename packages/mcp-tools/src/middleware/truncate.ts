@@ -23,23 +23,12 @@ const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
 
 /**
- * Slice a UTF-8 byte array at a byte boundary WITHOUT splitting a multi-byte
- * character. Walks backwards over continuation bytes (0x80–0xBF, the
- * `10xxxxxx` pattern) so the returned string never ends with a lone
- * replacement character (U+FFFD) from a half-decoded trail.
+ * Slice a UTF-8 byte array at a byte boundary without splitting a multi-byte
+ * character. Walks backwards over continuation bytes (0x80–0xBF) so the
+ * result never ends with a lone replacement character (U+FFFD).
  *
- * The loop starts at `sliceEnd` which points to the first byte AFTER the
- * intended slice (i.e., the first excluded byte). If that byte is a UTF-8
- * continuation byte, it means the lead byte of the character lies before
- * `sliceEnd`, so [0, sliceEnd) would cut the character in half — keep walking
- * backwards until we find a non-continuation byte (or reach 0). When
- * `sliceEnd === encoded.byteLength`, `encoded[sliceEnd]` is `undefined`, and
- * the explicit check handles this as a valid character boundary since there is
- * no partial character beyond the end of the buffer.
- *
- * Both `capString` and the truncation preview must agree on this behaviour —
- * previously only `capString` walked back, so a preview could end with U+FFFD
- * whenever the byte limit landed mid-character (CJK, emoji, accented chars).
+ * `sliceEnd` points to the first EXCLUDED byte; if it is beyond the buffer
+ * (undefined) or not a continuation byte, we are on a character boundary.
  */
 function safeSliceUtf8(encoded: Uint8Array, byteLimit: number): string {
   let sliceEnd = Math.min(byteLimit, encoded.byteLength);

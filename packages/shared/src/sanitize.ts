@@ -302,18 +302,13 @@ function replaceProviderSecrets(input: string): string {
  */
 const REDACTED_PLACEHOLDERS = /^\[REDACTED(?:_[A-Z_]+)?\]$/;
 
-// ULID (Crockford base32, 26 chars): the dominant identity-ID shape across the
-// MCP ecosystem (Anthropic/Claude user, conversation, and thread IDs are ULIDs).
-// Must be whitelisted or legitimate identity values would be destroyed to
-// "[REDACTED_TOKEN]" everywhere they are logged/persisted (buildContext,
-// error-handler, audit-log). Charset excludes I/L/O/U per the Crockford spec.
-//
-// Accept BOTH uppercase and lowercase: Anthropic/Claude identity IDs are
-// lowercase ULIDs in practice (e.g. `conv_01h3x8q5y2gx4k1a2b3c4d5e6f`), and a
-// lowercase-only whitelist would redact exactly the IDs this rule exists to
-// preserve — defeating its stated purpose (audit trails become unsearchable by
-// ID). The all-lowercase letter run below does not catch these (they contain
-// digits), so both cases must be explicit.
+// ULID (Crockford base32, 26 chars): the dominant identity-ID shape across
+// the MCP ecosystem (Anthropic/Claude user, conversation, and thread IDs are
+// ULIDs). Must be whitelisted or legitimate identity values would be redacted
+// to "[REDACTED_TOKEN]" everywhere they are logged/persisted — defeating
+// audit trails. Charset excludes I/L/O/U per the Crockford spec.
+// Accept BOTH cases: Claude IDs are lowercase in practice, and a
+// lowercase-only whitelist would redact exactly the IDs this rule preserves.
 const ULID_CHARSET = "0-9A-HJKMNP-TV-Za-hjkmnp-tv-z";
 const ULID_PATTERN = new RegExp(`^[0-9][${ULID_CHARSET}]{25}$`);
 // Prefixed forms such as `usr_<ULID>`, `agent_<ULID>`, `conv_<ULID>`.
