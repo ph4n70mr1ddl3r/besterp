@@ -117,6 +117,6 @@ export class TenantGuard implements CanActivate {
           "Agent IDs may only contain alphanumeric characters, hyphens, and underscores."
       );
     }
-    return rawAgentId || undefined;
+    return rawAgentId === "" ? undefined : rawAgentId;
   }
 }
