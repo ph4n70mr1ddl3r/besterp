@@ -55,6 +55,12 @@ export class HealthController {
         healthPromise,
         new Promise<"timeout">((resolve) => controller.signal.addEventListener("abort", () => resolve("timeout"), { once: true })),
       ]);
+      // Abort the controller on success so the one-shot abort listener is
+      // cleaned up immediately rather than lingering until the (now cleared)
+      // timeout fires or the response is discarded. The timeout is already
+      // guarded by the `finally` clearTimer, but aborting the controller
+      // removes the event listener from the signal right away.
+      controller.abort();
       if (result === "timeout") {
         void healthPromise.catch((err) => {
           this.logger.debug(`Health check query failed after timeout: ${sanitizeForLogOutput(err instanceof Error ? err.message : String(err))}`);

@@ -29,7 +29,7 @@ type TypeName = keyof typeof TYPE_TABLE_MAP;
 
 /** Minimal interface for a Prisma model delegate with findMany. */
 interface PrismaModelDelegate {
-  findMany(args: { select: Record<string, boolean> }): Promise<Record<string, unknown>[]>;
+  findMany(options: { select: Record<string, boolean> }): Promise<Record<string, unknown>[]>;
 }
 
 // ─── Tool: list_available_tools ───────────────────────────────────
