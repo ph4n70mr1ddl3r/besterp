@@ -87,14 +87,22 @@ export class McpService implements OnModuleInit {
    * 
    * @param overrides - Context overrides including tenantId, userId, optional fields
    */
-  buildContext(overrides: {
-    tenantId: string;
-    userId: string;
-    agentId?: string;
-    conversationId?: string;
-    idempotencyKey?: string;
-    reasoning?: string;
-  }) {
+   buildContext(overrides: {
+     tenantId: string;
+     userId: string;
+     agentId?: string;
+     conversationId?: string;
+     idempotencyKey?: string;
+     reasoning?: string;
+   }): {
+     tenantId: string;
+     userId: string;
+     agentId?: string;
+     conversationId?: string;
+     idempotencyKey?: string;
+     reasoning?: string;
+     services: { partyService: PartyService };
+   } {
     const tenantId = this.validateTenantId(overrides.tenantId);
     const userId = this.validateUserId(overrides.userId);
     const idempotencyKey = this.validateIdempotencyKey(overrides.idempotencyKey);

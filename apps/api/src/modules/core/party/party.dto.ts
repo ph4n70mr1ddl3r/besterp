@@ -33,7 +33,7 @@ import {
 import { Type, Transform, TransformFnParams } from "class-transformer";
 import {
   stripHtmlTags,
-  sanitizeLogMessage,
+  sanitizeForLogOutput,
   isValidISODate,
   EMAIL_REGEX,
   MAX_PARTY_NAME_LENGTH,
@@ -84,7 +84,7 @@ class IsValidISODateConstraint implements ValidatorConstraintInterface {
 
   defaultMessage(args: ValidationArguments): string {
     const rawValue = (args.object as Record<string, unknown>)[args.property];
-    const sanitized = typeof rawValue === "string" ? sanitizeLogMessage(rawValue) : String(rawValue ?? args.property);
+    const sanitized = typeof rawValue === "string" ? sanitizeForLogOutput(rawValue) : String(rawValue ?? args.property);
     return `${sanitized} must be a valid ISO 8601 UTC date (e.g. 2024-06-15T00:00:00.000Z)`;
   }
 }
