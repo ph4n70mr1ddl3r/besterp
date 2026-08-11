@@ -220,28 +220,27 @@ export class PrismaService
    */
   private async verifyAppClientRole(): Promise<void> {
     try {
-      const [roleResult] = await this._appClient.$queryRaw<[{ role: string }]>`SELECT current_user AS role`;
-      const role = roleResult.role;
-      // Detect superuser privilege directly rather than by role name. A role
-      // can be granted SUPERUSER (or renamed) independently of its name, and
-      // superusers BYPASS all RLS policies — silently disabling tenant
-      // isolation. Querying pg_roles catches the privilege regardless of name.
-      const [privResult] = await this._appClient.$queryRaw<[{ rolsuper: boolean; rolbypassrls: boolean }]>`
-        SELECT rolsuper, rolbypassrls FROM pg_roles WHERE rolname = current_user
+      // Combine the role-name lookup and the privilege check into a single
+      // query. The previous two-query form was correct but executed two round
+      // trips to the DB for what is effectively one logical check — a waste
+      // at boot time when the connection pool is still warming up.
+      const [row] = await this._appClient.$queryRaw<{ role: string; rolsuper: boolean; rolbypassrls: boolean }[]>`
+        SELECT current_user AS role, rolsuper, rolbypassrls
+        FROM pg_roles WHERE rolname = current_user
       `;
       // Fail closed: if pg_roles returned no rows (transient outage, schema
       // drift, or the role was dropped mid-query), we cannot verify the role
       // is not a superuser. Refuse to boot rather than assuming non-superuser.
-      if (!privResult) {
+      if (!row) {
         const msg = `Could not determine database role privileges — pg_roles returned no rows for current_user. Cannot verify RLS enforcement.`;
         this.logger.error(msg);
         throw new Error(msg);
       }
+      const role = row.role;
       // rolbypassrls (BYPASSRLS) is the authoritative privilege: roles with it
       // skip RLS entirely. rolsuper also implies BYPASSRLS, so checking both
       // is belt-and-braces.
-      const isSuperuser =
-        privResult.rolsuper === true || privResult.rolbypassrls === true;
+      const isSuperuser = row.rolsuper === true || row.rolbypassrls === true;
       if (isSuperuser) {
         // PostgreSQL superusers BYPASS all RLS policies, so tenant isolation
         // is silently disabled for every tenant-scoped query when the app

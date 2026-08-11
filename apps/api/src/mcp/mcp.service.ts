@@ -8,6 +8,7 @@ import {
   errorHandlerMiddleware,
   idempotencyMiddleware,
   auditLogMiddleware,
+  type ToolContext,
 } from "@besterp/mcp-tools";
 import { registerPartyTools } from "./tools/party-tools.js";
 import { registerDiscoveryTools } from "./tools/discovery-tools.js";
@@ -94,15 +95,7 @@ export class McpService implements OnModuleInit {
     conversationId?: string;
     idempotencyKey?: string;
     reasoning?: string;
-  }): {
-    tenantId: string;
-    userId: string;
-    agentId?: string;
-    conversationId?: string;
-    idempotencyKey?: string;
-    reasoning?: string;
-    services: { partyService: PartyService };
-  } {
+  }): ToolContext {
     const tenantId = this.validateTenantId(overrides.tenantId);
     const userId = this.validateUserId(overrides.userId);
     const idempotencyKey = this.validateIdempotencyKey(overrides.idempotencyKey);

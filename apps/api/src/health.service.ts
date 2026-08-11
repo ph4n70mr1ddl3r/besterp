@@ -362,13 +362,17 @@ export class HealthService implements OnModuleInit {
         socket.write(encodeRespArray(["PING"]));
       });
       socket.on("data", (data) => {
-        responseBuffer += data.toString();
-        if (responseBuffer.length > MAX_RESPONSE_BUFFER) {
+        const chunk = data.toString();
+        // Check BEFORE appending: a single TCP packet > MAX_RESPONSE_BUFFER
+        // would otherwise briefly exceed the cap, defeating the DoS guard
+        // that bounds memory used by the buffer on an unauthenticated probe.
+        if (responseBuffer.length + chunk.length > MAX_RESPONSE_BUFFER) {
           clearTimeout(timeout);
           socket.destroy();
           reject(new Error("Redis response exceeded maximum buffer size"));
           return;
         }
+        responseBuffer += chunk;
         // Only a +PONG (the PING round-trip) proves the connection can execute
         // commands. The previous code also resolved on +OK — an AUTH success
         // frame — which settled the promise before PING had been validated, so
