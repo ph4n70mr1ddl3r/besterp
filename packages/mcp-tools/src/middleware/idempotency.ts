@@ -17,7 +17,7 @@
 
 import { PrismaClient, Prisma, IdempotencyRecord } from "@prisma/client";
 import { createHash } from "node:crypto";
-import { hashInput, getErrorCode, sanitizeLogMessage, sanitizeForLogOutput, stripHtmlTags, redactSensitiveFieldValues, MAX_SOFT_FAILURE_MESSAGE_SIZE, IDEMPOTENCY_TTL_MS, MAX_IDEMPOTENCY_KEY_LENGTH, SAFE_IDEMPOTENCY_KEY, IDEMPOTENCY_MAX_RETRIES, IDEMPOTENCY_RETRY_BASE_DELAY_MS, IDEMPOTENCY_STALE_PENDING_THRESHOLD_MS, MAX_USER_ID_LENGTH, MAX_AGENT_ID_LENGTH, MAX_CONVERSATION_ID_LENGTH } from "@besterp/shared";
+import { hashInput, getErrorCode, sanitizeForLogOutput, stripHtmlTags, redactSensitiveFieldValues, MAX_SOFT_FAILURE_MESSAGE_SIZE, IDEMPOTENCY_TTL_MS, MAX_IDEMPOTENCY_KEY_LENGTH, SAFE_IDEMPOTENCY_KEY, IDEMPOTENCY_MAX_RETRIES, IDEMPOTENCY_RETRY_BASE_DELAY_MS, IDEMPOTENCY_STALE_PENDING_THRESHOLD_MS, MAX_USER_ID_LENGTH, MAX_AGENT_ID_LENGTH, MAX_CONVERSATION_ID_LENGTH } from "@besterp/shared";
 import { ToolMiddleware, ToolResult, ToolContext, ZodSchemaLike } from "../schema/tool-definition.js";
 import { truncateValue, MAX_STORED_PAYLOAD_SIZE, capString, isTruncationMarker } from "./truncate.js";
 
@@ -186,8 +186,9 @@ function logIdempotencyWarn(message: string): void {
  * key remains distinguishable across messages without revealing its content.
  */
 function redactKey(key: string): string {
+  // SHA-256 hex output is ASCII-only (0-9, a-f), so no sanitization is needed.
   const token = createHash("sha256").update(key).digest("hex").slice(0, 12);
-  return sanitizeLogMessage(`id-${token}`);
+  return `id-${token}`;
 }
 
 async function acquireIdempotencyRecord(

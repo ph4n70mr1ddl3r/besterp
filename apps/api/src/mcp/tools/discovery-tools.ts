@@ -64,6 +64,8 @@ Each tool listing includes its risk level and confirmation requirements.`,
     tags: ["discovery", "meta"],
 
     handler: async (inputRaw: unknown, _context: ToolContext) => {
+      // inputRaw is pre-validated by the registry's Zod schema before the
+      // handler runs, so this cast is safe at runtime.
       const input = inputRaw as { entity?: string };
       let tools = registry.getDiscoveryInfo();
       if (input.entity) {
@@ -136,6 +138,8 @@ Type tables are the ERP's vocabulary — they define what classifications are av
     tags: ["discovery", "type-table"],
 
     handler: async (inputRaw: unknown, _context: ToolContext) => {
+      // inputRaw is pre-validated by the registry's Zod schema before the
+      // handler runs, so this cast is safe at runtime.
       const input = inputRaw as { typeName: TypeName };
       const config = TYPE_TABLE_MAP[input.typeName];
       const values = await queryTypeTable(prisma, config.delegateKey, config.idField);
