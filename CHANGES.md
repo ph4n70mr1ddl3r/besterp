@@ -1,5 +1,37 @@
 # BestERP — Security & Architecture Fixes
 
+## Changes Applied (2026-08-12) — Code Review Round 133
+
+### 🟡 `apps/api/src/main.ts` — CORS origins accepted arbitrary strings without format validation
+
+**Problem:** `parseAllowedOrigins()` split `CORS_ORIGINS` and returned every non-empty token verbatim, so a typo like `CORS_ORIGINS=evil.com` (missing the `https://` scheme) would enable cross-origin requests unconditionally.
+
+**Fix:** Added a post-parse check that flags any origin not matching a URL-like pattern (`https?://...`) with a boot-time `logger.warn`. Validation remains permissive (we do not reject, only warn) so genuine origins that use unusual schemes are not blocked, but a mistyped or omitted scheme is immediately visible in operator logs.
+
+### 🟡 `apps/api/src/mcp/tools/party-tools.ts` — tool description used an invalid UUID example
+
+**Problem:** The `add_party_role` description example showed `partyId: "abc-123"`, which does not match `UUID_REGEX` and would confuse agents that treat the example as a template.
+
+**Fix:** Replaced with a valid UUID (`550e8400-e29b-41d4-a716-446655440000`) so the example is structurally correct.
+
+### 🟡 `apps/api/src/auth/tenant.guard.ts` — `validateTenantId` swallowed the original error message
+
+**Problem:** The `catch` block re-threw as `UnauthorizedException("TenantGuard: tenantId failed format validation.")` with no context about *why* validation failed, making debugging token issues harder for operators.
+
+**Fix:** The catch now includes the sanitized original message in the `UnauthorizedException`, giving both the guard label and the specific cause.
+
+### 🟢 `packages/database/scripts/cleanup-expired-idempotency.ts` — advisory lock key was a local literal
+
+**Problem:** The cleanup script defined `const _ADVISORY_LOCK_KEY = 0x626573746572` locally. If another script ever needed the same lock it would have to re-derive the value, creating drift risk.
+
+**Fix:** Exported `ADVISORY_LOCK_KEY_CLEANUP_IDEMPOTENCY` from `@besterp/shared/constants.ts` with full documentation of the value's origin and constraints, and imported it in the cleanup script.
+
+### 🟢 `packages/shared/src/sanitize.ts` — `sanitizeForLogOutput` pipeline was a 10-deep nested call chain
+
+**Problem:** Each reduction step was a function call nested inside another, making the pipeline hard to read, extend, or test independently.
+
+**Fix:** Extracted the pipeline into a named `Array<(s: string) => string>` and reduced over it. Behaviour is identical; the change is structural for maintainability.
+
 ## Changes Applied (2026-08-08) — Code Review Round 114
 
 ### 🟢 `apps/api/src/modules/core/party/party.service.ts` — dead fabricated-timestamp fallbacks on `fromDate`
