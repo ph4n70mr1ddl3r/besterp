@@ -277,8 +277,8 @@ function configureCors(app: INestApplication, allowedOrigins: string[]): void {
     "Without this, cross-origin requests will be blocked by the browser. " +
     "Set CORS_ORIGINS and restart the application."
   );
-  if (isProd()) {
-    logger.error("CORS_ORIGINS is required in production. Exiting.");
+  if (!isDev()) {
+    logger.error("CORS_ORIGINS is required in non-development environments. Exiting.");
     process.exit(1);
   }
 }

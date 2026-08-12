@@ -147,7 +147,7 @@ async function executeAndLog(prisma: PrismaClient, backpressure: BackpressureMan
     result = {
       ...result,
       nextActions: result.nextActions.map((n) =>
-        typeof n === "string" ? sanitizeForLogOutput(n) : n,
+        typeof n === "string" ? sanitizeForLogOutput(stripHtmlTags(n)) : n,
       ),
     };
   }

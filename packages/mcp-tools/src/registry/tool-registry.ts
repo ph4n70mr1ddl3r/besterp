@@ -12,8 +12,7 @@ import {
   ToolContext,
   RiskLevel,
 } from "../schema/tool-definition.js";
-import { sanitizeForLogOutput, redactSensitiveFieldValues, validateTenantIdEnhancedForAuth, MAX_USER_ID_LENGTH, MAX_AGENT_ID_LENGTH, MAX_CONVERSATION_ID_LENGTH, TENANT_ID_PATTERN } from "@besterp/shared";
-import { isSensitiveField } from "../middleware/sensitive-fields.js";
+import { sanitizeForLogOutput, redactSensitiveFieldValues, validateTenantIdEnhancedForAuth, MAX_USER_ID_LENGTH, MAX_AGENT_ID_LENGTH, MAX_CONVERSATION_ID_LENGTH, TENANT_ID_PATTERN, isSensitiveFieldName } from "@besterp/shared";
 
 const VALID_RISK_LEVELS: readonly RiskLevel[] = ["none", "low", "medium", "high", "critical"];
 
@@ -410,9 +409,9 @@ export class ToolRegistry {
         message: redactSensitiveFieldValues(issue.message) as string,
         path: sanitizedPath,
       };
-      const sensitivePathSegments = path.filter((p) => isSensitiveField(p));
+      const sensitivePathSegments = path.filter((p) => isSensitiveFieldName(p));
       const lastSegment = path.length > 0 ? path[path.length - 1]! : "";
-      if (sensitivePathSegments.length > 0 || (isSensitiveField(lastSegment) && issue.received !== undefined)) {
+      if (sensitivePathSegments.length > 0 || (isSensitiveFieldName(lastSegment) && issue.received !== undefined)) {
         redacted.received = "[REDACTED]";
       } else if (issue.received !== undefined) {
         redacted.received = redactSensitiveFieldValues(issue.received);

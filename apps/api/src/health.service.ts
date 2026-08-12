@@ -278,18 +278,17 @@ export class HealthService implements OnModuleInit {
       return "not_configured";
     }
 
-    // Mirror QueueModule's production guard: if REDIS_HOST is set but
-    // REDIS_PORT is absent, defaulting to DEFAULT_REDIS_PORT silently could connect to an
-    // unintended Redis instance (the same footgun QueueModule refuses in
-    // production). Log a warning in non-production so operators notice the
-    // misconfiguration rather than probing the wrong service. In production
-    // QueueModule throws before this code is reachable, so the warning only
-    // fires in staging/dev where both surfaces default to DEFAULT_REDIS_PORT.
+    // Mirror QueueModule's fail-closed posture: silently defaulting to
+    // DEFAULT_REDIS_PORT when REDIS_HOST is set but REDIS_PORT is absent could
+    // connect to an unintended Redis instance (the same footgun QueueModule
+    // refuses in production). Throw in non-development so a misconfigured
+    // staging/test deploy surfaces a clear error rather than probing the
+    // wrong service — the warning-only path was the gap that made the health
+    // endpoint report "connected" while the queue refused to start.
     if (!process.env.REDIS_PORT && !isDev()) {
-      this.warnOnce(
-        "REDIS_HOST is set but REDIS_PORT is missing — " +
-        `defaulting to ${DEFAULT_REDIS_PORT}. Set REDIS_PORT explicitly to avoid connecting ` +
-        "to an unintended Redis instance."
+      throw new Error(
+        `REDIS_PORT is required in non-development environments when REDIS_HOST is set. ` +
+        `Set REDIS_PORT explicitly to avoid connecting to the wrong Redis instance.`
       );
     }
 
