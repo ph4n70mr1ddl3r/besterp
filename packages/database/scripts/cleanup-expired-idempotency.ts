@@ -7,7 +7,7 @@
 //   DATABASE_ADMIN_URL="..." npx tsx packages/database/scripts/cleanup-expired-idempotency.ts
 
 import { PrismaClient } from "@prisma/client";
-import { sanitizeForLogOutput, isDev, normalizeEnvironmentValue } from "@besterp/shared";
+import { sanitizeForLogOutput, isDev, normalizeEnvironmentValue, ADVISORY_LOCK_KEY_CLEANUP_IDEMPOTENCY } from "@besterp/shared";
 
 if (!process.env.DATABASE_ADMIN_URL) {
   console.error("DATABASE_ADMIN_URL is required for idempotency cleanup (bypasses RLS). " +
@@ -76,7 +76,7 @@ async function main() {
   // the previous 'besterp' 7-byte literal 0x62657374657270 ≈ 2.77e16) would
   // round on the wire and fail — or bind to a different key than intended.
   // 'bester' (6 bytes) fits comfortably in the safe range.
-  const _ADVISORY_LOCK_KEY = 0x626573746572; // 'bester' in ASCII hex bytes
+  const _ADVISORY_LOCK_KEY = ADVISORY_LOCK_KEY_CLEANUP_IDEMPOTENCY;
 
   // Run the entire cleanup — advisory lock acquisition, scan, and
   // batched deletes — inside a single interactive transaction so every

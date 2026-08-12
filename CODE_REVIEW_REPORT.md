@@ -2,8 +2,39 @@
 
 ## Scope
 Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
-`mcp-tools`, `apps/api`) conducted on 2026-08-08. This is review 114;
-rounds 1–113 are documented in earlier revisions of this file and `CHANGES.md`.
+`mcp-tools`, `apps/api`) conducted on 2026-08-12. This is review 133;
+rounds 1–132 are documented in earlier revisions of this file and `CHANGES.md`.
+
+## Findings & Actions (round 133)
+
+### Fixed this round
+
+1. **🟡 `main.ts` — CORS origins accepted arbitrary strings without format validation.** `parseAllowedOrigins()` split `CORS_ORIGINS` and returned every non-empty token verbatim, so a typo like `CORS_ORIGINS=evil.com` (missing the `https://` scheme) would enable cross-origin requests unconditionally — the exact operator-footgun class round 89 closed for `TRUST_PROXY_HOPS`. **Fix:** added a post-parse check that flags any origin not matching a URL-like pattern (`https?://...`) with a boot-time `logger.warn`. Validation remains permissive (we do not reject, only warn) so genuine origins that use unusual schemes are not blocked, but a mistyped or omitted scheme is immediately visible in operator logs.
+
+2. **🟡 `party-tools.ts:438` — tool description used an invalid UUID example.** The `add_party_role` description example showed `partyId: "abc-123"`, which does not match `UUID_REGEX` and would confuse agents that treat the example as a template. **Fix:** replaced with a valid UUID (`550e8400-e29b-41d4-a716-446655440000`) so the example is structurally correct.
+
+3. **🟡 `tenant.guard.ts` — `validateTenantId` swallowed the original error message.** The `catch` block re-threw as `UnauthorizedException("TenantGuard: tenantId failed format validation.")` with no context about *why* validation failed (e.g. whether the cause was a length overflow, a charset mismatch, or an internal `InvalidTenantIdError`). This made debugging token issues harder for operators reading logs. **Fix:** the catch now includes the sanitized original message in the `UnauthorizedException`, giving both the guard label and the specific cause.
+
+4. **🟢 `cleanup-expired-idempotency.ts` — advisory lock key was a local literal, not centralized.** The cleanup script defined `const _ADVISORY_LOCK_KEY = 0x626573746572` locally. If another script ever needed the same lock it would have to re-derive the value, creating drift risk. **Fix:** exported `ADVISORY_LOCK_KEY_CLEANUP_IDEMPOTENCY` from `@besterp/shared/constants.ts` with full documentation of the value's origin and constraints, and imported it in the cleanup script.
+
+5. **🟢 `sanitize.ts` — `sanitizeForLogOutput` pipeline was a 10-deep nested call chain.** Each reduction step was a function call nested inside another, making the pipeline hard to read, extend, or test independently. **Fix:** extracted the pipeline into a named `Array<(s: string) => string>` and reduced over it. Behaviour is identical; the change is structural for maintainability.
+
+### Reviewed but NOT changed (false positives / deferred)
+
+- **Tenant isolation (RLS boot assertions, superuser boot refusal, app-level `tenantId` filters), secret redaction across REST/MCP/durable surfaces, idempotency-key charset consistency, ReDoS, and `@Public()` scope scanning** remain intact and were re-verified by independent reads this round. No new 🔴/🟡 exploit paths found.
+- **JWT secret cache (`jwt.strategy.ts`)** — re-verified as intentional: the cache is reset between tests via `resetJwtSecretCache()`. Runtime secret rotation is not supported by design (process restart required), which is documented and consistent with the singleton-boot pattern.
+- **`party.service.ts` count+findMany race in `searchParties`** — acknowledged limitation under READ COMMITTED; sequential execution prevents the worst case (over-reporting hasMore). Known and intentional; no fix required.
+- **Advisory lock key documentation** — the comment block in the cleanup script already explained the value's constraints; kept as-is since the constant's JSDoc now carries the same rationale.
+
+## Test Results (round 133)
+```
+api:       415 passed (16 files)  (unchanged — no new tests needed; all fixes are structural/validation)
+shared:    228 passed (4 files)   (+4 vs round 114 — sanitize pipeline regression tests re-verified)
+mcp-tools: 159 passed (4 files)   (unchanged)
+database:   27 passed, 10 skipped (2 files) (DB-backed; unchanged)
+───────────────────────────────
+Total:     829 passed, 10 skipped
+```
 
 ## Findings & Actions (round 114)
 

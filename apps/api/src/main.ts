@@ -227,7 +227,22 @@ function parseAllowedOrigins(): string[] {
   const corsOrigins = process.env.CORS_ORIGINS;
   if (corsOrigins) {
     const origins = corsOrigins.split(",").map((o) => o.trim()).filter((o) => o.length > 0);
-    if (origins.length > 0) return origins;
+    if (origins.length > 0) {
+      // Warn on origins that don't look like valid URLs — a typo like
+      // CORS_ORIGINS=evil.com would otherwise enable cross-origin requests
+      // from that origin unconditionally. Only warn (don't reject) so
+      // operator misconfiguration surfaces visibly without breaking the app.
+      const malformed = origins.filter(
+        (o) => !/^https?:\/\/[\w\-._~!$&'()*+,;=:$/%]+$/.test(o),
+      );
+      if (malformed.length > 0) {
+        logger.warn(
+          `CORS_ORIGINS contains ${malformed.length} value(s) that do not look like valid URLs: ${malformed.map((o) => `"${o}"`).join(", ")}. ` +
+          "Cross-origin requests from these origins will be allowed verbatim — verify this is intentional."
+        );
+      }
+      return origins;
+    }
   }
   // Fall back to restrictive localhost origins in development so that
   // error-middleware CORS headers (which bypass the main CORS middleware)

@@ -435,7 +435,7 @@ Roles determine what a party can do in the system (Customer, Supplier, Employee,
 A party can have multiple roles. Use 'get_type_table_values' with typeName "ROLE_TYPE" to see available roles.
 
 Example: Make a party a customer
-  add_party_role({ partyId: "abc-123", roleType: "Customer" })
+  add_party_role({ partyId: "550e8400-e29b-41d4-a716-446655440000", roleType: "Customer" })
 
 For idempotent writes, pass an idempotencyKey (string, max 500 chars) along with the tool arguments. If the same key is used again, the operation will be safely replayed or deduplicated.`,
 

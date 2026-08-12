@@ -190,6 +190,23 @@ export const MAX_JWT_EXPIRES_IN_DAYS = 30;
 export const DEFAULT_REDIS_PORT = 6380;
 
 /**
+ * Application-scoped advisory lock key for the idempotency cleanup script.
+ *
+ * Two concurrent runs of the cleanup script (e.g., overlapping cron triggers)
+ * serialise on this lock so they don't double-scan the same rows. Exported
+ * here so both the cleanup script and any future concurrent-job script share
+ * the same key — previously each script defined its own literal, creating a
+ * risk that two scripts would collide on different keys and run concurrently.
+ *
+ * Value: 0x626573746572 ('bester' in ASCII hex bytes). Picked to fit
+ * comfortably within Number.MAX_SAFE_INTEGER (< 2^53) because Prisma binds
+ * JS numbers as float8 on the wire and pg_try_advisory_lock(bigint) has no
+ * implicit cast from double precision — a value outside the safe integer
+ * range would round and fail.
+ */
+export const ADVISORY_LOCK_KEY_CLEANUP_IDEMPOTENCY = 0x626573746572;
+
+/**
  * Resolve whether a Redis connection should use TLS.
  *
  * Defaults: enabled in non-development, disabled in development.

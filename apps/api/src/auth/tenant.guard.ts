@@ -58,9 +58,14 @@ export class TenantGuard implements CanActivate {
     }
     try {
       return validateTenantIdEnhancedForAuth(user.tenantId);
-    } catch {
+    } catch (e) {
+      // Preserve the original error message for operator logs while still
+      // returning 401 to the client. A bare "tenantId failed format validation"
+      // loses the specific cause (e.g. INVALID_TENANT_ID vs a validation error),
+      // making debugging harder.
+      const msg = e instanceof Error ? e.message : String(e);
       throw new UnauthorizedException(
-        "TenantGuard: tenantId failed format validation."
+        `TenantGuard: tenantId failed format validation. ${msg}`,
       );
     }
   }

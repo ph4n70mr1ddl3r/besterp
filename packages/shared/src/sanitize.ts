@@ -164,25 +164,24 @@ export function sanitizeForLogOutput(message: string): string {
   // Order is critical: URL/host/path rules must run BEFORE the generic
   // long-token catch-all so URLs are collapsed to [HOST]/[PATH] first.
   // The generic rule runs LAST to avoid re-consuming legitimate placeholders.
-  return replaceGenericLongToken(
-    replaceFilesystemPaths(
-      replaceCredentialUrls(
-        replaceHostPaths(
-          replaceProviderSecrets(
-            replaceBearerAndJwtTokens(
-              replaceQuotedSecrets(
-                replaceBoundarySecrets(
-                  replaceQuerySecrets(
-                    replaceDatabaseUrls(result),
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    ),
-  );
+  //
+  // Each entry is a named function so the pipeline is easy to read, extend,
+  // and test independently — nesting function calls deepens the call stack
+  // with no additional insight and makes it harder to add a step without
+  // reformatting the entire chain.
+  const pipeline: Array<(s: string) => string> = [
+    replaceDatabaseUrls,
+    replaceQuerySecrets,
+    replaceBoundarySecrets,
+    replaceQuotedSecrets,
+    replaceBearerAndJwtTokens,
+    replaceProviderSecrets,
+    replaceHostPaths,
+    replaceCredentialUrls,
+    replaceFilesystemPaths,
+    replaceGenericLongToken,
+  ];
+  return pipeline.reduce((acc, fn) => fn(acc), result);
 }
 
 /** Replace database connection strings (postgres, redis, mongodb, mysql, amqp). */
