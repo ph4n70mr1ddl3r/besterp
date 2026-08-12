@@ -76,17 +76,13 @@ export class McpService implements OnModuleInit {
 
   /**
    * Build the MCP tool context from request overrides.
-   * 
-   * All string inputs are validated at this boundary to prevent secret
-   * leakage and XSS:
-   * - Identity fields (userId, agentId, conversationId, idempotencyKey) are
-   *   charset-validated and returned raw so they stay usable for correlation
-   *   and idempotent dedup; sanitization runs at the durable-sink surfaces.
-   * - Content fields (reasoning) have HTML tags stripped via stripHtmlTags
-   *   and secrets/URLs redacted via sanitizeForLogOutput.
-   * - Whitespace trimmed, length caps enforced via shared constants.
-   * 
-   * @param overrides - Context overrides including tenantId, userId, optional fields
+   *
+   * Identity fields (userId, agentId, conversationId, idempotencyKey) are
+   * charset-validated and returned raw so they stay usable for correlation
+   * and idempotent dedup; sanitization runs at the durable-sink surfaces
+   * (audit-log, idempotency). Content fields (reasoning) have HTML tags
+   * stripped via stripHtmlTags and secrets/URLs redacted via
+   * sanitizeForLogOutput. Whitespace trimmed, length caps enforced via shared constants.
    */
   buildContext(overrides: {
     tenantId: string;
