@@ -76,7 +76,7 @@ async function main() {
   // the previous 'besterp' 7-byte literal 0x62657374657270 ≈ 2.77e16) would
   // round on the wire and fail — or bind to a different key than intended.
   // 'bester' (6 bytes) fits comfortably in the safe range.
-  const _ADVISORY_LOCK_KEY = ADVISORY_LOCK_KEY_CLEANUP_IDEMPOTENCY;
+  const ADVISORY_LOCK_KEY = ADVISORY_LOCK_KEY_CLEANUP_IDEMPOTENCY;
 
   // Run the entire cleanup — advisory lock acquisition, scan, and
   // batched deletes — inside a single interactive transaction so every
@@ -97,7 +97,7 @@ async function main() {
       // initializer") that aborted the script before it ever ran. Interpolating
       // via ${...} is the only form Prisma binds.
       const lockResult = await tx.$queryRaw<Array<{ pg_try_advisory_lock: boolean }>>`
-        SELECT pg_try_advisory_lock(${_ADVISORY_LOCK_KEY})
+        SELECT pg_try_advisory_lock(${ADVISORY_LOCK_KEY})
       `;
       const lockAcquired = lockResult[0]?.pg_try_advisory_lock === true;
       if (!lockAcquired) {
@@ -151,8 +151,8 @@ async function main() {
 
       const afterCount = await tx.idempotencyRecord.count();
       try {
-        const _unlockResult = await tx.$queryRaw`SELECT pg_advisory_unlock(${_ADVISORY_LOCK_KEY})`;
-        void _unlockResult;
+        const unlockResult = await tx.$queryRaw`SELECT pg_advisory_unlock(${ADVISORY_LOCK_KEY})`;
+        void unlockResult;
       } catch (e) {
         console.warn("Could not release advisory lock:", sanitizeForLogOutput(e instanceof Error ? e.message : String(e)));
       }

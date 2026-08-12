@@ -1,5 +1,13 @@
 # BestERP — Security & Architecture Fixes
 
+## Changes Applied (2026-08-12) — Code Review Round 134
+
+### 🟢 `packages/database/scripts/cleanup-expired-idempotency.ts` — misleading leading-underscore variable names
+
+**Problem:** The convention `const _foo = ...` signals "intentionally unused" to both TypeScript (`noUnusedLocals`), ESLint (`varsIgnorePattern: "^_"`), and human readers. The cleanup script used `_ADVISORY_LOCK_KEY` (referenced in two SQL interpolations) and `_unlockResult` (silenced by `void`) — both were live variables whose underscore prefixes were misleading.
+
+**Fix:** Renamed to `ADVISORY_LOCK_KEY` and `unlockResult`. No behavioural change.
+
 ## Changes Applied (2026-08-12) — Code Review Round 133
 
 ### 🟡 `apps/api/src/main.ts` — CORS origins accepted arbitrary strings without format validation
