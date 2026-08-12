@@ -1,179 +1,186 @@
 // Unit tests for sensitive-field detection (shared by audit-log + error-handler)
 
 import { describe, it, expect } from "vitest";
-import { isSensitiveField, splitFieldTokens } from "../middleware/sensitive-fields.js";
-import { isSensitiveFieldName } from "@besterp/shared";
+import { isSensitiveFieldName, splitFieldNameTokens } from "@besterp/shared";
 import { redactSensitiveFields } from "../middleware/audit-log.js";
 
-// The local `isSensitiveField` delegates to the canonical `isSensitiveFieldName`
-// in @besterp/shared. The tests below assert the two surfaces agree on what
-// counts as sensitive (the asymmetric-leak class of bug that round 44 fixed).
+// The tests below exercise the canonical @besterp/shared implementation directly.
+// No local shim is needed — tool-registry.ts and audit-log.ts both import from
+// @besterp/shared, so this file tests the exact code path every consumer uses.
 
-describe("isSensitiveField", () => {
+describe("isSensitiveFieldName", () => {
   it("should catch explicit sensitive field names", () => {
-    expect(isSensitiveField("password")).toBe(true);
-    expect(isSensitiveField("apiKey")).toBe(true);
-    expect(isSensitiveField("api_key")).toBe(true);
-    expect(isSensitiveField("secret")).toBe(true);
-    expect(isSensitiveField("token")).toBe(true);
-    expect(isSensitiveField("creditCard")).toBe(true);
-    expect(isSensitiveField("ssn")).toBe(true);
-    expect(isSensitiveField("birthDate")).toBe(true);
-    expect(isSensitiveField("birth_date")).toBe(true);
-    expect(isSensitiveField("pin")).toBe(true);
-    expect(isSensitiveField("passport")).toBe(true);
+    expect(isSensitiveFieldName("password")).toBe(true);
+    expect(isSensitiveFieldName("apiKey")).toBe(true);
+    expect(isSensitiveFieldName("api_key")).toBe(true);
+    expect(isSensitiveFieldName("secret")).toBe(true);
+    expect(isSensitiveFieldName("token")).toBe(true);
+    expect(isSensitiveFieldName("creditCard")).toBe(true);
+    expect(isSensitiveFieldName("ssn")).toBe(true);
+    expect(isSensitiveFieldName("birthDate")).toBe(true);
+    expect(isSensitiveFieldName("birth_date")).toBe(true);
+    expect(isSensitiveFieldName("pin")).toBe(true);
+    expect(isSensitiveFieldName("passport")).toBe(true);
   });
 
   it("should catch OTP/MFA field names", () => {
-    expect(isSensitiveField("otp")).toBe(true);
-    expect(isSensitiveField("otp_code")).toBe(true);
-    expect(isSensitiveField("one_time_password")).toBe(true);
-    expect(isSensitiveField("mfa")).toBe(true);
-    expect(isSensitiveField("mfa_secret")).toBe(true);
-    expect(isSensitiveField("mfaToken")).toBe(true);
-    expect(isSensitiveField("otpToken")).toBe(true);
+    expect(isSensitiveFieldName("otp")).toBe(true);
+    expect(isSensitiveFieldName("otp_code")).toBe(true);
+    expect(isSensitiveFieldName("one_time_password")).toBe(true);
+    expect(isSensitiveFieldName("mfa")).toBe(true);
+    expect(isSensitiveFieldName("mfa_secret")).toBe(true);
+    expect(isSensitiveFieldName("mfaToken")).toBe(true);
+    expect(isSensitiveFieldName("otpToken")).toBe(true);
   });
 
   it("should catch passcode/passphrase and their camelCase variants", () => {
     // Bare forms — explicit in SENSITIVE_FIELDS.
-    expect(isSensitiveField("passcode")).toBe(true);
-    expect(isSensitiveField("passphrase")).toBe(true);
+    expect(isSensitiveFieldName("passcode")).toBe(true);
+    expect(isSensitiveFieldName("passphrase")).toBe(true);
     // camelCase variants — caught via the SENSITIVE_TOKENS token fallback
     // ("passcode"/"passphrase" tokens), which the regex misses because the
     // "password" branch requires the full word.
-    expect(isSensitiveField("newPasscode")).toBe(true);
-    expect(isSensitiveField("verifyPassphrase")).toBe(true);
-    expect(isSensitiveField("passcodeVerify")).toBe(true);
+    expect(isSensitiveFieldName("newPasscode")).toBe(true);
+    expect(isSensitiveFieldName("verifyPassphrase")).toBe(true);
+    expect(isSensitiveFieldName("passcodeVerify")).toBe(true);
     // snake_case forms — caught via the regex-independent token fallback too.
-    expect(isSensitiveField("passcode_hash")).toBe(true);
-    expect(isSensitiveField("user_passphrase")).toBe(true);
+    expect(isSensitiveFieldName("passcode_hash")).toBe(true);
+    expect(isSensitiveFieldName("user_passphrase")).toBe(true);
   });
 
   it("should catch all date-of-birth variants consistently", () => {
     // Regression: dateOfBirth (camelCase Date-Of-Noun form) was previously
     // missed while birthDate/birth_date/date_of_birth/dob were caught —
     // an inconsistency that leaked DOB under that specific key.
-    expect(isSensitiveField("dateOfBirth")).toBe(true);
-    expect(isSensitiveField("birthDate")).toBe(true);
-    expect(isSensitiveField("birth_date")).toBe(true);
-    expect(isSensitiveField("date_of_birth")).toBe(true);
-    expect(isSensitiveField("dob")).toBe(true);
+    expect(isSensitiveFieldName("dateOfBirth")).toBe(true);
+    expect(isSensitiveFieldName("birthDate")).toBe(true);
+    expect(isSensitiveFieldName("birth_date")).toBe(true);
+    expect(isSensitiveFieldName("date_of_birth")).toBe(true);
+    expect(isSensitiveFieldName("dob")).toBe(true);
   });
 
   it("should catch snake_case sensitive fields via regex", () => {
-    expect(isSensitiveField("auth_token")).toBe(true);
-    expect(isSensitiveField("session_token")).toBe(true);
-    expect(isSensitiveField("bearer_token")).toBe(true);
-    expect(isSensitiveField("client_secret")).toBe(true);
-    expect(isSensitiveField("access_token")).toBe(true);
-    expect(isSensitiveField("refresh_token")).toBe(true);
+    expect(isSensitiveFieldName("auth_token")).toBe(true);
+    expect(isSensitiveFieldName("session_token")).toBe(true);
+    expect(isSensitiveFieldName("bearer_token")).toBe(true);
+    expect(isSensitiveFieldName("client_secret")).toBe(true);
+    expect(isSensitiveFieldName("access_token")).toBe(true);
+    expect(isSensitiveFieldName("refresh_token")).toBe(true);
   });
 
   it("should catch camelCase sensitive fields via token fallback", () => {
-    expect(isSensitiveField("clientSecret")).toBe(true);
-    expect(isSensitiveField("bearerToken")).toBe(true);
-    expect(isSensitiveField("accessToken")).toBe(true);
-    expect(isSensitiveField("refreshToken")).toBe(true);
-    expect(isSensitiveField("userPassword")).toBe(true);
-    expect(isSensitiveField("sessionToken")).toBe(true);
+    expect(isSensitiveFieldName("clientSecret")).toBe(true);
+    expect(isSensitiveFieldName("bearerToken")).toBe(true);
+    expect(isSensitiveFieldName("accessToken")).toBe(true);
+    expect(isSensitiveFieldName("refreshToken")).toBe(true);
+    expect(isSensitiveFieldName("userPassword")).toBe(true);
+    expect(isSensitiveFieldName("sessionToken")).toBe(true);
   });
 
   it("should NOT catch benign field names (no over-redaction)", () => {
-    expect(isSensitiveField("primaryKey")).toBe(false);
-    expect(isSensitiveField("foreignKey")).toBe(false);
-    expect(isSensitiveField("sortKey")).toBe(false);
-    expect(isSensitiveField("idempotencyKey")).toBe(false);
-    expect(isSensitiveField("tokenize")).toBe(false);
-    expect(isSensitiveField("secrets")).toBe(false);
-    expect(isSensitiveField("name")).toBe(false);
-    expect(isSensitiveField("email")).toBe(false);
-    expect(isSensitiveField("partyId")).toBe(false);
-    expect(isSensitiveField("field")).toBe(false);
-    expect(isSensitiveField("conflictingFields")).toBe(false);
-    expect(isSensitiveField("lineNumber")).toBe(false);
+    expect(isSensitiveFieldName("primaryKey")).toBe(false);
+    expect(isSensitiveFieldName("foreignKey")).toBe(false);
+    expect(isSensitiveFieldName("sortKey")).toBe(false);
+    expect(isSensitiveFieldName("idempotencyKey")).toBe(false);
+    expect(isSensitiveFieldName("tokenize")).toBe(false);
+    expect(isSensitiveFieldName("secrets")).toBe(false);
+    expect(isSensitiveFieldName("name")).toBe(false);
+    expect(isSensitiveFieldName("email")).toBe(false);
+    expect(isSensitiveFieldName("partyId")).toBe(false);
+    expect(isSensitiveFieldName("field")).toBe(false);
+    expect(isSensitiveFieldName("conflictingFields")).toBe(false);
+    expect(isSensitiveFieldName("lineNumber")).toBe(false);
     // DOB-adjacent fields that share a "birth"/"date" token but are NOT PII
     // must not be over-redacted by the explicit-set approach.
-    expect(isSensitiveField("birthRate")).toBe(false);
-    expect(isSensitiveField("birthday")).toBe(false);
-    expect(isSensitiveField("birthDate")).toBe(true); // explicit in set
+    expect(isSensitiveFieldName("birthRate")).toBe(false);
+    expect(isSensitiveFieldName("birthday")).toBe(false);
+    expect(isSensitiveFieldName("birthDate")).toBe(true); // explicit in set
   });
 });
 
-describe("splitFieldTokens", () => {
+describe("splitFieldNameTokens", () => {
   it("should split camelCase", () => {
-    expect(splitFieldTokens("clientSecret")).toEqual(["client", "Secret"]);
-    expect(splitFieldTokens("bearerToken")).toEqual(["bearer", "Token"]);
+    expect(splitFieldNameTokens("clientSecret")).toEqual(["client", "Secret"]);
+    expect(splitFieldNameTokens("bearerToken")).toEqual(["bearer", "Token"]);
   });
 
   it("should split snake_case", () => {
-    expect(splitFieldTokens("access_token")).toEqual(["access", "token"]);
-    expect(splitFieldTokens("client_secret")).toEqual(["client", "secret"]);
+    expect(splitFieldNameTokens("access_token")).toEqual(["access", "token"]);
+    expect(splitFieldNameTokens("client_secret")).toEqual(["client", "secret"]);
   });
 
   it("should split kebab-case", () => {
-    expect(splitFieldTokens("bearer-token")).toEqual(["bearer", "token"]);
+    expect(splitFieldNameTokens("bearer-token")).toEqual(["bearer", "token"]);
   });
 
   it("should handle single-word names", () => {
-    expect(splitFieldTokens("name")).toEqual(["name"]);
-    expect(splitFieldTokens("token")).toEqual(["token"]);
+    expect(splitFieldNameTokens("name")).toEqual(["name"]);
+    expect(splitFieldNameTokens("token")).toEqual(["token"]);
   });
 
   it("should handle empty string", () => {
-    expect(splitFieldTokens("")).toEqual([]);
+    expect(splitFieldNameTokens("")).toEqual([]);
   });
 });
 
-describe("delegation to shared isSensitiveFieldName (single source of truth)", () => {
-  it("should agree with the shared single source of truth on every sample", () => {
-    const samples = [
+describe("canonical shared implementation (single source of truth)", () => {
+  it("should classify every sample correctly against known expectations", () => {
+    // Sensitive values that MUST be flagged
+    const sensitive: readonly string[] = [
       "password", "apiKey", "secret", "token", "code", "session", "signature",
-      "sign", "birthDate", "otp", "mfa", "primaryKey", "email", "partyId", "name",
+      "sign", "birthDate", "otp", "mfa",
     ];
-    for (const s of samples) {
-      expect(isSensitiveField(s)).toBe(isSensitiveFieldName(s));
+    // Benign values that MUST NOT be flagged (regression guard against over-redaction)
+    const benign: readonly string[] = [
+      "primaryKey", "email", "partyId", "name",
+    ];
+    for (const s of sensitive) {
+      expect(isSensitiveFieldName(s)).toBe(true);
+    }
+    for (const s of benign) {
+      expect(isSensitiveFieldName(s)).toBe(false);
     }
   });
 
   it("should contain all expected ERP-specific fields", () => {
     // The canonical set lives in @besterp/shared; verify the MCP surface
     // agrees on the ERP-specific PII/credential field names.
-    expect(isSensitiveField("birthDate")).toBe(true);
-    expect(isSensitiveField("birth_date")).toBe(true);
-    expect(isSensitiveField("date_of_birth")).toBe(true);
-    expect(isSensitiveField("dob")).toBe(true);
-    expect(isSensitiveField("national_id")).toBe(true);
-    expect(isSensitiveField("bank_account")).toBe(true);
-    expect(isSensitiveField("routing_number")).toBe(true);
-    expect(isSensitiveField("otp")).toBe(true);
-    expect(isSensitiveField("mfa")).toBe(true);
+    expect(isSensitiveFieldName("birthDate")).toBe(true);
+    expect(isSensitiveFieldName("birth_date")).toBe(true);
+    expect(isSensitiveFieldName("date_of_birth")).toBe(true);
+    expect(isSensitiveFieldName("dob")).toBe(true);
+    expect(isSensitiveFieldName("national_id")).toBe(true);
+    expect(isSensitiveFieldName("bank_account")).toBe(true);
+    expect(isSensitiveFieldName("routing_number")).toBe(true);
+    expect(isSensitiveFieldName("otp")).toBe(true);
+    expect(isSensitiveFieldName("mfa")).toBe(true);
   });
 
   it("should match standard credential patterns", () => {
-    expect(isSensitiveField("password")).toBe(true);
-    expect(isSensitiveField("secret")).toBe(true);
-    expect(isSensitiveField("token")).toBe(true);
-    expect(isSensitiveField("api_key")).toBe(true);
-    expect(isSensitiveField("apiKey")).toBe(true);
-    expect(isSensitiveField("credential")).toBe(true);
-    expect(isSensitiveField("auth_token")).toBe(true);
-    expect(isSensitiveField("authToken")).toBe(true);
+    expect(isSensitiveFieldName("password")).toBe(true);
+    expect(isSensitiveFieldName("secret")).toBe(true);
+    expect(isSensitiveFieldName("token")).toBe(true);
+    expect(isSensitiveFieldName("api_key")).toBe(true);
+    expect(isSensitiveFieldName("apiKey")).toBe(true);
+    expect(isSensitiveFieldName("credential")).toBe(true);
+    expect(isSensitiveFieldName("auth_token")).toBe(true);
+    expect(isSensitiveFieldName("authToken")).toBe(true);
   });
 
   it("should NOT match unrelated words containing sensitive substrings", () => {
-    expect(isSensitiveField("tokenize")).toBe(false);
-    expect(isSensitiveField("passwordless")).toBe(false);
-    expect(isSensitiveField("bartender")).toBe(false);
+    expect(isSensitiveFieldName("tokenize")).toBe(false);
+    expect(isSensitiveFieldName("passwordless")).toBe(false);
+    expect(isSensitiveFieldName("bartender")).toBe(false);
   });
 
   it("should redact the codes that the MCP surface previously MISSED", () => {
     // Regression for round 44: code / session / signature / sign were in the
     // shared single source of truth but absent from the old local copy, so they
     // leaked on the MCP surface while being redacted on the REST surface.
-    expect(isSensitiveField("code")).toBe(true);
-    expect(isSensitiveField("session")).toBe(true);
-    expect(isSensitiveField("signature")).toBe(true);
-    expect(isSensitiveField("sign")).toBe(true);
+    expect(isSensitiveFieldName("code")).toBe(true);
+    expect(isSensitiveFieldName("session")).toBe(true);
+    expect(isSensitiveFieldName("signature")).toBe(true);
+    expect(isSensitiveFieldName("sign")).toBe(true);
   });
 });
 

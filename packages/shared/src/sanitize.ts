@@ -482,7 +482,7 @@ function splitFieldNameTokens(key: string): string[] {
   return tokens.filter((t) => t.length > 0);
 }
 
-/** Public tokeniser used by consumers (e.g. the MCP `sensitive-fields` shim). */
+/** Public tokeniser used by consumers that need to split field names into tokens. */
 export { splitFieldNameTokens };
 
 const SENSITIVE_FIELD_TOKENS: ReadonlySet<string> = Object.freeze(new Set([
