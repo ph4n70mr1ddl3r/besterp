@@ -2,8 +2,29 @@
 
 ## Scope
 Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
-`mcp-tools`, `apps/api`) conducted on 2026-08-13. This is review 135;
-rounds 1–134 are documented in earlier revisions of this file and `CHANGES.md`.
+`mcp-tools`, `apps/api`) conducted on 2026-08-13. This is review 138;
+rounds 1–137 are documented in earlier revisions of this file and `CHANGES.md`.
+
+## Findings & Actions (round 138)
+
+### Fixed this round
+
+1. **🟡 `apps/api/src/auth/jwt.strategy.ts` — `validateTenantId` catch swallowed the original error message.** The catch block re-threw as `UnauthorizedException("Invalid token: tenantId failed format validation.")` with no context about *why* validation failed (e.g. whether the cause was an `INVALID_TENANT_ID` vs a charset mismatch). This was inconsistent with `tenant.guard.ts`, which round 133 already fixed to include the original message in the exception. Operators reading client-facing errors could not distinguish between different tenant-validation failure modes. **Fix:** included `msg` in the `UnauthorizedException`, matching the `tenant.guard.ts` pattern (`TenantGuard: tenantId failed format validation. ${msg}`). Added 1 regression test asserting the original cause is present in the thrown exception.
+
+### Reviewed but NOT changed (false positives / deferred)
+
+- **Tenant isolation (RLS boot assertions, superuser boot refusal, app-level `tenantId` filters), secret redaction across REST/MCP/durable surfaces, idempotency-key charset consistency, ReDoS, and `@Public()` scope scanning** remain intact and were re-verified by independent reads this round. No new 🔴/🟡 exploit paths found.
+- **`get_type_table_values` (discovery-tools.ts) returns all type-table rows with no `take` cap.** Type tables are admin-curated global reference data with a handful of seeded values; the tool's contract is "return all valid values", and the truncation middleware bounds the audit/agent surfaces downstream. Low risk; deferred.
+
+## Test Results (round 138)
+```
+api:       418 passed (16 files)  (+1 regression test)
+shared:    228 passed (4 files)   (unchanged)
+mcp-tools: 159 passed (4 files)   (unchanged)
+database:   34 passed, 10 skipped (3 files) (DB-backed; unchanged)
+───────────────────────────────
+Total:     839 passed, 10 skipped
+```
 
 ## Findings & Actions (round 135)
 

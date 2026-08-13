@@ -128,6 +128,19 @@ describe("JwtStrategy.validate", () => {
     ).rejects.toThrow(UnauthorizedException);
   });
 
+  it("includes the original validation cause in the UnauthorizedException message", async () => {
+    // Mirror of the round-133 tenant.guard fix: the catch block must include
+    // the original error message so operators can distinguish INVALID_TENANT_ID
+    // from length/charset failures when reading client-facing errors.
+    const err = await strategy.validate({
+      sub: "user-1",
+      tenantId: "'; DROP TABLE party;--",
+    }).catch((e) => e);
+    expect(err).toBeInstanceOf(UnauthorizedException);
+    expect(err.message).toMatch(/tenantId failed format validation/);
+    expect(err.message).toMatch(/Invalid tenant ID/);
+  });
+
   it("rejects tenantId that is too long", async () => {
     await expect(
       strategy.validate({

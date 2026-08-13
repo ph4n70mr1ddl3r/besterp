@@ -114,7 +114,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       const msg = e instanceof Error ? e.message : String(e);
       _logger.warn(`Tenant validation failed for token: ${msg}`);
       throw new UnauthorizedException(
-        "Invalid token: tenantId failed format validation."
+        `Invalid token: tenantId failed format validation. ${msg}`,
       );
     }
 

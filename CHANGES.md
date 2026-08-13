@@ -1,5 +1,13 @@
 # BestERP — Security & Architecture Fixes
 
+## Changes Applied (2026-08-13) — Code Review Round 138
+
+### 🟡 `apps/api/src/auth/jwt.strategy.ts` — `validateTenantId` catch swallowed the original error message
+
+**Problem:** The catch block re-threw as `UnauthorizedException("Invalid token: tenantId failed format validation.")` with no context about *why* validation failed (e.g. whether the cause was an `INVALID_TENANT_ID` vs a charset mismatch). This was inconsistent with `tenant.guard.ts`, which round 133 already fixed to include the original message in the exception. Operators reading client-facing errors could not distinguish between different tenant-validation failure modes.
+
+**Fix:** Included `msg` in the `UnauthorizedException` to match the `tenant.guard.ts` pattern (`Invalid token: tenantId failed format validation. ${msg}`). Added a regression test asserting the original cause is present in the thrown exception.
+
 ## Changes Applied (2026-08-13) — Code Review Round 135
 
 ### 🟡 `apps/api/src/health.service.ts` — missing `REDIS_PORT` in non-dev violated the documented "never throws" probe contract
