@@ -42,6 +42,13 @@ vi.mock("node:net", () => {
     emit(event: string, data?: unknown) {
       this.handlers[event]?.(data);
     }
+    removeAllListeners() {
+      this.handlers = {};
+    }
+    once(event: string, handler: (data?: unknown) => void) {
+      this.handlers[event] = handler;
+      return this;
+    }
   }
   return { Socket: MockSocket };
 });

@@ -340,10 +340,21 @@ export class HealthService implements OnModuleInit {
         : new net.Socket();
       let responseBuffer = "";
       const MAX_RESPONSE_BUFFER = 1024;
+      // Track the timeout so we can clear it and detach listeners in a
+      // centralized cleanup — prevents listener leaks when the socket is
+      // destroyed or the promise settles via an unexpected path.
       const timeout = setTimeout(() => {
-        socket.destroy();
-        reject(new Error("Redis connection timed out"));
+        cleanupAndReject(new Error("Redis connection timed out"));
       }, 2000);
+      // Centralized cleanup: clears the timeout, removes ALL listeners, and
+      // destroys the socket. Called on every resolve/reject path so no
+      // listener can outlive the Promise and accumulate across probes.
+      function cleanupAndReject(err: Error): void {
+        clearTimeout(timeout);
+        socket.removeAllListeners();
+        socket.destroy();
+        reject(err);
+      }
       socket.on("connect", () => {
         const redisPassword = process.env.REDIS_PASSWORD;
         if (redisPassword) {
@@ -358,8 +369,7 @@ export class HealthService implements OnModuleInit {
           // with WRONGPASS — a permanent false "disconnected" on an otherwise
           // healthy queue.
           if (redisPassword.includes("\0")) {
-            socket.destroy();
-            reject(new Error("Redis password contains a NUL byte"));
+            cleanupAndReject(new Error("Redis password contains a NUL byte"));
             return;
           }
           socket.write(encodeRespArray(["AUTH", redisPassword]));
@@ -372,9 +382,7 @@ export class HealthService implements OnModuleInit {
         // would otherwise briefly exceed the cap, defeating the DoS guard
         // that bounds memory used by the buffer on an unauthenticated probe.
         if (responseBuffer.length + chunk.length > MAX_RESPONSE_BUFFER) {
-          clearTimeout(timeout);
-          socket.destroy();
-          reject(new Error("Redis response exceeded maximum buffer size"));
+          cleanupAndReject(new Error("Redis response exceeded maximum buffer size"));
           return;
         }
         responseBuffer += chunk;
@@ -387,6 +395,7 @@ export class HealthService implements OnModuleInit {
         // sent after it.
         if (responseBuffer.includes("+PONG\r\n")) {
           clearTimeout(timeout);
+          socket.removeAllListeners();
           socket.destroy();
           resolve("connected");
           return;
@@ -396,14 +405,28 @@ export class HealthService implements OnModuleInit {
         // buffer may already contain a leading +OK from AUTH, so match any
         // line that starts with `-` rather than only the whole buffer.
         if (/(^|\r\n)-/.test(responseBuffer)) {
-          clearTimeout(timeout);
-          socket.destroy();
-          reject(new Error(`Redis error: ${sanitizeForLogOutput(responseBuffer.trim())}`));
+          const sanitized = sanitizeForLogOutput(responseBuffer.trim());
+          cleanupAndReject(new Error(`Redis error: ${sanitized}`));
         }
       });
-      socket.on("error", (err) => {
-        clearTimeout(timeout);
-        reject(err);
+      // Use .once() instead of .on() so the error handler auto-removes after
+      // firing — combined with removeAllListeners() in cleanup this prevents
+      // the handler from lingering if the socket is destroyed externally.
+      socket.once("error", (err) => {
+        // Categorize the error so operators can distinguish connection-refused
+        // from DNS failures, TLS handshake failures, etc. without reproducing
+        // the issue — the generic "disconnected" status still applies but the
+        // log carries diagnostic detail for faster triage.
+        const code = (err as NodeJS.ErrnoException).code;
+        let category = "unknown";
+        if (code === "ECONNREFUSED") category = "connection-refused";
+        else if (code === "ECONNRESET") category = "connection-reset";
+        else if (code === "ENOTFOUND") category = "dns-not-found";
+        else if (code === "ETIMEDOUT") category = "timeout";
+        else if (code === "ECONNABORTED") category = "connection-aborted";
+        else if (useTls && code === "ERR_TLS_CERT_ALTNAME_INVALID") category = "tls-cert-mismatch";
+        this.logger.debug(`Redis probe error [${category}]: ${sanitizeForLogOutput(err.message)}`);
+        cleanupAndReject(err);
       });
       if (!useTls) {
         socket.connect(redisPort, redisHost);

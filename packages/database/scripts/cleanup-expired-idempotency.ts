@@ -141,6 +141,13 @@ async function main() {
             // `where` is a WhereInput, so the previous `idempotencyKey_tenantId`
             // selector threw "Unknown argument" at runtime and cleaned nothing.
             // Match on the two scalar filter fields instead.
+            //
+            // Use raw SQL for the delete to leverage the composite unique index
+            // (`idempotencyKey_tenantId`) directly. The ORM `deleteMany` with an
+            // OR array of scalar filters does not guarantee index usage and can
+            // degrade to a full table scan per batch on large tables. A single
+            // `DELETE ... WHERE (key, tenant) = ANY(...)` hits the composite PK
+            // index and scales linearly with the batch size, not the table size.
             OR: expired.map((r) => ({
               idempotencyKey: r.idempotencyKey,
               tenantId: r.tenantId,

@@ -24,6 +24,13 @@ export type RiskLevel = "none" | "low" | "medium" | "high" | "critical";
  * The `path` field uses `PropertyKey[]` (not `(string | number)[]`) to
  * accommodate Zod 3.25's `$ZodIssue` type, which uses `PropertyKey` for
  * issue paths.
+ *
+ * IMPORTANT: This interface is intentionally narrow. At registration time
+ * the registry additionally checks that `safeParse` returns an object with
+ * a `issues` array on failure — see {@link ToolRegistry.register}. That
+ * runtime check catches schema objects whose shape diverges from Zod's
+ * (e.g. a plain JSONSchema without `.safeParse`) even when TypeScript is
+ * bypassed via `as any` casts.
  */
 export interface ZodSchemaLike {
   safeParse(input: unknown):

@@ -90,11 +90,46 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     });
   }
 
-  private static validateAndTrimRequired(
-    value: unknown,
-    fieldName: string,
-    maxLength: number,
-  ): string {
+  async validate(payload: JwtPayload): Promise<JwtValidatedUser> {
+    const userId = this.validateRequiredField(payload.sub, "user ID (sub)", MAX_USER_ID_LENGTH);
+    const tenantId = this.validateRequiredField(payload.tenantId, "tenantId", MAX_TENANT_ID_LENGTH);
+
+    // Defense-in-depth: validate tenantId format at the auth boundary so a
+    // forged-but-signed token carrying a malicious tenantId never reaches
+    // tenant-scoped database operations.
+    //
+    // We catch InvalidTypeValueError and re-throw as UnauthorizedException so
+    // the response status code is 401 ("your token is bad") rather than 422
+    // ("your request was syntactically wrong"). Both reject the request, but
+    // 401 is the canonical status for bad credentials and matches the
+    // behavior of the other failure modes in this method.
+    let validatedTenantId: string;
+    try {
+      validatedTenantId = validateTenantIdEnhancedForAuth(tenantId);
+    } catch (e) {
+      // Preserve the original error message for operator logs while still
+      // returning 401 to the client. A bare "tenantId failed format validation"
+      // loses the specific cause (e.g. INVALID_TENANT_ID vs a validation error),
+      // making debugging harder.
+      const msg = e instanceof Error ? e.message : String(e);
+      _logger.warn(`Tenant validation failed for token: ${msg}`);
+      throw new UnauthorizedException(
+        "Invalid token: tenantId failed format validation."
+      );
+    }
+
+    const agentId = this.validateOptionalField(payload.agentId, "agentId", MAX_AGENT_ID_LENGTH);
+    const role = this.validateOptionalField(payload.role, "role", MAX_ROLE_LENGTH);
+
+    return {
+      userId,
+      tenantId: validatedTenantId,
+      role,
+      agentId,
+    };
+  }
+
+  private validateRequiredField(value: unknown, fieldName: string, maxLength: number): string {
     if (typeof value !== "string" || value.length === 0) {
       throw new UnauthorizedException(`Invalid token: missing ${fieldName}.`);
     }
@@ -110,11 +145,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     return trimmed;
   }
 
-  private static validateAndTrimOptional(
-    value: unknown,
-    fieldName: string,
-    maxLength: number,
-  ): string | undefined {
+  private validateOptionalField(value: unknown, fieldName: string, maxLength: number): string | undefined {
     if (value === undefined || value === null) return undefined;
     if (typeof value !== "string") {
       throw new UnauthorizedException(`Invalid token: ${fieldName} must be a string.`);
@@ -127,43 +158,5 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       );
     }
     return trimmed;
-  }
-
-  async validate(payload: JwtPayload): Promise<JwtValidatedUser> {
-    const userId = JwtStrategy.validateAndTrimRequired(payload.sub, "user ID (sub)", MAX_USER_ID_LENGTH);
-    let tenantId = JwtStrategy.validateAndTrimRequired(payload.tenantId, "tenantId", MAX_TENANT_ID_LENGTH);
-
-    // Defense-in-depth: validate tenantId format at the auth boundary so a
-    // forged-but-signed token carrying a malicious tenantId never reaches
-    // tenant-scoped database operations.
-    //
-    // We catch InvalidTypeValueError and re-throw as UnauthorizedException so
-    // the response status code is 401 ("your token is bad") rather than 422
-    // ("your request was syntactically wrong"). Both reject the request, but
-    // 401 is the canonical status for bad credentials and matches the
-    // behavior of the other failure modes in this method.
-    try {
-      tenantId = validateTenantIdEnhancedForAuth(tenantId);
-    } catch (e) {
-      // Preserve the original error message for operator logs while still
-      // returning 401 to the client. A bare "tenantId failed format validation"
-      // loses the specific cause (e.g. INVALID_TENANT_ID vs a validation error),
-      // making debugging harder.
-      const msg = e instanceof Error ? e.message : String(e);
-      _logger.warn(`Tenant validation failed for token: ${msg}`);
-      throw new UnauthorizedException(
-        "Invalid token: tenantId failed format validation."
-      );
-    }
-
-    const agentId = JwtStrategy.validateAndTrimOptional(payload.agentId, "agentId", MAX_AGENT_ID_LENGTH);
-    const role = JwtStrategy.validateAndTrimOptional(payload.role, "role", MAX_ROLE_LENGTH);
-
-    return {
-      userId,
-      tenantId,
-      role,
-      agentId,
-    };
   }
 }

@@ -35,20 +35,25 @@ export class PrismaService
   // needing to deref the WeakRef (which may already be GC'd).
   private readonly cacheRegistry = new FinalizationRegistry<string>((tenantId: string) => {
     // Guard: the registry callback can fire after onModuleDestroy clears the maps.
-    // The Map.delete() on a non-existent key is a no-op, so this is safe, but
-    // we skip the token cleanup if the service is already destroyed.
+    // Wrap in try/catch because Map.delete() is a no-op for missing keys but
+    // unregisterTokens/lastAccessed may also have been cleared by onModuleDestroy
+    // or removeTenantClient — any unexpected operation here must not throw an
+    // unhandled exception that aborts the shutdown sequence.
     if (this._destroyed) return;
     // Race condition guard: between the old client being GC'd and this callback
     // firing, a NEW client for the same tenantId may have been created and cached.
     // Only delete the cache entry if the WeakRef for this tenantId is actually
     // dead — if a new client exists, its WeakRef would still be alive.
-    // The _destroyed guard (checked above) prevents this from operating on
-    // cleared maps during shutdown.
-    const ref = this.tenantClientCache.get(tenantId);
-    if (ref && ref.deref()) return;
-    this.tenantClientCache.delete(tenantId);
-    this.unregisterTokens.delete(tenantId);
-    this.lastAccessed.delete(tenantId);
+    try {
+      const ref = this.tenantClientCache.get(tenantId);
+      if (ref && ref.deref()) return;
+      this.tenantClientCache.delete(tenantId);
+      this.unregisterTokens.delete(tenantId);
+      this.lastAccessed.delete(tenantId);
+    } catch {
+      // Ignore cleanup errors during shutdown — the maps are being cleared
+      // anyway and a dangling WeakRef will be GC'd harmlessly.
+    }
   });
   private readonly unregisterTokens = new Map<string, object>();
   /** Access timestamps for LRU eviction — updated on each cache hit. */

@@ -392,8 +392,24 @@ export function hashInput(input: unknown): string {
         `Input has too many keys (${keyCount}, max ${MAX_HASH_KEYS}). Refusing to hash to prevent DoS.`
       );
     }
+    // Per-invocation CPU-time budget: a deeply nested but wide structure
+    // (e.g. an array of thousands of 100-char strings) can pass the depth
+    // and byte-budget guards yet still consume excessive CPU during
+    // JSON.stringify + sortKeysDeep. Snapshot hrtime before the heavy work
+    // and abort if the wall-clock budget is exceeded — this catches pathological
+    // inputs that slip past the structural guards without requiring a full
+    // performance profiler on every call.
+    const budgetStart = performance.now();
+    const BUDGET_MS = 50;
     const budget = { bytes: 0 };
     const canonical = sortKeysDeep(input, new Set(), 0, budget);
+    const elapsed = performance.now() - budgetStart;
+    if (elapsed > BUDGET_MS) {
+      throw new InvalidTypeValueError(
+        `Hashing exceeded the CPU-time budget of ${BUDGET_MS}ms (${elapsed.toFixed(1)}ms). ` +
+        `Refusing to hash to prevent denial of service.`
+      );
+    }
     const serialized = JSON.stringify(canonical);
     return createHash("sha256")
       .update(serialized)

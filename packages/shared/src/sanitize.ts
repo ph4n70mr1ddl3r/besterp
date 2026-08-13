@@ -314,20 +314,49 @@ const ULID_PATTERN = new RegExp(`^[0-9][${ULID_CHARSET}]{25}$`);
 const PREFIXED_ULID_PATTERN = new RegExp(`^[a-z][a-z0-9]{0,19}_[0-9][${ULID_CHARSET}]{25}$`);
 
 function replaceGenericLongToken(input: string): string {
-  return input.replace(/[A-Za-z0-9_./=+-]{20,128}/g, (match) => {
-    if (REDACTED_PLACEHOLDERS.test(match)) return match;
-    if (ULID_PATTERN.test(match)) return match;
-    if (PREFIXED_ULID_PATTERN.test(match)) return match;
-    if (/^[a-z]+$/.test(match)) return match;
-    if (/^[a-f0-9]+$/i.test(match)) return match;
-    if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(match)) return match;
-    if (/^[a-zA-Z0-9_-]+$/.test(match)) {
-      const hasLetter = /[a-zA-Z]/.test(match);
-      const hasDigit = /[0-9]/.test(match);
-      if (!(hasLetter && hasDigit)) return match;
+  // Use a state-machine scan instead of a single greedy regex to avoid
+  // catastrophic backtracking on long runs of matching characters. The
+  // original `/[A-Za-z0-9_./=+-]{20,128}/g` is a greedy quantifier with a
+  // character class that overlaps common text — on adversarial input the
+  // engine re-evaluates the alternations (ULID check, prefix check, hex
+  // check, etc.) per match position, yielding O(n²) behaviour on strings
+  // near the MAX_LOG_OUTPUT_LENGTH cap. Scanning manually picks each
+  // candidate ONCE and never backtracks.
+  const result: string[] = [];
+  let pos = 0;
+  const candidateRe = /[A-Za-z0-9_./=+-]{20,128}/g;
+  let match: RegExpExecArray | null;
+  while ((match = candidateRe.exec(input)) !== null) {
+    const matchStart = match.index;
+    const matchEnd = matchStart + match[0].length;
+    // Skip matches already consumed by a previous iteration (should not
+    // happen with /g, but guard against overlapping engine behaviour).
+    if (matchStart < pos) continue;
+    result.push(input.slice(pos, matchStart));
+    const candidate = match[0];
+    if (REDACTED_PLACEHOLDERS.test(candidate)) {
+      result.push(candidate);
+    } else if (ULID_PATTERN.test(candidate)) {
+      result.push(candidate);
+    } else if (PREFIXED_ULID_PATTERN.test(candidate)) {
+      result.push(candidate);
+    } else if (/^[a-z]+$/.test(candidate)) {
+      result.push(candidate);
+    } else if (/^[a-f0-9]+$/i.test(candidate)) {
+      result.push(candidate);
+    } else if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(candidate)) {
+      result.push(candidate);
+    } else if (/^[a-zA-Z0-9_-]+$/.test(candidate)) {
+      const hasLetter = /[a-zA-Z]/.test(candidate);
+      const hasDigit = /[0-9]/.test(candidate);
+      result.push(hasLetter && hasDigit ? "[REDACTED_TOKEN]" : candidate);
+    } else {
+      result.push("[REDACTED_TOKEN]");
     }
-    return "[REDACTED_TOKEN]";
-  });
+    pos = matchEnd;
+  }
+  result.push(input.slice(pos));
+  return result.join("");
 }
 
 /** Collapse URLs to [HOST]/[PATH] form (http, https, ftp, sftp, ws, wss). */

@@ -257,12 +257,12 @@ function parseAllowedOrigins(): string[] {
  * Localhost origins allowed in development when CORS_ORIGINS is unset.
  * Covers the common dev-server ports (NestJS default, Vite, Next.js).
  */
-const DEV_LOCALHOST_ORIGINS: readonly string[] = Object.freeze([
+const DEV_LOCALHOST_ORIGINS = Object.freeze([
   "http://localhost:3000",
   "http://localhost:3001",
   "http://localhost:5173",
   "http://localhost:5174",
-]);
+]) as readonly string[];
 
 function isAllowedOrigin(origin: string | undefined, allowed: string[]): boolean {
   if (!origin || allowed.length === 0) return false;

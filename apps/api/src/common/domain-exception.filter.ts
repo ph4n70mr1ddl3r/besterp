@@ -140,21 +140,39 @@ export class DomainExceptionFilter implements ExceptionFilter {
       } else if (Array.isArray(res.message)) {
         // Strip user-supplied values from per-field detail strings while
         // preserving the field name and constraint description.
+        // Use a conservative whitelist approach: known class-validator
+        // constraint prefixes are stripped, then any trailing quoted
+        // literal is removed. This is more robust than trying to match
+        // the full message format with a single regex — class-validator
+        // message shapes vary across constraints and versions, so a
+        // whitelist of prefixes is less fragile than a blanket regex.
         const cleaned: string[] = res.message
           .map((m) => {
             if (typeof m !== "string") return "Validation error";
-            const stripped = m
-               .replace(/\s*received\s*:\s*"[^"]*"\s*$/i, "")
-               .replace(/\s*received\s*:\s*'[^']*'\s*$/i, "")
-               .replace(/\s*"[^"]*"\s*$/, "")
-               .replace(/\s*'[^']*'\s*$/, "")
-               .replace(/[.,;:]\s*$/, "")
-               .trim() || m.split(" ")[0] || "Validation error";
-            return sanitizeForLogOutput(stripped);
+            let stripped = m;
+            // Remove leading class-validator constraint prefixes (e.g.
+            // "minLength()", "isString()", "must be less than …"). Stripping
+            // only the prefix — NOT the rest of the message — keeps the
+            // error readable while removing the field-name / value that
+            // class-validator appends. A trailing quoted literal (the
+            // received value) is then removed by the next step.
+            const prefixMatch = stripped.match(/^(is\w+|mustBe\w+|must be [a-z ]+|should be [a-z ]+|should not be [a-z ]+|is not [a-z ]+|must contain|must not contain|should contain|should not contain|is optional|must be optional|is required|must be required|minAllowed|maxAllowed|notIn|min|max|length|equals|matches|isArray|minDecimalValue|isNotEmpty|isEmpty|isBoolean|isDate|isNumber|isString|isEnum|isInstanceOf|arrayMinSize|arrayMaxSize|isTrue|isFalse|isNull|isNotNull)[^a-zA-Z]*/i);
+            if (prefixMatch) {
+              stripped = stripped.slice(prefixMatch[0].length).trim();
+            }
+            // Strip any trailing quoted literal or `received: "…"` suffix.
+            stripped = stripped
+              .replace(/\s*received\s*:\s*"[^"]*"\s*$/i, "")
+              .replace(/\s*received\s*:\s*'[^']*'\s*$/i, "")
+              .replace(/\s*"[^"]*"\s*$/, "")
+              .replace(/\s*'[^']*'\s*$/, "")
+              .replace(/[.,;:]\s*$/, "")
+              .trim();
+            return stripped || m.split(" ")[0] || "Validation error";
           })
           .filter(Boolean);
         safeBody.message = cleaned.length > 0
-          ? cleaned
+          ? cleaned.map((c) => sanitizeForLogOutput(c))
           : (status === 400 ? "Validation failed" : "Request error");
       } else {
         safeBody.message = status === 400 ? "Validation failed" : "Request error";

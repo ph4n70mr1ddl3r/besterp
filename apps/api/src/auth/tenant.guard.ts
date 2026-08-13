@@ -32,7 +32,15 @@ export class TenantGuard implements CanActivate {
     }
 
     const request = context.switchToHttp().getRequest<Request>();
-    const user = request.user as JwtValidatedUser;
+    // Runtime shape guard: `request.user` could be undefined or a partial
+    // object if JwtAuthGuard failed silently (misconfigured strategy, etc.).
+    // An unsafe `as` cast alone gives TypeScript a false sense of safety;
+    // the check below ensures the expected fields exist before proceeding.
+    const rawUser = request.user;
+    if (!rawUser || typeof rawUser !== "object" || !("tenantId" in rawUser)) {
+      return false;
+    }
+    const user = rawUser as JwtValidatedUser;
 
     if (!user) {
       // JwtAuthGuard should always run before TenantGuard and populate

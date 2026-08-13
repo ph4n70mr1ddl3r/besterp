@@ -4,6 +4,67 @@
 // duplication and ensure consistency.
 
 /**
+ * Trim and validate an optional string field: reject non-string types,
+ * reject whitespace-only input, enforce max length. Returns trimmed value
+ * or undefined.
+ *
+ * Extracted from JwtStrategy.validateAndTrimOptional and
+ * McpService.validateOptionalField so the core trim/length/type-check
+ * logic lives in a single place and all layers can wrap the error in
+ * their own exception class (UnauthorizedException vs InvalidTypeValueError).
+ */
+export function trimOptionalString(value: unknown, maxLength: number): string | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  if (trimmed.length === 0) return undefined;
+  if (trimmed.length > maxLength) return undefined;
+  return trimmed;
+}
+
+/**
+ * Trim and validate a required string field: reject missing / whitespace-only
+ * / non-string / over-length values. Callers are expected to throw their own
+ * exception class with a descriptive message when the result is undefined.
+ */
+export function trimRequiredString(value: unknown, maxLength: number): string | undefined {
+  if (typeof value !== "string" || value.length === 0) return undefined;
+  const trimmed = value.trim();
+  if (trimmed.length === 0) return undefined;
+  if (trimmed.length > maxLength) return undefined;
+  return trimmed;
+}
+
+/**
+ * Validate an optional string field, throwing on non-string / whitespace-only
+ * / over-length input. Mirrors the throwing semantics of the previous
+ * McpService.validateOptionalField so callers that expect structured errors
+ * keep working. Use {@link trimOptionalString} when a silent undefined is
+ * preferred.
+ */
+export function validateOptionalString(
+  fieldName: string,
+  value: unknown,
+  maxLength: number,
+): string | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== "string") {
+    throw new Error(`${fieldName} must be a string, received ${typeof value}.`);
+  }
+  const trimmed = value.trim();
+  if (trimmed.length === 0) {
+    if (value.length > 0) {
+      throw new Error(`${fieldName} cannot be whitespace-only.`);
+    }
+    return undefined;
+  }
+  if (trimmed.length > maxLength) {
+    throw new Error(`${fieldName} is too long (${trimmed.length} chars, max ${maxLength}).`);
+  }
+  return trimmed;
+}
+
+/**
  * UUID validation regex — matches standard hyphenated UUID format.
  *
  * Accepts `550e8400-e29b-41d4-a716-446655440000` (8-4-4-4-12 with hyphens).

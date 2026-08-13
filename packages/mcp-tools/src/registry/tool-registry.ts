@@ -110,6 +110,8 @@ export class ToolRegistry {
       );
     }
 
+    this.validateInputSchemaShape(definition.name, definition.inputSchema);
+
     this.tools.set(definition.name, {
       definition,
       middlewares,
@@ -362,6 +364,27 @@ export class ToolRegistry {
       entity: entry.definition.entity,
       tags: entry.definition.tags ? [...entry.definition.tags] : undefined,
     }));
+  }
+
+  /**
+   * Second-level runtime guard: verify the safeParse result shape matches
+   * what the registry expects. Some Zod-compatible libraries expose
+   * `.safeParse()` but return a different error shape (e.g. Zod v4 wraps
+   * issues under `.issues` instead of a top-level `issues` array). This
+   * is extracted from {@link register} to keep that method's cyclomatic
+   * complexity within the lint cap while still catching shape mismatches
+   * at registration time rather than mid-execution.
+   */
+  private validateInputSchemaShape(toolName: string, schema: unknown): void {
+    const cast = schema as { safeParse: (i: unknown) => { success: boolean; data?: unknown; error?: { issues?: unknown } } };
+    if (typeof cast.safeParse !== "function") return;
+    const probe = cast.safeParse(undefined as unknown);
+    if (probe.success === false && !(probe.error && typeof (probe.error as Record<string, unknown>).issues === "object")) {
+      throw new Error(
+        `Tool '${toolName}': inputSchema.safeParse() returned an error without an 'issues' array. ` +
+        `Expected { success: false, error: { issues: [...] } }; got a shape that may be incompatible with this registry.`
+      );
+    }
   }
 
   /**
