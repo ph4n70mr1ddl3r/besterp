@@ -10,8 +10,8 @@
 
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from "@nestjs/common";
 import { PrismaClient } from "@prisma/client";
-import { createTenantClient, validateTenantIdEnhanced, CreateTenantClientOptions, TenantScopedClient } from "@besterp/database";
-import { MAX_TENANT_CACHE_SIZE, sanitizeForLogOutput, isDev } from "@besterp/shared";
+import { createTenantClient, CreateTenantClientOptions, TenantScopedClient } from "@besterp/database";
+import { MAX_TENANT_CACHE_SIZE, sanitizeForLogOutput, isDev, validateTenantIdEnhancedForAuth } from "@besterp/shared";
 import { normalizeCacheSize } from "../bootstrap-config.js";
 
 // Cache configuration constants — exported for testing and override via env
@@ -396,7 +396,7 @@ export class PrismaService
       );
     }
 
-    const normalizedTenantId = validateTenantIdEnhanced(tenantId);
+    const normalizedTenantId = validateTenantIdEnhancedForAuth(tenantId);
 
     const cached = this.tenantClientCache.get(normalizedTenantId)?.deref();
     if (cached) {

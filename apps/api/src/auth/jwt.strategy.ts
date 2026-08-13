@@ -16,8 +16,7 @@ import { Injectable, Logger, UnauthorizedException } from "@nestjs/common";
 import { PassportStrategy } from "@nestjs/passport";
 import { ExtractJwt, Strategy } from "passport-jwt";
 import { randomBytes } from "node:crypto";
-import { validateTenantIdEnhanced } from "@besterp/database";
-import { MAX_USER_ID_LENGTH, MAX_AGENT_ID_LENGTH, MAX_ROLE_LENGTH, MAX_TENANT_ID_LENGTH, isProd } from "@besterp/shared";
+import { MAX_USER_ID_LENGTH, MAX_AGENT_ID_LENGTH, MAX_ROLE_LENGTH, MAX_TENANT_ID_LENGTH, isProd, validateTenantIdEnhancedForAuth } from "@besterp/shared";
 
 export interface JwtPayload {
   sub: string;      // user ID
@@ -144,7 +143,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     // 401 is the canonical status for bad credentials and matches the
     // behavior of the other failure modes in this method.
     try {
-      tenantId = validateTenantIdEnhanced(tenantId);
+      tenantId = validateTenantIdEnhancedForAuth(tenantId);
     } catch (e) {
       // Preserve the original error message for operator logs while still
       // returning 401 to the client. A bare "tenantId failed format validation"

@@ -1,6 +1,5 @@
 import { Injectable, Logger, OnModuleInit } from "@nestjs/common";
-import { InvalidTypeValueError, MAX_USER_ID_LENGTH, MAX_IDEMPOTENCY_KEY_LENGTH, SAFE_IDEMPOTENCY_KEY, MAX_AGENT_ID_LENGTH, MAX_CONVERSATION_ID_LENGTH, MAX_REASONING_LENGTH, stripHtmlTags, sanitizeForLogOutput, TENANT_ID_PATTERN } from "@besterp/shared";
-import { validateTenantIdEnhanced } from "@besterp/database";
+import { InvalidTypeValueError, MAX_USER_ID_LENGTH, MAX_IDEMPOTENCY_KEY_LENGTH, SAFE_IDEMPOTENCY_KEY, MAX_AGENT_ID_LENGTH, MAX_CONVERSATION_ID_LENGTH, MAX_REASONING_LENGTH, stripHtmlTags, sanitizeForLogOutput, TENANT_ID_PATTERN, validateTenantIdEnhancedForAuth } from "@besterp/shared";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { PartyService } from "../modules/core/party/party.service.js";
 import {
@@ -112,7 +111,7 @@ export class McpService implements OnModuleInit {
   }
 
   private validateTenantId(value: string): string {
-    return validateTenantIdEnhanced(value);
+    return validateTenantIdEnhancedForAuth(value);
   }
 
   private validateUserId(value: string): string {
