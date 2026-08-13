@@ -11,12 +11,7 @@ import {
   ToolDefinition,
   ToolContext,
 } from "@besterp/mcp-tools";
-import { InvalidTypeValueError, sanitizeForLogOutput, stripHtmlTags } from "@besterp/shared";
-
-/** Bounds the free-text `entity` filter so an unbounded string isn't allocated
- * and compared against every tool's entity (consistency with every other MCP
- * string input, which enforces a max length). */
-const MAX_ENTITY_LENGTH = 64;
+import { InvalidTypeValueError, sanitizeForLogOutput, stripHtmlTags, MAX_ENTITY_LENGTH } from "@besterp/shared";
 
 // Mapping from type table names to Prisma model delegate keys and ID fields.
 const TYPE_TABLE_MAP = {

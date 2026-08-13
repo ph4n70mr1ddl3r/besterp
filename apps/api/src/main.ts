@@ -92,12 +92,17 @@ function validateJwtExpiresIn(): void {
     if (match) {
       const value = Number(match[1]);
       const unit = match[2];
-      let exceedsMax = false;
-      if (unit === "d" && value > MAX_JWT_EXPIRES_IN_DAYS) exceedsMax = true;
-      else if (unit === "h" && value / 24 > MAX_JWT_EXPIRES_IN_DAYS) exceedsMax = true;
-      else if (unit === "m" && value / (24 * 60) > MAX_JWT_EXPIRES_IN_DAYS) exceedsMax = true;
-      else if (unit === "s" && value / (24 * 60 * 60) > MAX_JWT_EXPIRES_IN_DAYS) exceedsMax = true;
-      if (exceedsMax) {
+      // Convert to total seconds using integer arithmetic to avoid
+      // floating-point precision issues at boundary values (e.g.
+      // 259200s = exactly 3 days, but 259200 / 86400 = 3.0000000000000004).
+      // All units map to an integer number of seconds for valid inputs.
+      const totalSeconds =
+        unit === "d" ? value * 24 * 60 * 60
+      : unit === "h" ? value * 60 * 60
+      : unit === "m" ? value * 60
+      :                   value;
+      const maxSeconds = MAX_JWT_EXPIRES_IN_DAYS * 24 * 60 * 60;
+      if (totalSeconds > maxSeconds) {
         logger.error(
           `JWT_EXPIRES_IN "${process.env.JWT_EXPIRES_IN}" exceeds the maximum allowed token lifetime of ${MAX_JWT_EXPIRES_IN_DAYS} days.`
         );

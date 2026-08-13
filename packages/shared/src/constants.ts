@@ -181,6 +181,9 @@ export const AUDIT_WRITE_QUEUE_TIMEOUT_MS = 5_000;
 /** Preview length (bytes) when a payload is truncated. */
 export const TRUNCATE_PREVIEW_BYTES = 1024;
 
+/** Maximum length for free-text MCP tool filters (e.g. entity name in list_available_tools). */
+export const MAX_ENTITY_LENGTH = 64;
+
 /** Maximum allowed JWT token lifetime in days. */
 export const MAX_JWT_EXPIRES_IN_DAYS = 30;
 
