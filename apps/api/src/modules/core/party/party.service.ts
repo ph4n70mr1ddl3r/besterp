@@ -567,7 +567,13 @@ export class PartyService {
         include: PartyService.PARTY_INCLUDE,
         take: validatedLimit,
         skip: validatedOffset,
-        orderBy: { createdAt: "desc" },
+        // Deterministic ordering across offset pages: `createdAt` is a
+        // timestamp(3) (millisecond precision), so bulk/concurrent inserts
+        // routinely share a timestamp. Ordering on it alone lets the DB return
+        // tied rows in an arbitrary order, producing duplicate or skipped
+        // parties between pages. `partyId` (unique PK) breaks every tie so
+        // offset pagination is total and stable.
+        orderBy: [{ createdAt: "desc" }, { partyId: "asc" }],
       });
     } catch (err) {
       throw PartyService.handleTransactionError(err, "search_parties", "search_parties", "party");

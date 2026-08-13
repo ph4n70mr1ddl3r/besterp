@@ -768,6 +768,29 @@ describe("PartyService", () => {
       expect(mockDb.party.findMany).toHaveBeenCalled();
     });
 
+    it("should order by createdAt desc with a partyId tiebreaker for stable pagination", async () => {
+      // Regression (round 135): ordering on createdAt alone (timestamptz(3),
+      // millisecond precision) leaves tied rows in an arbitrary DB order, so
+      // bulk/concurrent inserts with the same timestamp produced duplicate or
+      // skipped parties across offset pages. The unique partyId PK must break
+      // every tie so pagination is total and stable.
+      const mockDb = {
+        party: {
+          count: vi.fn().mockResolvedValue(0),
+          findMany: vi.fn().mockResolvedValue([]),
+        },
+      };
+      mockPrismaService.tenantScoped.mockReturnValue(mockDb);
+
+      await partyService.searchParties({ tenantId: "tenant-1", name: "acme" });
+
+      expect(mockDb.party.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          orderBy: [{ createdAt: "desc" }, { partyId: "asc" }],
+        })
+      );
+    });
+
     it("should reject whitespace-only name filter (don't silently widen to all parties)", async () => {
       // Regression guard: the old code silently dropped a whitespace-only
       // `name` filter and returned every party in the tenant. That's a UX

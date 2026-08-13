@@ -157,6 +157,25 @@ describe("HealthService", () => {
       expect(result.warning).toContain("Redis");
     });
 
+    it("should skip the Redis probe and report disconnected when REDIS_PORT is absent in non-development", async () => {
+      // Regression (round 135): the missing-port path used to THROW in
+      // non-development, which contradicted probeRedis()'s documented "never
+      // rejects" contract and turned /api/health into a bare 500 when it
+      // fired. It must warn once, skip the probe, and report "disconnected"
+      // without opening a socket, consistent with the invalid-port path.
+      vi.stubEnv("NODE_ENV", "staging");
+      vi.stubEnv("REDIS_HOST", "localhost");
+      vi.stubEnv("REDIS_PORT", undefined);
+      redisConnectMock.mockClear();
+
+      const service = new HealthService(createMockPrisma());
+      const result = await service.getHealth();
+
+      expect(redisConnectMock).not.toHaveBeenCalled();
+      expect(result.redis).toBe("disconnected");
+      expect(result.warning).toContain("Redis");
+    });
+
     it("should default environment to 'development' when NODE_ENV is unset", async () => {
       vi.stubEnv("NODE_ENV", undefined);
       const service = new HealthService(createMockPrisma());

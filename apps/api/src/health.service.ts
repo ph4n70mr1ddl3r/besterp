@@ -279,15 +279,23 @@ export class HealthService implements OnModuleInit {
     // Mirror QueueModule's fail-closed posture: silently defaulting to
     // DEFAULT_REDIS_PORT when REDIS_HOST is set but REDIS_PORT is absent could
     // connect to an unintended Redis instance (the same footgun QueueModule
-    // refuses in production). Throw in non-development so a misconfigured
-    // staging/test deploy surfaces a clear error rather than probing the
-    // wrong service — the warning-only path was the gap that made the health
-    // endpoint report "connected" while the queue refused to start.
+    // refuses in production). Warn once and SKIP the probe, reported as
+    // "disconnected" (not "not_configured") so the health payload still
+    // signals the misconfiguration. Previously this path THREW in non-dev,
+    // contradicting the "never throws" contract documented below (and on
+    // probeRedis) — when it fired, getHealth() rejected and /api/health and
+    // /api/health/ready returned a bare 500 instead of the documented status
+    // body. QueueModule's own boot-time port validation is the real fail-
+    // closed gate that stops a misconfigured deploy from starting, so
+    // reporting an accurate "disconnected" here cannot mask startup failure
+    // and keeps the anonymous health endpoints resilient.
     if (!process.env.REDIS_PORT && !isDev()) {
-      throw new Error(
+      this.warnOnce(
         `REDIS_PORT is required in non-development environments when REDIS_HOST is set. ` +
-        `Set REDIS_PORT explicitly to avoid connecting to the wrong Redis instance.`
+        `Skipping the Redis health check and reporting disconnected — set REDIS_PORT explicitly ` +
+        `to avoid connecting to the wrong Redis instance.`
       );
+      return "disconnected";
     }
 
     // Treat unset AND empty/whitespace-only REDIS_PORT as "not configured",

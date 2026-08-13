@@ -1,5 +1,19 @@
 # BestERP — Security & Architecture Fixes
 
+## Changes Applied (2026-08-13) — Code Review Round 135
+
+### 🟡 `apps/api/src/health.service.ts` — missing `REDIS_PORT` in non-dev violated the documented "never throws" probe contract
+
+**Problem:** `runRedisProbe` threw on a missing `REDIS_PORT` in non-development, contradicting its own doc comment and `probeRedis`'s promise that the probe "never throws" and warns-and-skips on a missing or invalid port. When that path fired, `getHealth()` rejected and `/api/health` + `/api/health/ready` returned a bare 500 (masked as a generic error in production) instead of the documented structured status body with the Redis warning — an inconsistency with the invalid-port branch, which already warns once and reports `"disconnected"`.
+
+**Fix:** The missing-port path now matches the invalid-port branch: warn once and skip the probe, reporting `"disconnected"` (not `"not_configured"`) so the health payload still flags the misconfiguration. QueueModule's boot-time port validation remains the real fail-closed gate that keeps a misconfigured deploy from starting, so startup enforcement is unchanged. Added a regression test (`NODE_ENV=staging`, `REDIS_HOST` set, `REDIS_PORT` unset → no socket opened, redis `"disconnected"`, warning present).
+
+### 🟢 `apps/api/src/modules/core/party/party.service.ts` — `searchParties` offset pagination non-deterministic for tied `createdAt`
+
+**Problem:** `orderBy: { createdAt: "desc" }` alone leaves rows sharing an identical `createdAt` (timestamp(3), millisecond precision) in an arbitrary DB order. Bulk and concurrent inserts routinely share a timestamp, so offset pagination could return duplicate or skipped parties across pages each time the DB chooses a different order among tied rows.
+
+**Fix:** Added `{ partyId: "asc" }` as a deterministic tiebreaker (`orderBy: [{ createdAt: "desc" }, { partyId: "asc" }]`), making offset pagination total and stable. Added a regression test asserting the ordering is passed to `findMany`.
+
 ## Changes Applied (2026-08-12) — Code Review Round 134
 
 ### 🟢 `packages/database/scripts/cleanup-expired-idempotency.ts` — misleading leading-underscore variable names

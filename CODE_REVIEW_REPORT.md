@@ -2,32 +2,33 @@
 
 ## Scope
 Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
-`mcp-tools`, `apps/api`) conducted on 2026-08-12. This is review 134;
-rounds 1–133 are documented in earlier revisions of this file and `CHANGES.md`.
+`mcp-tools`, `apps/api`) conducted on 2026-08-13. This is review 135;
+rounds 1–134 are documented in earlier revisions of this file and `CHANGES.md`.
 
-## Findings & Actions (round 134)
+## Findings & Actions (round 135)
 
 ### Fixed this round
 
-1. **🟢 `cleanup-expired-idempotency.ts` — misleading leading-underscore variable names.** The convention `const _foo = ...` signals "intentionally unused" to both TypeScript (`noUnusedLocals`), ESLint (`varsIgnorePattern: "^_"`), and human readers. The cleanup script used `_ADVISORY_LOCK_KEY` (a live variable referenced in two SQL interpolations) and `_unlockResult` (a live variable silenced only by `void`). Both were renamed to their un-prefixed forms so the names accurately reflect their usage and readers do not waste time hunting for supposed-unused-code. Behaviour is unchanged.
+1. **🟡 `apps/api/src/health.service.ts` — missing `REDIS_PORT` in non-dev violated the documented "never throws" probe contract.** `runRedisProbe` threw on a missing `REDIS_PORT` in non-development while its doc comment (and `probeRedis`'s) documented that the probe "never throws" and warns-and-skips on a missing or invalid port. When that path fired, `getHealth()` rejected and `/api/health` + `/api/health/ready` returned a bare 500 (masked as a generic error in prod) instead of the structured status body — inconsistent with the invalid-port branch, which already warns once and reports `"disconnected"`. **Fix:** the missing-port path now mirrors the invalid-port branch (warn once + skip the probe + report `"disconnected"`), so the health payload still flags the misconfiguration while the endpoints stay resilient. QueueModule's boot-time port validation remains the actual fail-closed gate against a misconfigured deploy starting. Added 1 regression test.
+
+2. **🟢 `apps/api/src/modules/core/party/party.service.ts` — `searchParties` offset pagination non-deterministic for tied `createdAt`.** `orderBy: { createdAt: "desc" }` alone leaves rows with an identical `createdAt` (timestamp(3), millisecond precision) in an arbitrary DB order; bulk/concurrent inserts routinely share a timestamp, so offset pagination could return duplicate or skipped parties across pages. **Fix:** added `{ partyId: "asc" }` as a deterministic tiebreaker. Added 1 regression test.
 
 ### Reviewed but NOT changed (false positives / deferred)
 
 - **Tenant isolation (RLS boot assertions, superuser boot refusal, app-level `tenantId` filters), secret redaction across REST/MCP/durable surfaces, idempotency-key charset consistency, ReDoS, and `@Public()` scope scanning** remain intact and were re-verified by independent reads this round. No new 🔴/🟡 exploit paths found.
-- **`jwt.strategy.ts` `_jwtSecretCache` / `_logger`** — legitimately private module-level state; the underscore prefix is the correct convention here because these are intentionally internal (not exported, not consumed from other modules). No change needed.
-- **`_ADVISORY_LOCK_KEY` documentation** — the existing comment block explaining the value's constraints is retained; the rename only affects the variable name, not the explanatory comment.
+- **`get_type_table_values` (discovery-tools.ts) returns all type-table rows with no `take` cap.** Type tables are admin-curated global reference data with a handful of seeded values; the tool's contract is "return all valid values", and the truncation middleware bounds the audit/agent surfaces downstream. Low risk; deferred.
 
-## Test Results (round 134)
+## Test Results (round 135)
 ```
-api:       415 passed (16 files)  (unchanged — no behavioural changes)
+api:       417 passed (16 files)  (+2 regression tests)
 shared:    228 passed (4 files)   (unchanged)
 mcp-tools: 159 passed (4 files)   (unchanged)
-database:   27 passed, 10 skipped (2 files) (DB-backed; unchanged)
+database:   34 passed, 10 skipped (3 files) (DB-backed; unchanged)
 ───────────────────────────────
-Total:     829 passed, 10 skipped
+Total:     838 passed, 10 skipped
 ```
 
-## Findings & Actions (round 133)
+## Findings & Actions (round 134)
 
 ### Fixed this round
 
