@@ -42,14 +42,6 @@ export class TenantGuard implements CanActivate {
     }
     const user = rawUser as JwtValidatedUser;
 
-    if (!user) {
-      // JwtAuthGuard should always run before TenantGuard and populate
-      // req.user. If we reach this branch, the JWT was invalid or missing —
-      // return false so NestJS returns 401 Unauthorized (not 500), preserving
-      // the correct semantic for an authentication failure.
-      return false;
-    }
-
     const tenantId = this.validateTenantId(user);
     const userId = this.validateUserId(user);
     const agentId = this.validateAgentId(user);
