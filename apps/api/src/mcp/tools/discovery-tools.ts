@@ -22,7 +22,17 @@ const TYPE_TABLE_MAP = {
 
 type TypeName = keyof typeof TYPE_TABLE_MAP;
 
-/** Minimal interface for a Prisma model delegate with findMany. */
+/**
+ * Minimal interface for a Prisma model delegate with findMany.
+ *
+ * Intentionally narrow: the dynamic property access on line 96 bypasses
+ * Prisma's strict typing because TYPE_TABLE_MAP keys (PARTY_TYPE, ROLE_TYPE,
+ * CONTACT_MECHANISM_TYPE) are validated at the Zod schema level but the
+ * runtime cast through `prisma as unknown as Record<string, unknown>` is
+ * unavoidable for the dynamic lookup. Only `findMany` + the expected shape
+ * matters here — the registry's registration-time `.safeParse` guard and
+ * the explicit null checks on lines 97–103 catch shape mismatches.
+ */
 interface PrismaModelDelegate {
   findMany(options: { select: Record<string, boolean> }): Promise<Record<string, unknown>[]>;
 }

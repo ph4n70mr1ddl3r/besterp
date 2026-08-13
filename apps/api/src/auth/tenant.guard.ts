@@ -37,7 +37,7 @@ export class TenantGuard implements CanActivate {
     // An unsafe `as` cast alone gives TypeScript a false sense of safety;
     // the check below ensures the expected fields exist before proceeding.
     const rawUser = request.user;
-    if (!rawUser || typeof rawUser !== "object" || !("tenantId" in rawUser)) {
+    if (rawUser == null || typeof rawUser !== "object" || !("tenantId" in rawUser)) {
       return false;
     }
     const user = rawUser as JwtValidatedUser;
