@@ -2,8 +2,8 @@
 
 ## Scope
 Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
-`mcp-tools`, `apps/api`) conducted on 2026-08-14. This is review 147;
-rounds 1–146 are documented in earlier revisions of this file and `CHANGES.md`.
+`mcp-tools`, `apps/api`) conducted on 2026-08-14. This is review 148;
+rounds 1–147 are documented in earlier revisions of this file and `CHANGES.md`.
 
 ## Findings & Actions (round 147)
 
