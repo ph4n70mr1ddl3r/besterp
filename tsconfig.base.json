@@ -17,7 +17,6 @@
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
     "noImplicitOverride": true,
-    "isolatedModules": true,
-    "downlevelIteration": true
+    "isolatedModules": true
   }
 }

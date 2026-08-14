@@ -2,8 +2,32 @@
 
 ## Scope
 Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
-`mcp-tools`, `apps/api`) conducted on 2026-08-14. This is review 143;
-rounds 1–142 are documented in earlier revisions of this file and `CHANGES.md`.
+`mcp-tools`, `apps/api`) conducted on 2026-08-14. This is review 146;
+rounds 1–145 are documented in earlier revisions of this file and `CHANGES.md`.
+
+## Findings & Actions (round 146)
+
+### Fixed this round
+
+1. **🟡 `tsconfig.base.json` — deprecated `downlevelIteration` compiler option triggered TS5101 with TypeScript 6.0.3.** `downlevelIteration` polyfills `for...of`, spread-on-iterables, and `Array.from(iterable)` for older TypeScript targets. Node 20+ (the project's minimum, per `engines.node`) fully supports these natively, so the flag is dead weight and its presence emits a hard typecheck error: `TS5101: Option 'downlevelIteration' is deprecated and will stop functioning in TypeScript 7.0`. **Fix:** removed `"downlevelIteration": true` from `tsconfig.base.json`. No behavioural change — all iterables are natively supported by the runtime, and the option was only needed when targeting ES2015 or earlier. Verified: `npm run typecheck` passes clean across all four workspaces; all 842 tests pass unchanged.
+
+### Reviewed but NOT changed (false positives / deferred)
+
+- **Tenant isolation (RLS boot assertions, superuser boot refusal, app-level `tenantId` filters), secret redaction across REST/MCP/durable surfaces, idempotency-key charset consistency, ReDoS, and `@Public()` scope scanning** remain intact and were re-verified by independent reads this round. No new 🔴/🟡 exploit paths found.
+- **`get_type_table_values` (discovery-tools.ts) still returns all type-table rows with no `take` cap.** Type tables are admin-curated global reference data with a handful of seeded values; the tool's contract is "return all valid values", and the truncation middleware bounds the audit/agent surfaces downstream. Low risk; deferred again.
+- **`validateOptionalString` (shared/src/validation.ts) throws generic `Error` instead of `InvalidTypeValueError`.** This is intentional: callers in `McpService.buildContext` catch the generic error and re-throw as `InvalidTypeValueError` with structured context. The generic throw keeps the shared package free of a circular dependency on the error classes. No change needed.
+- **`result[0]!` non-null assertion in `party.service.ts:743` and `result[0]` (nullable guard) at line 781** — both are intentional and well-documented. The `!` at 743 is on the RETURNING row inside `$queryRaw` where the column alias maps to a camelCase key; the nullable guard at 781 exists because `noUncheckedIndexedAccess` makes `result[0]` type as `T | undefined`, and the guard converts that to a clear error rather than a silent undefined access.
+- **`PrismaService` tenant-client cache (WeakRef + FinalizationRegistry + LRU), `rls-extension.ts` proxy (`$transaction`/blocked-method/non-string-symbol guards), `tool-registry.ts` `validateContextIdentity`, and the idempotency middleware's acquire/update retry + jittered backoff** were all re-read in full; the logic (stale-pending reclaim, P2034 jitter, P2025 fast-fail, redaction at both durable sinks) remains consistent. No new issues found.
+
+## Test Results (round 146)
+```
+api:       419 passed (16 files)  (unchanged)
+shared:    228 passed (4 files)   (unchanged)
+mcp-tools: 161 passed (4 files)   (unchanged)
+database:   34 passed, 10 skipped (3 files) (DB-backed; unchanged)
+───────────────────────────────
+Total:     842 passed, 10 skipped
+```
 
 ## Findings & Actions (round 143)
 
