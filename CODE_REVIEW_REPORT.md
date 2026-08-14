@@ -2,10 +2,34 @@
 
 ## Scope
 Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
-`mcp-tools`, `apps/api`) conducted on 2026-08-14. This is review 148;
-rounds 1–147 are documented in earlier revisions of this file and `CHANGES.md`.
+`mcp-tools`, `apps/api`) conducted on 2026-08-14. This is review 149;
+rounds 1–148 are documented in earlier revisions of this file and `CHANGES.md`.
 
-## Findings & Actions (round 147)
+## Findings & Actions (round 149)
+
+### Fixed this round
+
+1. **🟢 `packages/shared/src/validation.ts` — `validateOptionalString` threw plain `Error` instead of `InvalidTypeValueError`.** Every other validation surface in the codebase throws a structured `DomainError` subclass (with `code`, `context`, and `suggestedTools`). `validateOptionalString` was the sole outlier: it threw a plain `Error` string, forcing every caller in `McpService.buildContext` to wrap it in a try/catch and re-throw as `InvalidTypeValueError` — four duplicated catch blocks across `idempotencyKey`, `agentId`, `conversationId`, and `reasoning`. The original rationale for using a plain `Error` was to avoid a circular dependency between `validation.ts` and `errors.ts`, but `validation.ts` has no dependents in `errors.ts`, so the import is safe. **Fix:** `validateOptionalString` now throws `InvalidTypeValueError` directly with proper `{ context }`. Removed the four redundant try/catch wrappers from `McpService.buildContext` — each call site now delegates directly. Verified: lint ✓, typecheck ✓, all workspaces pass (846 tests total).
+
+### Reviewed but NOT changed (false positives / deferred)
+
+- **Tenant isolation (RLS boot assertions, superuser boot refusal, app-level `tenantId` filters), secret redaction across REST/MCP/durable surfaces, idempotency-key charset consistency, ReDoS, and `@Public()` scope scanning** remain intact and were re-verified by independent reads this round. No new 🔴/🟡 exploit paths found.
+- **`get_type_table_values` (discovery-tools.ts) still returns all type-table rows with no `take` cap.** Type tables are admin-curated global reference data with a handful of seeded values; the tool's contract is "return all valid values", and the truncation middleware bounds the audit/agent surfaces downstream. Low risk; deferred again.
+- **`sanitizeLogOutput` (shared/src/sanitize.ts:457) is deprecated but still exported from `@besterp/shared`.** It delegates to `sanitizeForLogOutput` as a backward-compat shim. Only used in `sanitize.test.ts`; no production code calls it. Kept to avoid breaking any external consumers that may still reference it.
+- **`result[0]!` non-null assertion in `party.service.ts:743` and `result[0]` (nullable guard) at line 781** — both are intentional and well-documented. The `!` at 743 is on the RETURNING row inside `$queryRaw` where the column alias maps to a camelCase key; the nullable guard at 781 exists because `noUncheckedIndexedAccess` makes `result[0]` type as `T | undefined`, and the guard converts that to a clear error rather than a silent undefined access.
+- **`PrismaService` tenant-client cache (WeakRef + FinalizationRegistry + LRU), `rls-extension.ts` proxy (`$transaction`/blocked-method/non-string-symbol guards), `tool-registry.ts` `validateContextIdentity`, and the idempotency middleware's acquire/update retry + jittered backoff** were all re-read in full; the logic (stale-pending reclaim, P2034 jitter, P2025 fast-fail, redaction at both durable sinks) remains consistent. No new issues found.
+
+## Test Results (round 149)
+```
+api:       423 passed (16 files)  (unchanged)
+shared:    228 passed (4 files)   (unchanged — validateOptionalString tests cover the new behavior)
+mcp-tools: 161 passed (4 files)   (unchanged)
+database:   34 passed, 10 skipped (3 files) (DB-backed; unchanged)
+───────────────────────────────
+Total:     846 passed, 10 skipped
+```
+
+## Findings & Actions (round 146)
 
 ### Fixed this round
 
