@@ -1,5 +1,22 @@
 # BestERP — Security & Architecture Fixes
 
+## Changes Applied (2026-08-14) — Code Review Round 142
+
+### 🟡 Dependency audit — 15 known vulnerabilities (1 critical) reduced to 0
+
+**Problem:** `npm audit` reported 15 vulnerabilities, including one critical and three high-severity advisories in the runtime dependency chain:
+
+1. **Critical — `vitest@3.2.4`** (all workspaces, dev dependency): advisory for the vitest UI server allowing file reads outside the workspace root.
+2. **High — `multer@2.1.1`** (runtime, via `@nestjs/platform-express@~11.0.0`): DoS via crafted multipart parsing.
+3. **Moderate — `qs@6.15.1`** (runtime, via `express@5.2.1`/`body-parser@2.2.2`): DoS via deep/large query-string parsing.
+4. **Transitive dev-chain issues**: `vite@7.3.3` → `postcss@8.5.14` → `nanoid@3.3.12` (moderate, via `vitest`); `@nestjs/cli` → `js-yaml@4.1.1`; `@modelcontextprotocol/sdk` → `express-rate-limit@8.5.1` → `ip-address@10.2.0` (high).
+
+**Fix:**
+- Bumped `@nestjs/platform-express` to `^11.1.29` (resolves to `multer@2.2.0`, fixing the high-severity DoS) and `vitest` to `^3.2.7` in all four workspaces (fixes the critical advisory).
+- Added root `overrides` pinning the transitive fixes: `qs@6.15.3`, `ip-address@10.5.0` (via `express-rate-limit@8.6.2`), `js-yaml@4.3.1`, `vite@7.3.6`, `postcss@8.5.26`, `nanoid@3.3.18`.
+- Regenerated the lockfile (the overrides do not apply to the existing `package-lock.json` without a clean reinstall).
+- Verified resolved versions in `npm ls` and re-ran the full suite: **`npm audit` → 0 vulnerabilities**, lint ✓, typecheck ✓, 418 api tests still passing.
+
 ## Changes Applied (2026-08-13) — Code Review Round 138
 
 ### 🟡 `apps/api/src/auth/jwt.strategy.ts` — `validateTenantId` catch swallowed the original error message

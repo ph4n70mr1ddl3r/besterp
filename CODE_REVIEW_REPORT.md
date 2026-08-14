@@ -2,8 +2,32 @@
 
 ## Scope
 Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
-`mcp-tools`, `apps/api`) conducted on 2026-08-13. This is review 138;
-rounds 1–137 are documented in earlier revisions of this file and `CHANGES.md`.
+`mcp-tools`, `apps/api`) conducted on 2026-08-14. This is review 142;
+rounds 1–141 are documented in earlier revisions of this file and `CHANGES.md`.
+
+## Findings & Actions (round 142)
+
+### Fixed this round
+
+1. **🟡 Dependency audit — 15 vulnerabilities (1 critical, 3 high) reduced to 0.** `npm audit` surfaced a critical advisory in `vitest@3.2.4` (UI-server file read), a high DoS in `multer@2.1.1` (runtime, via `@nestjs/platform-express@~11.0.0`), a moderate DoS in `qs@6.15.1` (runtime, via `express`/`body-parser`), and transitive dev-chain advisories (`vite` → `postcss` → `nanoid`, `@nestjs/cli` → `js-yaml`, `@modelcontextprotocol/sdk` → `express-rate-limit` → `ip-address`). **Fix:** bumped `@nestjs/platform-express` → `^11.1.29` (→ `multer@2.2.0`) and `vitest` → `^3.2.7` in all four workspaces; added root `overrides` for `qs@6.15.3`, `ip-address@10.5.0`, `js-yaml@4.3.1`, `vite@7.3.6`, `postcss@8.5.26`, `nanoid@3.3.18`; regenerated the lockfile (overrides require a clean reinstall to take effect). Verified: `npm audit` → 0; resolved versions confirmed via `npm ls`; lint/typecheck green; 418 api tests unchanged.
+
+### Reviewed but NOT changed (false positives / deferred)
+
+- **Tenant isolation (RLS boot assertions, superuser boot refusal, app-level `tenantId` filters), secret redaction across REST/MCP/durable surfaces, idempotency-key charset consistency, ReDoS, and `@Public()` scope scanning** remain intact and were re-verified by independent reads this round. No new 🔴/🟡 exploit paths found.
+- **`get_type_table_values` (discovery-tools.ts) returns all type-table rows with no `take` cap.** Type tables are admin-curated global reference data with a handful of seeded values; the tool's contract is "return all valid values", and the truncation middleware bounds the audit/agent surfaces downstream. Low risk; deferred.
+- **DTO/module wiring (`party.dto.ts`, `app.module.ts`, `mcp.module.ts`)** re-read in full this round: the `_subtypeCheck` phantom-field pattern, cross-field `@Validate` constraints, and the `DiscoveryModule`/`APP_FILTER`/`APP_GUARD` wiring are all consistent with prior-round design. No changes needed.
+
+## Test Results (round 142)
+```
+api:       418 passed (16 files)  (unchanged — dependency-fix round only)
+shared:    228 passed (4 files)   (unchanged)
+mcp-tools: 159 passed (4 files)   (unchanged)
+database:   34 passed, 10 skipped (3 files) (DB-backed; unchanged)
+───┬──────────────────────────────────────────────────────────┬
+   │ npm audit: 15 → 0 vulnerabilities (0 critical/high)       │
+───┴──────────────────────────────────────────────────────────┘
+Total:     839 passed, 10 skipped
+```
 
 ## Findings & Actions (round 138)
 
