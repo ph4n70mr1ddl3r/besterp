@@ -247,14 +247,14 @@ const postalAddressSchema = z.object({
   city: sanitizedString(1, MAX_CITY_LENGTH).describe("City"),
   stateProvince: optionalFilteredString(MAX_STATE_PROVINCE_LENGTH).describe("State or province"),
   postalCode: optionalFilteredString(MAX_POSTAL_CODE_LENGTH).describe("Postal/ZIP code"),
-  country: z.string().max(MAX_COUNTRY_CODE_LENGTH)
+  country: z.string()
     .transform(s => stripHtmlTags(s.trim().toUpperCase()))
     .pipe(z.string().min(MIN_COUNTRY_CODE_LENGTH).max(MAX_COUNTRY_CODE_LENGTH))
     .describe("Country code (e.g., US, DE, JP)"),
 });
 
 const telecomNumberSchema = z.object({
-  countryCode: z.string().max(MAX_PHONE_COUNTRY_CODE_LENGTH)
+  countryCode: z.string()
     .optional()
     .transform(s => s?.trim() || undefined)
     .pipe(z.string().min(1).max(MAX_PHONE_COUNTRY_CODE_LENGTH).regex(COUNTRY_CODE_REGEX, "Must be an E.164 country code (e.g., '+1', '+44')").optional())
@@ -272,7 +272,7 @@ const emailAddressSchema = z.object({
   // then be rejected by the service's duplicate-check / re-validation — a
   // cross-surface inconsistency (round-50 review). The service is canonical, so
   // the MCP path must agree with it.
-  email: z.string().max(MAX_EMAIL_LENGTH).transform(s => stripHtmlTags(s.trim().toLowerCase()))
+  email: z.string().transform(s => stripHtmlTags(s.trim().toLowerCase()))
     .pipe(z.string().max(MAX_EMAIL_LENGTH).regex(EMAIL_REGEX, "Invalid email format (must match EMAIL_REGEX)"))
     .describe("Email address"),
 });

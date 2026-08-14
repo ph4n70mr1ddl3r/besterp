@@ -493,4 +493,87 @@ describe("Party MCP Tools", () => {
       expect(result.nextActions!.some((a: string) => a.includes("add_party_role"))).toBe(true);
     });
   });
+
+  describe("whitespace-padded fields accepted when trimmed value is within bounds", () => {
+    // Regression (round 144): the country, countryCode, and email Zod schemas
+    // checked .max() on the RAW input BEFORE the transform ran, so a value like
+    // "USA " (4 chars) was rejected even though stripHtmlTags(s.trim().toUpperCase())
+    // produces "USA" (3 chars) which is valid. The sanitizedString and
+    // optionalFilteredString helpers already length-check AFTER transform, and the
+    // REST DTOs trim via @sanitizeTransform before @MaxLength — the MCP path must
+    // agree. The pre-transform .max() is removed; the pipe's .max() still enforces
+    // the cap on the canonical (trimmed) value.
+    it("should accept a whitespace-padded country code that trims within max length", async () => {
+      const uuid = "550e8400-e29b-41d4-a716-446655440000";
+      const result = await registry.execute("add_contact_mechanism", {
+        partyId: uuid,
+        contactMechanismType: "POSTAL_ADDRESS",
+        postalAddress: {
+          addressLine1: "123 Main St",
+          city: "Springfield",
+          country: "USA ",
+        },
+      }, createContext({ partyService: mockPartyService }));
+
+      expect(result.success).toBe(true);
+      expect(mockPartyService.addContactMechanism).toHaveBeenCalledWith(
+        expect.objectContaining({
+          postalAddress: expect.objectContaining({ country: "USA" }),
+        })
+      );
+    });
+
+    it("should accept a whitespace-padded countryCode that trims within max length", async () => {
+      const uuid = "550e8400-e29b-41d4-a716-446655440000";
+      const result = await registry.execute("add_contact_mechanism", {
+        partyId: uuid,
+        contactMechanismType: "TELECOM_NUMBER",
+        telecomNumber: {
+          areaCode: "555",
+          lineNumber: "1234567",
+          countryCode: "  +1  ",
+        },
+      }, createContext({ partyService: mockPartyService }));
+
+      expect(result.success).toBe(true);
+      expect(mockPartyService.addContactMechanism).toHaveBeenCalledWith(
+        expect.objectContaining({
+          telecomNumber: expect.objectContaining({ countryCode: "+1" }),
+        })
+      );
+    });
+
+    it("should accept a whitespace-padded email that trims within max length", async () => {
+      const uuid = "550e8400-e29b-41d4-a716-446655440000";
+      const result = await registry.execute("add_contact_mechanism", {
+        partyId: uuid,
+        contactMechanismType: "EMAIL_ADDRESS",
+        emailAddress: { email: "test@example.com " },
+      }, createContext({ partyService: mockPartyService }));
+
+      expect(result.success).toBe(true);
+      expect(mockPartyService.addContactMechanism).toHaveBeenCalledWith(
+        expect.objectContaining({
+          emailAddress: expect.objectContaining({ email: "test@example.com" }),
+        })
+      );
+    });
+
+    it("should still reject a trimmed value that exceeds max length", async () => {
+      const uuid = "550e8400-e29b-41d4-a716-446655440000";
+      // "USAX" is 4 chars after trim — exceeds MAX_COUNTRY_CODE_LENGTH (3)
+      const result = await registry.execute("add_contact_mechanism", {
+        partyId: uuid,
+        contactMechanismType: "POSTAL_ADDRESS",
+        postalAddress: {
+          addressLine1: "123 Main St",
+          city: "Springfield",
+          country: "USAX",
+        },
+      }, createContext({ partyService: mockPartyService }));
+
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe("INVALID_INPUT");
+    });
+  });
 });
