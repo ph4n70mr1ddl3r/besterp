@@ -91,6 +91,30 @@ function createBaseEntry(context: { agentId?: string; conversationId?: string; r
   };
 }
 
+/**
+ * Shape a soft-failure result's error into the durable `toolOutput` payload.
+ *
+ * Extracted so `executeAndLog` stays within the lint complexity cap. Mirrors
+ * the throw branch (sanitized + capped message and code) so the ai_action_log
+ * row captures failure detail on the path that ACTUALLY fires in production —
+ * the OUTERMOST errorHandlerMiddleware converts every thrown error into a
+ * non-thrown ToolResult, so the throw branch never runs for real failures.
+ * `code` is redacted to `[REDACTED]` at the durable sink the same way it is
+ * for the throw branch, because `code` is a sensitive field name.
+ */
+function formatSoftFailureOutput(result: ToolResult): { error: { message: string | null; code: string | undefined } } {
+  return {
+    error: {
+      message: result.error?.message
+        ? capString(sanitizeForLogOutput(result.error.message), MAX_SOFT_FAILURE_MESSAGE_SIZE)
+        : null,
+      code: result.error?.code
+        ? capString(sanitizeForLogOutput(result.error.code), MAX_SOFT_FAILURE_MESSAGE_SIZE) || undefined
+        : undefined,
+    },
+  };
+}
+
 async function executeAndLog(prisma: PrismaClient, backpressure: BackpressureManager, input: unknown, context: ToolContext, definition: { name: string }, next: (input: unknown, context: ToolContext) => Promise<ToolResult>): Promise<ToolResult> {
   if (!prisma?.aiActionLog) {
     try {
@@ -117,7 +141,18 @@ async function executeAndLog(prisma: PrismaClient, backpressure: BackpressureMan
     throw error;
   }
 
-  backpressure.log({ ...base, toolOutput: result.data ?? null });
+  // Soft-failure results (success:false) are the path that ACTUALLY fires in
+  // production: the OUTERMOST errorHandlerMiddleware converts every thrown
+  // error into a non-thrown ToolResult before the throw branch above could run,
+  // so real failures (validation, domain, Prisma) never reach it and would be
+  // persisted with `toolOutput: null` — losing every failure's error from the
+  // durable ai_action_log trail. Persist the sanitized error detail instead,
+  // mirroring the throw branch (code is redacted to [REDACTED] at the sink the
+  // same way, since `code` is a sensitive field name).
+  backpressure.log({
+    ...base,
+    toolOutput: result.success ? result.data ?? null : formatSoftFailureOutput(result),
+  });
 
   // If audit entries were dropped due to backpressure, surface a non-fatal
   // warning to the agent so it knows the durable audit trail has a gap. This

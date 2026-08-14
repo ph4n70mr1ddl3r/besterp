@@ -1323,6 +1323,66 @@ describe("Audit Log Middleware", () => {
     );
   });
 
+  it("should persist sanitized error detail for soft-failure results (the real production error path)", async () => {
+    // Regression (round 143): in the real pipeline the OUTERMOST
+    // errorHandlerMiddleware converts every thrown error into a non-thrown
+    // `{ success: false }` ToolResult, so the audit middleware's throw branch
+    // never fires for real failures — previously the durable ai_action_log
+    // row stored `toolOutput: null` for every failure, losing all error
+    // detail from the audit trail. A soft-failure result must persist its
+    // sanitized code + message instead.
+    const input = { test: "value" };
+    const softFailureNext = async (): Promise<ToolResult> => ({
+      success: false,
+      error: { code: "BUSINESS_RULE", message: "A party with this name already exists" },
+    });
+
+    mockPrisma.aiActionLog.create.mockResolvedValue({ id: "log-id" });
+
+    const middleware = auditLogMiddleware(mockPrisma as any);
+    const result = await middleware(input, mockContext, mockDefinition, softFailureNext);
+
+    expect(result.success).toBe(false);
+    expect(mockPrisma.aiActionLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          toolCalled: "test_tool",
+          // `code` is a sensitive field name, so its value is redacted at the
+          // durable sink (mirroring the throw branch); the message survives.
+          toolOutput: { error: { message: "A party with this name already exists", code: "[REDACTED]" } },
+        }),
+      })
+    );
+  });
+
+  it("should sanitize DB connection strings from soft-failure output", async () => {
+    // Regression (round 143): a soft failure returned through the
+    // errorHandlerMiddleware can embed a driver/connection-string-shaped
+    // message (or one whose handler interpolates an attacker-controlled
+    // value). The soft-failure branch previously persisted NO output at all;
+    // now that it stores the message, it must scrub it exactly like the throw
+    // branch before it lands in the durable ai_action_log row.
+    const input = { test: "value" };
+    const softFailureNext = async (): Promise<ToolResult> => ({
+      success: false,
+      error: {
+        code: "DATABASE_ERROR",
+        message: "Connection failed: postgres://besterp:s3cret-pw@10.0.0.5:5432/besterp (ECONNREFUSED)",
+      },
+    });
+
+    mockPrisma.aiActionLog.create.mockResolvedValue({ id: "log-id" });
+
+    const middleware = auditLogMiddleware(mockPrisma as any);
+    await middleware(input, mockContext, mockDefinition, softFailureNext);
+
+    const createCall = mockPrisma.aiActionLog.create.mock.calls[0];
+    const storedMessage = createCall[0].data.toolOutput.error.message;
+    expect(storedMessage).not.toContain("s3cret-pw");
+    expect(storedMessage).not.toContain("postgres://");
+    expect(storedMessage).toContain("[DATABASE_URL]");
+  });
+
   it("should pass through when prisma is null", async () => {
     const input = { test: "value" };
     const toolResult: ToolResult = { success: true, data: "ok" };

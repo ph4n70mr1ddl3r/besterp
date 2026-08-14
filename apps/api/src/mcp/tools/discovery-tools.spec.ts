@@ -119,6 +119,27 @@ describe("Discovery MCP Tools", () => {
       expect(mockPrisma.partyType.findMany).toHaveBeenCalled();
     });
 
+    it("should request deterministic ordering (orderBy name asc) for every type table (regression guard, round 143)", async () => {
+      // Regression: the type-table query had no ORDER BY, so Postgres returned
+      // rows in unspecified (heap/insertion) order — the same "valid values"
+      // call could present the vocabulary in a different order per call, and
+      // the durable audit snapshot could differ. name is @unique (never null),
+      // so ascending name order is total and stable.
+      const cases: Array<{ typeName: "PARTY_TYPE" | "ROLE_TYPE" | "CONTACT_MECHANISM_TYPE"; delegate: "partyType" | "roleType" | "contactMechanismType" }> = [
+        { typeName: "PARTY_TYPE", delegate: "partyType" },
+        { typeName: "ROLE_TYPE", delegate: "roleType" },
+        { typeName: "CONTACT_MECHANISM_TYPE", delegate: "contactMechanismType" },
+      ];
+
+      for (const { typeName, delegate } of cases) {
+        const result = await registry.execute("get_type_table_values", { typeName }, createContext());
+        expect(result.success).toBe(true);
+        expect(mockPrisma[delegate].findMany).toHaveBeenCalledWith(
+          expect.objectContaining({ orderBy: { name: "asc" } })
+        );
+      }
+    });
+
     it("should return ROLE_TYPE values", async () => {
       const result = await registry.execute("get_type_table_values", { typeName: "ROLE_TYPE" }, createContext());
 

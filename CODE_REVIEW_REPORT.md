@@ -2,8 +2,33 @@
 
 ## Scope
 Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
-`mcp-tools`, `apps/api`) conducted on 2026-08-14. This is review 142;
-rounds 1–141 are documented in earlier revisions of this file and `CHANGES.md`.
+`mcp-tools`, `apps/api`) conducted on 2026-08-14. This is review 143;
+rounds 1–142 are documented in earlier revisions of this file and `CHANGES.md`.
+
+## Findings & Actions (round 143)
+
+### Fixed this round
+
+1. **🟡 `packages/mcp-tools/src/middleware/audit-log.ts` — soft-failure results persisted `toolOutput: null`, losing all error detail on the real production error path.** In the compiled pipeline the OUTERMOST `errorHandlerMiddleware` converts every thrown error (Zod validation, domain, Prisma) into a *non-thrown* `{ success: false }` ToolResult, so the audit middleware's own throw branch can never fire for the common failure modes — every failed operation was persisted to `ai_action_log.tool_output` as `null`, and the durable audit trail recorded no indication of why an action failed. **Fix:** the soft-failure branch now persists `{ error: { message, code } }`, mirroring the throw branch: both fields pass through `sanitizeForLogOutput` + `capString`/`MAX_SOFT_FAILURE_MESSAGE_SIZE`, and `code` is redacted to `[REDACTED]` at the durable sink the same way as the throw branch (`code` is a sensitive field name). The shaping logic was extracted into `formatSoftFailureOutput` so `executeAndLog` stays within the lint complexity cap (matching the extraction pattern already used in `error-handler.ts` and `tool-registry.ts`). Added 2 regression tests (stored shape + DB connection-string scrub on the soft-failure path).
+
+2. **🟢 `apps/api/src/mcp/tools/discovery-tools.ts` — `get_type_table_values` queried type tables with no `orderBy`, yielding non-deterministic row order.** Without an ORDER BY, Postgres returns rows in unspecified (heap/insertion) order, so the same "valid values" call could present the vocabulary in a different order per call — surprising for an agent-facing reference surface and producing non-identical snapshots in the durable audit row. `name` is `@unique` (never null), so ascending name order is total and stable. **Fix:** added `orderBy: { name: "asc" }` to the `findMany` and widened the intentionally-narrow `PrismaModelDelegate.findMany` interface to accept `orderBy`. Added 1 regression test asserting deterministic ordering across all three type tables.
+
+### Reviewed but NOT changed (false positives / deferred)
+
+- **Tenant isolation (RLS boot assertions, superuser boot refusal, app-level `tenantId` filters), secret redaction across REST/MCP/durable surfaces, idempotency-key charset consistency, ReDoS, and `@Public()` scope scanning** remain intact and were re-verified by independent reads this round. No new 🔴/🟡 exploit paths found.
+- **`get_type_table_values` (discovery-tools.ts) still returns all type-table rows with no `take` cap.** Type tables are admin-curated global reference data with a handful of seeded values; the tool's contract is "return all valid values", and the truncation middleware bounds the audit/agent surfaces downstream. The ordering fix above is orthogonal (determinism, not volume). Low risk; deferred again.
+- **`QueueModule.redisRetryStrategy` returning `undefined` once `MAX_RETRIES` is exhausted.** Verified against the installed `node_modules/ioredis/built/redis/event_handler.js:188` (`typeof retryDelay !== "number" → close()`): ioredis terminates reconnection when the strategy returns a non-number, so the cap is correctly honored (an `undefined` return does NOT schedule an infinite default-delay retry). No change needed.
+- **`PrismaService` tenant-client cache (WeakRef + FinalizationRegistry + LRU), `rls-extension.ts` proxy (`$transaction`/blocked-method/non-string-symbol guards), `tool-registry.ts` `validateContextIdentity`, and the idempotency middleware's acquire/update retry + jittered backoff** were all re-read in full; the logic (stale-pending reclaim, P2034 jitter, P2025 fast-fail, redaction at both durable sinks) remains consistent. No new issues found.
+
+## Test Results (round 143)
+```
+api:       419 passed (16 files)  (+1 regression test)
+shared:    228 passed (4 files)   (unchanged)
+mcp-tools: 161 passed (4 files)   (+2 regression tests)
+database:   34 passed, 10 skipped (3 files) (DB-backed; unchanged)
+──────────────────────────────
+Total:     842 passed, 10 skipped
+```
 
 ## Findings & Actions (round 142)
 

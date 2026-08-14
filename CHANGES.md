@@ -1,5 +1,19 @@
 # BestERP — Security & Architecture Fixes
 
+## Changes Applied (2026-08-14) — Code Review Round 143
+
+### 🟡 Audit-log middleware lost all error detail for soft-failure results (the real production error path)
+
+**Problem:** In the compiled MCP pipeline the OUTERMOST `errorHandlerMiddleware` converts every thrown error (Zod validation, domain, Prisma) into a non-thrown `{ success: false }` ToolResult. The audit middleware in `packages/mcp-tools/src/middleware/audit-log.ts` only persisted error detail in its own throw branch, so for the common failure modes it stored `toolOutput: null` — the durable `ai_action_log` trail recorded no indication of why any action failed.
+
+**Fix:** The soft-failure branch now persists `{ error: { message, code } }`, mirroring the throw branch: both fields are run through `sanitizeForLogOutput` + `capString`/`MAX_SOFT_FAILURE_MESSAGE_SIZE`, and `code` is redacted to `[REDACTED]` at the durable sink the same way as the throw branch. The shaping logic was extracted into `formatSoftFailureOutput` to keep `executeAndLog` within the lint complexity cap. Added 2 regression tests (stored shape + DB connection-string scrub on the soft-failure path).
+
+### 🟢 `get_type_table_values` queried type tables without an ORDER BY (non-deterministic row order)
+
+**Problem:** `apps/api/src/mcp/tools/discovery-tools.ts` ran `findMany` on the admin-curated type tables with no `orderBy`, so Postgres returned rows in unspecified (heap/insertion) order — the same "valid values" call could present the vocabulary in a different order per call, and durable audit snapshots could differ.
+
+**Fix:** Added `orderBy: { name: "asc" }` (total and stable, since `name` is `@unique`/never null) and widened the intentionally-narrow `PrismaModelDelegate.findMany` interface to accept `orderBy`. Added 1 regression test asserting deterministic ordering across all three type tables.
+
 ## Changes Applied (2026-08-14) — Code Review Round 142
 
 ### 🟡 Dependency audit — 15 known vulnerabilities (1 critical) reduced to 0

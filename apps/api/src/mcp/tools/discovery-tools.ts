@@ -34,7 +34,7 @@ type TypeName = keyof typeof TYPE_TABLE_MAP;
  * the explicit null checks on lines 97–103 catch shape mismatches.
  */
 interface PrismaModelDelegate {
-  findMany(options: { select: Record<string, boolean> }): Promise<Record<string, unknown>[]>;
+  findMany(options: { select: Record<string, boolean>; orderBy?: Record<string, "asc" | "desc"> }): Promise<Record<string, unknown>[]>;
 }
 
 // ─── Tool: list_available_tools ───────────────────────────────────
@@ -114,8 +114,16 @@ async function queryTypeTable(
   // Intentionally uses the admin PrismaClient (bypasses RLS) because type
   // tables (PARTY_TYPE, ROLE_TYPE, etc.) are global reference data, not
   // tenant-scoped. All tenants share the same vocabulary.
+  //
+  // Deterministic ordering: without an ORDER BY, Postgres returns the rows in
+  // unspecified (typically heap/insertion) order, so the same tool call could
+  // present the vocabulary in a different order per call — surprising for an
+  // agent-facing "valid values" reference surface and producing non-identical
+  // snapshots in the durable audit row. `name` is @unique (never null), so
+  // ascending name order is total and stable.
   const rows = await delegate.findMany({
     select: { [idField]: true, name: true, description: true, aiPromptHint: true },
+    orderBy: { name: "asc" },
   });
   return rows.map((r) => ({
     id: typeof r[idField] === "string" ? r[idField] : null,
