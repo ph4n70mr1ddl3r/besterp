@@ -199,6 +199,26 @@ function optionalFilteredString(max: number) {
     .pipe(z.string().max(max).optional());
 }
 
+/** Optional search filter: REJECTS whitespace-only/HTML-only input instead of
+ *  silently dropping it. The service layer's requireNonEmptyFilter treats a
+ *  whitespace-only filter as a probable caller mistake and refuses to widen
+ *  the query to "return all" — the REST DTO enforces the same contract (the
+ *  value stays defined and the service rejects it). optionalFilteredString
+ *  normalised "   " to undefined here, so the same request silently returned
+ *  the unfiltered listing on MCP while REST returned 422: a cross-surface
+ *  divergence with data-widening consequences (round 150). */
+function optionalSearchFilterString(max: number) {
+  return z.string()
+    .optional()
+    .transform(s => (s === undefined ? undefined : stripHtmlTags(s.trim())))
+    .pipe(
+      z.string()
+        .min(1, "Filter cannot be whitespace-only — provide a real filter or omit the field")
+        .max(max)
+        .optional()
+    );
+}
+
 /** Optional ISO 8601 date: trims, validates format, enforces max length. */
 function optionalIsoDate(max: number = MAX_DATE_STRING_LENGTH) {
   return z.string()
@@ -374,9 +394,9 @@ Returns full party details. Use this to inspect a specific party's information.`
 // ─── Tool: search_parties ─────────────────────────────────────────
 
 const searchPartiesSchema = z.object({
-  name: optionalFilteredString(MAX_PARTY_NAME_LENGTH).describe("Filter by name (case-insensitive partial match)"),
+  name: optionalSearchFilterString(MAX_PARTY_NAME_LENGTH).describe("Filter by name (case-insensitive partial match; must not be whitespace-only)"),
   partyType: z.enum(["PERSON", "ORGANIZATION"]).optional().describe("Filter by party type"),
-  roleType: optionalFilteredString(MAX_ROLE_TYPE_LENGTH).describe("Filter by role type name (e.g., 'Customer', 'Supplier')"),
+  roleType: optionalSearchFilterString(MAX_ROLE_TYPE_LENGTH).describe("Filter by role type name (e.g., 'Customer', 'Supplier'; must not be whitespace-only)"),
   limit: z.number().int().min(MIN_SEARCH_LIMIT).max(MAX_SEARCH_LIMIT).optional().default(DEFAULT_SEARCH_LIMIT).describe(`Maximum results to return (max ${MAX_SEARCH_LIMIT})`),
   offset: z.number().int().min(MIN_SEARCH_OFFSET).max(MAX_SEARCH_OFFSET).optional().default(0).describe(`Number of results to skip (min ${MIN_SEARCH_OFFSET})`),
 });

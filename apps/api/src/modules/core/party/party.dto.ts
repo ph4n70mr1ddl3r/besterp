@@ -67,6 +67,25 @@ function sanitizeTransform(): PropertyDecorator {
   return Transform(({ value }: TransformFnParams) => (typeof value === "string" ? stripHtmlTags(value.trim()) : value));
 }
 
+/**
+ * Optional-string variant of sanitizeTransform: a value that sanitizes to
+ * empty (whitespace-only or HTML-only like "<script>") is normalised to
+ * undefined so @IsOptional() skips it — matching the MCP boundary's
+ * optionalFilteredString ("   " → field not provided → stored as null).
+ * Previously the empty string survived the DTO and hit the service layer,
+ * so identical input got a 422 on REST but succeeded on MCP.
+ * Do NOT use for search filters: those must stay defined so the service's
+ * requireNonEmptyFilter can reject whitespace-only filters instead of
+ * silently widening the query to "return all" (see SearchPartiesDto).
+ */
+function optionalSanitizeTransform(): PropertyDecorator {
+  return Transform(({ value }: TransformFnParams) => {
+    if (typeof value !== "string") return value;
+    const sanitized = stripHtmlTags(value.trim());
+    return sanitized.length === 0 ? undefined : sanitized;
+  });
+}
+
 // ─── Date validator ─────────────────────────────────────────────
 
 /**
@@ -176,7 +195,7 @@ export class CreatePersonDto {
   lastName!: string;
 
   @IsOptional()
-  @sanitizeTransform()
+  @optionalSanitizeTransform()
   @IsString()
   @MaxLength(MAX_MIDDLE_NAME_LENGTH)
   middleName?: string;
@@ -187,7 +206,7 @@ export class CreatePersonDto {
   birthDate?: string;
 
   @IsOptional()
-  @sanitizeTransform()
+  @optionalSanitizeTransform()
   @IsString()
   @MaxLength(MAX_GENDER_LENGTH)
   gender?: string;
@@ -203,7 +222,7 @@ export class CreateOrganizationDto {
   legalName!: string;
 
   @IsOptional()
-  @sanitizeTransform()
+  @optionalSanitizeTransform()
   @IsString()
   @MaxLength(MAX_TAX_ID_LENGTH)
   taxId?: string;
@@ -227,7 +246,7 @@ export class CreatePartyDto {
   name!: string;
 
   @IsOptional()
-  @sanitizeTransform()
+  @optionalSanitizeTransform()
   @IsString()
   @MaxLength(MAX_PARTY_DESCRIPTION_LENGTH)
   description?: string;
@@ -309,7 +328,7 @@ export class PostalAddressDto {
   addressLine1!: string;
 
   @IsOptional()
-  @sanitizeTransform()
+  @optionalSanitizeTransform()
   @IsString()
   @MaxLength(MAX_ADDRESS_LINE_LENGTH)
   addressLine2?: string;
@@ -321,13 +340,13 @@ export class PostalAddressDto {
   city!: string;
 
   @IsOptional()
-  @sanitizeTransform()
+  @optionalSanitizeTransform()
   @IsString()
   @MaxLength(MAX_STATE_PROVINCE_LENGTH)
   stateProvince?: string;
 
   @IsOptional()
-  @sanitizeTransform()
+  @optionalSanitizeTransform()
   @IsString()
   @MaxLength(MAX_POSTAL_CODE_LENGTH)
   postalCode?: string;
@@ -343,7 +362,7 @@ export class PostalAddressDto {
 
 export class TelecomNumberDto {
   @IsOptional()
-  @sanitizeTransform()
+  @optionalSanitizeTransform()
   @IsString()
   @MaxLength(MAX_PHONE_COUNTRY_CODE_LENGTH)
   @Matches(COUNTRY_CODE_REGEX, { message: "countryCode must be an E.164 country code (e.g., '+1', '+44')" })
@@ -362,7 +381,7 @@ export class TelecomNumberDto {
   lineNumber!: string;
 
   @IsOptional()
-  @sanitizeTransform()
+  @optionalSanitizeTransform()
   @IsString()
   @MaxLength(MAX_EXTENSION_LENGTH)
   extension?: string;

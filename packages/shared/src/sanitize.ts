@@ -7,6 +7,8 @@
 // in a browser, the renderer must ALSO escape HTML. This sanitizer
 // prevents stored XSS at the database level.
 
+import { DEFAULT_PHONE_COUNTRY_CODE } from "./constants.js";
+
 /**
  * Strip HTML tags and script content from a string.
  *
@@ -72,9 +74,12 @@ function decodeNumericEntities(input: string): string {
 }
 
 /**
- * Decode common HTML entities. Order matters: decode &amp; LAST because
- * &amp;lt; → &lt; → <. Decode &apos; BEFORE &amp; so &amp;apos; decodes
- * across iterations.
+ * Decode common HTML entities. Order matters: `&apos;` (and the other named
+ * entities) decode BEFORE `&amp;` so `&amp;apos;` decodes across iterations;
+ * `&amp;` is second-to-last and `&quot;` last. Decoding `&quot;` after
+ * `&amp;` still converges: `&amp;quot;` fully decodes to `"` in one pass of
+ * the outer iteration loop rather than two (the loop re-runs until the value
+ * is stable, bounded by MAX_SANITIZE_ITERATIONS).
  */
 function decodeCommonEntities(input: string): string {
   return input
@@ -713,7 +718,7 @@ export function sanitizeTelecomNumber(tel: {
   areaCode: string;
   lineNumber: string;
   extension?: string | null;
-}, defaultCountryCode = "+1"): {
+}, defaultCountryCode: string = DEFAULT_PHONE_COUNTRY_CODE): {
   countryCode: string;
   areaCode: string;
   lineNumber: string;

@@ -36,9 +36,15 @@ export class TenantGuard implements CanActivate {
     // object if JwtAuthGuard failed silently (misconfigured strategy, etc.).
     // An unsafe `as` cast alone gives TypeScript a false sense of safety;
     // the check below ensures the expected fields exist before proceeding.
+    // Throw UnauthorizedException (401) like every other auth failure in
+    // this guard — a bare `return false` yielded a generic 403 "Forbidden
+    // resource" with no diagnostic message, inconsistent with the
+    // tenantId/userId/agentId branches below.
     const rawUser = request.user;
     if (rawUser == null || typeof rawUser !== "object" || !("tenantId" in rawUser)) {
-      return false;
+      throw new UnauthorizedException(
+        "TenantGuard: authenticated user is missing or malformed (request.user)."
+      );
     }
     const user = rawUser as JwtValidatedUser;
 

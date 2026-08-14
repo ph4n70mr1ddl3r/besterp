@@ -36,7 +36,11 @@ jobs:
         id: prisma-cache
         uses: actions/cache@v4
         with:
-          path: packages/database/node_modules/.prisma
+          # npm workspace hoisting installs @prisma/client (and therefore the
+          # generated client) at the REPO ROOT node_modules/.prisma — caching
+          # packages/database/node_modules/.prisma saved an empty archive and
+          # a cache-hit then skipped the explicit generate step entirely.
+          path: node_modules/.prisma
           key: prisma-${{ runner.os }}-${{ hashFiles('packages/database/prisma/schema.prisma') }}
 
       - name: Generate Prisma client
@@ -90,7 +94,8 @@ jobs:
         id: prisma-cache-test
         uses: actions/cache@v4
         with:
-          path: packages/database/node_modules/.prisma
+          # Root node_modules/.prisma — see the prisma-cache step above.
+          path: node_modules/.prisma
           key: prisma-${{ runner.os }}-${{ hashFiles('packages/database/prisma/schema.prisma') }}
 
       - name: Generate Prisma client
@@ -100,7 +105,10 @@ jobs:
       - name: Run migrations
         env:
           DATABASE_URL: postgresql://besterp:besterp_dev@localhost:5434/besterp
-        run: npx prisma migrate deploy
+        # Run via the workspace script so the working directory is
+        # packages/database — `npx prisma migrate deploy` from the repo root
+        # cannot find the schema (Prisma only checks ./prisma and ./).
+        run: npm run migrate:deploy --workspace=@besterp/database
 
       - name: Install PostgreSQL client
         run: sudo apt-get update && sudo apt-get install -y postgresql-client

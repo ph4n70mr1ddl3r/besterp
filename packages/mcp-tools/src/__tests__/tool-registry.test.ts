@@ -193,6 +193,43 @@ describe("ToolRegistry", () => {
       expect(handler).toHaveBeenCalled();
     });
 
+    it("should propagate TRIMMED tenantId/userId to middlewares and handlers, not the padded originals", async () => {
+      // Regression (round 150): validateContextIdentity trimmed for
+      // validation but discarded the trimmed values, so the untrimmed
+      // context reached the idempotency composite key and audit rows while
+      // handlers' RLS path trimmed via withTenant — the idempotency record
+      // was keyed under a different tenant string than the query executed
+      // under, and a correctly trimmed retry missed it and re-executed
+      // the write.
+      const seen: Array<{ tenantId?: string; userId?: string }> = [];
+      const trackingMiddleware: ToolMiddleware = async (input, ctx, _def, next) => {
+        seen.push({ tenantId: ctx.tenantId, userId: ctx.userId });
+        return next(input, ctx);
+      };
+      registry.addGlobalMiddleware(trackingMiddleware);
+      registry.register({
+        name: "noop",
+        description: "No-op tool",
+        inputSchema: z.object({}),
+        riskLevel: "none",
+        handler: async (_input, ctx) => {
+          seen.push({ tenantId: ctx.tenantId, userId: ctx.userId });
+          return { success: true, data: {} };
+        },
+      });
+      const result = await registry.execute("noop", {}, {
+        tenantId: "  tenant-1  ",
+        userId: "  user-1  ",
+        services: {},
+      });
+      expect(result.success).toBe(true);
+      expect(seen).toHaveLength(2);
+      for (const s of seen) {
+        expect(s.tenantId).toBe("tenant-1");
+        expect(s.userId).toBe("user-1");
+      }
+    });
+
     it("should accept valid optional agentId/conversationId and reach the handler", async () => {
       const handler = vi.fn().mockResolvedValue({ success: true, data: {} });
       registry.register({

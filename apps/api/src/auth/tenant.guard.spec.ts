@@ -2,7 +2,8 @@
 //
 // The guard runs after JwtAuthGuard and expects req.user to be populated.
 // Missing req.user indicates a guard-ordering misconfiguration and must
-// surface as a 500 with a clear message rather than a silent 403.
+// surface as a 401 UnauthorizedException with a clear message (consistent
+// with every other auth failure in the guard) rather than a silent 403.
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { ExecutionContext, ForbiddenException, UnauthorizedException } from "@nestjs/common";
@@ -33,12 +34,16 @@ describe("TenantGuard", () => {
     guard = new TenantGuard(reflector);
   });
 
-  it("returns false (401) when req.user is missing", () => {
-    // @Public() metadata not set
+  it("throws UnauthorizedException (401) when req.user is missing", () => {
+    // @Public() metadata not set. The shape-guard branch must use the same
+    // 401 + diagnostic-message failure mode as the tenantId/userId/agentId
+    // branches — a bare `return false` produced a generic 403 "Forbidden
+    // resource" (regression, round 150).
     (reflector.getAllAndOverride as any).mockReturnValue(false);
     const ctx = makeContext({}); // no user
 
-    expect(guard.canActivate(ctx)).toBe(false);
+    expect(() => guard.canActivate(ctx)).toThrow(UnauthorizedException);
+    expect(() => guard.canActivate(ctx)).toThrow(/missing or malformed/);
   });
 
   it("allows public routes through without req.user when on HealthController", () => {

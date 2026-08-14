@@ -10,7 +10,7 @@
     "dev": "tsx spikes/server.ts",
     "spike:agent": "tsx spikes/test-agent.ts",
     "lint": "eslint src/",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.scripts.json",
     "test": "vitest run"
   },
   "dependencies": {

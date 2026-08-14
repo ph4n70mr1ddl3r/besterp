@@ -294,19 +294,25 @@ describe("Party MCP Tools", () => {
       );
     });
 
-    it("should normalize whitespace-only name to no filter", async () => {
-      // Whitespace-only input is normalized to undefined (no filter) by
-      // optionalFilteredString's transform. The service layer's
-      // requireNonEmptyFilter rejects explicit whitespace-only strings,
-      // but at the MCP schema layer, "   " → undefined is the correct
-      // normalization (same as not providing the filter at all).
-      mockPartyService.searchParties.mockResolvedValueOnce({ items: [], total: 0, limit: 50, offset: 0, hasMore: false });
+    it("should reject whitespace-only name filter instead of silently widening the query", async () => {
+      // Regression (round 150): optionalFilteredString normalised "   " to
+      // undefined, so search_parties silently returned the UNFILTERED listing
+      // while the same request on REST got 422 from requireNonEmptyFilter
+      // ("a caller who types '   ' probably meant a real filter, and silently
+      // widening the query to 'return all' is a footgun"). Search filters now
+      // reject whitespace-only input at the MCP schema layer too, matching
+      // the service contract both surfaces share.
       const result = await registry.execute("search_parties", { name: "   " }, createContext({ partyService: mockPartyService }));
 
-      expect(result.success).toBe(true);
-      expect(mockPartyService.searchParties).toHaveBeenCalledWith(
-        expect.not.objectContaining({ name: expect.anything() })
-      );
+      expect(result.success).toBe(false);
+      expect(mockPartyService.searchParties).not.toHaveBeenCalled();
+    });
+
+    it("should reject whitespace-only roleType filter", async () => {
+      const result = await registry.execute("search_parties", { roleType: "   " }, createContext({ partyService: mockPartyService }));
+
+      expect(result.success).toBe(false);
+      expect(mockPartyService.searchParties).not.toHaveBeenCalled();
     });
 
     it("should reject limit below minimum", async () => {

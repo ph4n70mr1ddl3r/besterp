@@ -194,13 +194,16 @@ describe("McpService", () => {
       expect(ctx.userId).toBe("user-1");
     });
 
-    it("should strip HTML and preserve raw identity values (sanitization happens at durable-sink surfaces)", () => {
+    it("should return raw identity values unchanged (charset-validated, never rewritten) and sanitize reasoning", () => {
       // userId/agentId/conversationId are format-validated at the buildContext
-      // boundary but NOT sanitized there — sanitization runs at the durable
-      // sinks (audit-log, idempotency) so the identity fields remain usable
-      // for correlation/auditing while secrets are still scrubbed before
-      // persistence. `buildContext` only strips HTML to prevent stored-XSS
-      // in the raw identity value; secret redaction is deferred to the sinks.
+      // boundary but NOT rewritten there — values that survive the charset
+      // gate (TENANT_ID_PATTERN, no HTML/control chars possible) pass through
+      // verbatim, and sanitization runs at the durable sinks (audit-log,
+      // idempotency) so identity fields remain usable for correlation while
+      // any secret-shaped content is still scrubbed before persistence.
+      // There is NO HTML-stripping step for identity fields: a value
+      // containing HTML characters is REJECTED (see the charset tests
+      // below), which is strictly stronger than stripping.
       const ctx = mcpService.buildContext({
         tenantId: "tenant-1",
         userId: "us-sk_live_realsecret123",
@@ -208,12 +211,11 @@ describe("McpService", () => {
         conversationId: "conv_123_session-token",
         reasoning: "r<iframe src=evil>",
       });
-      // userId is returned raw (validated, not sanitized) so downstream
-      // tool-registry.validateContextIdentity can still match its charset.
+      // Identity fields are returned raw (charset-validated, not sanitized)
+      // so downstream tool-registry.validateContextIdentity can still match
+      // its charset; the durable sinks scrub them before persistence.
       expect(ctx.userId).toBe("us-sk_live_realsecret123");
-      // agentId is HTML-stripped but not secret-sanitized at buildContext.
       expect(ctx.agentId).toBe("agent-a-password-hidden");
-      // conversationId is HTML-stripped but not secret-sanitized at buildContext.
       expect(ctx.conversationId).toBe("conv_123_session-token");
       // reasoning is content (not identity), so it IS sanitized at buildContext.
       expect(ctx.reasoning).not.toContain("<iframe>");

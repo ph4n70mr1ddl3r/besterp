@@ -835,75 +835,120 @@ export class PartyService {
     return PartyService.requireStringField(type, "contactMechanismType", MAX_CONTACT_MECHANISM_TYPE_LENGTH, "contact mechanism type", "get_type_table_values");
   }
 
+  /** Reject cross-subtype contact data instead of silently discarding it.
+   *  Extracted from validateContactMechanismSubtype to stay within the lint
+   *  complexity cap. Both boundary layers (REST ContactSubtypeExclusive-
+   *  Constraint, MCP CONTACT_SUBTYPE_CONFIGS.disallowedFields) reject the
+   *  mismatch, and validateCreatePartySubtype rejects person/organization
+   *  cross-provision the same way — without this, a POSTAL_ADDRESS request
+   *  that also carries emailAddress would pass validation and then have the
+   *  extra object dropped by createContactMechanismTransaction's type gates,
+   *  so the caller believes data was stored that never was. */
+  private static rejectCrossSubtypeData(
+    type: string,
+    postalAddress: AddContactMechanismInput["postalAddress"],
+    telecomNumber: AddContactMechanismInput["telecomNumber"],
+    emailAddress: AddContactMechanismInput["emailAddress"],
+  ): void {
+    const subtypeFieldNames: Record<string, string> = { POSTAL_ADDRESS: "postalAddress", TELECOM_NUMBER: "telecomNumber", EMAIL_ADDRESS: "emailAddress" };
+    const provided: Record<string, unknown> = { POSTAL_ADDRESS: postalAddress, TELECOM_NUMBER: telecomNumber, EMAIL_ADDRESS: emailAddress };
+    for (const [subtype, value] of Object.entries(provided)) {
+      if (subtype !== type && value != null) {
+        const unexpectedField = subtypeFieldNames[subtype] ?? subtype;
+        throw new InvalidTypeValueError(
+          `When contactMechanismType is ${type}, '${unexpectedField}' data must not be provided. Only '${subtypeFieldNames[type]}' data is expected.`,
+          { suggestedTools: ["add_contact_mechanism"], context: { contactMechanismType: type, unexpectedField } }
+        );
+      }
+    }
+  }
+
   private validateContactMechanismSubtype(
     type: string, postalAddress: AddContactMechanismInput["postalAddress"],
     telecomNumber: AddContactMechanismInput["telecomNumber"],
     emailAddress: AddContactMechanismInput["emailAddress"],
   ): string | undefined {
-    if (type === "POSTAL_ADDRESS") {
-      if (!postalAddress) {
-        throw new MissingSubtypeDataError("postalAddress is required when contactMechanismType is POSTAL_ADDRESS.", { suggestedTools: ["add_contact_mechanism"], context: { contactMechanismType: type, missingField: "postalAddress" } });
-      }
-      // requireStringField validates and returns the trimmed value — capture
-      // to avoid re-trimming downstream. The trimmedCountry is used for the
-      // min-length check below; the others are already canonical for
-      // sanitizePostalAddress which operates on the raw object.
-      PartyService.requireStringField(postalAddress.addressLine1, "addressLine1", MAX_ADDRESS_LINE_LENGTH, "postal address", "add_contact_mechanism");
-      PartyService.requireStringField(postalAddress.city, "city", MAX_CITY_LENGTH, "postal address", "add_contact_mechanism");
-      const trimmedCountry = PartyService.requireStringField(postalAddress.country, "country", MAX_COUNTRY_CODE_LENGTH, "postal address", "add_contact_mechanism");
-      // Enforce the same minimum as the Zod schema / DTO (ISO 3166-1
-      // alpha-2). requireStringField only guards against empty/oversize,
-      // so a 1-char value like "U" would otherwise slip past the service
-      // layer — the last line of defense for MCP callers that bypass Zod.
-      if (trimmedCountry.length < MIN_COUNTRY_CODE_LENGTH) {
-        throw new InvalidTypeValueError(
-          `country must be at least ${MIN_COUNTRY_CODE_LENGTH} characters (ISO 3166-1 alpha-2/3). Received: '${trimmedCountry}'.`,
-          { suggestedTools: ["add_contact_mechanism"], context: { field: "country", received: trimmedCountry, minLength: MIN_COUNTRY_CODE_LENGTH } }
-        );
-      }
-      if (postalAddress.addressLine2) PartyService.requireMaxLength(postalAddress.addressLine2, "addressLine2", MAX_ADDRESS_LINE_LENGTH, "add_contact_mechanism");
-      if (postalAddress.stateProvince) PartyService.requireMaxLength(postalAddress.stateProvince, "stateProvince", MAX_STATE_PROVINCE_LENGTH, "add_contact_mechanism");
-      if (postalAddress.postalCode) PartyService.requireMaxLength(postalAddress.postalCode, "postalCode", MAX_POSTAL_CODE_LENGTH, "add_contact_mechanism");
-      return undefined;
-    } else if (type === "TELECOM_NUMBER") {
-      if (!telecomNumber) {
-        throw new MissingSubtypeDataError("telecomNumber is required when contactMechanismType is TELECOM_NUMBER.", { suggestedTools: ["add_contact_mechanism"], context: { contactMechanismType: type, missingField: "telecomNumber" } });
-      }
-      PartyService.requireStringField(telecomNumber.areaCode, "areaCode", MAX_AREA_CODE_LENGTH, "telecom number", "add_contact_mechanism");
-      PartyService.requireStringField(telecomNumber.lineNumber, "lineNumber", MAX_LINE_NUMBER_LENGTH, "telecom number", "add_contact_mechanism");
-      if (telecomNumber.countryCode) {
-        const trimmedCountryCode = telecomNumber.countryCode.trim();
-        PartyService.requireMaxLength(trimmedCountryCode, "countryCode", MAX_PHONE_COUNTRY_CODE_LENGTH, "add_contact_mechanism");
-        if (!COUNTRY_CODE_REGEX.test(trimmedCountryCode)) {
-          throw new InvalidTypeValueError(`countryCode must be an E.164 country code (e.g., '+1', '+44'). Received: ${trimmedCountryCode}.`, { suggestedTools: ["add_contact_mechanism"], context: { field: "countryCode", invalidValue: trimmedCountryCode } });
-        }
-      }
-      if (telecomNumber.extension) PartyService.requireMaxLength(telecomNumber.extension, "extension", MAX_EXTENSION_LENGTH, "add_contact_mechanism");
-      return undefined;
-    } else if (type === "EMAIL_ADDRESS") {
-      if (!emailAddress) {
-        throw new MissingSubtypeDataError("emailAddress is required when contactMechanismType is EMAIL_ADDRESS.", { suggestedTools: ["add_contact_mechanism"], context: { contactMechanismType: type, missingField: "emailAddress" } });
-      }
-      PartyService.requireStringField(emailAddress.email, "email", MAX_EMAIL_LENGTH, "email address", "add_contact_mechanism");
-      // Strip HTML tags for consistency with the MCP path and every other
-      // field this service sanitizes. The service is the last line of
-      // defense for direct/internal callers that bypass the REST DTO's
-      // stricter @IsEmail, and EMAIL_REGEX permits '<' and '>', so without
-      // this a value like '<script>alert(1)</script>@x.com' would be stored
-      // verbatim (stored-XSS surface if ever rendered). stripHtmlTags never
-      // changes a valid email — the local part cannot contain '<' or '>' —
-      // so legitimate addresses pass through untouched.
-      const normalized = stripHtmlTags(emailAddress.email.trim().toLowerCase());
-      if (!EMAIL_REGEX.test(normalized)) {
-        throw new InvalidTypeValueError(`Invalid email format: ${normalized}`, { suggestedTools: ["add_contact_mechanism"], context: { contactMechanismType: type, field: "email", invalidValue: normalized } });
-      }
-      return normalized;
-    } else {
+    // Reject unknown types BEFORE the cross-subtype check so an invalid type
+    // with data attached still gets the actionable "valid types" error
+    // instead of a misleading "must not be provided" message.
+    if (!["POSTAL_ADDRESS", "TELECOM_NUMBER", "EMAIL_ADDRESS"].includes(type)) {
       throw new InvalidTypeValueError(
         `CONTACT_MECHANISM_TYPE '${type}' is not valid. Valid types: ['POSTAL_ADDRESS', 'TELECOM_NUMBER', 'EMAIL_ADDRESS'].`,
         { suggestedTools: ["get_type_table_values"], context: { field: "contactMechanismType", invalidValue: type, validValues: ["POSTAL_ADDRESS", "TELECOM_NUMBER", "EMAIL_ADDRESS"] } }
       );
     }
+    PartyService.rejectCrossSubtypeData(type, postalAddress, telecomNumber, emailAddress);
+    if (type === "POSTAL_ADDRESS") {
+      this.validatePostalAddressSubtype(postalAddress);
+      return undefined;
+    }
+    if (type === "TELECOM_NUMBER") {
+      this.validateTelecomSubtype(telecomNumber);
+      return undefined;
+    }
+    return this.validateEmailSubtype(emailAddress);
+  }
+
+  private validatePostalAddressSubtype(postalAddress: AddContactMechanismInput["postalAddress"]): void {
+    if (!postalAddress) {
+      throw new MissingSubtypeDataError("postalAddress is required when contactMechanismType is POSTAL_ADDRESS.", { suggestedTools: ["add_contact_mechanism"], context: { contactMechanismType: "POSTAL_ADDRESS", missingField: "postalAddress" } });
+    }
+    // requireStringField validates and returns the trimmed value — capture
+    // to avoid re-trimming downstream. The trimmedCountry is used for the
+    // min-length check below; the others are already canonical for
+    // sanitizePostalAddress which operates on the raw object.
+    PartyService.requireStringField(postalAddress.addressLine1, "addressLine1", MAX_ADDRESS_LINE_LENGTH, "postal address", "add_contact_mechanism");
+    PartyService.requireStringField(postalAddress.city, "city", MAX_CITY_LENGTH, "postal address", "add_contact_mechanism");
+    const trimmedCountry = PartyService.requireStringField(postalAddress.country, "country", MAX_COUNTRY_CODE_LENGTH, "postal address", "add_contact_mechanism");
+    // Enforce the same minimum as the Zod schema / DTO (ISO 3166-1
+    // alpha-2). requireStringField only guards against empty/oversize,
+    // so a 1-char value like "U" would otherwise slip past the service
+    // layer — the last line of defense for MCP callers that bypass Zod.
+    if (trimmedCountry.length < MIN_COUNTRY_CODE_LENGTH) {
+      throw new InvalidTypeValueError(
+        `country must be at least ${MIN_COUNTRY_CODE_LENGTH} characters (ISO 3166-1 alpha-2/3). Received: '${trimmedCountry}'.`,
+        { suggestedTools: ["add_contact_mechanism"], context: { field: "country", received: trimmedCountry, minLength: MIN_COUNTRY_CODE_LENGTH } }
+      );
+    }
+    if (postalAddress.addressLine2) PartyService.requireMaxLength(postalAddress.addressLine2, "addressLine2", MAX_ADDRESS_LINE_LENGTH, "add_contact_mechanism");
+    if (postalAddress.stateProvince) PartyService.requireMaxLength(postalAddress.stateProvince, "stateProvince", MAX_STATE_PROVINCE_LENGTH, "add_contact_mechanism");
+    if (postalAddress.postalCode) PartyService.requireMaxLength(postalAddress.postalCode, "postalCode", MAX_POSTAL_CODE_LENGTH, "add_contact_mechanism");
+  }
+
+  private validateTelecomSubtype(telecomNumber: AddContactMechanismInput["telecomNumber"]): void {
+    if (!telecomNumber) {
+      throw new MissingSubtypeDataError("telecomNumber is required when contactMechanismType is TELECOM_NUMBER.", { suggestedTools: ["add_contact_mechanism"], context: { contactMechanismType: "TELECOM_NUMBER", missingField: "telecomNumber" } });
+    }
+    PartyService.requireStringField(telecomNumber.areaCode, "areaCode", MAX_AREA_CODE_LENGTH, "telecom number", "add_contact_mechanism");
+    PartyService.requireStringField(telecomNumber.lineNumber, "lineNumber", MAX_LINE_NUMBER_LENGTH, "telecom number", "add_contact_mechanism");
+    if (telecomNumber.countryCode) {
+      const trimmedCountryCode = telecomNumber.countryCode.trim();
+      PartyService.requireMaxLength(trimmedCountryCode, "countryCode", MAX_PHONE_COUNTRY_CODE_LENGTH, "add_contact_mechanism");
+      if (!COUNTRY_CODE_REGEX.test(trimmedCountryCode)) {
+        throw new InvalidTypeValueError(`countryCode must be an E.164 country code (e.g., '+1', '+44'). Received: ${trimmedCountryCode}.`, { suggestedTools: ["add_contact_mechanism"], context: { field: "countryCode", invalidValue: trimmedCountryCode } });
+      }
+    }
+    if (telecomNumber.extension) PartyService.requireMaxLength(telecomNumber.extension, "extension", MAX_EXTENSION_LENGTH, "add_contact_mechanism");
+  }
+
+  private validateEmailSubtype(emailAddress: AddContactMechanismInput["emailAddress"]): string {
+    if (!emailAddress) {
+      throw new MissingSubtypeDataError("emailAddress is required when contactMechanismType is EMAIL_ADDRESS.", { suggestedTools: ["add_contact_mechanism"], context: { contactMechanismType: "EMAIL_ADDRESS", missingField: "emailAddress" } });
+    }
+    PartyService.requireStringField(emailAddress.email, "email", MAX_EMAIL_LENGTH, "email address", "add_contact_mechanism");
+    // Strip HTML tags for consistency with the MCP path and every other
+    // field this service sanitizes. The service is the last line of
+    // defense for direct/internal callers that bypass the REST DTO's
+    // stricter @IsEmail, and EMAIL_REGEX permits '<' and '>', so without
+    // this a value like '<script>alert(1)</script>@x.com' would be stored
+    // verbatim (stored-XSS surface if ever rendered). stripHtmlTags never
+    // changes a valid email — the local part cannot contain '<' or '>' —
+    // so legitimate addresses pass through untouched.
+    const normalized = stripHtmlTags(emailAddress.email.trim().toLowerCase());
+    if (!EMAIL_REGEX.test(normalized)) {
+      throw new InvalidTypeValueError(`Invalid email format: ${normalized}`, { suggestedTools: ["add_contact_mechanism"], context: { contactMechanismType: "EMAIL_ADDRESS", field: "email", invalidValue: normalized } });
+    }
+    return normalized;
   }
 
   /** Throw DuplicateEntityError if the email is already registered for this party. */

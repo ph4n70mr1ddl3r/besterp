@@ -1039,6 +1039,27 @@ describe("Audit Log Middleware", () => {
     expect(result).toEqual(toolResult);
   });
 
+  it("should persist Prisma null sentinels for a successful tool with no data (audit row not dropped)", async () => {
+    // Regression (round 150): a successful tool returning { success: true }
+    // with no data produced toolOutput=null (result.data ?? null), and a tool
+    // invoked with no input produced toolInput=undefined. Prisma rejects a
+    // bare JS null/undefined for Json columns ("Provided Json null, expected
+    // JsonNull or DbNull"), so the create() call threw and the fire-and-forget
+    // catch silently dropped the durable audit row for every such call.
+    // Mirror of idempotency.ts: JsonNull for the REQUIRED toolInput column,
+    // DbNull for the nullable toolOutput column.
+    const toolResult: ToolResult = { success: true };
+    mockPrisma.aiActionLog.create.mockResolvedValue({ id: "log-id" });
+
+    const middleware = auditLogMiddleware(mockPrisma as any);
+    await middleware(undefined, mockContext, mockDefinition, successNext(toolResult));
+
+    expect(mockPrisma.aiActionLog.create).toHaveBeenCalledTimes(1);
+    const data = mockPrisma.aiActionLog.create.mock.calls[0][0].data;
+    expect(data.toolInput).toBe(Prisma.JsonNull);
+    expect(data.toolOutput).toBe(Prisma.DbNull);
+  });
+
   it("should redact sensitive fields (e.g. birthDate, taxId, password) from the audit log", async () => {
     // Regression guard: birthDate is the camelCase field that actually
     // flows through person subtype inputs. The redaction list previously

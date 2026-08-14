@@ -5,9 +5,9 @@
 // The validated pattern wraps SET LOCAL + query in the same $transaction.
 //
 // SECURITY: Uses the set_tenant_context() PostgreSQL function (defined in
-// rls-setup.sql) via Prisma's parameterized $executeRaw with $1 binding.
-// This eliminates the SQL injection surface area of string interpolation.
-// validateTenantId() is retained as defense-in-depth.
+// rls-setup.sql) via setTenantContext()'s $executeRawUnsafe with positional
+// $1 binding. This eliminates the SQL injection surface area of string
+// interpolation. validateTenantId() is retained as defense-in-depth.
 
 import type { PrismaClient, Prisma } from "@prisma/client";
 import { isDomainError, TenantContextFailedError, InvalidTenantIdError, InvalidTypeValueError } from "./errors.js";
@@ -125,9 +125,10 @@ const DEFAULT_TRANSACTION_TIMEOUT_MS = 30_000;
  * Execute a function within a tenant-scoped database transaction.
  *
  * Calls the `set_tenant_context()` PostgreSQL function (defined in
- * packages/database/prisma/rls-setup.sql) via Prisma's $executeRaw
- * tagged template, which uses parameterized queries — safe from SQL
- * injection without relying solely on regex validation.
+ * packages/database/prisma/rls-setup.sql) via `setTenantContext()`, which
+ * uses `$executeRawUnsafe` with positional `$1` parameter binding —
+ * parameterized and safe from SQL injection without relying solely on
+ * regex validation. See the accurate inline notes in setTenantContext.
  *
  * The callback receives a fully-typed Prisma transaction client, so
  * `tx.party.findMany()`, etc. all resolve correctly.

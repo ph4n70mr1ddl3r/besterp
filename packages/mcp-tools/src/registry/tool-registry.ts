@@ -151,8 +151,8 @@ export class ToolRegistry {
     // tenantId could set an arbitrary tenant on RLS — a cross-tenant access
     // path. Validate here, BEFORE any middleware or handler runs, and fail
     // closed with a non-enumerating error (no tenant/id echoed to the agent).
-    const authCheck = this.validateContextIdentity(context);
-    if (authCheck) return authCheck;
+    const auth = this.validateContextIdentity(context);
+    if ("error" in auth) return auth.error;
 
     const entry = this.tools.get(name);
     if (!entry) {
@@ -196,8 +196,8 @@ export class ToolRegistry {
       : null;
     const effectiveContext: ToolContext =
       typeof raw?.idempotencyKey === "string" && !context.idempotencyKey
-        ? { ...context, idempotencyKey: raw.idempotencyKey }
-        : context;
+        ? { ...auth.context, idempotencyKey: raw.idempotencyKey }
+        : auth.context;
 
     // Check pipeline cache — rebuilt only on register() or addGlobalMiddleware()
     let pipeline = this.pipelineCache.get(name);
@@ -274,18 +274,24 @@ export class ToolRegistry {
    * auth boundary. `tenantId` and `userId` are used to scope idempotency
    * records, tag the durable audit row, and (inside handlers) set the RLS
    * tenant context — so an unvalidated value here is a cross-tenant access
-   * path. Returns a failing `ToolResult` when either is malformed, or
-   * `null` when the context is acceptable. Fails closed: no tenant/id value
-   * is reflected to the agent on error.
+   * path. Returns `{ error }` when either is malformed, or `{ context }`
+   * carrying the NORMALIZED (trimmed) identity fields — the trimmed values
+   * must propagate because handlers' RLS path trims via withTenant, while
+   * the idempotency composite key and audit rows use the context verbatim;
+   * propagating the untrimmed context keyed the idempotency record under a
+   * different tenant string than the query executed under, so a correctly
+   * trimmed retry missed the record and re-executed the write. Fails closed:
+   * no tenant/id value is reflected to the agent on error.
    */
-  private validateContextIdentity(context: ToolContext): ToolResult | null {
+  private validateContextIdentity(context: ToolContext): { error: ToolResult } | { context: ToolContext } {
+    let tenantId: string;
     try {
-      validateTenantIdEnhancedForAuth(context.tenantId);
+      tenantId = validateTenantIdEnhancedForAuth(context.tenantId);
     } catch {
-      return this.contextIdentityError("INVALID_TENANT_ID", "tenant identifier");
+      return { error: this.contextIdentityError("INVALID_TENANT_ID", "tenant identifier") };
     }
     if (typeof context.userId !== "string") {
-      return this.contextIdentityError("INVALID_USER_ID", "user identifier");
+      return { error: this.contextIdentityError("INVALID_USER_ID", "user identifier") };
     }
     // Trim userId to match the behavior of McpService.buildContext and
     // TenantGuard — both accept whitespace-padded values by trimming them.
@@ -293,7 +299,7 @@ export class ToolRegistry {
     // the length/pattern checks below, not by the trim-equality guard.
     const userId = context.userId.trim();
     if (userId.length === 0 || userId.length > MAX_USER_ID_LENGTH || !TENANT_ID_PATTERN.test(userId)) {
-      return this.contextIdentityError("INVALID_USER_ID", "user identifier");
+      return { error: this.contextIdentityError("INVALID_USER_ID", "user identifier") };
     }
     // `agentId`/`conversationId` are persisted verbatim into the cross-tenant
     // durable idempotency + audit sinks, so an unvalidated/oversized/attacker-
@@ -305,10 +311,13 @@ export class ToolRegistry {
     // short-circuit semantics obvious and avoids the cognitive load of
     // reading `??` as "if-null-then-try-the-next-field".
     const agentIdError = this.validateOptionalIdentityField(context.agentId, "agentId", MAX_AGENT_ID_LENGTH);
-    if (agentIdError) return agentIdError;
+    if (agentIdError) return { error: agentIdError };
     const conversationIdError = this.validateOptionalIdentityField(context.conversationId, "conversationId", MAX_CONVERSATION_ID_LENGTH);
-    if (conversationIdError) return conversationIdError;
-    return null;
+    if (conversationIdError) return { error: conversationIdError };
+    // Only rebuild the context when a value actually changed — avoids
+    // needless object churn (and a new reference) on the common path.
+    const identityChanged = tenantId !== context.tenantId || userId !== context.userId;
+    return { context: identityChanged ? { ...context, tenantId, userId } : context };
   }
 
   private contextIdentityError(code: string, fieldLabel: string): ToolResult {
@@ -420,9 +429,10 @@ export class ToolRegistry {
   private sanitizeIssues(issues: ReadonlyArray<{ path: PropertyKey[]; message: string; code?: string; received?: unknown }>, maxIssues: number): unknown[] {
     return issues.slice(0, maxIssues).map((issue) => {
       const path = issue.path.map((p) => String(p));
-      // Redact any path segment that matches a sensitive field name, not just
-      // the last segment — a Zod issue path like ["user","password","confirm"]
-      // would otherwise leak the "password" key in the path array.
+      // Path KEY NAMES are deliberately preserved (only control/URL content is
+      // scrubbed): the agent needs the real field path to fix its input, and a
+      // key name like "password" is metadata, not a secret. The VALUE carried
+      // under a sensitive-named path is redacted via `received` below.
       const sanitizedPath = path.map((p) => sanitizeForLogOutput(p));
       const redacted: Record<string, unknown> = {
         code: sanitizeForLogOutput(String(issue.code ?? "custom")),
@@ -434,9 +444,14 @@ export class ToolRegistry {
       };
       const sensitivePathSegments = path.filter((p) => isSensitiveFieldName(p));
       const lastSegment = path.length > 0 ? path[path.length - 1]! : "";
-      if (sensitivePathSegments.length > 0 || (isSensitiveFieldName(lastSegment) && issue.received !== undefined)) {
+      // Only include `received` when Zod actually supplied one — a missing-
+      // value issue (e.g. invalid_type with received: undefined) on a
+      // sensitive path previously got a fabricated received: "[REDACTED]",
+      // telling the agent a value was supplied when none was.
+      const hasReceived = issue.received !== undefined;
+      if (hasReceived && (sensitivePathSegments.length > 0 || isSensitiveFieldName(lastSegment))) {
         redacted.received = "[REDACTED]";
-      } else if (issue.received !== undefined) {
+      } else if (hasReceived) {
         redacted.received = redactSensitiveFieldValues(issue.received);
       }
       return redacted;

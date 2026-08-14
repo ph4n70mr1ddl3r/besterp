@@ -1644,6 +1644,62 @@ describe("PartyService", () => {
       await expect(partyService.addContactMechanism(input)).rejects.toThrow(InvalidTypeValueError);
     });
 
+    it("should reject mismatched contact subtype data instead of silently dropping it", async () => {
+      // Regression (round 150): validateContactMechanismSubtype validated only
+      // the required subtype, so a POSTAL_ADDRESS request that also carried
+      // emailAddress passed validation and createContactMechanismTransaction's
+      // type gates silently discarded the extra object — the caller believed
+      // data was stored that never was. Both boundary layers (REST
+      // ContactSubtypeExclusiveConstraint, MCP CONTACT_SUBTYPE_CONFIGS)
+      // already reject this; the service is the last line of defense.
+      mockAdminTypes();
+      const input = {
+        tenantId: "tenant-1",
+        partyId: "12345678-1234-1234-1234-123456789abc",
+        contactMechanismType: "POSTAL_ADDRESS" as const,
+        postalAddress: {
+          addressLine1: "123 Main St",
+          city: "Anytown",
+          country: "US",
+        },
+        emailAddress: { email: "side-effect@example.com" },
+      } as any;
+
+      const mockDb = {
+        contactMechanismType: {
+          findUnique: vi.fn().mockResolvedValue({ contactMechanismTypeId: "cmt-postal" }),
+        },
+        $transaction: vi.fn().mockImplementation(async (fn) => fn({})),
+      };
+      mockPrismaService.tenantScoped.mockReturnValue(mockDb);
+
+      await expect(partyService.addContactMechanism(input)).rejects.toThrow(InvalidTypeValueError);
+      await expect(partyService.addContactMechanism(input)).rejects.toThrow(/emailAddress.*must not be provided/);
+      // The transaction must never run — the write is rejected up front.
+      expect(mockDb.$transaction).not.toHaveBeenCalled();
+    });
+
+    it("should reject telecom data supplied with an EMAIL_ADDRESS type", async () => {
+      mockAdminTypes();
+      const input = {
+        tenantId: "tenant-1",
+        partyId: "12345678-1234-1234-1234-123456789abc",
+        contactMechanismType: "EMAIL_ADDRESS" as const,
+        emailAddress: { email: "valid@example.com" },
+        telecomNumber: { areaCode: "555", lineNumber: "1234567" },
+      } as any;
+
+      const mockDb = {
+        contactMechanismType: {
+          findUnique: vi.fn().mockResolvedValue({ contactMechanismTypeId: "cmt-email" }),
+        },
+        $transaction: vi.fn().mockImplementation(async (fn) => fn({})),
+      };
+      mockPrismaService.tenantScoped.mockReturnValue(mockDb);
+
+      await expect(partyService.addContactMechanism(input)).rejects.toThrow(/telecomNumber.*must not be provided/);
+    });
+
     it("should validate email format", async () => {
       const input: AddContactMechanismInput = {
         tenantId: "tenant-1",

@@ -99,7 +99,14 @@ function handleRecordContention(key: string, toolName: string): ToolResult {
     success: false,
     error: {
       code: "IDEMPOTENCY_CONTENTION",
-      message: `Could not acquire idempotency record for '${safeKey}' after ${IDEMPOTENCY_MAX_RETRIES} attempts. Please retry with a new idempotency key.`,
+      // P2034 exhaustion means a concurrent request is racing on the SAME
+      // (key, tenant) row — this is serialization contention, not an
+      // infrastructure failure, so retrying with a NEW key would not help
+      // and would bypass idempotency protection (key-hopping can
+      // double-execute the write). Guide the agent to wait and retry the
+      // same request with the same key: either the concurrent request
+      // completes (and the retry replays its result) or the insert succeeds.
+      message: `Could not acquire idempotency record for '${safeKey}' after ${IDEMPOTENCY_MAX_RETRIES} attempts — a concurrent request holds the record. Wait briefly and retry the same request with the same idempotency key (do not use a new key).`,
       suggestedTools: [toolName],
     },
   };

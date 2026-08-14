@@ -6,7 +6,7 @@
 // Usage:
 //   DATABASE_ADMIN_URL="..." npx tsx packages/database/scripts/cleanup-expired-idempotency.ts
 
-import { PrismaClient } from "@prisma/client";
+import { PrismaClient, Prisma } from "@prisma/client";
 import { sanitizeForLogOutput, isDev, normalizeEnvironmentValue, ADVISORY_LOCK_KEY_CLEANUP_IDEMPOTENCY } from "@besterp/shared";
 
 if (!process.env.DATABASE_ADMIN_URL) {
@@ -134,26 +134,25 @@ async function main() {
         });
         if (!expired.length) break;
 
-        deleted += (await tx.idempotencyRecord.deleteMany({
-          where: {
-            // The compound-PK field `idempotencyKey_tenantId` exists only on
-            // Prisma's WhereUniqueInput, NOT on WhereInput — `deleteMany`'s
-            // `where` is a WhereInput, so the previous `idempotencyKey_tenantId`
-            // selector threw "Unknown argument" at runtime and cleaned nothing.
-            // Match on the two scalar filter fields instead.
-            //
-            // Use raw SQL for the delete to leverage the composite unique index
-            // (`idempotencyKey_tenantId`) directly. The ORM `deleteMany` with an
-            // OR array of scalar filters does not guarantee index usage and can
-            // degrade to a full table scan per batch on large tables. A single
-            // `DELETE ... WHERE (key, tenant) = ANY(...)` hits the composite PK
-            // index and scales linearly with the batch size, not the table size.
-            OR: expired.map((r) => ({
-              idempotencyKey: r.idempotencyKey,
-              tenantId: r.tenantId,
-            })),
-          },
-        })).count;
+        // Raw-SQL delete that leverages the composite PK directly. The ORM
+        // alternative has no compound-PK filter on WhereInput
+        // (`idempotencyKey_tenantId` exists only on WhereUniqueInput, so a
+        // `deleteMany` selector using it throws "Unknown argument" at
+        // runtime), and the OR-array-of-scalar-pairs fallback it permits
+        // does not guarantee index usage and can degrade to a full table
+        // scan per batch on large tables. The VALUES-join row comparison
+        // hits the composite PK index and scales linearly with the batch
+        // size, not the table size. Both parameters are bound ($1/$2/...)
+        // via Prisma.sql — no injection surface.
+        deleted += await tx.$executeRaw`
+          DELETE FROM idempotency_record r
+          USING (
+            VALUES ${Prisma.join(
+              expired.map((r) => Prisma.sql`(${r.idempotencyKey}::text, ${r.tenantId}::text)`),
+            )}
+          ) AS v(k, t)
+          WHERE (r.idempotency_key, r.tenant_id) = (v.k, v.t)
+        `;
       } while (expired.length === BATCH_SIZE);
 
       const afterCount = await tx.idempotencyRecord.count();

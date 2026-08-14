@@ -238,6 +238,22 @@ describe("ConcurrencyConflictError", () => {
     expect(controlJson.code).not.toContain("\u001b");
   });
 
+  it("sanitizes secret-bearing suggestedTools entries in toJSON (durable-sink leak)", () => {
+    // Regression (round 150): `suggestedTools` entries are constructor-supplied
+    // free-form strings for custom DomainError subclasses — the same trust
+    // level as `code` and `message`. Previously toJSON sanitized those two but
+    // echoed suggestedTools verbatim, leaving the sole unscrubbed agent-facing
+    // field on the canonical durable-sink serializer.
+    const error = new DomainError("ERR", "op failed", {
+      suggestedTools: ["retry?api_key=supersecret123", "list_tools\u001b[31mred"],
+    });
+    const json = error.toJSON();
+    const tools = json.suggestedTools as string[];
+    expect(JSON.stringify(tools)).not.toContain("supersecret123");
+    expect(JSON.stringify(tools)).toContain("[REDACTED]");
+    expect(tools.some((t) => t.includes("\u001b"))).toBe(false);
+  });
+
   it("redacts secrets in non-Error object cause as sanitized string", () => {
     const error = new ConcurrencyConflictError("operation failed", {
       cause: { raw: "postgres://user:secretpass@db.internal" },

@@ -3,5 +3,10 @@
   "compilerOptions": {
     "noEmit": true
   },
-  "include": ["scripts", "prisma", "spikes"]
+  "include": [
+    "spikes"
+  ],
+  "exclude": [
+    "spikes/server.ts"
+  ]
 }

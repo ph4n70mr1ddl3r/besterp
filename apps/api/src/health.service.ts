@@ -199,9 +199,10 @@ export class HealthService implements OnModuleInit {
     const rss = Math.round(memoryUsage.rss / 1024 / 1024);                // MB (total OS memory)
     const heapPercentage = heapTotal > 0 ? Math.round((heapUsed / heapTotal) * 100) : 0;
 
-    // Redis is optional (background jobs); when configured but disconnected,
-    // the system is still healthy for core operations. Only mark error if
-    // Redis IS configured AND actually disconnected (not "not_configured").
+    // Redis is optional (background jobs): even when configured AND
+    // disconnected, overall status stays "ok" (only `warning` is set) — core
+    // request serving only needs the database. Status is "error" exclusively
+    // when the database is unreachable.
     const overallStatus: "ok" | "error" = databaseStatus === "connected" ? "ok" : "error";
     const redisWarning = redisStatus === "disconnected" ? "Redis is configured but disconnected — background jobs may not work" : undefined;
 
@@ -356,7 +357,12 @@ export class HealthService implements OnModuleInit {
         reject(err);
       }
       socket.on("connect", () => {
-        const redisPassword = process.env.REDIS_PASSWORD;
+        // Trim so a whitespace-padded REDIS_PASSWORD matches how the queue
+        // resolves it (QueueModule.resolvePassword trims before use) — the
+        // previous raw value would AUTH with padding and fail with WRONGPASS,
+        // a permanent false "disconnected" while the queue worked fine
+        // (mirrors the host/port alignment above).
+        const redisPassword = process.env.REDIS_PASSWORD?.trim();
         if (redisPassword) {
           // NUL bytes are the only value RESP bulk strings cannot transport
           // safely through Node's socket.write (they are legal in Redis auth

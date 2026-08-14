@@ -56,7 +56,10 @@ export class DomainError extends Error {
       // the MCP `error-handler` already apply to `error.message` before
       // reflecting/persisting it.
       message: sanitizeForLogOutput(this.message),
-      suggestedTools: this.suggestedTools,
+      // Like `code`, each suggestedTools entry is constructor-supplied free-form
+      // string for custom DomainError subclasses — sanitize every element so a
+      // crafted entry cannot reach durable sinks verbatim.
+      suggestedTools: this.suggestedTools?.map((t) => sanitizeForLogOutput(t)),
       // Redact values stored under sensitive-named keys (password, apiKey, …)
       // and sanitize every string leaf before serialization. toJSON is the
       // canonical structured serializer used for audit logs, idempotency

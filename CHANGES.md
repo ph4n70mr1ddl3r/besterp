@@ -1,5 +1,65 @@
 # BestERP — Security & Architecture Fixes
 
+## Changes Applied (2026-08-14) — Code Review Round 150
+
+### 🟡 Audit-log middleware silently dropped durable rows for tools with no data/input (Prisma Json null handling)
+
+**Problem:** `logAction` passed `truncateValue(...)` results straight into `aiActionLog.create`. A successful tool with no `data` produced `toolOutput: null`, and a tool invoked with no input produced `toolInput: undefined` — both rejected by Prisma for `Json` columns ("Provided Json null, expected JsonNull or DbNull"), so the create threw and the fire-and-forget catch dropped the audit row for every such call. `idempotency.ts` already used the correct sentinels for the identical situation.
+
+**Fix:** `toolInput` (required column) maps null/undefined to `Prisma.JsonNull`; `toolOutput` (nullable) maps to `Prisma.DbNull`, mirroring idempotency.ts. Also converted the `type Prisma` import to a value import — the sentinels were a runtime `ReferenceError` before (caught by the new regression test).
+
+### 🟡 CI `test` job failed before migrations (Prisma schema not found) and cached a non-existent client path
+
+**Problem:** `npx prisma migrate deploy` ran from the repo root where Prisma cannot find `packages/database/prisma/schema.prisma`; the job exited non-zero before roles/RLS/seed/tests. Both Prisma-client cache steps cached `packages/database/node_modules/.prisma`, which is never populated under npm workspace hoisting (the client generates into the root `node_modules/.prisma`).
+
+**Fix:** migrations now run via `npm run migrate:deploy --workspace=@besterp/database`; cache paths corrected to `node_modules/.prisma`.
+
+### 🟡 Contact-mechanism cross-subtype data was silently discarded by the service layer
+
+**Problem:** `validateContactMechanismSubtype` validated only the required subtype; a POSTAL_ADDRESS request also carrying `emailAddress` passed validation and the extra object was dropped by the transaction's type gates — the caller believed data was stored that never was. Both boundary layers and the party-type equivalent (`validateCreatePartySubtype`) reject this.
+
+**Fix:** mismatched subtype objects now throw `InvalidTypeValueError` (unknown types rejected first with the actionable "valid types" error); per-subtype validators extracted (`validatePostalAddressSubtype`/`validateTelecomSubtype`/`validateEmailSubtype`) to respect the complexity cap. Two regression tests added.
+
+### 🟡 Whitespace-only optional strings behaved differently per surface (REST 422 vs MCP success; MCP search silently widened)
+
+**Problem:** Optional value fields (`description`, `countryCode`, …) got 422 on REST but succeeded on MCP; MCP `search_parties` with a whitespace-only `name` silently dropped the filter and returned the unfiltered listing while REST 422'd via `requireNonEmptyFilter` — whose regression test explicitly forbids silent widening.
+
+**Fix:** (a) REST DTO gains `optionalSanitizeTransform` — optional value fields that sanitize to empty become `undefined`, matching MCP's `optionalFilteredString`; (b) MCP search filters use the new `optionalSearchFilterString`, which REJECTS whitespace-only values at the schema layer, matching the service contract both surfaces share. New `party.dto.spec.ts` (9 tests); 2 party-tools tests updated.
+
+### 🟡 Redis health probe authenticated with the untrimmed REDIS_PASSWORD
+
+**Problem:** `QueueModule.resolvePassword` trims; the probe sent the raw value — a whitespace-padded password connected fine on the queue while `/api/health` reported `redis: "disconnected"` forever (WRONGPASS). Host/port were already aligned with the queue; password was the last unaligned knob.
+
+**Fix:** The probe trims exactly like the queue.
+
+### 🟡 Stale spikes: dead `richError` import and pre-composite-PK idempotency selectors
+
+**Problem:** `packages/mcp-tools/spikes/server.ts` imported `richError` from `@besterp/shared` (removed when the DomainError hierarchy landed), crashing at module load, and both it and `packages/database/spikes/spike-rls.ts` used `where: { idempotencyKey }` selectors invalid since the `idempotency_composite_pk` migration — `npm run dev` / `npm run spike:rls` died mid-run, undetected because spikes were excluded from every check.
+
+**Fix:** composite `idempotencyKey_tenantId` selectors; spike-local `richError` helper preserving the agent-facing shape; corrected usage header. Spikes are now typechecked via `tsconfig.scripts.json` in both packages (`spikes/server.ts` excluded — MCP SDK tool registration with inline Zod costs >4 GB compiler heap; `test-agent.ts` checks in 1.6 s).
+
+### 🟡 Idempotency cleanup: comment promised a composite-index raw delete, code ran the OR-array it dismissed
+
+**Problem:** Load-bearing comment justified raw SQL ("ORM deleteMany with an OR array … can degrade to a full table scan") directly above that exact ORM OR-array — the class of comment/code drift that previously broke this script twice.
+
+**Fix:** Implemented the documented approach: `DELETE … USING (VALUES …)` row comparison hitting the composite PK, fully parameter-bound via `Prisma.sql`.
+
+### 🟢 SuggestedTools — the last unsanitized agent-facing field
+
+`error-handler.ts` and `DomainError.toJSON` sanitized `code`/`message`/`context` but echoed `suggestedTools` verbatim; both now map every entry through `sanitizeForLogOutput` (regression tests added).
+
+### 🟢 tool-registry: fabricated `received` and discarded trimmed identity
+
+`sanitizeIssues` no longer fabricates `received: "[REDACTED]"` for missing-value issues on sensitive paths. `validateContextIdentity` now returns the normalized (trimmed) tenantId/userId and `execute` propagates them — previously the untrimmed context keyed the idempotency record under a different tenant string than the RLS query used, so a correctly-trimmed retry re-executed the write (regression test added).
+
+### 🟢 Idempotency contention message invited key-hopping
+
+P2034-exhaustion told agents to "retry with a new idempotency key" while its own comment correctly noted a new key won't help and bypasses idempotency. The message now instructs waiting and retrying the same key.
+
+### 🟢 Consistency and ambiguity cleanup
+
+`main.ts parsePort` fail-fast like the other boot knobs; `TenantGuard` missing `req.user` → 401 with diagnostic (was generic 403); `health.service.ts` overallStatus comment aligned with code; `sanitizeTelecomNumber` uses the exported `DEFAULT_PHONE_COUNTRY_CODE`; `decodeCommonEntities`/`withTenant`/`setTenantContext` comments match actual behavior; dead `BackpressureManager.getStats()` + phantom `getErrorStats` reference removed; misleading "strip HTML" identity test in `mcp.module.spec.ts` renamed to describe the actual charset-rejection contract.
+
 ## Changes Applied (2026-08-14) — Code Review Round 143
 
 ### 🟡 Audit-log middleware lost all error detail for soft-failure results (the real production error path)

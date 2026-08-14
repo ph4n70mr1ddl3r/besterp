@@ -8,7 +8,7 @@
 // blocks tool execution. Log failures are silently ignored (audit should
 // never break the tool).
 
-import { PrismaClient, type Prisma } from "@prisma/client";
+import { PrismaClient, Prisma } from "@prisma/client";
 import { getErrorCode, sanitizeLogMessage, sanitizeForLogOutput, stripHtmlTags, MAX_REASONING_LENGTH, MAX_SOFT_FAILURE_MESSAGE_SIZE, redactSensitiveFieldValues, MAX_CONCURRENT_AUDIT_WRITES, MAX_AUDIT_QUEUE_SIZE, AUDIT_WRITE_QUEUE_TIMEOUT_MS, MAX_USER_ID_LENGTH, MAX_AGENT_ID_LENGTH, MAX_CONVERSATION_ID_LENGTH } from "@besterp/shared";
 import { ToolMiddleware, ToolContext, ToolResult } from "../schema/tool-definition.js";
 import { truncateValue, capString, MAX_STORED_PAYLOAD_SIZE } from "./truncate.js";
@@ -193,7 +193,6 @@ async function executeAndLog(prisma: PrismaClient, backpressure: BackpressureMan
 
 interface BackpressureManager {
   log(entry: AuditLogEntry): void;
-  getStats(): { activeWrites: number; queueLength: number; droppedCount: number; errorCount: number };
   wasDropDetected(): boolean;
 }
 
@@ -226,10 +225,10 @@ function createBackpressureManager(prisma: PrismaClient): BackpressureManager {
           const idx = writeQueue.indexOf(entry);
           if (idx !== -1) writeQueue.splice(idx, 1);
           // Count slot-timeout drops the same way queue-full drops are counted
-          // (droppedCount/dropDetected) so getStats() and the drop-detector in
-          // getErrorStats reflect them. Previously only the queue-full path
-          // bumped these counters, so a sustained write-slot stall showed
-          // "0 dropped" in health stats despite entries being silently lost.
+          // (droppedCount/dropDetected) so the drop-detector consumed by
+          // executeAndLog (wasDropDetected → agent-facing audit-gap warning)
+          // reflects them. Previously only the queue-full path bumped these
+          // counters, so a sustained write-slot stall was silently lost.
           droppedCount++;
           dropDetected = true;
           try {
@@ -335,9 +334,6 @@ function createBackpressureManager(prisma: PrismaClient): BackpressureManager {
           // This is a fire-and-forget path; errors are already logged above.
         });
     },
-    getStats() {
-      return { activeWrites, queueLength: writeQueue.length, droppedCount, errorCount };
-    },
     wasDropDetected() {
       const detected = dropDetected;
       dropDetected = false;
@@ -363,6 +359,7 @@ async function logAction(prisma: PrismaClient, entry: AuditLogEntry): Promise<vo
   // the (potentially large) object graph a second time for no effect. Only
   // toolOutput needs redaction — it is added raw in executeAndLog().
   const toolInput = truncateValue(entry.toolInput, MAX_STORED_PAYLOAD_SIZE);
+  const toolOutput = truncateValue(redactSensitiveFieldValues(entry.toolOutput), MAX_STORED_PAYLOAD_SIZE);
 
   await prisma.aiActionLog.create({
     data: {
@@ -371,8 +368,17 @@ async function logAction(prisma: PrismaClient, entry: AuditLogEntry): Promise<vo
       userId: entry.userId,
       tenantId: entry.tenantId,
       toolCalled: entry.toolCalled,
-      toolInput: toolInput as unknown as Prisma.InputJsonValue,
-      toolOutput: truncateValue(redactSensitiveFieldValues(entry.toolOutput), MAX_STORED_PAYLOAD_SIZE) as unknown as Prisma.InputJsonValue | undefined,
+      // Prisma's Json columns reject a bare JS null/undefined ("Provided Json
+      // null, expected JsonNull or DbNull") — without these guards, a
+      // successful tool with no data (result.data ?? null) or a tool invoked
+      // with no input (redactSensitiveFields(undefined) → undefined) made the
+      // create() call itself throw, and the fire-and-forget catch meant the
+      // durable audit row was silently dropped for every such call. Mirror
+      // idempotency.ts: JSON null for the REQUIRED toolInput column (DbNull
+      // would violate the NOT NULL constraint), database NULL for the
+      // nullable toolOutput column.
+      toolInput: (toolInput === null || toolInput === undefined ? Prisma.JsonNull : toolInput) as unknown as Prisma.InputJsonValue,
+      toolOutput: (toolOutput === null || toolOutput === undefined ? Prisma.DbNull : toolOutput) as unknown as Prisma.InputJsonValue | undefined,
       reasoning: entry.reasoning ?? null,
     },
   });

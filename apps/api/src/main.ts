@@ -304,11 +304,22 @@ function configureCors(app: INestApplication, allowedOrigins: string[]): void {
 }
 
 function parsePort(): number {
-  const { value: port, isDefault } = resolvePort(process.env);
-  if (isDefault) {
-    logger.warn(
-      "PORT not set — defaulting to 3000. Set PORT explicitly in production."
-    );
+  // Same fail-fast pattern as resolveRateLimitConfig / resolveTrustProxyHops
+  // below: an invalid PORT (e.g. "abc") should exit at boot with a clean
+  // one-line error, not surface later as a misleading "Unhandled promise
+  // rejection" via the bootstrap rejection path.
+  let port: number;
+  try {
+    const resolved = resolvePort(process.env);
+    if (resolved.isDefault) {
+      logger.warn(
+        "PORT not set — defaulting to 3000. Set PORT explicitly in production."
+      );
+    }
+    port = resolved.value;
+  } catch (err) {
+    logger.error(err instanceof Error ? err.message : String(err));
+    process.exit(1);
   }
   return port;
 }
