@@ -161,12 +161,12 @@ export class McpService implements OnModuleInit {
       );
     }
 
-    // Enforce charset at the auth boundary for agentId and conversationId,
-    // matching the guard already applied to userId above. These fields are
-    // persisted verbatim into durable sinks (ai_action_log, idempotency_record),
-    // so invalid chars must be rejected before sanitization runs — a value
-    // containing e.g. `;` or `<` would otherwise only be caught later at the
-    // tool-registry execution boundary, leaving a defense-in-depth gap.
+    // Enforce charset at the service layer for agentId and conversationId as
+    // defense-in-depth. The auth boundary (ToolRegistry.validateContextIdentity
+    // and JwtStrategy) already validates these fields, but the explicit
+    // pattern+length check here catches any code path that constructs a
+    // ToolContext without passing through the registry — keeping the durable
+    // sinks (audit-log, idempotency) safe even if the auth boundary regresses.
     if (agentId !== undefined && !TENANT_ID_PATTERN.test(agentId)) {
       throw new InvalidTypeValueError(
         "McpService.buildContext: agentId contains invalid characters. " +

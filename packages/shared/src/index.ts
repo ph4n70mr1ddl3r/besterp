@@ -27,8 +27,6 @@ export {
   COUNTRY_CODE_REGEX,
   ISO_DATE_REGEX,
   isValidISODate,
-  trimOptionalString,
-  trimRequiredString,
   validateOptionalString,
 } from "./validation.js";
 
