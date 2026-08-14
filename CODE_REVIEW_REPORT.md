@@ -2,8 +2,33 @@
 
 ## Scope
 Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
-`mcp-tools`, `apps/api`) conducted on 2026-08-14. This is review 146;
-rounds 1–145 are documented in earlier revisions of this file and `CHANGES.md`.
+`mcp-tools`, `apps/api`) conducted on 2026-08-14. This is review 147;
+rounds 1–146 are documented in earlier revisions of this file and `CHANGES.md`.
+
+## Findings & Actions (round 147)
+
+### Fixed this round
+
+1. **🟢 `packages/database/src/index.ts` — dead export of `validateTenantIdEnhanced` from `@besterp/database` public API.** `validateTenantIdEnhanced` (in `rls-extension.ts:67`) wraps `validateTenantId` in a try/catch that re-throws DomainErrors unchanged and wraps non-DomainErrors as `InvalidTypeValueError`. However, `validateTenantId` *always* throws `InvalidTenantIdError` (a `DomainError` subclass), so the non-DomainError branch is unreachable dead code — and more importantly, no external consumer imports the function: `apps/api`, `packages/mcp-tools`, and `packages/shared` all use `validateTenantIdEnhancedForAuth` from `@besterp/shared` instead. The only callers are internal (`createTenantClient` at line 298) and tests that import directly from `rls-extension.js` (not the package barrel). Exporting it from `index.ts` gave a false impression of public API surface and invited drift. **Fix:** removed `export { validateTenantIdEnhanced }` from `packages/database/src/index.ts`. The function remains exported from `rls-extension.ts` for internal use and its own tests; only the public barrel was cleaned up. Verified: lint ✓, typecheck ✓, all database tests pass (34 passed, 10 skipped), full suite 842 tests unchanged.
+
+### Reviewed but NOT changed (false positives / deferred)
+
+- **Tenant isolation (RLS boot assertions, superuser boot refusal, app-level `tenantId` filters), secret redaction across REST/MCP/durable surfaces, idempotency-key charset consistency, ReDoS, and `@Public()` scope scanning** remain intact and were re-verified by independent reads this round. No new 🔴/🟡 exploit paths found.
+- **`get_type_table_values` (discovery-tools.ts) still returns all type-table rows with no `take` cap.** Type tables are admin-curated global reference data with a handful of seeded values; the tool's contract is "return all valid values", and the truncation middleware bounds the audit/agent surfaces downstream. Low risk; deferred again.
+- **`sanitizeLogOutput` (shared/src/sanitize.ts:457) is deprecated but still exported from `@besterp/shared`.** It delegates to `sanitizeForLogOutput` as a backward-compat shim. Only used in `sanitize.test.ts`; no production code calls it. Kept to avoid breaking any external consumers that may still reference it.
+- **`validateOptionalString` (shared/src/validation.ts) throws generic `Error` instead of `InvalidTypeValueError`.** This is intentional: callers in `McpService.buildContext` catch the generic error and re-throw as `InvalidTypeValueError` with structured context. The generic throw keeps the shared package free of a circular dependency on the error classes. No change needed.
+- **`result[0]!` non-null assertion in `party.service.ts:743` and `result[0]` (nullable guard) at line 781** — both are intentional and well-documented. The `!` at 743 is on the RETURNING row inside `$queryRaw` where the column alias maps to a camelCase key; the nullable guard at 781 exists because `noUncheckedIndexedAccess` makes `result[0]` type as `T | undefined`, and the guard converts that to a clear error rather than a silent undefined access.
+- **`PrismaService` tenant-client cache (WeakRef + FinalizationRegistry + LRU), `rls-extension.ts` proxy (`$transaction`/blocked-method/non-string-symbol guards), `tool-registry.ts` `validateContextIdentity`, and the idempotency middleware's acquire/update retry + jittered backoff** were all re-read in full; the logic (stale-pending reclaim, P2034 jitter, P2025 fast-fail, redaction at both durable sinks) remains consistent. No new issues found.
+
+## Test Results (round 147)
+```
+api:       423 passed (16 files)  (unchanged)
+shared:    228 passed (4 files)   (unchanged)
+mcp-tools: 161 passed (4 files)   (unchanged)
+database:   34 passed, 10 skipped (3 files) (DB-backed; unchanged)
+───────────────────────────────
+Total:     846 passed, 10 skipped
+```
 
 ## Findings & Actions (round 146)
 
