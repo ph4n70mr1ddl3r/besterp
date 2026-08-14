@@ -3,9 +3,17 @@
 // Centralises validation patterns used across packages to avoid
 // duplication and ensure consistency.
 
+import { InvalidTypeValueError } from "./errors.js";
+
 /**
  * Trim and validate an optional string field, throwing on non-string /
  * whitespace-only / over-length input. Returns undefined for null/undefined.
+ *
+ * Throws InvalidTypeValueError (not a plain Error) so callers receive a
+ * structured domain error with code, suggested tools, and context — the same
+ * shape every other validation surface in the codebase produces. Importing
+ * from ./errors.js is safe: validation.ts has no dependents in errors.ts,
+ * so there is no circular dependency.
  */
 export function validateOptionalString(
   fieldName: string,
@@ -14,17 +22,26 @@ export function validateOptionalString(
 ): string | undefined {
   if (value === undefined || value === null) return undefined;
   if (typeof value !== "string") {
-    throw new Error(`${fieldName} must be a string, received ${typeof value}.`);
+    throw new InvalidTypeValueError(
+      `${fieldName} must be a string, received ${typeof value}.`,
+      { context: { field: fieldName, receivedType: typeof value } }
+    );
   }
   const trimmed = value.trim();
   if (trimmed.length === 0) {
     if (value.length > 0) {
-      throw new Error(`${fieldName} cannot be whitespace-only.`);
+      throw new InvalidTypeValueError(
+        `${fieldName} cannot be whitespace-only.`,
+        { context: { field: fieldName } }
+      );
     }
     return undefined;
   }
   if (trimmed.length > maxLength) {
-    throw new Error(`${fieldName} is too long (${trimmed.length} chars, max ${maxLength}).`);
+    throw new InvalidTypeValueError(
+      `${fieldName} is too long (${trimmed.length} chars, max ${maxLength}).`,
+      { context: { field: fieldName, length: trimmed.length, maxLength } }
+    );
   }
   return trimmed;
 }
