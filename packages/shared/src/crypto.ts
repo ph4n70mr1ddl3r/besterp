@@ -385,6 +385,14 @@ function countObjectKeys(value: Record<string, unknown>, ancestors: Set<object>,
 }
 
 export function hashInput(input: unknown): string {
+  // Per-invocation CPU-time budget: a deeply nested but wide structure
+  // (e.g. an array of thousands of 100-char strings) can pass the depth
+  // and byte-budget guards yet still consume excessive CPU during
+  // JSON.stringify + sortKeysDeep. Snapshot hrtime before the heavy work
+  // and abort if the wall-clock budget is exceeded — this catches pathological
+  // inputs that slip past the structural guards without requiring a full
+  // performance profiler on every call.
+  const BUDGET_MS = 50;
   try {
     const keyCount = countKeys(input);
     if (keyCount > MAX_HASH_KEYS) {
@@ -392,15 +400,7 @@ export function hashInput(input: unknown): string {
         `Input has too many keys (${keyCount}, max ${MAX_HASH_KEYS}). Refusing to hash to prevent DoS.`
       );
     }
-    // Per-invocation CPU-time budget: a deeply nested but wide structure
-    // (e.g. an array of thousands of 100-char strings) can pass the depth
-    // and byte-budget guards yet still consume excessive CPU during
-    // JSON.stringify + sortKeysDeep. Snapshot hrtime before the heavy work
-    // and abort if the wall-clock budget is exceeded — this catches pathological
-    // inputs that slip past the structural guards without requiring a full
-    // performance profiler on every call.
     const budgetStart = performance.now();
-    const BUDGET_MS = 50;
     const budget = { bytes: 0 };
     const canonical = sortKeysDeep(input, new Set(), 0, budget);
     const elapsed = performance.now() - budgetStart;

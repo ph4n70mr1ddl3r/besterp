@@ -256,9 +256,15 @@ export class PartyService {
       throw new MissingSubtypeDataError("lastName is required for person data", { suggestedTools: ["create_party"], context: { field: "lastName" } });
     }
     PartyService.requireMaxLength(trimmedLastName, "Last name", MAX_PERSON_NAME_LENGTH);
-    if (typeof personData.gender === "string") PartyService.requireMaxLength(personData.gender.trim(), "Gender", MAX_GENDER_LENGTH);
-    if (typeof personData.middleName === "string") PartyService.requireMaxLength(personData.middleName.trim(), "Middle name", MAX_MIDDLE_NAME_LENGTH);
-    if (personData.birthDate != null) PartyService.requireValidDate(personData.birthDate, "birthDate");
+    if (typeof personData.gender === "string") {
+      PartyService.requireMaxLength(personData.gender.trim(), "Gender", MAX_GENDER_LENGTH);
+    }
+    if (typeof personData.middleName === "string") {
+      PartyService.requireMaxLength(personData.middleName.trim(), "Middle name", MAX_MIDDLE_NAME_LENGTH);
+    }
+    if (personData.birthDate != null) {
+      PartyService.requireValidDate(personData.birthDate, "birthDate");
+    }
   }
 
   private validateOrganizationData(orgData: CreatePartyInput["organization"]): void {
@@ -275,8 +281,12 @@ export class PartyService {
       throw new MissingSubtypeDataError("legalName is required for organization data", { suggestedTools: ["create_party"], context: { field: "legalName" } });
     }
     PartyService.requireMaxLength(trimmedLegalName, "Legal name", MAX_LEGAL_NAME_LENGTH);
-    if (orgData.registrationDate != null) PartyService.requireValidDate(orgData.registrationDate, "registrationDate");
-    if (typeof orgData.taxId === "string") PartyService.requireMaxLength(orgData.taxId.trim(), "Tax ID", MAX_TAX_ID_LENGTH);
+    if (orgData.registrationDate != null) {
+      PartyService.requireValidDate(orgData.registrationDate, "registrationDate");
+    }
+    if (typeof orgData.taxId === "string") {
+      PartyService.requireMaxLength(orgData.taxId.trim(), "Tax ID", MAX_TAX_ID_LENGTH);
+    }
   }
 
   private sanitizePerson(personData: CreatePartyInput["person"]): CreatePartyInput["person"] | undefined {
