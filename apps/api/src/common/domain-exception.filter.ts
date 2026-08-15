@@ -56,15 +56,6 @@ function domainErrorToStatus(error: DomainError): number {
 }
 
 /**
- * Sanitize DomainError.context values before including them in HTTP responses.
- * Strips control characters from string values to prevent log injection, and
- * redacts values stored under sensitive-named keys (password, apiKey, …) so a
- * secret attached under a sensitive-named context key reaches REST dev clients
- * as "[REDACTED]" — matching the key-based redaction the MCP error-handler
- * applies to the same DomainError.context for AI agents.
- */
-
-/**
  * Serialize a non-Error exception to a human-readable string for logging.
  * Attempts JSON.stringify for structured objects; falls back to String()
  * when serialization throws (e.g. circular references, Symbols, Functions).
