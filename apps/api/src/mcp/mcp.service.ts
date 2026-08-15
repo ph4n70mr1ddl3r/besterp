@@ -80,26 +80,26 @@ export class McpService implements OnModuleInit {
   private validateUserId(value: string): string {
     if (typeof value !== "string") {
       throw new InvalidTypeValueError(
-        "McpService.buildContext: userId must be a string.",
+        "userId must be a string.",
         { context: { field: "userId", receivedType: typeof value } }
       );
     }
     const rawUserId = value.trim();
     if (rawUserId.length === 0) {
       throw new InvalidTypeValueError(
-        "McpService.buildContext: userId must not be empty or whitespace-only.",
+        "userId must not be empty or whitespace-only.",
         { context: { field: "userId" } }
       );
     }
     if (rawUserId.length > MAX_USER_ID_LENGTH) {
       throw new InvalidTypeValueError(
-        `McpService.buildContext: userId is too long (${rawUserId.length} chars, max ${MAX_USER_ID_LENGTH}).`,
+        `userId is too long (${rawUserId.length} chars, max ${MAX_USER_ID_LENGTH}).`,
         { context: { field: "userId", length: rawUserId.length, maxLength: MAX_USER_ID_LENGTH } }
       );
     }
     if (!TENANT_ID_PATTERN.test(rawUserId)) {
       throw new InvalidTypeValueError(
-        "McpService.buildContext: userId contains invalid characters. " +
+        "userId contains invalid characters. " +
           "User IDs may only contain alphanumeric characters, hyphens, and underscores.",
         { context: { field: "userId" } }
       );
@@ -113,19 +113,10 @@ export class McpService implements OnModuleInit {
   }
 
   private validateIdempotencyKey(value: string | undefined): string | undefined {
-    let raw: string | undefined;
-    try {
-      raw = validateOptionalString("idempotencyKey", value, MAX_IDEMPOTENCY_KEY_LENGTH);
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      throw new InvalidTypeValueError(
-        `McpService.buildContext: ${msg}`,
-        { context: { field: "idempotencyKey" } }
-      );
-    }
+    const raw = validateOptionalString("idempotencyKey", value, MAX_IDEMPOTENCY_KEY_LENGTH);
     if (raw !== undefined && !SAFE_IDEMPOTENCY_KEY.test(raw)) {
       throw new InvalidTypeValueError(
-        "McpService.buildContext: idempotencyKey must contain only printable ASCII characters.",
+        "idempotencyKey must contain only printable ASCII characters.",
         { context: { field: "idempotencyKey" } }
       );
     }
@@ -140,26 +131,8 @@ export class McpService implements OnModuleInit {
   }
 
   private validateOptionalIds(overrides: { agentId?: string; conversationId?: string }): { agentId: string | undefined; conversationId: string | undefined } {
-    let agentId: string | undefined;
-    let conversationId: string | undefined;
-    try {
-      agentId = validateOptionalString("agentId", overrides.agentId, MAX_AGENT_ID_LENGTH);
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      throw new InvalidTypeValueError(
-        `McpService.buildContext: ${msg}`,
-        { context: { field: "agentId" } }
-      );
-    }
-    try {
-      conversationId = validateOptionalString("conversationId", overrides.conversationId, MAX_CONVERSATION_ID_LENGTH);
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      throw new InvalidTypeValueError(
-        `McpService.buildContext: ${msg}`,
-        { context: { field: "conversationId" } }
-      );
-    }
+    const agentId = validateOptionalString("agentId", overrides.agentId, MAX_AGENT_ID_LENGTH);
+    const conversationId = validateOptionalString("conversationId", overrides.conversationId, MAX_CONVERSATION_ID_LENGTH);
 
     // Enforce charset at the service layer for agentId and conversationId as
     // defense-in-depth. The auth boundary (ToolRegistry.validateContextIdentity
@@ -169,14 +142,14 @@ export class McpService implements OnModuleInit {
     // sinks (audit-log, idempotency) safe even if the auth boundary regresses.
     if (agentId !== undefined && !TENANT_ID_PATTERN.test(agentId)) {
       throw new InvalidTypeValueError(
-        "McpService.buildContext: agentId contains invalid characters. " +
+        "agentId contains invalid characters. " +
           "Agent IDs may only contain alphanumeric characters, hyphens, and underscores.",
         { context: { field: "agentId" } }
       );
     }
     if (conversationId !== undefined && !TENANT_ID_PATTERN.test(conversationId)) {
       throw new InvalidTypeValueError(
-        "McpService.buildContext: conversationId contains invalid characters. " +
+        "conversationId contains invalid characters. " +
           "Conversation IDs may only contain alphanumeric characters, hyphens, and underscores.",
         { context: { field: "conversationId" } }
       );
@@ -185,16 +158,7 @@ export class McpService implements OnModuleInit {
   }
 
   private validateReasoning(value: string | undefined): string | undefined {
-    let reasoning: string | undefined;
-    try {
-      reasoning = validateOptionalString("reasoning", value, MAX_REASONING_LENGTH);
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      throw new InvalidTypeValueError(
-        `McpService.buildContext: ${msg}`,
-        { context: { field: "reasoning" } }
-      );
-    }
+    const reasoning = validateOptionalString("reasoning", value, MAX_REASONING_LENGTH);
     return reasoning !== undefined ? sanitizeForLogOutput(stripHtmlTags(reasoning)) : undefined;
   }
 
