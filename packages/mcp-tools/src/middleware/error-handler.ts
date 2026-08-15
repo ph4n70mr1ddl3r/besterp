@@ -210,8 +210,7 @@ function handlePrismaError(prismaCode: string, prismaMeta: { target?: string | s
 }
 
 function handleGenericError(error: unknown, definition: { name: string }, tenantId: string, userId: string): ToolResult {
-  const message = error instanceof Error ? error.message : "Unknown error";
-  const safeMessage = sanitizeForLogOutput(message).slice(0, MAX_ERROR_LOG_LINE_LENGTH);
+  const safeMessage = sanitizeForLogOutput(error instanceof Error ? error.message : "Unknown error").slice(0, MAX_ERROR_LOG_LINE_LENGTH);
   // Log sanitized details to stderr to prevent leaking sensitive info
   // (DB hostnames, connection strings, stack frames). tenantId and userId
   // are sanitized to prevent JSON corruption if they contain `]` or `"` chars.

@@ -11,8 +11,7 @@ import { assertSeedAllowed } from "../src/seed-guard.js";
 // (tenant-acme, tenant-globex) into a real database. Mirrors main.ts's
 // normalizeEnvironment(). We use a local variable instead of mutating
 // process.env to avoid side-effects if the script is ever imported.
-const rawNodeEnv = process.env.NODE_ENV;
-const normalizedNodeEnv = normalizeEnvironmentValue(rawNodeEnv);
+const normalizedNodeEnv = normalizeEnvironmentValue(process.env.NODE_ENV);
 
 // Seed uses admin connection to bypass RLS for creating tenant records
 if (!process.env.DATABASE_ADMIN_URL) {

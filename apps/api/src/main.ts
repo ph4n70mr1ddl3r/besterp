@@ -1,10 +1,11 @@
 // BestERP API — NestJS Bootstrap
 //
 // Initializes the NestJS application with:
-// - Global API prefix
-// - CORS for development
-// - Request validation pipe
-// - JWT secret check (warns in dev, fails in production)
+// - Environment normalization and validation (NODE_ENV, JWT, database, Redis)
+// - Global API prefix, CORS, and rate limiting
+// - Request validation pipe and JWT authentication
+// - Graceful shutdown with hard-exit timeout
+// - Boot-time security assertions (@Public() scope, RLS, superuser refusal)
 
 import "reflect-metadata";
 import { NestFactory, DiscoveryService } from "@nestjs/core";
