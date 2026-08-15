@@ -2,8 +2,35 @@
 
 ## Scope
 Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
- `mcp-tools`, `apps/api`) conducted on 2026-08-16. This is review 154;
- rounds 1–153 are documented in earlier revisions of this file and `CHANGES.md`.
+ `mcp-tools`, `apps/api`) conducted on 2026-08-16. This is review 155;
+ rounds 1–154 are documented in earlier revisions of this file and `CHANGES.md`.
+
+## Findings & Actions (round 155)
+
+### Fixed this round
+
+1. **🟢 `apps/api/src/common/domain-exception.filter.ts:90–91` — `headersSent` branch used inline exception serialization instead of the named helper.** The `catch()` method's early-exit path (when HTTP response headers were already sent) used the inline expression `exception instanceof Error ? exception.message : String(exception)` directly, while the later `handleUnexpectedError` method used the module-level `serializeExceptionDescription` helper extracted in round 154. The two paths produced identical output but the inline form was a regression in readability consistency: the helper existed precisely to centralize the "try JSON.stringify, fall back to String" logic, and the `headersSent` branch was the one caller that bypassed it. **Fix:** replaced the inline expression with `serializeExceptionDescription(exception)`. No behavioural change — both branches now use the same two-path strategy (Error → `.message`, non-Error → `JSON.stringify` or `String`). Verified: lint ✓, typecheck ✓, all 437 api tests pass unchanged.
+
+### Reviewed but NOT changed (false positives / deferred)
+
+- **Tenant isolation (RLS boot assertions, superuser boot refusal, app-level `tenantId` filters), secret redaction across REST/MCP/durable surfaces, idempotency-key charset consistency, ReDoS, and `@Public()` scope scanning** remain intact and were re-verified by independent reads this round. No new 🔴/🟡 exploit paths found beyond those fixed above.
+- **`get_type_table_values` (discovery-tools.ts) still returns all type-table rows with no `take` cap.** Deferred again: admin-curated reference data with a handful of seeded values; truncation middleware bounds downstream surfaces.
+- **`sanitizeLogOutput` deprecated shim** retained as before (no production callers; back-compat).
+- **`party.service.ts:178` — `partyType` lookup outside transaction.** Intentional per existing comment: cross-connection consistency concern with the admin client. Moving it inside the tx would require the tx to span the admin connection, which the architecture avoids.
+- **`main.ts:99–103` — ternary chain for JWT `totalSeconds` conversion.** Functionally correct and intentionally allocation-free; readability is secondary to the explicit per-unit arithmetic that avoids floating-point drift at boundaries. No change.
+- **`queue.module.ts:92` — static `_redisPortWarned` flag.** Leaks across Vitest pool-mode test suites but not across processes. Low risk; resetting it in `onModuleDestroy` would add complexity for negligible benefit.
+- **`health.service.ts:75–81` — static `_redisPortWarned` / `_redisConnectionWarned` flags.** Same pattern as `queue.module.ts`: per-process deduplication to prevent log flooding from health-check polls. Leaks across Vitest pool-mode suites but not across processes. Low risk; resetting in `onModuleDestroy` adds complexity for negligible benefit.
+
+## Test Results (round 155)
+```
+api:       437 passed (17 files)  (unchanged)
+shared:    229 passed (4 files)   (unchanged)
+mcp-tools: 163 passed (4 files)   (unchanged)
+database:   34 passed, 10 skipped (3 files) (DB-backed; unchanged)
+───────────────────────────────
+Total:     863 passed, 10 skipped
+```
+lint ✓ · typecheck ✓ · build ✓ · `npm audit` 0 vulnerabilities
 
 ## Findings & Actions (round 154)
 

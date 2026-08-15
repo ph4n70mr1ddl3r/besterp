@@ -88,7 +88,7 @@ export class DomainExceptionFilter implements ExceptionFilter {
 
     if (response.headersSent) {
       this.logger.warn(
-        `Headers already sent — cannot write error response. Exception: ${sanitizeForLogOutput(exception instanceof Error ? exception.message : String(exception))}`
+        `Headers already sent — cannot write error response. Exception: ${sanitizeForLogOutput(serializeExceptionDescription(exception))}`
       );
       return;
     }
