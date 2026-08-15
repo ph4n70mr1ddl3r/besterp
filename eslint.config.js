@@ -33,6 +33,12 @@ export default tseslint.config(
       ],
       "@typescript-eslint/no-require-imports": "error",
 
+      // The base no-unused-vars rule conflicts with @typescript-eslint/no-unused-vars
+      // on unused parameters in function type signatures (e.g. ToolMiddleware, ZodSchemaLike).
+      // TypeScript's noUnusedParameters doesn't flag abstract params in type positions,
+      // but the base ESLint rule does — disable it so the TS-specific rule is authoritative.
+      "no-unused-vars": "off",
+
       // Catch accidentally unhandled promises (fire-and-forget is explicitly
       // used in audit-log middleware and idempotency middleware, but any
       // other forgotten await should be flagged).
