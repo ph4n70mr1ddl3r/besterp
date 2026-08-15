@@ -283,7 +283,7 @@ function createClientProxy(
       delegateCache.set(prop, proxy);
       return proxy;
     },
-  }) as unknown as PrismaClient;
+  }) as unknown as TenantScopedClient;
 }
 
 export function createTenantClient(prisma: PrismaClient, tenantId: string, options: CreateTenantClientOptions = {}): TenantScopedClient {

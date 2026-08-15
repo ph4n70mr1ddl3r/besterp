@@ -168,6 +168,6 @@ export async function withTenant<T>(
     return fn(tx);
   }, {
     timeout: options?.timeout ?? DEFAULT_TRANSACTION_TIMEOUT_MS,
-    ...(options?.isolationLevel ? { isolationLevel: options.isolationLevel } : {}),
+    ...(options?.isolationLevel && { isolationLevel: options.isolationLevel }),
   });
 }

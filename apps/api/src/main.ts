@@ -167,7 +167,6 @@ function validateRedisConfig(): void {
 function validateEnvironment(): void {
   validateRequiredEnvVars();
   validateJwtConfig();
-  validateJwtSecretStrength();
   validateRedisConfig();
 }
 

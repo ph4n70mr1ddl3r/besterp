@@ -2,8 +2,42 @@
 
 ## Scope
 Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
-`mcp-tools`, `apps/api`) conducted on 2026-08-16. This is review 151;
-rounds 1–150 are documented in earlier revisions of this file and `CHANGES.md`.
+ `mcp-tools`, `apps/api`) conducted on 2026-08-16. This is review 152;
+ rounds 1–151 are documented in earlier revisions of this file and `CHANGES.md`.
+
+## Findings & Actions (round 152)
+
+### Fixed this round
+
+1. **🟡 `main.ts:170` — duplicate `validateJwtSecretStrength()` call at boot.** `validateJwtConfig()` (line 76) already invokes `validateJwtSecretStrength()`; `validateEnvironment()` (line 170) called it a second time unconditionally. The second invocation is harmless (same inputs, same result) but wasted CPU on the secret-strength heuristics and masked the true validator call graph. **Fix:** removed the redundant line. Verified: lint ✓, typecheck ✓, all 863 tests pass unchanged.
+
+2. **🟡 `packages/database/src/rls-extension.ts:286` — `createClientProxy` returned cast to `PrismaClient` instead of `TenantScopedClient`.** The proxy is returned from `createTenantClient` which declares `TenantScopedClient` as its return type — a stricter alias that omits raw-query and connection methods to enforce RLS discipline. Casting through `PrismaClient` widened the apparent type, allowing callers who received the proxy to access omitted methods without a compile-time error (the runtime proxy still blocks them, but the type contract was wrong). **Fix:** changed the cast to `as unknown as TenantScopedClient`. Verified: typecheck ✓, all tests pass.
+
+3. **🟢 `packages/shared/src/validation.ts:138` — dead `?? 0` fallback on `DAYS_IN_MONTH[month]`.** `month` is parsed from the regex capture group `(0[1-9]|1[0-2])`, which guarantees values 1–12. `DAYS_IN_MONTH` has 13 elements (indices 0–12), so the indexed access is always defined at runtime. TypeScript's `noUncheckedIndexedAccess` requires an explicit non-null assertion; the `?? 0` was unreachable dead code. **Fix:** replaced with `DAYS_IN_MONTH[month]!` to satisfy the compiler while preserving the provably-safe invariant.
+
+4. **🟢 `packages/shared/src/tenant.ts:171` — empty-object spread on absent `isolationLevel`.** `...(options?.isolationLevel ? { isolationLevel: options.isolationLevel } : {})` spreads `{}` when `isolationLevel` is absent, which is a no-op. **Fix:** simplified to `...(options?.isolationLevel && { isolationLevel: options.isolationLevel })` to match the project's convention elsewhere. No behavioural change.
+
+### Reviewed but NOT changed (false positives / deferred)
+
+- **`party.service.ts` `birthDate`/`registrationDate` — missing `typeof` guard before `requireValidDate`.** Rejected as false positive: `requireValidDate` (line 1294) already guards `typeof value !== "string"` and throws `InvalidTypeValueError`, so the call site at lines 261 and 278 is safe.
+- **`party-tools.ts` `postalAddress.country` missing `COUNTRY_CODE_REGEX`.** Rejected: postal `country` uses ISO 3166-1 alpha-2 codes (validated by `MIN/MAX_COUNTRY_CODE_LENGTH` = 2–3 chars); `telecomNumber.countryCode` uses E.164 format (validated by `COUNTRY_CODE_REGEX` = `^\+[1-9]\d{0,2}$`). Different domains, different validators.
+- **`audit-log.ts` `userId`/`agentId`/`conversationId` not re-validated against `TENANT_ID_PATTERN` at the durable sink.** Architecture is intentional: upstream validators (`buildContext`, `validateContextIdentity`) enforce charset at the boundary; the audit log sanitizes (strip HTML + redact secrets) but does not re-validate — a single-source-of-truth design consistent with the rest of the codebase.
+- **Tenant isolation (RLS boot assertions, superuser boot refusal, app-level `tenantId` filters), secret redaction across REST/MCP/durable surfaces, idempotency-key charset consistency, ReDoS, and `@Public()` scope scanning** remain intact and were re-verified by independent reads this round. No new 🔴/🟡 exploit paths found beyond those fixed above.
+- **`get_type_table_values` (discovery-tools.ts) still returns all type-table rows with no `take` cap.** Deferred again: admin-curated reference data with a handful of seeded values; truncation middleware bounds downstream surfaces.
+- **`sanitizeLogOutput` deprecated shim** retained as before (no production callers; back-compat).
+- **`party.service.ts:380–384` dead `ConcurrencyRetryError` catch branch in `createParty`.** Intentional safety net documented in the comment; kept as-is.
+- **`domain-exception.filter.ts:159` fragile class-validator prefix regex.** Re-verified: the whitelist is manually maintained and pinned by existing regression tests; no new violations detected this round.
+
+## Test Results (round 152)
+```
+api:       437 passed (17 files)  (unchanged)
+shared:    229 passed (4 files)   (unchanged)
+mcp-tools: 163 passed (4 files)   (unchanged)
+database:   34 passed, 10 skipped (3 files) (DB-backed; unchanged)
+───────────────────────────────
+Total:     863 passed, 10 skipped
+```
+lint ✓ · typecheck ✓ · build ✓ · `npm audit` 0 vulnerabilities
 
 ## Findings & Actions (round 151)
 

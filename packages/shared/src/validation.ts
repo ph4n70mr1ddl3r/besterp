@@ -135,7 +135,7 @@ export function isValidISODate(value: string): boolean {
   const day = parseInt(dateMatch[3]!, 10);
   // Validate calendar range: reject years outside reasonable business range,
   // and enforce month-specific day limits (e.g. Feb 30).
-  if (year < 1700 || year > 2200 || day > (DAYS_IN_MONTH[month] ?? 0)) return false;
+  if (year < 1700 || year > 2200 || day > DAYS_IN_MONTH[month]!) return false;
   // Leap year check for February 29.
   if (month === 2 && day === 29) {
     const isLeap = (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
