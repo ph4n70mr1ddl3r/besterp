@@ -24,8 +24,11 @@ import { validateTenantId, InvalidTypeValueError, setTenantContext } from "@best
 const DEFAULT_TX_TIMEOUT_MS = 30_000;
 
 // ─── Blocked methods — single source of truth ─────────────────────
-// These names must stay in sync with the TenantScopedClient type alias.
-// If a method is omitted from the type, it should also be added here.
+// DATA_METHODS is the authoritative list of model operations that must be
+// wrapped with setTenantContext. If Prisma adds a new data method (e.g.
+// findRaw, countRaw), add it here — the TenantScopedClient type alias omits
+// raw-query methods, not data methods, so the two lists serve different
+// purposes and must not be confused.
 
 /** A PrismaClient-like interface with automatic RLS tenant context injection. */
 export type TenantScopedClient = Omit<PrismaClient, "$connect" | "$disconnect" | "$extends" | "$queryRaw" | "$queryRawTyped" | "$executeRaw" | "$executeRawTyped" | "$queryRawUnsafe" | "$executeRawUnsafe" | "$on" | "$use" | "$metrics">;
@@ -35,7 +38,7 @@ export type TenantScopedClient = Omit<PrismaClient, "$connect" | "$disconnect" |
 class LruCache<K, V> {
   private readonly map = new Map<K, V>();
   constructor(private readonly maxSize: number) {
-    if (maxSize < 1) throw new RangeError(`LruCache maxSize must be >= 1, got ${maxSize}`);
+    if (maxSize < 1 || !Number.isFinite(maxSize)) throw new RangeError(`LruCache maxSize must be a finite number >= 1, got ${maxSize}`);
   }
 
   get(key: K): V | undefined {
@@ -77,9 +80,12 @@ export function validateTenantIdEnhanced(tenantId: string): string {
  * Validate that a Prisma client has the required methods for RLS.
  */
 export function validatePrismaClientForRls(prisma: PrismaClient): void {
-  if (!prisma || typeof prisma.$transaction !== "function" || typeof prisma.$executeRaw !== "function") {
+  if (!prisma || typeof prisma.$transaction !== "function" ||
+      typeof prisma.$executeRaw !== "function" ||
+      typeof prisma.$executeRawUnsafe !== "function") {
     throw new InvalidTypeValueError(
-      "Prisma client does not support RLS operations. Make sure it's connected with the correct role.",
+      "Prisma client is missing required methods for RLS ($transaction, $executeRaw, $executeRawUnsafe). " +
+      "Ensure the client is a real PrismaClient instance connected as the besterp_app role.",
       { context: { provided: typeof prisma } }
     );
   }
@@ -141,7 +147,9 @@ function createTransactionWrapper(prisma: PrismaClient, tenantId: string) {
 
     if (typeof args[0] === "function") {
       fn = args[0] as (tx: Prisma.TransactionClient) => Promise<unknown>;
-      options = typeof args[1] === "object" && args[1] !== null ? args[1] as { timeout?: number; maxWait?: number; isolationLevel?: Prisma.TransactionIsolationLevel } : undefined;
+      options = args[1] != null && typeof args[1] === "object" && !Array.isArray(args[1])
+        ? args[1] as { timeout?: number; maxWait?: number; isolationLevel?: Prisma.TransactionIsolationLevel }
+        : undefined;
     } else if (Array.isArray(args[0])) {
       throw new InvalidTypeValueError(
         "Batch $transaction([...promises]) is not supported on a tenant-scoped client. " +

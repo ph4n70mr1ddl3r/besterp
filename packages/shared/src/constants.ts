@@ -256,7 +256,7 @@ export function normalizeEnvironmentValue(raw: string | undefined): string | und
  * easy to get wrong (e.g. casing, missing trim) and silently inconsistent.
  */
 export function isDev(): boolean {
-  return process.env.NODE_ENV === "development";
+  return normalizeEnvironmentValue(process.env.NODE_ENV) === "development";
 }
 
 /**
@@ -270,5 +270,5 @@ export function isDev(): boolean {
  * "production"` checks that existed in health.service.ts and health.controller.ts.
  */
 export function isProd(): boolean {
-  return process.env.NODE_ENV === "production";
+  return normalizeEnvironmentValue(process.env.NODE_ENV) === "production";
 }

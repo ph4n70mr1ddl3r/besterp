@@ -2,16 +2,17 @@ import { PrismaClient } from "@prisma/client";
 import { normalizeEnvironmentValue, sanitizeForLogOutput } from "@besterp/shared";
 import { assertSeedAllowed } from "../src/seed-guard.js";
 
-// Normalize NODE_ENV early (case-insensitive, trimmed) so "Production" or
-// "PRODUCTION" or " Production " cannot bypass the production-seed guard
-// below. The seed runs as a separate process that does NOT go through
-// main.ts's normalizeEnvironment(), so without this a mis-cased or
-// whitespace-padded NODE_ENV in a production shell would slip past the
-// `=== "production"` check and seed hard-coded test tenants (tenant-acme,
-// tenant-globex) into a real database. Mirrors main.ts's normalizeEnvironment().
-if (process.env.NODE_ENV) {
-  process.env.NODE_ENV = normalizeEnvironmentValue(process.env.NODE_ENV);
-}
+// Normalize NODE_ENV into a local variable (case-insensitive, trimmed) so
+// "Production" or "PRODUCTION" or " Production " cannot bypass the
+// production-seed guard below. The seed runs as a separate process that does
+// NOT go through main.ts's normalizeEnvironment(), so without this a
+// mis-cased or whitespace-padded NODE_ENV in a production shell would slip
+// past the `=== "production"` check and seed hard-coded test tenants
+// (tenant-acme, tenant-globex) into a real database. Mirrors main.ts's
+// normalizeEnvironment(). We use a local variable instead of mutating
+// process.env to avoid side-effects if the script is ever imported.
+const rawNodeEnv = process.env.NODE_ENV;
+const normalizedNodeEnv = normalizeEnvironmentValue(rawNodeEnv);
 
 // Seed uses admin connection to bypass RLS for creating tenant records
 if (!process.env.DATABASE_ADMIN_URL) {
@@ -212,7 +213,7 @@ async function main() {
   // lets it be unit-tested (this script self-executes and cannot be imported).
   // Note: NODE_ENV was already normalized to lowercase above, but the guard
   // normalizes again defensively so it is safe when called with a raw value.
-  assertSeedAllowed(process.env.NODE_ENV, process.env.ALLOW_SEED);
+  assertSeedAllowed(normalizedNodeEnv, process.env.ALLOW_SEED);
 
   console.log("[SEED] Seeding type tables with AI-facing descriptions...\n");
 

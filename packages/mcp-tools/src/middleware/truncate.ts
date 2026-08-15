@@ -288,7 +288,11 @@ function normalisePrimitive(value: unknown, effectiveMax: number): { normalised:
   }
   if (typeof value === "boolean" || typeof value === "number") {
     const serialised = JSON.stringify(value);
-    return { normalised: value, marker: checkOversized(textEncoder.encode(serialised), effectiveMax) };
+    // JSON.stringify(NaN) and JSON.stringify(Infinity) both produce "null";
+    // normalise to null here so the stored JSONB form is consistent with the
+    // serialised bytes used for the size check.
+    const normalised = (typeof value === "number" && !Number.isFinite(value)) ? null : value;
+    return { normalised, marker: checkOversized(textEncoder.encode(serialised), effectiveMax) };
   }
   if (typeof value === "bigint") {
     return { normalised: value.toString(), marker: checkOversizedStoredString(value.toString(), effectiveMax) };

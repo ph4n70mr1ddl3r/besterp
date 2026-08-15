@@ -464,10 +464,10 @@ export class PartyService {
         );
       }
       default: {
-        throw new InvalidTypeValueError(
-          `Database error (${code}) on ${entityName}.`,
-          { suggestedTools: [retryTool], context: { prismaCode: code } }
-        );
+        // Re-throw unknown Prisma codes (e.g. future P3xxx, P4xxx) as the
+        // original error so the filter returns 500 instead of misreporting
+        // a transient infrastructure failure as a caller-input 422.
+        throw err;
       }
     }
   }
@@ -1240,7 +1240,7 @@ export class PartyService {
     field: string,
     maxLength: number,
     parentType: string,
-    tool = "list_available_tools",
+    tool = "search_parties",
   ): string {
     const trimmed = value?.trim() ?? "";
     if (trimmed.length === 0) {

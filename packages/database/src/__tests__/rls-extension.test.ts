@@ -66,6 +66,7 @@ describe("RLS Extension", () => {
     it("should accept valid Prisma clients", () => {
       const mockPrisma = {
         $executeRaw: vi.fn(),
+        $executeRawUnsafe: vi.fn(),
         $transaction: vi.fn(),
         $connect: vi.fn(),
         $disconnect: vi.fn(),
@@ -93,6 +94,7 @@ describe("RLS Extension", () => {
     it("should reject Prisma clients without $transaction method", () => {
       const mockPrisma = {
         $executeRaw: vi.fn(),
+        $executeRawUnsafe: vi.fn(),
         $connect: vi.fn(),
         $disconnect: vi.fn(),
       };
@@ -112,6 +114,7 @@ describe("RLS Extension", () => {
       };
       mockPrisma = {
         $executeRaw: vi.fn(),
+        $executeRawUnsafe: vi.fn(),
         $connect: vi.fn(),
         $disconnect: vi.fn(),
         $transaction: vi.fn().mockImplementation((fn, _opts?) => {
@@ -312,6 +315,7 @@ describe("RLS Extension", () => {
     beforeEach(() => {
       mockPrisma = {
         $executeRaw: vi.fn(),
+        $executeRawUnsafe: vi.fn(),
         $connect: vi.fn(),
         $disconnect: vi.fn(),
         $transaction: vi.fn(),

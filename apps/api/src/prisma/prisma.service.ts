@@ -445,7 +445,7 @@ export class PrismaService
       hits: this.cacheHits,
       misses: this.cacheMisses,
       hitRate: total > 0 ? this.cacheHits / total : 0,
-      size: this.tenantClientCache.size,
+      size: [...this.tenantClientCache.values()].filter((ref) => ref.deref() !== undefined).length,
       maxSize: MAX_TENANT_CACHE_SIZE,
     };
   }

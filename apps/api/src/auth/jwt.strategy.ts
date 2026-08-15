@@ -16,7 +16,7 @@ import { Injectable, Logger, UnauthorizedException } from "@nestjs/common";
 import { PassportStrategy } from "@nestjs/passport";
 import { ExtractJwt, Strategy } from "passport-jwt";
 import { randomBytes } from "node:crypto";
-import { MAX_USER_ID_LENGTH, MAX_AGENT_ID_LENGTH, MAX_ROLE_LENGTH, MAX_TENANT_ID_LENGTH, isProd, validateTenantIdEnhancedForAuth } from "@besterp/shared";
+import { MAX_USER_ID_LENGTH, MAX_AGENT_ID_LENGTH, MAX_ROLE_LENGTH, MAX_TENANT_ID_LENGTH, isProd, validateTenantIdEnhancedForAuth, sanitizeForLogOutput } from "@besterp/shared";
 
 export interface JwtPayload {
   sub: string;      // user ID
@@ -112,7 +112,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       // loses the specific cause (e.g. INVALID_TENANT_ID vs a validation error),
       // making debugging harder.
       const msg = e instanceof Error ? e.message : String(e);
-      _logger.warn(`Tenant validation failed for token: ${msg}`);
+      _logger.warn(`Tenant validation failed for token: ${sanitizeForLogOutput(msg)}`);
       throw new UnauthorizedException(
         `Invalid token: tenantId failed format validation. ${msg}`,
       );

@@ -404,8 +404,13 @@ export class HealthService implements OnModuleInit {
         // line-delimited, so a line-anchored check is safer against the
         // (theoretically impossible under RESP) false positive of a prior
         // response line containing the literal bytes "+PONG\r\n".
-        const responseLines = responseBuffer.split("\r\n");
-        if (responseLines.includes("+PONG")) {
+        const responseLines = responseBuffer.split("\r\n").filter((l) => l.length > 0);
+        // Check only the last line — RESP responses are strictly line-delimited
+        // and the PING round-trip always produces +PONG as the final line.
+        // Checking earlier lines would risk a false positive from a prior
+        // AUTH+OK or custom-module response containing the literal "+PONG".
+        const lastLine = responseLines[responseLines.length - 1];
+        if (lastLine === "+PONG") {
           clearTimeout(timeout);
           socket.removeAllListeners();
           socket.destroy();

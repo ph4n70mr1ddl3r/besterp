@@ -12,7 +12,14 @@ import {
   ToolContext,
   RiskLevel,
 } from "../schema/tool-definition.js";
-import { sanitizeForLogOutput, redactSensitiveFieldValues, validateTenantIdEnhancedForAuth, MAX_USER_ID_LENGTH, MAX_AGENT_ID_LENGTH, MAX_CONVERSATION_ID_LENGTH, TENANT_ID_PATTERN, isSensitiveFieldName } from "@besterp/shared";
+import { sanitizeForLogOutput, redactSensitiveFieldValues, validateTenantIdEnhancedForAuth, MAX_USER_ID_LENGTH, MAX_AGENT_ID_LENGTH, MAX_CONVERSATION_ID_LENGTH, isSensitiveFieldName } from "@besterp/shared";
+
+/** Permissive pattern for optional identity fields (userId, agentId, conversationId).
+ *  More lenient than TENANT_ID_PATTERN to accommodate real-world identifiers
+ *  (e.g. john.doe, user+role) while still rejecting control characters and
+ *  zero-width sequences that could confuse downstream sanitization. */
+// eslint-disable-next-line no-control-regex
+const OPTIONAL_ID_PATTERN = /^[^\s\x00-\x1f\x7f-\x9f]{1,200}$/;
 
 const VALID_RISK_LEVELS: readonly RiskLevel[] = ["none", "low", "medium", "high", "critical"];
 
@@ -298,7 +305,7 @@ export class ToolRegistry {
     // Reject only after trimming so a whitespace-only value is caught by
     // the length/pattern checks below, not by the trim-equality guard.
     const userId = context.userId.trim();
-    if (userId.length === 0 || userId.length > MAX_USER_ID_LENGTH || !TENANT_ID_PATTERN.test(userId)) {
+    if (userId.length === 0 || userId.length > MAX_USER_ID_LENGTH || !OPTIONAL_ID_PATTERN.test(userId)) {
       return { error: this.contextIdentityError("INVALID_USER_ID", "user identifier") };
     }
     // `agentId`/`conversationId` are persisted verbatim into the cross-tenant
@@ -342,7 +349,7 @@ export class ToolRegistry {
     maxLength: number,
   ): ToolResult | null {
     if (value === undefined) return null;
-    if (typeof value !== "string" || value.length === 0 || value.length > maxLength || !TENANT_ID_PATTERN.test(value)) {
+    if (typeof value !== "string" || value.length === 0 || value.length > maxLength || !OPTIONAL_ID_PATTERN.test(value)) {
       return {
         success: false,
         error: {
@@ -387,7 +394,11 @@ export class ToolRegistry {
   private validateInputSchemaShape(toolName: string, schema: unknown): void {
     const cast = schema as { safeParse: (i: unknown) => { success: boolean; data?: unknown; error?: { issues?: unknown } } };
     if (typeof cast.safeParse !== "function") return;
-    const probe = cast.safeParse(undefined as unknown);
+    // Probe with a definitely-invalid input so the error shape is always
+    // exercised regardless of whether the schema accepts undefined. Probing
+    // with undefined would short-circuit the guard when the schema declares
+    // undefined valid (success:true), leaving shape mismatches undetected.
+    const probe = cast.safeParse({ __mcp_tools_shape_probe__: true });
     if (probe.success === false && !(probe.error && typeof (probe.error as Record<string, unknown>).issues === "object")) {
       throw new Error(
         `Tool '${toolName}': inputSchema.safeParse() returned an error without an 'issues' array. ` +

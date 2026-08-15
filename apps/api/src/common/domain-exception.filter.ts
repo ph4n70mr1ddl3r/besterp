@@ -128,7 +128,7 @@ export class DomainExceptionFilter implements ExceptionFilter {
       // verbatim any more than the message field does.
       error: status === 500 && !dev
         ? "INTERNAL_ERROR"
-        : sanitizeForLogOutput(exception.code),
+        : stripHtmlTags(sanitizeForLogOutput(exception.code)),
       // DomainError messages embed user-supplied input (invalid values, received
       // fields, malformed dates). These values survive upstream .trim() and may
       // contain control chars, HTML, or secrets (connection strings, tokens).
