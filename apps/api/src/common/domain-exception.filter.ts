@@ -64,6 +64,20 @@ function domainErrorToStatus(error: DomainError): number {
  * applies to the same DomainError.context for AI agents.
  */
 
+/**
+ * Serialize a non-Error exception to a human-readable string for logging.
+ * Attempts JSON.stringify for structured objects; falls back to String()
+ * when serialization throws (e.g. circular references, Symbols, Functions).
+ */
+function serializeExceptionDescription(exception: unknown): string {
+  if (exception instanceof Error) return exception.message;
+  try {
+    return JSON.stringify(exception);
+  } catch {
+    return String(exception);
+  }
+}
+
 @Catch()
 export class DomainExceptionFilter implements ExceptionFilter {
   private readonly logger = new Logger(DomainExceptionFilter.name);
@@ -204,11 +218,7 @@ export class DomainExceptionFilter implements ExceptionFilter {
 
   private handleUnexpectedError(exception: unknown, response: Response): void {
     const errorCode = getErrorCode(exception);
-    const description = exception instanceof Error
-      ? exception.message
-      : (() => {
-          try { return JSON.stringify(exception); } catch { return String(exception); }
-        })();
+    const description = serializeExceptionDescription(exception);
     this.logger.error(
       `Unhandled exception${errorCode ? ` [${errorCode}]` : ""}: ${sanitizeForLogOutput(description)}`,
       exception instanceof Error && exception.stack ? sanitizeForLogOutput(exception.stack) : undefined
