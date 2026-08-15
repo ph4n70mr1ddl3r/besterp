@@ -2,8 +2,35 @@
 
 ## Scope
 Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
- `mcp-tools`, `apps/api`) conducted on 2026-08-16. This is review 155;
- rounds 1–154 are documented in earlier revisions of this file and `CHANGES.md`.
+ `mcp-tools`, `apps/api`) conducted on 2026-08-16. This is review 159;
+ rounds 1–158 are documented in earlier revisions of this file and `CHANGES.md`.
+
+## Findings & Actions (round 159)
+
+### Fixed this round
+
+1. **🟢 `apps/api/src/modules/core/party/party.service.ts:975–977, 993` — optional postal/telecom fields lacked `typeof` guards before `requireMaxLength`.** `validatePostalAddressSubtype` truthy-checked `postalAddress.addressLine2` / `stateProvince` / `postalCode` and passed them directly to `requireMaxLength(value: string, …)`. `validateTelecomSubtype` did the same for `telecomNumber.extension`. When a direct/internal caller bypassed the DTO/Zod bounds and supplied e.g. `postalCode: 123`, the truthy check passed, `requireMaxLength` received a non-string, and the `.length` access resolved to `undefined` — `undefined > maxLength` is `false`, so the guard silently accepted the invalid value instead of throwing `InvalidTypeValueError`. The required-field validators (`requireStringField`) already guarded against non-strings; the optional-path gap was an inconsistency in the last-line-of-defense contract. **Fix:** each optional field now throws `InvalidTypeValueError` when its runtime type is not `"string"` (matching the pattern already used for `gender`/`middleName`/`birthDate` in `validatePersonData` and `taxId`/`registrationDate` in `validateOrganizationData`), then proceeds to `requireMaxLength` only when the typeof check confirms a string. Two regression tests added asserting the correct error is thrown and the transaction never runs. Verified: lint ✓, typecheck ✓, api 439 passed (+2), shared 229 passed, mcp-tools 163 passed, database 34 passed / 10 skipped.
+
+### Reviewed but NOT changed (false positives / deferred)
+
+- **Tenant isolation (RLS boot assertions, superuser boot refusal, app-level `tenantId` filters), secret redaction across REST/MCP/durable surfaces, idempotency-key charset consistency, ReDoS, and `@Public()` scope scanning** remain intact and were re-verified by independent reads this round. No new 🔴/🟡 exploit paths found beyond those fixed above.
+- **`get_type_table_values` (discovery-tools.ts) still returns all type-table rows with no `take` cap.** Deferred again: admin-curated reference data with a handful of seeded values; truncation middleware bounds downstream surfaces.
+- **`sanitizeLogOutput` deprecated shim** retained as before (no production callers; back-compat).
+- **`party.service.ts:178` — `partyType` lookup outside transaction.** Intentional per existing comment: cross-connection consistency concern with the admin client. Moving it inside the tx would require the tx to span the admin connection, which the architecture avoids.
+- **`main.ts:99–103` — ternary chain for JWT `totalSeconds` conversion.** Functionally correct and intentionally allocation-free; readability is secondary to the explicit per-unit arithmetic that avoids floating-point drift at boundaries. No change.
+- **`queue.module.ts:92` — static `_redisPortWarned` flag.** Leaks across Vitest pool-mode test suites but not across processes. Low risk; resetting it in `onModuleDestroy` would add complexity for negligible benefit.
+- **`health.service.ts:75–81` — static `_redisPortWarned` / `_redisConnectionWarned` flags.** Same pattern as `queue.module.ts`: per-process deduplication to prevent log flooding from health-check polls. Leaks across Vitest pool-mode suites but not across processes. Low risk; resetting in `onModuleDestroy` adds complexity for negligible benefit.
+
+## Test Results (round 159)
+```
+api:       439 passed (17 files)  (+2: postalCode extension-type guard, telecom extension-type guard)
+shared:    229 passed (4 files)   (unchanged)
+mcp-tools: 163 passed (4 files)   (unchanged)
+database:   34 passed, 10 skipped (3 files) (DB-backed; unchanged)
+───────────────────────────────
+Total:     865 passed, 10 skipped
+```
+lint ✓ · typecheck ✓ · build ✓ · `npm audit` 0 vulnerabilities
 
 ## Findings & Actions (round 155)
 

@@ -2486,6 +2486,68 @@ describe("PartyService", () => {
         lineNumber: "79461234",
       });
     });
+
+    it("rejects a non-string optional postal address field instead of silently passing it through requireMaxLength", async () => {
+      // Regression (round 159): `postalAddress.addressLine2` / `stateProvince`
+      // / `postalCode` were truthy-checked before `requireMaxLength`, so a
+      // direct caller bypassing the DTO/Zod that passed e.g. addressLine2: []
+      // or postalCode: 123 would have the truthy check pass while
+      // requireMaxLength received a non-string — a number's .length is
+      // undefined so the guard silently passed instead of throwing
+      // InvalidTypeValueError. Now throws at the service layer.
+      mockAdminTypes();
+      const input = {
+        tenantId: "tenant-1",
+        partyId: "12345678-1234-1234-1234-123456789abc",
+        contactMechanismType: "POSTAL_ADDRESS" as const,
+        postalAddress: {
+          addressLine1: "123 Main St",
+          city: "Anytown",
+          country: "US",
+          postalCode: 123 as any,
+        },
+      };
+
+      const mockDb = {
+        $transaction: vi.fn(),
+      };
+      mockPrismaService.tenantScoped.mockReturnValue(mockDb);
+
+      await expect(partyService.addContactMechanism(input)).rejects.toThrow(InvalidTypeValueError);
+      await expect(partyService.addContactMechanism(input)).rejects.toThrow(/postalCode/);
+      // Validation rejects before any DB call — the admin type lookup happens
+      // after validateContactMechanismSubtype returns.
+      expect(mockPrismaService.admin.contactMechanismType.findUnique).not.toHaveBeenCalled();
+      expect(mockDb.$transaction).not.toHaveBeenCalled();
+    });
+
+    it("rejects a non-string optional telecom extension instead of silently passing it through requireMaxLength", async () => {
+      // Regression (round 159): same class as the postal optional-field fix —
+      // `telecomNumber.extension` was truthy-checked before requireMaxLength.
+      // A direct caller passing extension: [] or extension: 99 would silently
+      // pass the length guard because number.length is undefined (false > n).
+      mockAdminTypes();
+      const input = {
+        tenantId: "tenant-1",
+        partyId: "12345678-1234-1234-1234-123456789abc",
+        contactMechanismType: "TELECOM_NUMBER" as const,
+        telecomNumber: {
+          areaCode: "415",
+          lineNumber: "5551234",
+          extension: 99 as any,
+        },
+      };
+
+      const mockDb = {
+        $transaction: vi.fn(),
+      };
+      mockPrismaService.tenantScoped.mockReturnValue(mockDb);
+
+      await expect(partyService.addContactMechanism(input)).rejects.toThrow(InvalidTypeValueError);
+      await expect(partyService.addContactMechanism(input)).rejects.toThrow(/extension/);
+      expect(mockPrismaService.admin.contactMechanismType.findUnique).not.toHaveBeenCalled();
+      expect(mockDb.$transaction).not.toHaveBeenCalled();
+    });
   });
 
   describe("transaction error handling", () => {

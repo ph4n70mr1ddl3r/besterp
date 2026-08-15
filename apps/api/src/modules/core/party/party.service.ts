@@ -972,9 +972,34 @@ export class PartyService {
         { suggestedTools: ["add_contact_mechanism"], context: { field: "country", received: trimmedCountry, minLength: MIN_COUNTRY_CODE_LENGTH } }
       );
     }
-    if (postalAddress.addressLine2) PartyService.requireMaxLength(postalAddress.addressLine2, "addressLine2", MAX_ADDRESS_LINE_LENGTH, "add_contact_mechanism");
-    if (postalAddress.stateProvince) PartyService.requireMaxLength(postalAddress.stateProvince, "stateProvince", MAX_STATE_PROVINCE_LENGTH, "add_contact_mechanism");
-    if (postalAddress.postalCode) PartyService.requireMaxLength(postalAddress.postalCode, "postalCode", MAX_POSTAL_CODE_LENGTH, "add_contact_mechanism");
+    // Type-guard optional fields before requireMaxLength — a direct caller
+    // bypassing the DTO/Zod bounds could pass e.g. addressLine2: [] or
+    // postalCode: 123, and the truthy check would pass while requireMaxLength
+    // would silently accept it (a number's .length is undefined, so
+    // undefined > maxLength is false). Throw InvalidTypeValueError for
+    // non-strings to keep the service as the last line of defense consistent
+    // with validatePersonData / validateOrganizationData (round 151).
+    if (postalAddress.addressLine2 != null && typeof postalAddress.addressLine2 !== "string") {
+      throw new InvalidTypeValueError(
+        "addressLine2 must be a string.",
+        { suggestedTools: ["add_contact_mechanism"], context: { field: "addressLine2", received: typeof postalAddress.addressLine2 } }
+      );
+    }
+    if (postalAddress.stateProvince != null && typeof postalAddress.stateProvince !== "string") {
+      throw new InvalidTypeValueError(
+        "stateProvince must be a string.",
+        { suggestedTools: ["add_contact_mechanism"], context: { field: "stateProvince", received: typeof postalAddress.stateProvince } }
+      );
+    }
+    if (postalAddress.postalCode != null && typeof postalAddress.postalCode !== "string") {
+      throw new InvalidTypeValueError(
+        "postalCode must be a string.",
+        { suggestedTools: ["add_contact_mechanism"], context: { field: "postalCode", received: typeof postalAddress.postalCode } }
+      );
+    }
+    if (typeof postalAddress.addressLine2 === "string") PartyService.requireMaxLength(postalAddress.addressLine2, "addressLine2", MAX_ADDRESS_LINE_LENGTH, "add_contact_mechanism");
+    if (typeof postalAddress.stateProvince === "string") PartyService.requireMaxLength(postalAddress.stateProvince, "stateProvince", MAX_STATE_PROVINCE_LENGTH, "add_contact_mechanism");
+    if (typeof postalAddress.postalCode === "string") PartyService.requireMaxLength(postalAddress.postalCode, "postalCode", MAX_POSTAL_CODE_LENGTH, "add_contact_mechanism");
   }
 
   private validateTelecomSubtype(telecomNumber: AddContactMechanismInput["telecomNumber"]): void {
@@ -990,7 +1015,14 @@ export class PartyService {
         throw new InvalidTypeValueError(`countryCode must be an E.164 country code (e.g., '+1', '+44'). Received: ${trimmedCountryCode}.`, { suggestedTools: ["add_contact_mechanism"], context: { field: "countryCode", invalidValue: trimmedCountryCode } });
       }
     }
-    if (telecomNumber.extension) PartyService.requireMaxLength(telecomNumber.extension, "extension", MAX_EXTENSION_LENGTH, "add_contact_mechanism");
+    // Same typeof guard rationale as the postal optional fields above (round 159).
+    if (telecomNumber.extension != null && typeof telecomNumber.extension !== "string") {
+      throw new InvalidTypeValueError(
+        "extension must be a string.",
+        { suggestedTools: ["add_contact_mechanism"], context: { field: "extension", received: typeof telecomNumber.extension } }
+      );
+    }
+    if (typeof telecomNumber.extension === "string") PartyService.requireMaxLength(telecomNumber.extension, "extension", MAX_EXTENSION_LENGTH, "add_contact_mechanism");
   }
 
   private validateEmailSubtype(emailAddress: AddContactMechanismInput["emailAddress"]): string {
