@@ -21,6 +21,20 @@ import {
 } from "@besterp/shared";
 
 /**
+ * Leading-prefix patterns that class-validator prepends to constraint error
+ * messages (e.g. "isString() value must be a string", "minLength() must be longer
+ * than or equal to 1 character"). Stripping only the prefix keeps the actionable
+ * remainder ("value must be a string", "must be longer than or equal to 1
+ * character") while discarding the mechanically-generated decorator name.
+ *
+ * The exhaustive enum-style list is intentionally conservative: adding a new
+ * prefix without updating this list would let raw class-validator internals
+ * leak into client-facing responses. When class-validator adds a new prefix,
+ * add it here and run the regression tests to confirm the new shape is handled.
+ */
+const CLASS_VALIDATOR_PREFIX_REGEX = /^(is\w+|mustBe\w+|must be [a-z ]+|should be [a-z ]+|should not be [a-z ]+|is not [a-z ]+|must contain|must not contain|should contain|should not contain|is optional|must be optional|is required|must be required|minAllowed|maxAllowed|notIn|min|max|length|equals|matches|isArray|minDecimalValue|isNotEmpty|isEmpty|isBoolean|isDate|isNumber|isString|isEnum|isInstanceOf|arrayMinSize|arrayMaxSize|isTrue|isFalse|isNull|isNotNull)[^a-zA-Z]*/i;
+
+/**
  * Map a DomainError code to an HTTP status code.
  */
 function domainErrorToStatus(error: DomainError): number {
@@ -146,17 +160,14 @@ export class DomainExceptionFilter implements ExceptionFilter {
         // the full message format with a single regex — class-validator
         // message shapes vary across constraints and versions, so a
         // whitelist of prefixes is less fragile than a blanket regex.
+        // Remove leading class-validator constraint prefixes (see
+        // CLASS_VALIDATOR_PREFIX_REGEX). A trailing quoted literal (the
+        // received value) is then removed by the next step.
         const cleaned: string[] = res.message
           .map((m) => {
             if (typeof m !== "string") return "Validation error";
             let stripped = m;
-            // Remove leading class-validator constraint prefixes (e.g.
-            // "minLength()", "isString()", "must be less than …"). Stripping
-            // only the prefix — NOT the rest of the message — keeps the
-            // error readable while removing the field-name / value that
-            // class-validator appends. A trailing quoted literal (the
-            // received value) is then removed by the next step.
-            const prefixMatch = stripped.match(/^(is\w+|mustBe\w+|must be [a-z ]+|should be [a-z ]+|should not be [a-z ]+|is not [a-z ]+|must contain|must not contain|should contain|should not contain|is optional|must be optional|is required|must be required|minAllowed|maxAllowed|notIn|min|max|length|equals|matches|isArray|minDecimalValue|isNotEmpty|isEmpty|isBoolean|isDate|isNumber|isString|isEnum|isInstanceOf|arrayMinSize|arrayMaxSize|isTrue|isFalse|isNull|isNotNull)[^a-zA-Z]*/i);
+            const prefixMatch = stripped.match(CLASS_VALIDATOR_PREFIX_REGEX);
             if (prefixMatch) {
               stripped = stripped.slice(prefixMatch[0].length).trim();
             }

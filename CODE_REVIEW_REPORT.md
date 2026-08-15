@@ -2,8 +2,40 @@
 
 ## Scope
 Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
- `mcp-tools`, `apps/api`) conducted on 2026-08-16. This is review 152;
- rounds 1–151 are documented in earlier revisions of this file and `CHANGES.md`.
+ `mcp-tools`, `apps/api`) conducted on 2026-08-16. This is review 153;
+ rounds 1–152 are documented in earlier revisions of this file and `CHANGES.md`.
+
+## Findings & Actions (round 153)
+
+### Fixed this round
+
+1. **🟡 `packages/mcp-tools/src/middleware/idempotency.ts:72` — silent skip on Zod parse failure.** `computeInputHash` returned `SKIP_HASH` for a Zod parse failure without any log output, while the serialization-failure branch below it emitted a `logIdempotencyWarn`. An operator could not distinguish between "idempotency skipped because input failed validation" and "idempotency skipped because the serializer hit a circular reference" — both were invisible. **Fix:** added a `logIdempotencyWarn` call on the Zod-parse-failure path that reports the tool name and issue count. Verified: lint ✓, typecheck ✓, all 863 tests pass unchanged.
+
+2. **🟡 `packages/mcp-tools/src/middleware/audit-log.ts:88` — `tenantId` persisted verbatim without a stated rationale.** `userId`, `agentId`, and `conversationId` were all passed through `sanitizeForLogOutput(stripHtmlTags(...))` before durable write, but `tenantId` was stored raw with no comment explaining the exemption. Given that the durable sink is cross-tenant, any field that could carry a secret must be justified. **Fix:** added a comment documenting that `validateTenantIdEnhancedForAuth` enforces `TENANT_ID_PATTERN` (`/^[a-zA-Z0-9_-]+$/`) at the auth boundary, so `tenantId` cannot embed secrets, connection strings, or HTML — unlike the free-form identity fields which require sanitization. Verified: lint ✓, typecheck ✓, all tests pass.
+
+3. **🟢 `apps/api/src/health.service.ts:402` — PONG detection used substring match instead of line-anchored check.** `responseBuffer.includes("+PONG\r\n")` is functionally correct under the RESP spec (responses are strictly line-delimited), but the substring form is harder to reason about than a line-split. **Fix:** replaced with `responseBuffer.split("\r\n").includes("+PONG")` and added a comment explaining the RESP-line-anchored rationale. No behavioural change. Verified: lint ✓, typecheck ✓, all tests pass.
+
+4. **🟢 `apps/api/src/common/domain-exception.filter.ts:159` — inline class-validator prefix regex extracted to named constant.** The ~400-character regex was embedded inside the `.map()` callback, making it hard to inspect, test, or extend. **Fix:** extracted to a module-level `CLASS_VALIDATOR_PREFIX_REGEX` constant with a JSDoc explaining the conservative whitelist strategy and the operational process for adding new prefixes. Verified: lint ✓, typecheck ✓, all 437 api tests pass unchanged.
+
+### Reviewed but NOT changed (false positives / deferred)
+
+- **Tenant isolation (RLS boot assertions, superuser boot refusal, app-level `tenantId` filters), secret redaction across REST/MCP/durable surfaces, idempotency-key charset consistency, ReDoS, and `@Public()` scope scanning** remain intact and were re-verified by independent reads this round. No new 🔴/🟡 exploit paths found beyond those fixed above.
+- **`get_type_table_values` (discovery-tools.ts) still returns all type-table rows with no `take` cap.** Deferred again: admin-curated reference data with a handful of seeded values; truncation middleware bounds downstream surfaces.
+- **`sanitizeLogOutput` deprecated shim** retained as before (no production callers; back-compat).
+- **`party.service.ts:178` — `partyType` lookup outside transaction.** Intentional per existing comment: cross-connection consistency concern with the admin client. Moving it inside the tx would require the tx to span the admin connection, which the architecture avoids.
+- **`main.ts:62–70` — `DATABASE_ADMIN_URL` fail-fast vs runtime fallback asymmetry.** Documented in `PrismaService.resolveAdminUrl()`; dev falls back to RLS client with a warning, prod exits. No change needed — the asymmetry is the intended environment-aware posture.
+- **`queue.module.ts:92` — static `_redisPortWarned` flag.** Leaks across Vitest pool-mode test suites but not across processes. Low risk; resetting it in `onModuleDestroy` would add complexity for negligible benefit.
+
+## Test Results (round 153)
+```
+api:       437 passed (17 files)  (unchanged)
+shared:    229 passed (4 files)   (unchanged)
+mcp-tools: 163 passed (4 files)   (unchanged)
+database:   34 passed, 10 skipped (3 files) (DB-backed; unchanged)
+───────────────────────────────
+Total:     863 passed, 10 skipped
+```
+lint ✓ · typecheck ✓ · build ✓ · `npm audit` 0 vulnerabilities
 
 ## Findings & Actions (round 152)
 

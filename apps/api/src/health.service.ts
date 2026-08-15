@@ -399,7 +399,13 @@ export class HealthService implements OnModuleInit {
         // reported "connected" and hid the outage the probe exists to detect.
         // AUTH +OK is never a terminal success here because PING is always
         // sent after it.
-        if (responseBuffer.includes("+PONG\r\n")) {
+        //
+        // Split into lines rather than substring-matching: RESP is strictly
+        // line-delimited, so a line-anchored check is safer against the
+        // (theoretically impossible under RESP) false positive of a prior
+        // response line containing the literal bytes "+PONG\r\n".
+        const responseLines = responseBuffer.split("\r\n");
+        if (responseLines.includes("+PONG")) {
           clearTimeout(timeout);
           socket.removeAllListeners();
           socket.destroy();

@@ -70,6 +70,16 @@ const SKIP_HASH = Symbol("skipIdempotencyHash");
 function computeInputHash(input: unknown, definition: { name: string; inputSchema: ZodSchemaLike }): string | symbol {
   const parseResult = definition.inputSchema.safeParse(input);
   if (!parseResult.success) {
+    // Zod parse failure means the input is malformed — no side effect was
+    // produced, so idempotency dedup is unnecessary. Log so operators can
+    // detect pathological inputs (e.g. circular refs that pass Zod but break
+    // the serializer, or schema drift that silently drops fields). Previously
+    // this path was completely silent while the serialization-failure path
+    // below emitted a warning, making the two skip reasons inconsistently
+    // observable.
+    logIdempotencyWarn(
+      `Skipping idempotency for '${definition.name}': input failed Zod validation (${parseResult.error.issues.length} issue(s))`
+    );
     return SKIP_HASH;
   }
   try {

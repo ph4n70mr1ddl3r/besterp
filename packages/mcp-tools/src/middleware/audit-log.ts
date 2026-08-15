@@ -85,6 +85,13 @@ function createBaseEntry(context: { agentId?: string; conversationId?: string; r
     conversationId,
     reasoning,
     userId,
+    // tenantId is intentionally stored verbatim (no sanitizeForLogOutput):
+    // validateTenantIdEnhancedForAuth (called at the auth boundary in
+    // jwt.strategy.ts and tenant.guard.ts) enforces TENANT_ID_PATTERN
+    // (/^[a-zA-Z0-9_-]+$/), so the value can only contain alphanumeric chars
+    // and hyphens — it cannot embed secrets, connection strings, or HTML. The
+    // other identity fields (userId, agentId, conversationId) use free-form
+    // strings that are not charset-restricted, so they require sanitization.
     tenantId: context.tenantId,
     toolCalled: definition.name,
     toolInput: redactSensitiveFields(input),
