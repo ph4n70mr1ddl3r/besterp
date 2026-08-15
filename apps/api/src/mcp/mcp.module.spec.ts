@@ -73,12 +73,20 @@ describe("McpService", () => {
     });
 
     it("should reject empty tenant ID", () => {
+      // Pin the same contract as the null case above: "".trim() is "" which
+      // fails the non-empty check as InvalidTenantIdError, not any error.
       expect(() =>
         mcpService.buildContext({
           tenantId: "",
           userId: "user-123",
         })
-      ).toThrow();
+      ).toThrow(InvalidTenantIdError);
+      expect(() =>
+        mcpService.buildContext({
+          tenantId: "",
+          userId: "user-123",
+        })
+      ).toThrow(/Tenant ID must be a non-empty string/);
     });
 
     it("should reject SQL injection in tenant ID", () => {

@@ -1,5 +1,31 @@
 # BestERP — Security & Architecture Fixes
 
+## Changes Applied (2026-08-16) — Code Review Round 151
+
+### 🟡 `search_parties` advertised paginated pages that the offset ceiling makes unreachable
+
+**Problem:** `hasMore` was `offset + limit < total` while `offset` is clamped to `MAX_SEARCH_OFFSET` (10,000) and both boundary layers reject `offset > 10000` (REST DTO `@Max`, MCP Zod `.max()`). A tenant with more than `MAX_SEARCH_OFFSET + limit` rows got `hasMore=true` forever, and every suggested next offset (REST `X-Next-Offset`, MCP hint) returned 400/`INVALID_INPUT` — a dead-end pagination loop.
+
+**Fix:** `hasMore` is now `offset + limit < total && offset + limit <= MAX_SEARCH_OFFSET`, so the API stops advertising pages beyond the offset ceiling. Regression test added.
+
+### 🟡 `search_parties` `roleType` filter matched terminated roles
+
+**Problem:** `where.roles = { some: { roleType: {...} } }` matched any `party_role` regardless of `thruDate`, so a party whose only matching role had ended (e.g. a lapsed Customer) still appeared under that role filter — inconsistent with the active-role semantics the `party_active_role_unique` partial index establishes.
+
+**Fix:** the `some` filter now requires `thruDate: null`, matching the domain's active-role semantics. Regression test asserts the where clause carries `thruDate: null`.
+
+### 🟢 Non-string nested subtype fields threw raw `TypeError` from the service layer
+
+**Problem:** `validatePersonData`/`validateOrganizationData` and the sanitize helpers called `.trim()` without a type guard on required/optional subtype fields (`firstName`, `lastName`, `legalName`, `middleName`, `gender`, `birthDate`, `registrationDate`). A direct/internal caller bypassing the REST DTO / MCP Zod strings — the exact "service is the last line of defense" scenario — passing e.g. `person: { firstName: 123 }` hit `TypeError: ...trim is not a function` → 500 `INTERNAL_ERROR` instead of the documented `InvalidTypeValueError`.
+
+**Fix:** explicit `typeof` guards throw `InvalidTypeValueError` in both validators; sanitizers guard optional fields before `.trim()`.
+
+### 🟢 Test-suite fixes: dead validator mirror, bare `toThrow()`s, unasserted claim
+
+- `prisma.service.spec.ts`: the `@besterp/database` mock defined a hand-rolled `validateTenantIdEnhanced` throwing `InvalidTypeValueError`, but `PrismaService` imports and calls `validateTenantIdEnhancedForAuth` from `@besterp/shared` (real, throws `InvalidTenantIdError`) — the mock was dead and its contract had silently diverged, invisible behind a bare `toThrow()`. Removed the dead mock; pinned the test to `InvalidTenantIdError`.
+- `mcp.module.spec.ts`: the empty-tenant-ID test used bare `toThrow()`; pinned to `InvalidTenantIdError` + message regex (matching the adjacent null-tenant test).
+- `party.service.spec.ts`: the "ensure toPartyResult not called" test asserted only `rejects.toThrow`; added a spy asserting `toPartyResult` is not called.
+
 ## Changes Applied (2026-08-14) — Code Review Round 150
 
 ### 🟡 Audit-log middleware silently dropped durable rows for tools with no data/input (Prisma Json null handling)

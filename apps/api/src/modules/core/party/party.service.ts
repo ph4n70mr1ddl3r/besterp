@@ -229,11 +229,28 @@ export class PartyService {
 
   private validatePersonData(personData: CreatePartyInput["person"]): void {
     if (!personData) return;
+    // Type-check before .trim(): a direct/internal caller bypassing the DTO/Zod
+    // string bounds could pass a non-string (e.g. a number), and `123?.trim()`
+    // throws a raw TypeError that surfaces as a 500 INTERNAL_ERROR instead of
+    // the documented InvalidTypeValueError. Guard explicitly so the primitive
+    // type is validated like every other field (round 151).
+    if (typeof personData.firstName !== "string") {
+      throw new InvalidTypeValueError(
+        "firstName must be a string.",
+        { suggestedTools: ["create_party"], context: { field: "firstName", received: typeof personData.firstName } }
+      );
+    }
     const trimmedFirstName = personData.firstName?.trim() ?? "";
     if (!trimmedFirstName) {
       throw new MissingSubtypeDataError("firstName is required for person data", { suggestedTools: ["create_party"], context: { field: "firstName" } });
     }
     PartyService.requireMaxLength(trimmedFirstName, "First name", MAX_PERSON_NAME_LENGTH);
+    if (typeof personData.lastName !== "string") {
+      throw new InvalidTypeValueError(
+        "lastName must be a string.",
+        { suggestedTools: ["create_party"], context: { field: "lastName", received: typeof personData.lastName } }
+      );
+    }
     const trimmedLastName = personData.lastName?.trim() ?? "";
     if (!trimmedLastName) {
       throw new MissingSubtypeDataError("lastName is required for person data", { suggestedTools: ["create_party"], context: { field: "lastName" } });
@@ -246,6 +263,13 @@ export class PartyService {
 
   private validateOrganizationData(orgData: CreatePartyInput["organization"]): void {
     if (!orgData) return;
+    // Type-check before .trim(): see validatePersonData (round 151).
+    if (typeof orgData.legalName !== "string") {
+      throw new InvalidTypeValueError(
+        "legalName must be a string.",
+        { suggestedTools: ["create_party"], context: { field: "legalName", received: typeof orgData.legalName } }
+      );
+    }
     const trimmedLegalName = orgData.legalName?.trim() ?? "";
     if (!trimmedLegalName) {
       throw new MissingSubtypeDataError("legalName is required for organization data", { suggestedTools: ["create_party"], context: { field: "legalName" } });
@@ -257,9 +281,13 @@ export class PartyService {
 
   private sanitizePerson(personData: CreatePartyInput["person"]): CreatePartyInput["person"] | undefined {
     if (!personData) return undefined;
-    const trimmedMiddleName = personData.middleName?.trim();
-    const trimmedGender = personData.gender?.trim();
-    const trimmedBirthDate = personData.birthDate?.trim() || undefined;
+    // Optional fields may arrive as non-strings from direct callers bypassing
+    // the DTO/Zod bounds; `.trim()` on a number throws a raw TypeError that
+    // would surface as a 500. Guard each optional field with a typeof check
+    // (mirrors the required-field guards in validatePersonData, round 151).
+    const trimmedMiddleName = typeof personData.middleName === "string" ? personData.middleName.trim() : undefined;
+    const trimmedGender = typeof personData.gender === "string" ? personData.gender.trim() : undefined;
+    const trimmedBirthDate = typeof personData.birthDate === "string" ? personData.birthDate.trim() : undefined;
     return {
       firstName: stripHtmlTags((personData.firstName ?? "").trim()),
       lastName: stripHtmlTags((personData.lastName ?? "").trim()),
@@ -271,7 +299,9 @@ export class PartyService {
 
   private sanitizeOrganization(orgData: CreatePartyInput["organization"]): CreatePartyInput["organization"] | undefined {
     if (!orgData) return undefined;
-    const trimmedRegistrationDate = orgData.registrationDate?.trim() || undefined;
+    // Guard optional non-string fields from direct callers (round 151) — see
+    // the sanitizePerson comment and validateOrganizationData.
+    const trimmedRegistrationDate = typeof orgData.registrationDate === "string" ? orgData.registrationDate.trim() : undefined;
     return {
       legalName: stripHtmlTags((orgData.legalName ?? "").trim()),
       taxId: orgData.taxId ? stripHtmlTags(orgData.taxId.trim()) || undefined : undefined,
@@ -548,7 +578,20 @@ export class PartyService {
 
     const trimmedRoleType = PartyService.requireNonEmptyFilter(roleType, "roleType", MAX_ROLE_TYPE_LENGTH, ["search_parties", "get_type_table_values"]);
     if (trimmedRoleType) {
-      where.roles = { some: { roleType: { name: { equals: trimmedRoleType, mode: "insensitive" } } } };
+      // Match only parties with an ACTIVE role of that type. A party whose
+      // only matching role was terminated (thruDate set) is not a current
+      // Customer/Supplier/etc. The partial unique index
+      // `party_active_role_unique` already treats only thruDate-null roles as
+      // the active representation, so the role search filter must agree — a
+      // raw `some({ roleType })` matched lapsed roles and returned parties
+      // the domain considers to have no active relationship of that kind
+      // (round 151).
+      where.roles = {
+        some: {
+          roleType: { name: { equals: trimmedRoleType, mode: "insensitive" } },
+          thruDate: null,
+        },
+      };
     }
 
     // Run count first, then findMany with the validated limit. Under READ
@@ -584,7 +627,16 @@ export class PartyService {
       total,
       limit: validatedLimit,
       offset: validatedOffset,
-      hasMore: validatedOffset + validatedLimit < total,
+      // The "next offset" a client computes (offset + limit) must itself be a
+      // valid offset within MAX_SEARCH_OFFSET, otherwise it is rejected by the
+      // boundary layers (REST DTO @Max, MCP Zod max) even when hasMore hints
+      // at it. Without this cap, a tenant with more than MAX_SEARCH_OFFSET +
+      // limit rows gets hasMore=true forever while every suggested next offset
+      // 400s — a dead-end pagination loop (round 151). Rows beyond
+      // MAX_SEARCH_OFFSET + limit are unreachable by design (offset capping),
+      // so reporting hasMore=false at that boundary is the correct ceiling.
+      hasMore: validatedOffset + validatedLimit < total
+        && validatedOffset + validatedLimit <= MAX_SEARCH_OFFSET,
     };
   }
 

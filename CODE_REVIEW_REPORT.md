@@ -2,8 +2,44 @@
 
 ## Scope
 Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
-`mcp-tools`, `apps/api`) conducted on 2026-08-14. This is review 150;
-rounds 1–149 are documented in earlier revisions of this file and `CHANGES.md`.
+`mcp-tools`, `apps/api`) conducted on 2026-08-16. This is review 151;
+rounds 1–150 are documented in earlier revisions of this file and `CHANGES.md`.
+
+## Findings & Actions (round 151)
+
+### Fixed this round
+
+1. **🟡 `party.service.ts` `searchParties` — pagination advertised an unreachable next page past `MAX_SEARCH_OFFSET`.** `hasMore` was computed as `offset + limit < total` while the service clamps `offset` to `MAX_SEARCH_OFFSET` (10,000) and every boundary layer rejects `offset > MAX_SEARCH_OFFSET` (REST DTO `@Max(MAX_SEARCH_OFFSET)`, MCP Zod `.max()`). For a tenant with more than `MAX_SEARCH_OFFSET + limit` rows, the last fetchable page starts at offset `MAX_SEARCH_OFFSET`, but `hasMore` stayed `true` and steered clients (REST `X-Next-Offset` header, MCP `nextActions` hint) at an offset that always 400s/`INVALID_INPUT` — a dead-end pagination loop. **Fix:** `hasMore` is now `offset + limit < total && offset + limit <= MAX_SEARCH_OFFSET`, so the API stops advertising pages beyond the offset ceiling (rows past `MAX_SEARCH_OFFSET + limit` are unreachable by design). Regression test added.
+
+2. **🟡 `party.service.ts` `searchParties` — `roleType` filter matched terminated roles.** `where.roles = { some: { roleType: {...} } }` matched any `party_role` row regardless of `thruDate`, so a party whose only matching role had been ended (e.g. a lapsed Customer) still appeared in a role-filtered search — inconsistent with the domain's active-role semantics (`party_active_role_unique` partial index treats only `thruDate IS NULL` roles as active). **Fix:** the `some` filter now also requires `thruDate: null`. Regression test asserts the where clause carries `thruDate: null`.
+
+3. **🟢 `party.service.ts` — non-string nested subtype fields threw a raw `TypeError` instead of a `DomainError`.** `validatePersonData`/`validateOrganizationData` and the sanitize helpers called `.trim()` on required/optional subtype fields without a type guard, so a direct/internal caller bypassing the REST DTO / MCP Zod strings (the exact "last line of defense" scenario the class docs describe) passing e.g. `person: { firstName: 123 }` hit a raw `TypeError: ...trim is not a function` → a 500 `INTERNAL_ERROR` instead of the documented `InvalidTypeValueError` (422/`INVALID_INPUT`). `gender`/`middleName`/`taxId` already had `typeof` guards; `firstName`/`lastName`/`legalName` and the optional-boundary sanitizers did not. **Fix:** explicit `typeof !== "string"` guards throw `InvalidTypeValueError` in `validatePersonData`/`validateOrganizationData`; `sanitizePerson`/`sanitizeOrganization` guard optional fields before `.trim()`.
+
+4. **🟢 `prisma.service.spec.ts` — dead, diverged validator mirror + unpinned bare `toThrow()`.** The spec mocked `validateTenantIdEnhanced` on `@besterp/database` ("Mirror the real validation logic for testing") throwing `InvalidTypeValueError` — but `PrismaService` never calls it. It imports and calls `validateTenantIdEnhancedForAuth` from `@besterp/shared` (not mocked), which throws `InvalidTenantIdError`. The mock branch was dead weight whose error contract had silently diverged (a changed throw type in the real validator would have gone unnoticed because the tenant-validation test used a bare `toThrow()`). **Fix:** removed the dead mock entry and the now-unused `InvalidTypeValueError` import; pinned the validation test to `toThrow(InvalidTenantIdError)`.
+
+5. **🟢 `mcp.module.spec.ts` — bare `toThrow()` on empty tenant ID.** The null-tenant test beside it correctly pinned `InvalidTenantIdError` + message regex, but the empty-string case asserted only `toThrow()`, so any thrown error (typo, wrong code path) passed. **Fix:** pinned to `toThrow(InvalidTenantIdError)` + `/Tenant ID must be a non-empty string/`.
+
+6. **🟢 `party.service.spec.ts` — "ensure toPartyResult not called" claim was named but not asserted.** The test title's parenthetical behavior was never verified (a regression that called `toPartyResult` on the not-found path would still pass the bare `rejects.toThrow(EntityNotFoundError)`). **Fix:** added a `vi.spyOn` on the static `toPartyResult` and assert `not.toHaveBeenCalled()`.
+
+### Reviewed but NOT changed (false positives / deferred)
+
+- Tenant isolation (RLS boot assertions, superuser boot refusal, app-level `tenantId` filters), secret redaction across REST/MCP/durable surfaces, idempotency-key charset consistency, ReDoS, and `@Public()` scope scanning remain intact and were re-verified by independent reads this round. No new 🔴/🟡 exploit paths found beyond those fixed above.
+- **Cross-party email duplicate → generic P2002 message.** `checkEmailDuplicate` scopes to the requesting party, so adding a second party with an email already registered to a different party in the tenant passes the app-level check and falls through to the DB `@@unique([tenantId, email])` → mapped P2002. This is intentional and pinned by an explicit round-30 regression test ("no false positive for other parties"); the DB constraint remains the backstop. Deferred.
+- **`get_type_table_values` (discovery-tools.ts) still returns all type-table rows with no `take` cap.** Deferred again: admin-curated reference data with a handful of seeded values; truncation middleware bounds downstream surfaces.
+- **`sanitizeLogOutput` deprecated shim** retained as before (no production callers; back-compat).
+- **PrismaService tenant-client cache, proxy, idempotency middleware, audit-log backpressure queue, error-handler, and `hashInput`'s DoS guards (depth/bytes/keys/CPU-time budgets)** were all read in full this round; logic remains consistent. No new issues found.
+
+## Test Results (round 151)
+```
+api:       437 passed (17 files)  (+2: searchParties active-role + hasMore-ceiling,
+                                   tightened prisma/mcp/party spec assertions)
+shared:    229 passed (4 files)   (unchanged)
+mcp-tools: 163 passed (4 files)   (unchanged)
+database:   34 passed, 10 skipped (3 files) (DB-backed; unchanged)
+───────────────────────────────
+Total:     863 passed, 10 skipped
+```
+lint ✓ · typecheck ✓ · build ✓
 
 ## Findings & Actions (round 150)
 

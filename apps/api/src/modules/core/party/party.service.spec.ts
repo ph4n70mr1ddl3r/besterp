@@ -14,6 +14,7 @@ import {
   ConcurrencyRetryError,
   ConcurrencyConflictError,
   MAX_SEARCH_LIMIT,
+  MAX_SEARCH_OFFSET,
 } from "@besterp/shared";
 
 /** Create a mock Prisma return object with all fields toPartyResult needs. */
@@ -768,6 +769,60 @@ describe("PartyService", () => {
       expect(mockDb.party.findMany).toHaveBeenCalled();
     });
 
+    it("should scope roleType filter to ACTIVE roles (thruDate null)", async () => {
+      // Regression guard (round 151): a raw some({ roleType }) matched
+      // parties whose only role of that type had been terminated (thruDate
+      // set — e.g. a lapsed Customer). Role searches must return parties with
+      // a CURRENT role of that type, consistent with the domain's
+      // active-role semantics (partial index party_active_role_unique).
+      const mockDb = {
+        party: {
+          count: vi.fn().mockResolvedValue(0),
+          findMany: vi.fn().mockResolvedValue([]),
+        },
+      };
+      mockPrismaService.tenantScoped.mockReturnValue(mockDb);
+
+      await partyService.searchParties({ tenantId: "tenant-1", roleType: "Customer" });
+
+      expect(mockDb.party.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            roles: { some: expect.objectContaining({ thruDate: null }) },
+          }),
+        })
+      );
+    });
+
+    it("should report hasMore=false at the MAX_SEARCH_OFFSET ceiling even when more rows exist", async () => {
+      // Regression guard (round 151): the offset + limit math previously
+      // reported hasMore=true past the MAX_SEARCH_OFFSET boundary, but every
+      // boundary layer (REST DTO @Max, MCP Zod .max()) rejects offset >
+      // MAX_SEARCH_OFFSET — so the API steered clients to an unreachable next
+      // page that always 400'd (a dead-end pagination loop). Rows beyond
+      // MAX_SEARCH_OFFSET + limit are unreachable by design; the last
+      // fetchable page starts at offset MAX_SEARCH_OFFSET, so hasMore must
+      // stop there.
+      const mockDb = {
+        party: {
+          count: vi.fn().mockResolvedValue(MAX_SEARCH_OFFSET + 100),
+          findMany: vi.fn().mockResolvedValue([]),
+        },
+      };
+      mockPrismaService.tenantScoped.mockReturnValue(mockDb);
+
+      const result = await partyService.searchParties({
+        tenantId: "tenant-1",
+        offset: MAX_SEARCH_OFFSET,
+        limit: MAX_SEARCH_LIMIT,
+      });
+      expect(result.offset).toBe(MAX_SEARCH_OFFSET);
+      expect(result.total).toBe(MAX_SEARCH_OFFSET + 100);
+      // Next offset would be MAX_SEARCH_OFFSET + limit > MAX_SEARCH_OFFSET,
+      // which is rejected by the boundary layers — must not advertise it.
+      expect(result.hasMore).toBe(false);
+    });
+
     it("should order by createdAt desc with a partyId tiebreaker for stable pagination", async () => {
       // Regression (round 135): ordering on createdAt alone (timestamptz(3),
       // millisecond precision) leaves tied rows in an arbitrary DB order, so
@@ -1382,6 +1437,11 @@ describe("PartyService", () => {
     });
 
     it("should throw EntityNotFoundError for valid UUID but non-existent party (ensure toPartyResult not called)", async () => {
+      // Regression guard (round 151): the parenthetical is now asserted, not
+      // just named — the not-found path must short-circuit before mapping the
+      // result. A regression that called toPartyResult on a null party would
+      // have to reach it without a null-guard; this spy pins that behavior.
+      const toPartyResultSpy = vi.spyOn(PartyService as unknown as { toPartyResult: () => unknown }, "toPartyResult");
       const mockDb = {
         party: { findUnique: vi.fn().mockResolvedValue(null) },
       };
@@ -1389,6 +1449,8 @@ describe("PartyService", () => {
       await expect(
         partyService.getParty("tenant-1", "12345678-1234-1234-1234-123456789abc")
       ).rejects.toThrow(EntityNotFoundError);
+      expect(toPartyResultSpy).not.toHaveBeenCalled();
+      toPartyResultSpy.mockRestore();
     });
   });
 
