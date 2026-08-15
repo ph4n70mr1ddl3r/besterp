@@ -131,27 +131,27 @@ function validateJwtSecretPresence(): void {
 }
 
 function validateJwtSecretStrength(): void {
-  // Validate JWT_SECRET strength if provided.
-  if (process.env.JWT_SECRET) {
-    const secret = process.env.JWT_SECRET;
-    if (secret.length < MIN_JWT_SECRET_LENGTH) {
-      logger.error(
-        `JWT_SECRET is too short (${secret.length} chars). Must be at least ${MIN_JWT_SECRET_LENGTH} characters. ` +
-        "Generate a secure secret with: openssl rand -hex 32"
-      );
-      process.exit(1);
-    }
-    // Warn if the secret looks like a default/test value or has zero entropy
-    // (a single repeated character padded out to pass the length check).
-    // See ./auth/secret-strength.ts for the heuristics and rationale.
-    if (isWeakSecret(secret)) {
-      logger.warn(
-        "JWT_SECRET appears to be a weak or default value. " +
-        "Use a cryptographically random secret in production: openssl rand -hex 32"
-      );
+    // Validate JWT_SECRET strength if provided.
+    if (process.env.JWT_SECRET) {
+      const secret = process.env.JWT_SECRET;
+      if (secret.length < MIN_JWT_SECRET_LENGTH) {
+        logger.error(
+          `JWT_SECRET is too short (${secret.length} chars). Must be at least ${MIN_JWT_SECRET_LENGTH} characters. ` +
+          "Generate a secure secret with: openssl rand -hex 32"
+        );
+        process.exit(1);
+      }
+      // Warn if the secret looks like a default/test value or has zero entropy
+      // (a single repeated character padded out to pass the length check).
+      // See ./auth/secret-strength.ts for the heuristics and rationale.
+      if (isWeakSecret(secret)) {
+        logger.warn(
+          "JWT_SECRET appears to be a weak or default value. " +
+          "Use a cryptographically random secret in production: openssl rand -hex 32"
+        );
+      }
     }
   }
-}
 
 function validateRedisConfig(): void {
   // REDIS_PASSWORD is included so a missing production password is flagged
@@ -167,6 +167,7 @@ function validateRedisConfig(): void {
 function validateEnvironment(): void {
   validateRequiredEnvVars();
   validateJwtConfig();
+  validateJwtSecretStrength();
   validateRedisConfig();
 }
 

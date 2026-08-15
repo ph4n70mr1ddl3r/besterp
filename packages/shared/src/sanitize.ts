@@ -66,6 +66,31 @@ export function stripHtmlTags(input: string): string {
   return sanitized;
 }
 
+/**
+ * Safely decode a Unicode code point.
+ *
+ * `String.fromCodePoint()` throws RangeError for lone surrogates
+ * (U+D800–U+DFFF), negative values, or values > 0x10FFFF. This wrapper
+ * catches those and returns the Unicode replacement character so the
+ * sanitizer loop continues without crashing.
+ */
+export function safeFromCodePoint(codePoint: number): string {
+  // Explicitly check lone surrogates first: String.fromCodePoint() stopped
+  // throwing for these in ES2024, but we must still replace them to prevent
+  // invalid Unicode from reaching the database.
+  if (Number.isNaN(codePoint)) return "\uFFFD";
+  if (codePoint >= 0xD800 && codePoint <= 0xDFFF) {
+    return "\uFFFD";
+  }
+  try {
+    return String.fromCodePoint(codePoint);
+  } catch {
+    // Negative, out-of-range (> 0x10FFFF), or NaN — replace with
+    // U+FFFD (replacement character) to avoid crashing the sanitizer loop.
+    return "\uFFFD";
+  }
+}
+
 /** Decode numeric character references (&#xHH; and &#DDD;) to Unicode. */
 function decodeNumericEntities(input: string): string {
   return input
@@ -656,31 +681,6 @@ export function redactSensitiveFieldValues(
   if (value === null || typeof value !== "object") return value;
   const s = seen ?? new WeakSet<object>();
   return redactTypedObject(value, depth, s);
-}
-
-/**
- * Safely decode a Unicode code point.
- *
- * `String.fromCodePoint()` throws RangeError for lone surrogates
- * (U+D800–U+DFFF), negative values, or values > 0x10FFFF. This wrapper
- * catches those and returns the Unicode replacement character so the
- * sanitizer loop continues without crashing.
- */
-export function safeFromCodePoint(codePoint: number): string {
-  // Explicitly check lone surrogates first: String.fromCodePoint() stopped
-  // throwing for these in ES2024, but we must still replace them to prevent
-  // invalid Unicode from reaching the database.
-  if (Number.isNaN(codePoint)) return "\uFFFD";
-  if (codePoint >= 0xD800 && codePoint <= 0xDFFF) {
-    return "\uFFFD";
-  }
-  try {
-    return String.fromCodePoint(codePoint);
-  } catch {
-    // Negative, out-of-range (> 0x10FFFF), or NaN — replace with
-    // U+FFFD (replacement character) to avoid crashing the sanitizer loop.
-    return "\uFFFD";
-  }
 }
 
 /** Sanitize a postal address object by stripping HTML from all fields. */
