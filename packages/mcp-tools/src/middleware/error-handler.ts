@@ -124,7 +124,7 @@ const PRISMA_ERROR_HANDLERS: Record<string, ErrorFactory> = {
       success: false,
       error: {
         code: "CONCURRENCY_CONFLICT",
-        message: `The '${definition.name}' operation conflicted with a concurrent update. Re-fetch the entity and retry with a new idempotency key.`,
+        message: `The '${definition.name}' operation conflicted with a concurrent update. Re-fetch the entity and retry with the same idempotency key (do not use a new key).`,
         suggestedTools: [`get_${entityName}`, definition.name],
       },
     };
@@ -174,7 +174,7 @@ const PRISMA_ERROR_HANDLERS: Record<string, ErrorFactory> = {
       success: false,
       error: {
         code: "CONCURRENCY_CONFLICT",
-        message: `The '${definition.name}' operation on ${entityName} timed out. Re-fetch the entity and retry with a new idempotency key.`,
+        message: `The '${definition.name}' operation on ${entityName} timed out. Re-fetch the entity and retry with the same idempotency key (do not use a new key).`,
         suggestedTools: [`get_${entityName}`, definition.name],
       },
     };
