@@ -399,11 +399,20 @@ export class ToolRegistry {
     // with undefined would short-circuit the guard when the schema declares
     // undefined valid (success:true), leaving shape mismatches undetected.
     const probe = cast.safeParse({ __mcp_tools_shape_probe__: true });
-    if (probe.success === false && !(probe.error && typeof (probe.error as Record<string, unknown>).issues === "object")) {
-      throw new Error(
-        `Tool '${toolName}': inputSchema.safeParse() returned an error without an 'issues' array. ` +
-        `Expected { success: false, error: { issues: [...] } }; got a shape that may be incompatible with this registry.`
-      );
+    // Only validate the error shape when the probe actually fails — a schema
+    // that accepts the probe input (success:true) has no error shape to check.
+    // `typeof null === "object"` in JavaScript, so an explicit null guard is
+    // required here: a schema whose error shape carries `issues: null` would
+    // otherwise pass the type check and later crash at `parsed.error.issues.map(...)`
+    // when a real validation error fires. The null check keeps the guard accurate.
+    if (probe.success === false && probe.error) {
+      const errorShape = probe.error as Record<string, unknown>;
+      if (errorShape.issues == null || typeof errorShape.issues !== "object") {
+        throw new Error(
+          `Tool '${toolName}': inputSchema.safeParse() returned an error without an 'issues' array. ` +
+          `Expected { success: false, error: { issues: [...] } }; got a shape that may be incompatible with this registry.`
+        );
+      }
     }
   }
 

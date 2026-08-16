@@ -352,7 +352,9 @@ export class PostalAddressDto {
   postalCode?: string;
 
   @sanitizeTransform()
-  @Transform(({ value }: TransformFnParams) => (typeof value === "string" ? value.toUpperCase() : value))
+  @Transform(({ value }: TransformFnParams) =>
+    typeof value === "string" ? stripHtmlTags(value.trim()).toUpperCase() : value,
+  )
   @IsString()
   @IsNotEmpty()
   @MinLength(MIN_COUNTRY_CODE_LENGTH)

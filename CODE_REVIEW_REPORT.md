@@ -2,8 +2,37 @@
 
 ## Scope
 Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
- `mcp-tools`, `apps/api`) conducted on 2026-08-16. This is review 159;
- rounds 1–158 are documented in earlier revisions of this file and `CHANGES.md`.
+ `mcp-tools`, `apps/api`) conducted on 2026-08-16. This is review 160;
+ rounds 1–159 are documented in earlier revisions of this file and `CHANGES.md`.
+
+## Findings & Actions (round 160)
+
+### Fixed this round
+
+1. **🟢 `packages/mcp-tools/src/registry/tool-registry.ts:401–412` — probe-shape validation missed `null` on `issues`.** `validateInputSchemaShape` probed the schema with `{ __mcp_tools_shape_probe__: true }` and checked `typeof (probe.error as Record<string, unknown>).issues === "object"`. In JavaScript `typeof null === "object"`, so a schema whose error shape carried `issues: null` passed the guard. The guard's intent is to catch shape mismatches (e.g. a non-Zod library that omits `.issues`) — but a `null` issues field would not be caught and would later crash at `parsed.error.issues.map(...)` on a real validation failure. **Fix:** extracted the probe-error into a local constant and added an explicit `!= null` check before the `typeof` test, so both `null` and `undefined` are rejected. No behavioral change for valid Zod schemas (they carry a real array); only non-conforming schemas are now rejected at the earlier point. Verified: lint ✓, typecheck ✓, all workspaces pass (api 439, shared 229, mcp-tools 163, database 34 passed / 10 skipped).
+
+2. **🟢 `apps/api/src/modules/core/party/party.dto.ts:355` — `country` field transform missing HTML strip + trim.** `PostalAddressDto.country` used a bare `Transform` that only uppercased (`value.toUpperCase()`), while every other required text field (`addressLine1`, `city`, `name`, `firstName`, etc.) used `sanitizeTransform` (which runs `stripHtmlTags(value.trim())`). A value like `"<U>"` passed the DTO length checks (3 chars, within `MAX_COUNTRY_CODE_LENGTH = 3`) but the service layer's `sanitizePostalAddress` would strip it to `"U"` (1 char), causing a late `InvalidTypeValueError` at the service instead of a clean DTO rejection. **Fix:** the transform now runs `stripHtmlTags(value.trim()).toUpperCase()` — matching the service's sanitize-then-upper pipeline and keeping the DTO rejection boundary consistent with the service's last-line-of-defense contract. Verified: lint ✓, typecheck ✓, api 439 passed, all other workspaces unchanged.
+
+### Reviewed but NOT changed (deferred / false positives)
+
+- **Tenant isolation (RLS boot assertions, superuser boot refusal, app-level `tenantId` filters), secret redaction across REST/MCP/durable surfaces, idempotency-key charset consistency, ReDoS, and `@Public()` scope scanning** remain intact and were re-verified by independent reads this round. No new 🔴/🟡 exploit paths found beyond those fixed above.
+- **`get_type_table_values` (discovery-tools.ts) still returns all type-table rows with no `take` cap.** Deferred again: admin-curated reference data with a handful of seeded values; truncation middleware bounds downstream surfaces.
+- **`sanitizeLogOutput` deprecated shim** retained as before (no production callers; back-compat).
+- **`party.service.ts:178` — `partyType` lookup outside transaction.** Intentional per existing comment: cross-connection consistency concern with the admin client. Moving it inside the tx would require the tx to span the admin connection, which the architecture avoids.
+- **`main.ts:99–103` — ternary chain for JWT `totalSeconds` conversion.** Functionally correct and intentionally allocation-free; readability is secondary to the explicit per-unit arithmetic that avoids floating-point drift at boundaries. No change.
+- **`queue.module.ts:92` — static `_redisPortWarned` flag.** Leaks across Vitest pool-mode test suites but not across processes. Low risk; resetting it in `onModuleDestroy` would add complexity for negligible benefit.
+- **`health.service.ts:75–81` — static `_redisPortWarned` / `_redisConnectionWarned` flags.** Same pattern as `queue.module.ts`: per-process deduplication to prevent log flooding from health-check polls. Leaks across Vitest pool-mode suites but not across processes. Low risk; resetting in `onModuleDestroy` adds complexity for negligible benefit.
+
+## Test Results (round 160)
+```
+api:       439 passed (17 files)  (unchanged)
+shared:    229 passed (4 files)   (unchanged)
+mcp-tools: 163 passed (4 files)   (unchanged)
+database:   34 passed, 10 skipped (3 files) (DB-backed; unchanged)
+───────────────────────────────
+Total:     865 passed, 10 skipped
+```
+lint ✓ · typecheck ✓ · build ✓ · `npm audit` 0 vulnerabilities
 
 ## Findings & Actions (round 159)
 
