@@ -128,12 +128,12 @@ export function capString(value: unknown, maxBytes: number): string {
  * cyclomatic complexity under the lint cap — each container type would
  * otherwise add three branches (instanceof + seen.has + try/finally).
  */
-function normaliseContainer(value: object, seen: WeakSet<object>): unknown {
+function normaliseContainer(value: object, seen: WeakSet<object>, depth = 0): unknown {
   if (value instanceof Map) {
     if (seen.has(value)) throw new Error("Circular reference in Map value");
     seen.add(value);
     try {
-      return Array.from(value.entries()).map(([k, v]) => [normaliseForTruncation(k, seen), normaliseForTruncation(v, seen)]);
+      return Array.from(value.entries()).map(([k, v]) => [normaliseForTruncation(k, seen, depth + 1), normaliseForTruncation(v, seen, depth + 1)]);
     } finally {
       seen.delete(value);
     }
@@ -142,7 +142,7 @@ function normaliseContainer(value: object, seen: WeakSet<object>): unknown {
     if (seen.has(value)) throw new Error("Circular reference in Set value");
     seen.add(value);
     try {
-      return Array.from(value.values()).map((v) => normaliseForTruncation(v, seen));
+      return Array.from(value.values()).map((v) => normaliseForTruncation(v, seen, depth + 1));
     } finally {
       seen.delete(value);
     }
@@ -151,7 +151,7 @@ function normaliseContainer(value: object, seen: WeakSet<object>): unknown {
     if (seen.has(value)) throw new Error("Circular reference in Array value");
     seen.add(value);
     try {
-      return value.map((v) => normaliseForTruncation(v, seen));
+      return value.map((v) => normaliseForTruncation(v, seen, depth + 1));
     } finally {
       seen.delete(value);
     }
@@ -175,13 +175,16 @@ function normaliseContainer(value: object, seen: WeakSet<object>): unknown {
   try {
     const out: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(value)) {
-      out[k] = typeof v === "function" ? v : normaliseForTruncation(v, seen);
+      out[k] = typeof v === "function" ? v : normaliseForTruncation(v, seen, depth + 1);
     }
     return out;
   } finally {
     seen.delete(value);
   }
 }
+
+/** Maximum recursion depth for `normaliseForTruncation` to prevent stack overflow on deeply nested inputs. Mirrors `MAX_HASH_DEPTH` in crypto.ts and `MAX_REDACTION_DEPTH` in sanitize.ts so the truncation path cannot be used as a DoS vector against the audit-log / idempotency middlewares. */
+const MAX_TRUNCATE_DEPTH = 100;
 
 /**
  * Recursively normalise a value to a JSON-safe form, converting nested
@@ -191,7 +194,10 @@ function normaliseContainer(value: object, seen: WeakSet<object>): unknown {
  * a pathological/cyclic nested structure from running away — circular
  * references within Map/Set values are rejected rather than silently lost.
  */
-function normaliseForTruncation(value: unknown, seen: WeakSet<object> = new WeakSet()): unknown {
+function normaliseForTruncation(value: unknown, seen: WeakSet<object> = new WeakSet(), depth = 0): unknown {
+  if (depth > MAX_TRUNCATE_DEPTH) {
+    throw new Error("Input exceeds maximum nesting depth");
+  }
   if (value === null || value === undefined) return value;
   // Convert nested non-JSON leaves the same way the top-level path
   // (normalisePrimitive) does. Without this, a single nested BigInt made

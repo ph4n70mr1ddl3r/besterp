@@ -245,4 +245,18 @@ describe("truncateValue never throws", () => {
     // The stored form is the string produced by JSON.stringify.
     expect(truncateValue(value, MAX_STORED_PAYLOAD_SIZE)).toBe(`bad\uD800surrogate`);
   });
+
+  it("returns an error marker for deeply nested input instead of stack overflow", () => {
+    // Regression guard: normaliseForTruncation had no depth guard, so a
+    // deeply-nested structure (e.g. Array(200).fill().map(x => ({ self: x })))
+    // would blow the call stack. Mirrors the depth guards already in
+    // crypto.ts (MAX_HASH_DEPTH) and sanitize.ts (MAX_REDACTION_DEPTH).
+    // The depth limit throws, which serializeObjectValue catches and returns
+    // as { _error: "Failed to serialize value" } — consistent with the
+    // circular-reference error path.
+    let deep: unknown = "leaf";
+    for (let i = 0; i < 200; i++) deep = { child: deep };
+    const result = truncateValue(deep, MAX_STORED_PAYLOAD_SIZE);
+    expect(result).toEqual({ _error: "Failed to serialize value" });
+  });
 });
