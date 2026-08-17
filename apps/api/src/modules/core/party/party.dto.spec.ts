@@ -2,7 +2,7 @@ import "reflect-metadata";
 import { plainToInstance } from "class-transformer";
 import { validate } from "class-validator";
 import { describe, expect, it } from "vitest";
-import { AddContactMechanismDto, CreatePartyDto, PostalAddressDto, SearchPartiesDto, TelecomNumberDto } from "./party.dto.js";
+import { AddContactMechanismDto, CreatePartyDto, PostalAddressDto, SearchPartiesDto, TelecomNumberDto, CreatePersonDto, CreateOrganizationDto } from "./party.dto.js";
 
 /**
  * Regression tests (round 150) for the optional-string normalisation split:
@@ -102,6 +102,46 @@ describe("contact subtype optional fields", () => {
       contactMechanismType: "EMAIL_ADDRESS",
       emailAddress: { email: "a@b.com" },
       telecomNumber: { areaCode: "555", lineNumber: "1234567" },
+    });
+    expect(await errors(dto)).not.toHaveLength(0);
+  });
+});
+
+describe("optional date fields trim whitespace (round 166)", () => {
+  it("normalizes whitespace-padded birthDate to a clean value", async () => {
+    const dto = plainToInstance(CreatePersonDto, {
+      firstName: "Jane",
+      lastName: "Doe",
+      birthDate: "  2024-01-15T00:00:00.000Z  ",
+    });
+    expect(await errors(dto)).toHaveLength(0);
+    expect(dto.birthDate).toBe("2024-01-15T00:00:00.000Z");
+  });
+
+  it("normalizes whitespace-padded registrationDate to a clean value", async () => {
+    const dto = plainToInstance(CreateOrganizationDto, {
+      legalName: "Acme Corp",
+      registrationDate: "  2024-06-01T00:00:00.000Z  ",
+    });
+    expect(await errors(dto)).toHaveLength(0);
+    expect(dto.registrationDate).toBe("2024-06-01T00:00:00.000Z");
+  });
+
+  it("normalizes whitespace-only date to undefined (matches MCP boundary)", async () => {
+    const dto = plainToInstance(CreatePersonDto, {
+      firstName: "Jane",
+      lastName: "Doe",
+      birthDate: "   ",
+    });
+    expect(await errors(dto)).toHaveLength(0);
+    expect(dto.birthDate).toBeUndefined();
+  });
+
+  it("rejects a non-ISO date after trimming", async () => {
+    const dto = plainToInstance(CreatePersonDto, {
+      firstName: "Jane",
+      lastName: "Doe",
+      birthDate: " not-a-date ",
     });
     expect(await errors(dto)).not.toHaveLength(0);
   });

@@ -2,8 +2,35 @@
 
 ## Scope
 Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
- `mcp-tools`, `apps/api`) conducted on 2026-08-17. This is review 165;
- rounds 1–164 are documented in earlier revisions of this file and `CHANGES.md`.
+ `mcp-tools`, `apps/api`) conducted on 2026-08-17. This is review 166;
+ rounds 1–165 are documented in earlier revisions of this file and `CHANGES.md`.
+
+## Findings & Actions (round 166)
+
+### Fixed this round
+
+1. **🟡 `packages/mcp-tools/src/registry/tool-registry.ts:394–417` — probe-shape validation gap for object-accepting schemas.** `validateInputSchemaShape` only validated the error shape when the probe *failed* (`probe.success === false`). A schema that accepts the probe input (e.g. `z.any()`, `z.record(z.string())`, or a custom validator that happens to accept arbitrary objects) would pass registration with no shape check at all. At runtime, when a real validation failure produced an error without an `.issues` array, the pipeline crashed at `parsed.error.issues.map(...)` with a TypeError — surfacing as a generic `INTERNAL_ERROR` to the agent instead of a structured validation message. **Fix:** extracted the shape assertion into `assertErrorShape`, added a second probe with `null` (which fails virtually all practical schemas), and validated the error shape on *any* probe failure rather than only when `probe.success === false`. The `Array.isArray` check was also tightened to reject non-array `.issues` values. Two regression tests added asserting the non-compliant schema is rejected at registration and the `z.any()`-like all-accepting schema is still accepted (no crash, no false positive). Verified: lint ✓, typecheck ✓, mcp-tools 166 passed (+2), api 439 passed (unchanged), shared 229 passed, database 34 passed / 10 skipped.
+
+2. **🟢 `apps/api/src/modules/core/party/party.dto.ts:204–206, 231–233` — optional date fields missing `@Transform()` trim, causing cross-surface inconsistency.** `CreatePersonDto.birthDate` and `CreateOrganizationDto.registrationDate` had no `@Transform()` decorator, so whitespace-padded values like `" 2024-01-15T00:00:00.000Z  "` reached `@IsValidISODate()` untrimmed and were rejected with a 422. The MCP path's `optionalIsoDate()` transform (`s?.trim() || undefined`) accepted the same input, producing a silent REST-vs-MCP divergence: identical input got 422 on REST but succeeded on MCP. **Fix:** added a `@Transform()` that trims the value and normalizes whitespace-only to `undefined` (matching the MCP `optionalIsoDate` contract exactly), positioned before `@IsValidISODate()` so trimming runs first. Four regression tests added asserting whitespace-padded dates are accepted and normalized, whitespace-only dates become undefined, and non-ISO dates are still rejected after trimming. Verified: lint ✓, typecheck ✓, api 443 passed (+4), all other workspaces unchanged.
+
+### Reviewed but NOT changed (false positives / deferred)
+
+- **Tenant isolation (RLS boot assertions, superuser boot refusal, app-level `tenantId` filters), secret redaction across REST/MCP/durable surfaces, idempotency-key charset consistency, ReDoS, and `@Public()` scope scanning** remain intact and were re-verified by independent reads this round. No new 🔴/🟡 exploit paths found.
+- **`get_type_table_values` (discovery-tools.ts) still returns all type-table rows with no `take` cap.** Deferred again: admin-curated reference data with a handful of seeded values; truncation middleware bounds downstream surfaces.
+- **`sanitizeLogOutput` deprecated shim** retained as before (no production callers; back-compat).
+- **`party.service.ts` — `requireMaxLength` one-line `if` branches (lines 1000–1002, 1025).** Lint warns at function level but each is a single statement; grouping into braces would add visual noise for negligible readability gain. Kept as-is.
+- **`queue.module.ts:128` — local `MAX_RETRIES = 10` for Redis retry strategy.** Intentionally scoped to QueueModule; not shared with other retry loops (idempotency uses `IDEMPOTENCY_MAX_RETRIES = 3`). No change.
+
+## Test Results (round 166)
+```
+api:       443 passed (17 files)  (+4: date-field trim transforms)
+shared:    229 passed (4 files)   (unchanged)
+mcp-tools: 166 passed (4 files)   (+2: probe-shape regression tests)
+database:   34 passed, 10 skipped (3 files) (DB-backed; unchanged)
+──────────────────────────────
+Total:     872 passed, 10 skipped
+```
+lint ✓ · typecheck ✓ · build ✓ · `npm audit` 0 vulnerabilities
 
 ## Findings & Actions (round 165)
 

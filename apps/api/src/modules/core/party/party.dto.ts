@@ -201,6 +201,9 @@ export class CreatePersonDto {
   middleName?: string;
 
   @IsOptional()
+  @Transform(({ value }: TransformFnParams) =>
+    typeof value === "string" ? (value.trim().length === 0 ? undefined : value.trim()) : value,
+  )
   @IsValidISODate()
   @MaxLength(MAX_DATE_STRING_LENGTH)
   birthDate?: string;
@@ -228,6 +231,9 @@ export class CreateOrganizationDto {
   taxId?: string;
 
   @IsOptional()
+  @Transform(({ value }: TransformFnParams) =>
+    typeof value === "string" ? (value.trim().length === 0 ? undefined : value.trim()) : value,
+  )
   @IsValidISODate()
   @MaxLength(MAX_DATE_STRING_LENGTH)
   registrationDate?: string;

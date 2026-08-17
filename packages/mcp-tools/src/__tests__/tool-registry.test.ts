@@ -73,6 +73,50 @@ describe("ToolRegistry", () => {
 
       expect(() => registry.register(customTool)).not.toThrow();
     });
+
+    it("should reject a schema that accepts the object probe but has a non-compliant error shape on null", () => {
+      // Regression (round 166): a schema that accepts arbitrary objects
+      // (like z.any()) passes the object probe successfully, so the
+      // original guard skipped shape validation entirely. A real
+      // validation failure on a scalar would then produce an error
+      // without .issues and crash at parsed.error.issues.map(...).
+      // The second null probe now catches this class of schema.
+      const badSchema = {
+        safeParse: (input: unknown) => {
+          if (typeof input === "object" && input !== null) {
+            return { success: true, data: input };
+          }
+          return { success: false, error: { message: "must be an object" } };
+        },
+      };
+      const tool: ToolDefinition = {
+        name: "bad_shape_tool",
+        description: "schema accepts objects but has bad error shape",
+        inputSchema: badSchema as any,
+        riskLevel: "none",
+        handler: async () => ({ success: true }),
+      };
+
+      expect(() => registry.register(tool)).toThrow(/inputSchema.safeParse.*issues/);
+    });
+
+    it("should accept a schema where both probes succeed (z.any()-like)", () => {
+      // A schema that accepts everything (like z.any()) passes both probes
+      // with success:true, so no error shape exists to validate. This is
+      // safe because validation never fails, so parsed.error is never accessed.
+      const anySchema = {
+        safeParse: (input: unknown) => ({ success: true, data: input }),
+      };
+      const tool: ToolDefinition = {
+        name: "any_tool",
+        description: "accepts any input",
+        inputSchema: anySchema as any,
+        riskLevel: "none",
+        handler: async () => ({ success: true }),
+      };
+
+      expect(() => registry.register(tool)).not.toThrow();
+    });
   });
 
   describe("get", () => {

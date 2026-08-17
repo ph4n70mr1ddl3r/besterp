@@ -399,20 +399,39 @@ export class ToolRegistry {
     // with undefined would short-circuit the guard when the schema declares
     // undefined valid (success:true), leaving shape mismatches undetected.
     const probe = cast.safeParse({ __mcp_tools_shape_probe__: true });
-    // Only validate the error shape when the probe actually fails — a schema
-    // that accepts the probe input (success:true) has no error shape to check.
+    // Validate the error shape whenever the probe produces an error — a
+    // schema that accepts the probe input (success:true) has no error shape
+    // to check here, but a second probe below may produce one.
+    if (probe.error) {
+      this.assertErrorShape(toolName, probe.error);
+    }
+    // Second probe with null: catches schemas that accept arbitrary objects
+    // (e.g. z.any(), z.record(), or custom schemas) but reject scalars.
+    // Without this, a schema that passes the object probe would skip shape
+    // validation entirely, and a real runtime validation failure would
+    // produce an error without .issues — later crashing at
+    // parsed.error.issues.map(...) with a TypeError. `typeof null === "object"`
+    // in JavaScript, so the null guard inside assertErrorShape is required.
+    const probeNull = cast.safeParse(null);
+    if (probeNull.error) {
+      this.assertErrorShape(toolName, probeNull.error);
+    }
+  }
+
+  /** Assert that an error object from safeParse() carries an 'issues' array.
+   *  Extracted from validateInputSchemaShape to keep that method's complexity
+   *  within the lint cap while still validating the shape on both probes. */
+  private assertErrorShape(toolName: string, error: unknown): void {
     // `typeof null === "object"` in JavaScript, so an explicit null guard is
     // required here: a schema whose error shape carries `issues: null` would
     // otherwise pass the type check and later crash at `parsed.error.issues.map(...)`
     // when a real validation error fires. The null check keeps the guard accurate.
-    if (probe.success === false && probe.error) {
-      const errorShape = probe.error as Record<string, unknown>;
-      if (errorShape.issues == null || typeof errorShape.issues !== "object") {
-        throw new Error(
-          `Tool '${toolName}': inputSchema.safeParse() returned an error without an 'issues' array. ` +
-          `Expected { success: false, error: { issues: [...] } }; got a shape that may be incompatible with this registry.`
-        );
-      }
+    const errorShape = error as Record<string, unknown>;
+    if (errorShape.issues == null || typeof errorShape.issues !== "object" || !Array.isArray(errorShape.issues)) {
+      throw new Error(
+        `Tool '${toolName}': inputSchema.safeParse() returned an error without an 'issues' array. ` +
+        `Expected { success: false, error: { issues: [...] } }; got a shape that may be incompatible with this registry.`
+      );
     }
   }
 
