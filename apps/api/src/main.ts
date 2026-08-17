@@ -100,9 +100,9 @@ function validateJwtExpiresIn(): void {
       // All units map to an integer number of seconds for valid inputs.
       const totalSeconds =
         unit === "d" ? value * 24 * 60 * 60
-      : unit === "h" ? value * 60 * 60
-      : unit === "m" ? value * 60
-      :                   value;
+        : unit === "h" ? value * 60 * 60
+        : unit === "m" ? value * 60
+        : value;
       const maxSeconds = MAX_JWT_EXPIRES_IN_DAYS * 24 * 60 * 60;
       if (totalSeconds > maxSeconds) {
         logger.error(

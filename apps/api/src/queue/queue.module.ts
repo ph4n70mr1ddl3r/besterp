@@ -8,7 +8,7 @@
 // Infrastructure: queues are registered but not yet used for domain events.
 // Will be consumed by feature modules when cross-module coordination is needed.
 
-import { DynamicModule, Logger, Module } from "@nestjs/common";
+import { DynamicModule, Logger, Module, OnModuleDestroy } from "@nestjs/common";
 import { BullModule } from "@nestjs/bullmq";
 import { resolveRedisTls, sanitizeForLogOutput, isDev, DEFAULT_REDIS_PORT } from "@besterp/shared";
 
@@ -24,7 +24,7 @@ export interface QueueModuleOptions {
 const DEFAULT_REDIS_CONNECT_TIMEOUT_MS = 10_000;
 
 @Module({})
-export class QueueModule {
+export class QueueModule implements OnModuleDestroy {
   private static readonly logger = new Logger(QueueModule.name);
 
   private static resolveRedisOptions(options?: Partial<QueueModuleOptions>): { host: string; port: number; password: string | undefined; tls: { rejectUnauthorized: boolean } | undefined } {
@@ -171,6 +171,10 @@ export class QueueModule {
       ],
       exports: [BullModule],
     };
+  }
+
+  onModuleDestroy(): void {
+    QueueModule._redisPortWarned = false;
   }
 
   /**

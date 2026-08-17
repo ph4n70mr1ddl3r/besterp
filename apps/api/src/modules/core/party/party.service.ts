@@ -997,9 +997,15 @@ export class PartyService {
         { suggestedTools: ["add_contact_mechanism"], context: { field: "postalCode", received: typeof postalAddress.postalCode } }
       );
     }
-    if (typeof postalAddress.addressLine2 === "string") PartyService.requireMaxLength(postalAddress.addressLine2, "addressLine2", MAX_ADDRESS_LINE_LENGTH, "add_contact_mechanism");
-    if (typeof postalAddress.stateProvince === "string") PartyService.requireMaxLength(postalAddress.stateProvince, "stateProvince", MAX_STATE_PROVINCE_LENGTH, "add_contact_mechanism");
-    if (typeof postalAddress.postalCode === "string") PartyService.requireMaxLength(postalAddress.postalCode, "postalCode", MAX_POSTAL_CODE_LENGTH, "add_contact_mechanism");
+    if (typeof postalAddress.addressLine2 === "string") {
+      PartyService.requireMaxLength(postalAddress.addressLine2, "addressLine2", MAX_ADDRESS_LINE_LENGTH, "add_contact_mechanism");
+    }
+    if (typeof postalAddress.stateProvince === "string") {
+      PartyService.requireMaxLength(postalAddress.stateProvince, "stateProvince", MAX_STATE_PROVINCE_LENGTH, "add_contact_mechanism");
+    }
+    if (typeof postalAddress.postalCode === "string") {
+      PartyService.requireMaxLength(postalAddress.postalCode, "postalCode", MAX_POSTAL_CODE_LENGTH, "add_contact_mechanism");
+    }
   }
 
   private validateTelecomSubtype(telecomNumber: AddContactMechanismInput["telecomNumber"]): void {
@@ -1022,7 +1028,9 @@ export class PartyService {
         { suggestedTools: ["add_contact_mechanism"], context: { field: "extension", received: typeof telecomNumber.extension } }
       );
     }
-    if (typeof telecomNumber.extension === "string") PartyService.requireMaxLength(telecomNumber.extension, "extension", MAX_EXTENSION_LENGTH, "add_contact_mechanism");
+    if (typeof telecomNumber.extension === "string") {
+      PartyService.requireMaxLength(telecomNumber.extension, "extension", MAX_EXTENSION_LENGTH, "add_contact_mechanism");
+    }
   }
 
   private validateEmailSubtype(emailAddress: AddContactMechanismInput["emailAddress"]): string {

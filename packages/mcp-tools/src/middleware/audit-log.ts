@@ -143,7 +143,12 @@ async function executeAndLog(prisma: PrismaClient, backpressure: BackpressureMan
     // ai_action_log table, so we strip it the same way shutdown/log paths do.
     backpressure.log({
       ...base,
-      toolOutput: { error: { message: capString(sanitizeForLogOutput(error instanceof Error ? error.message : String(error)), MAX_SOFT_FAILURE_MESSAGE_SIZE), code: capString(sanitizeForLogOutput(getErrorCode(error) ?? ""), MAX_SOFT_FAILURE_MESSAGE_SIZE) || undefined } },
+      toolOutput: {
+        error: {
+          message: capString(sanitizeForLogOutput(error instanceof Error ? error.message : String(error)), MAX_SOFT_FAILURE_MESSAGE_SIZE),
+          code: capString(sanitizeForLogOutput(getErrorCode(error) ?? ""), MAX_SOFT_FAILURE_MESSAGE_SIZE) || undefined,
+        },
+      },
     });
     throw error;
   }

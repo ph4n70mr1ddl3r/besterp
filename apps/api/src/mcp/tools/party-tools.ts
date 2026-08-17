@@ -424,7 +424,7 @@ Use this to find customers, suppliers, or any party by name, type, or role.`,
       tenantId: context.tenantId,
     });
     const morePages = result.hasMore
-      ? ` Use offset ${Math.min(result.offset + result.limit, result.total)} to see more results.`
+      ? ` Use offset ${result.offset + result.limit} to see more results.`
       : "";
     return {
       success: true,

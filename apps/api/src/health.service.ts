@@ -4,7 +4,7 @@
 // diagnostic purposes. It checks database connectivity, system resources,
 // and application status.
 
-import { Injectable, Logger, OnModuleInit } from "@nestjs/common";
+import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from "@nestjs/common";
 import { PrismaService } from "./prisma/prisma.service.js";
 import { sanitizeForLogOutput, sanitizeLogMessage, resolveRedisTls, isDev, isProd, DEFAULT_REDIS_PORT } from "@besterp/shared";
 import { normalizeEnvironmentValue } from "./bootstrap-config.js";
@@ -61,7 +61,7 @@ export interface VersionInfo {
 }
 
 @Injectable()
-export class HealthService implements OnModuleInit {
+export class HealthService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(HealthService.name);
 
   private packageInfo: { version: string; name: string } = { version: "0.0.0", name: "unknown" };
@@ -119,6 +119,12 @@ export class HealthService implements OnModuleInit {
   private redisProbeInflight: Promise<"connected" | "disconnected" | "not_configured"> | undefined;
 
   constructor(private readonly prisma: PrismaService) {}
+
+  async onModuleDestroy(): Promise<void> {
+    HealthService._redisPortWarned = false;
+    HealthService._redisConnectionWarned = false;
+    HealthService._dbConnectionLogged = false;
+  }
 
   async onModuleInit() {
     this.packageInfoReady = this.initPackageInfo().catch((err) => {
