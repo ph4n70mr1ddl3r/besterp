@@ -20,6 +20,9 @@ export interface QueueModuleOptions {
   };
 }
 
+/** Default Redis connection timeout in milliseconds. */
+const DEFAULT_REDIS_CONNECT_TIMEOUT_MS = 10_000;
+
 @Module({})
 export class QueueModule {
   private static readonly logger = new Logger(QueueModule.name);
@@ -153,7 +156,7 @@ export class QueueModule {
       port,
       maxRetriesPerRequest: null,
       retryStrategy: (times: number, lastError?: Error) => QueueModule.redisRetryStrategy(times, lastError),
-      connectTimeout: 10000,
+      connectTimeout: DEFAULT_REDIS_CONNECT_TIMEOUT_MS,
       ...(password ? { password } : {}),
       ...(tls ? { tls } : {}),
     };

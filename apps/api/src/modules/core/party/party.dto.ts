@@ -351,7 +351,13 @@ export class PostalAddressDto {
   @MaxLength(MAX_POSTAL_CODE_LENGTH)
   postalCode?: string;
 
-  @sanitizeTransform()
+  /**
+   * Custom Transform that strips HTML and uppercases the country code.
+   * Round-163 review: the previous bare `.toUpperCase()` only uppercased,
+   * letting values like "<U>" pass DTO length checks but fail at the service
+   * layer when sanitizePostalAddress stripped it to "U" (below MIN length).
+   * This Transform matches sanitizePostalAddress's strip-then-upper pipeline.
+   */
   @Transform(({ value }: TransformFnParams) =>
     typeof value === "string" ? stripHtmlTags(value.trim()).toUpperCase() : value,
   )

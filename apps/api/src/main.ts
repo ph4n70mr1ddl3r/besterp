@@ -29,6 +29,7 @@ import {
   normalizeEnvironmentValue,
   DEFAULT_HARD_EXIT_TIMEOUT_MS,
   resolvePort,
+  DEFAULT_PORT,
   type RateLimitConfig,
 } from "./bootstrap-config.js";
 
@@ -314,7 +315,7 @@ function parsePort(): number {
     const resolved = resolvePort(process.env);
     if (resolved.isDefault) {
       logger.warn(
-        "PORT not set — defaulting to 3000. Set PORT explicitly in production."
+        `PORT not set — defaulting to ${DEFAULT_PORT}. Set PORT explicitly in production.`
       );
     }
     port = resolved.value;

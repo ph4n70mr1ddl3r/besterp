@@ -2,10 +2,63 @@
 
 ## Scope
 Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
- `mcp-tools`, `apps/api`) conducted on 2026-08-16. This is review 160;
- rounds 1–159 are documented in earlier revisions of this file and `CHANGES.md`.
+ `mcp-tools`, `apps/api`) conducted on 2026-08-17. This is review 164;
+ rounds 1–163 are documented in earlier revisions of this file and `CHANGES.md`.
 
-## Findings & Actions (round 160)
+## Findings & Actions (round 164)
+
+### Fixed this round
+
+1. **🟢 `apps/api/src/queue/queue.module.ts:156` — `connectTimeout: 10000` magic number.** The BullMQ ioredis connection options object carried a bare `10000` literal for the connection timeout with no accompanying constant, so a reader had to infer the unit (ms) and the rationale from the surrounding code. **Fix:** extracted a module-level `DEFAULT_REDIS_CONNECT_TIMEOUT_MS = 10_000` constant and referenced it in the connection options object. No behavioural change — the value is identical; only the source of truth moved from an inline literal to a named constant, matching the project's convention for every other queue knob (`MAX_RETRIES`, `DEFAULT_REDIS_PORT`, etc.). Verified: lint ✓, typecheck ✓, all workspaces pass (api 439, shared 229, mcp-tools 164, database 34 passed / 10 skipped).
+
+2. **🟢 `apps/api/src/modules/core/party/party.dto.ts:354` — redundant `@sanitizeTransform()` on `country` field.** The `PostalAddressDto.country` property carried both `@sanitizeTransform()` and a custom `@Transform()` that independently runs `stripHtmlTags(value.trim()).toUpperCase()`. class-transformer applies all `@Transform()` decorators sequentially on the same property, so the first transform produced `stripHtmlTags(value.trim())` and the second ran on that result, yielding `stripHtmlTags(AlreadySanitized.trim()).toUpperCase()`. Since `stripHtmlTags` is idempotent and the value was already trimmed, the first decorator was functionally a no-op but added visual noise that could mislead future readers into thinking the two transforms did complementary work. **Fix:** removed the redundant `@sanitizeTransform()` decorator, leaving only the custom `@Transform()` that carries the complete semantic intent. Added a comment explaining the round-163 fix it enforces (HTML-only country codes like `"<U>"` would otherwise pass DTO length checks but fail at the service layer when `sanitizePostalAddress` stripped them to below `MIN_COUNTRY_CODE_LENGTH`). Verified: lint ✓, typecheck ✓, api 439 passed (unchanged), all other workspaces unchanged.
+
+### Reviewed but NOT changed (false positives / deferred)
+
+- **Tenant isolation (RLS boot assertions, superuser boot refusal, app-level `tenantId` filters), secret redaction across REST/MCP/durable surfaces, idempotency-key charset consistency, ReDoS, and `@Public()` scope scanning** remain intact and were re-verified by independent reads this round. No new 🔴/🟡 exploit paths found.
+- **`get_type_table_values` (discovery-tools.ts) still returns all type-table rows with no `take` cap.** Deferred again: admin-curated reference data with a handful of seeded values; truncation middleware bounds downstream surfaces.
+- **`sanitizeLogOutput` deprecated shim** retained as before (no production callers; back-compat).
+- **`party.service.ts` — `requireMaxLength` one-line `if` branches (lines 1000–1002, 1025).** Lint warns at function level but each is a single statement; grouping into braces would add visual noise for negligible readability gain. Kept as-is.
+- **`queue.module.ts:128` — local `MAX_RETRIES = 10` for Redis retry strategy.** Intentionally scoped to QueueModule; not shared with other retry loops (idempotency uses `IDEMPOTENCY_MAX_RETRIES = 3`). No change.
+
+## Test Results (round 164)
+```
+api:       439 passed (17 files)  (unchanged)
+shared:    229 passed (4 files)   (unchanged)
+mcp-tools: 164 passed (4 files)   (unchanged)
+database:   34 passed, 10 skipped (3 files) (DB-backed; unchanged)
+──────────────────────────────
+Total:     866 passed, 10 skipped
+```
+lint ✓ · typecheck ✓ · build ✓ · `npm audit` 0 vulnerabilities
+
+## Findings & Actions (round 163)
+
+### Fixed this round
+
+1. **🟢 `apps/api/src/main.ts:317` — hardcoded `"3000"` port literal in boot warning.** The `DEFAULT_PORT` constant (defined in `bootstrap-config.ts:33`) was already imported in `main.ts` (as `resolvePort`) but not referenced in the warning message emitted when no `PORT` env var is set. A hardcoded `"3000"` would go stale if the default were ever changed — the warning would advertise the wrong port. **Fix:** added `DEFAULT_PORT` to the `bootstrap-config.js` import list and interpolated it into the warning string. No behavioural change — the message now reads dynamically from the same constant the resolver uses. Verified: lint ✓, typecheck ✓, all 439 api tests pass unchanged.
+
+### Reviewed but NOT changed (false positives / deferred)
+
+- **Tenant isolation (RLS boot assertions, superuser boot refusal, app-level `tenantId` filters), secret redaction across REST/MCP/durable surfaces, idempotency-key charset consistency, ReDoS, and `@Public()` scope scanning** remain intact and were re-verified by independent reads this round. No new 🔴/🟡 exploit paths found.
+- **`get_type_table_values` (discovery-tools.ts) still returns all type-table rows with no `take` cap.** Deferred again: admin-curated reference data with a handful of seeded values; truncation middleware bounds downstream surfaces.
+- **`sanitizeLogOutput` deprecated shim** retained as before (no production callers; back-compat).
+- **`party.service.ts` — `requireMaxLength` one-line `if` branches (lines 1000–1002, 1025).** Lint warns at function level but each is a single statement; grouping into braces would add visual noise for negligible readability gain. Kept as-is.
+- **`queue.module.ts:128` — local `MAX_RETRIES = 10` for Redis retry strategy.** Intentionally scoped to QueueModule; not shared with other retry loops (idempotency uses `IDEMPOTENCY_MAX_RETRIES = 3`). No change.
+- **`queue.module.ts:156` — `connectTimeout: 10000` magic number.** Well-documented inline as the BullMQ connection timeout; extracting to a named constant would add indirection for a single-use value. No change.
+
+## Test Results (round 163)
+```
+api:       439 passed (17 files)  (unchanged)
+shared:    229 passed (4 files)   (unchanged)
+mcp-tools: 164 passed (4 files)   (unchanged)
+database:   34 passed, 10 skipped (3 files) (DB-backed; unchanged)
+──────────────────────────────
+Total:     866 passed, 10 skipped
+```
+lint ✓ · typecheck ✓ · build ✓ · `npm audit` 0 vulnerabilities
+
+## Findings & Actions (round 162)
 
 ### Fixed this round
 
