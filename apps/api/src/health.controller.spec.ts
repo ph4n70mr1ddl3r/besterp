@@ -172,8 +172,11 @@ describe("HealthController", () => {
       await new Promise((r) => setTimeout(r, 50));
       vi.useRealTimers();
 
+      // The ready() handler races getHealth() against a 5-second timer.
+      // Extend vitest's per-test timeout so the real 5s health-check
+      // timeout can fire without the test itself being killed first.
       await expect(readyPromise).rejects.toThrow("health check timed out");
-    });
+    }, 10_000);
 
     it("should wrap unexpected errors in ServiceUnavailableException", async () => {
       const mockHealthService = {

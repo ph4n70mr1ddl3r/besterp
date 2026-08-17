@@ -210,7 +210,7 @@ function normaliseForTruncation(value: unknown, seen: WeakSet<object> = new Weak
   if (typeof value === "bigint") return value.toString();
   if (typeof value === "symbol") return { _error: "Cannot serialize Symbol value" };
   if (typeof value !== "object") return value;
-  return normaliseContainer(value as object, seen);
+  return normaliseContainer(value as object, seen, depth);
 }
 
 /**
