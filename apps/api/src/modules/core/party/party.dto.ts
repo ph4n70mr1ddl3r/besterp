@@ -86,6 +86,21 @@ function optionalSanitizeTransform(): PropertyDecorator {
   });
 }
 
+/**
+ * Optional ISO 8601 date transform: trims whitespace, collapses whitespace-only
+ * to undefined so @IsOptional() skips it — matching the MCP boundary's
+ * optionalIsoDate contract exactly. Previously only birthDate/registrationDate
+ * had this guard; AddPartyRoleDto.fromDate was missed (round 169), so a
+ * whitespace-padded fromDate like " 2024-01-15T00:00:00.000Z " passed the
+ * DTO layer on MCP but 422'd on REST. Apply uniformly to every optional date
+ * field so the two surfaces stay in sync.
+ */
+function optionalIsoDateTransform(): PropertyDecorator {
+  return Transform(({ value }: TransformFnParams) =>
+    typeof value === "string" ? (value.trim().length === 0 ? undefined : value.trim()) : value,
+  );
+}
+
 // ─── Date validator ─────────────────────────────────────────────
 
 /**
@@ -201,9 +216,7 @@ export class CreatePersonDto {
   middleName?: string;
 
   @IsOptional()
-  @Transform(({ value }: TransformFnParams) =>
-    typeof value === "string" ? (value.trim().length === 0 ? undefined : value.trim()) : value,
-  )
+  @optionalIsoDateTransform()
   @IsValidISODate()
   @MaxLength(MAX_DATE_STRING_LENGTH)
   birthDate?: string;
@@ -231,9 +244,7 @@ export class CreateOrganizationDto {
   taxId?: string;
 
   @IsOptional()
-  @Transform(({ value }: TransformFnParams) =>
-    typeof value === "string" ? (value.trim().length === 0 ? undefined : value.trim()) : value,
-  )
+  @optionalIsoDateTransform()
   @IsValidISODate()
   @MaxLength(MAX_DATE_STRING_LENGTH)
   registrationDate?: string;
@@ -319,6 +330,7 @@ export class AddPartyRoleDto {
   roleType!: string;
 
   @IsOptional()
+  @optionalIsoDateTransform()
   @IsValidISODate()
   @MaxLength(MAX_DATE_STRING_LENGTH)
   fromDate?: string;

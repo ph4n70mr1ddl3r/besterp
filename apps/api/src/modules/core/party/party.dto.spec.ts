@@ -2,7 +2,7 @@ import "reflect-metadata";
 import { plainToInstance } from "class-transformer";
 import { validate } from "class-validator";
 import { describe, expect, it } from "vitest";
-import { AddContactMechanismDto, CreatePartyDto, PostalAddressDto, SearchPartiesDto, TelecomNumberDto, CreatePersonDto, CreateOrganizationDto } from "./party.dto.js";
+import { AddContactMechanismDto, CreatePartyDto, PostalAddressDto, SearchPartiesDto, TelecomNumberDto, CreatePersonDto, CreateOrganizationDto, AddPartyRoleDto } from "./party.dto.js";
 
 /**
  * Regression tests (round 150) for the optional-string normalisation split:
@@ -144,5 +144,23 @@ describe("optional date fields trim whitespace (round 166)", () => {
       birthDate: " not-a-date ",
     });
     expect(await errors(dto)).not.toHaveLength(0);
+  });
+
+  it("normalizes whitespace-padded fromDate to a clean value (round 169)", async () => {
+    const dto = plainToInstance(AddPartyRoleDto, {
+      roleType: "Customer",
+      fromDate: "  2024-01-15T00:00:00.000Z  ",
+    });
+    expect(await errors(dto)).toHaveLength(0);
+    expect(dto.fromDate).toBe("2024-01-15T00:00:00.000Z");
+  });
+
+  it("normalizes whitespace-only fromDate to undefined (matches MCP boundary, round 169)", async () => {
+    const dto = plainToInstance(AddPartyRoleDto, {
+      roleType: "Customer",
+      fromDate: "   ",
+    });
+    expect(await errors(dto)).toHaveLength(0);
+    expect(dto.fromDate).toBeUndefined();
   });
 });

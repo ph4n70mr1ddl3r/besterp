@@ -2,8 +2,33 @@
 
 ## Scope
 Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
- `mcp-tools`, `apps/api`) conducted on 2026-08-17. This is review 166;
- rounds 1–165 are documented in earlier revisions of this file and `CHANGES.md`.
+ `mcp-tools`, `apps/api`) conducted on 2026-08-17. This is review 169;
+ rounds 1–168 are documented in earlier revisions of this file and `CHANGES.md`.
+
+## Findings & Actions (round 169)
+
+### Fixed this round
+
+1. **🟢 `apps/api/src/modules/core/party/party.dto.ts:321–324` — `AddPartyRoleDto.fromDate` missing `@Transform()` trim, causing cross-surface inconsistency.** Round 166 added the `@Transform()` trim to `CreatePersonDto.birthDate` and `CreateOrganizationDto.registrationDate`, but `AddPartyRoleDto.fromDate` was missed. A whitespace-padded value like `" 2024-01-15T00:00:00.000Z  "` reached `@IsValidISODate()` untrimmed on REST and was rejected with a 422, while the MCP path's `optionalIsoDate()` transform accepted it. **Fix:** extracted the repeated inline `@Transform()` into a named `optionalIsoDateTransform()` helper and applied it to `birthDate`, `registrationDate`, and `fromDate` so all three optional date fields share the same trim-normalise contract. Two regression tests added asserting whitespace-padded `fromDate` is accepted and normalised, and whitespace-only `fromDate` becomes undefined. Verified: lint ✓, typecheck ✓, api 445 passed (+2), all other workspaces unchanged.
+
+### Reviewed but NOT changed (false positives / deferred)
+
+- **Tenant isolation (RLS boot assertions, superuser boot refusal, app-level `tenantId` filters), secret redaction across REST/MCP/durable surfaces, idempotency-key charset consistency, ReDoS, and `@Public()` scope scanning** remain intact and were re-verified by independent reads this round. No new 🔴/🟡 exploit paths found.
+- **`get_type_table_values` (discovery-tools.ts) still returns all type-table rows with no `take` cap.** Deferred again: admin-curated reference data with a handful of seeded values; truncation middleware bounds downstream surfaces.
+- **`sanitizeLogOutput` deprecated shim** retained as before (no production callers; back-compat).
+- **`party.service.ts` — `requireMaxLength` one-line `if` branches (lines 1000–1002, 1025).** Lint warns at function level but each is a single statement; grouping into braces would add visual noise for negligible readability gain. Kept as-is.
+- **`queue.module.ts:128` — local `MAX_RETRIES = 10` for Redis retry strategy.** Intentionally scoped to QueueModule; not shared with other retry loops (idempotency uses `IDEMPOTENCY_MAX_RETRIES = 3`). No change.
+
+## Test Results (round 169)
+```
+api:       445 passed (17 files)  (+2: fromDate trim regression tests)
+shared:    229 passed (4 files)   (unchanged)
+mcp-tools: 166 passed (4 files)   (unchanged)
+database:   34 passed, 10 skipped (3 files) (DB-backed; unchanged)
+──────────────────────────────
+Total:     874 passed, 10 skipped
+```
+lint ✓ · typecheck ✓ · build ✓ · `npm audit` 0 vulnerabilities
 
 ## Findings & Actions (round 166)
 
