@@ -353,7 +353,7 @@ export class PartyService {
           // strings, but this guards against any future bypass path.
           if (parsedBirthDate && isNaN(parsedBirthDate.getTime())) {
             throw new InvalidTypeValueError(
-              `birthDate produced an invalid Date`,
+              `birthDate produced an invalid Date.`,
               { suggestedTools: ["create_party"], context: { field: "birthDate", invalidValue: rawBirthDate ?? "" } }
             );
           }
@@ -372,7 +372,7 @@ export class PartyService {
           const parsedRegistrationDate = rawRegistrationDate ? new Date(rawRegistrationDate) : null;
           if (parsedRegistrationDate && isNaN(parsedRegistrationDate.getTime())) {
             throw new InvalidTypeValueError(
-              `registrationDate produced an invalid Date`,
+              `registrationDate produced an invalid Date.`,
               { suggestedTools: ["create_party"], context: { field: "registrationDate", invalidValue: rawRegistrationDate ?? "" } }
             );
           }
@@ -766,7 +766,7 @@ export class PartyService {
     // guard on line 305).
     if (isNaN(parsed.getTime())) {
       throw new InvalidTypeValueError(
-        `fromDate produced an invalid Date`,
+        `fromDate produced an invalid Date.`,
         { suggestedTools: ["add_party_role"], context: { field: "fromDate", invalidValue: trimmed } }
       );
     }

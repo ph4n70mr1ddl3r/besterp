@@ -2,8 +2,35 @@
 
 ## Scope
 Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
- `mcp-tools`, `apps/api`) conducted on 2026-08-17. This is review 164;
- rounds 1–163 are documented in earlier revisions of this file and `CHANGES.md`.
+ `mcp-tools`, `apps/api`) conducted on 2026-08-17. This is review 165;
+ rounds 1–164 are documented in earlier revisions of this file and `CHANGES.md`.
+
+## Findings & Actions (round 165)
+
+### Fixed this round
+
+1. **🟡 `apps/api/src/common/domain-exception.filter.ts:104` — `suggestedTools` not sanitized in `Unknown DomainError code` logger.error path.** The `handleDomainError` method's 500-status branch logged `exception.suggestedTools` via a bare `JSON.stringify` without running each entry through `sanitizeForLogOutput`. `DomainError.toJSON()` (errors.ts:62) sanitizes suggestedTools, but the logger call bypassed that serializer — a custom DomainError subclass carrying a crafted suggestion string (e.g. a connection string or `?api_key=…`) would reach operator logs verbatim on an unknown-code path. **Fix:** mapped each suggested tool through `sanitizeForLogOutput` before the `JSON.stringify` so the log output is consistent with every other error-surface serialization. No behavioural change for built-in errors (their suggestedTools are static strings); only custom subclass inputs are scrubbed. Verified: lint ✓, typecheck ✓, api 439 passed (unchanged), all other workspaces unchanged.
+
+2. **🟢 `apps/api/src/modules/core/party/party.service.ts:356,375,769` — inconsistent punctuation in invalid-Date error messages.** `birthDate produced an invalid Date`, `registrationDate produced an invalid Date`, and `fromDate produced an invalid Date` all lacked a trailing period while every other InvalidTypeValueError message in the service ended with one. The inconsistency made the three messages look like they were copied from a different pattern rather than carefully crafted. **Fix:** added a trailing period to all three messages. No behavioural change — only punctuation. Verified: lint ✓, typecheck ✓, api 439 passed (unchanged).
+
+### Reviewed but NOT changed (false positives / deferred)
+
+- **Tenant isolation (RLS boot assertions, superuser boot refusal, app-level `tenantId` filters), secret redaction across REST/MCP/durable surfaces, idempotency-key charset consistency, ReDoS, and `@Public()` scope scanning** remain intact and were re-verified by independent reads this round. No new 🔴/🟡 exploit paths found.
+- **`get_type_table_values` (discovery-tools.ts) still returns all type-table rows with no `take` cap.** Deferred again: admin-curated reference data with a handful of seeded values; truncation middleware bounds downstream surfaces.
+- **`sanitizeLogOutput` deprecated shim** retained as before (no production callers; back-compat).
+- **`party.service.ts` — `requireMaxLength` one-line `if` branches (lines 1000–1002, 1025).** Lint warns at function level but each is a single statement; grouping into braces would add visual noise for negligible readability gain. Kept as-is.
+- **`queue.module.ts:128` — local `MAX_RETRIES = 10` for Redis retry strategy.** Intentionally scoped to QueueModule; not shared with other retry loops (idempotency uses `IDEMPOTENCY_MAX_RETRIES = 3`). No change.
+
+## Test Results (round 165)
+```
+api:       439 passed (17 files)  (unchanged)
+shared:    229 passed (4 files)   (unchanged)
+mcp-tools: 164 passed (4 files)   (unchanged)
+database:   34 passed, 10 skipped (3 files) (DB-backed; unchanged)
+──────────────────────────────
+Total:     866 passed, 10 skipped
+```
+lint ✓ · typecheck ✓ · build ✓ · `npm audit` 0 vulnerabilities
 
 ## Findings & Actions (round 164)
 
