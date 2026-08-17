@@ -393,7 +393,7 @@ export class HealthService implements OnModuleInit, OnModuleDestroy {
         // Check BEFORE appending: a single TCP packet > MAX_RESPONSE_BUFFER
         // would otherwise briefly exceed the cap, defeating the DoS guard
         // that bounds memory used by the buffer on an unauthenticated probe.
-        if (responseBuffer.length + chunk.length > MAX_RESPONSE_BUFFER) {
+        if (Buffer.byteLength(responseBuffer) + Buffer.byteLength(chunk) > MAX_RESPONSE_BUFFER) {
           cleanupAndReject(new Error("Redis response exceeded maximum buffer size"));
           return;
         }

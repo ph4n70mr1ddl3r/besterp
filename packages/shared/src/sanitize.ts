@@ -625,8 +625,8 @@ function redactSet(value: Set<unknown>, depth: number, seen: WeakSet<object>): u
   return [...value].map((v) => redactSensitiveFieldValues(v, depth + 1, seen));
 }
 
-function redactPlainObject(value: Record<string, unknown>, depth: number, seen: WeakSet<object>): Record<string, unknown> {
-  if (seen.has(value)) return "[Circular]" as unknown as Record<string, unknown>;
+function redactPlainObject(value: Record<string, unknown>, depth: number, seen: WeakSet<object>): unknown {
+  if (seen.has(value)) return "[Circular]";
   seen.add(value);
   const out: Record<string, unknown> = {};
   for (const [key, child] of Object.entries(value)) {

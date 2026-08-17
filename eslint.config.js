@@ -12,7 +12,6 @@ export default tseslint.config(
             "packages/database/src/__tests__/*.ts",
             "packages/database/prisma/*.ts",
             "packages/database/scripts/*.ts",
-            "packages/database/spikes/*.ts",
             "packages/mcp-tools/src/__tests__/*.ts",
             "packages/shared/src/__tests__/*.ts",
             "apps/api/vitest.config.ts",

@@ -239,3 +239,8 @@ main()
   .finally(async () => {
     await prisma.$disconnect();
   });
+
+process.on("unhandledRejection", (reason) => {
+  console.error("Unhandled rejection:", sanitizeForLogOutput(String(reason ?? "")));
+  process.exitCode = 1;
+});
