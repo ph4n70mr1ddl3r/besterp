@@ -2,8 +2,42 @@
 
 ## Scope
 Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
- `mcp-tools`, `apps/api`) conducted on 2026-08-19. This is review 170;
- rounds 1–169 are documented in earlier revisions of this file and `CHANGES.md`.
+ `mcp-tools`, `apps/api`, plus README/`.env.example`/docker/CI) conducted on
+ 2026-08-19. This is review 171; rounds 1–170 are documented in earlier
+ revisions of this file and `CHANGES.md`.
+
+## Findings & Actions (round 171)
+
+### Fixed this round
+
+1. **🟡 README quickstart's `.env` step never reaches the tools that need it — the documented setup fails at step 5.** The quickstart says `cp .env.example .env` at the repo root, but no downstream tool auto-loads that file: (a) `npm run db:migrate` runs `prisma migrate dev` with CWD `packages/database`, and Prisma auto-loads `.env` only from the CWD/schema directory — **verified experimentally** (`P1012: Environment variable not found: DATABASE_URL` with only a root `.env` present); (b) `npm run db:seed` runs via `tsx`, which loads no `.env` at all (**verified with tsx 4.23**) and exits "[SEED] DATABASE_ADMIN_URL not set"; (c) `docker compose up -d` from `docker/` reads `.env` from the compose project directory (`docker/`), so `${POSTGRES_PASSWORD}`/`${REDIS_PASSWORD}`/`${MINIO_*}` never resolve. **Fix:** the quickstart now exports the file once (`set -a; source .env; set +a`) with a comment explaining why — the shell env propagates to compose interpolation and to every npm/tsx/prisma child process, fixing all four consumers with one step.
+
+2. **🟡 README quickstart seed step omits the required `ALLOW_SEED=1` opt-in.** Round 33 made `db:seed` refuse to run without `ALLOW_SEED=1`; CI was updated then, but the README was not — following it verbatim, `npm run db:seed` exits with "Refusing to seed: ALLOW_SEED is not set to '1'." (`.env.example` documents the knob; CI sets it explicitly.) **Fix:** the step is now `ALLOW_SEED=1 npm run db:seed` with a one-line rationale (seed inserts hard-coded test tenants and requires an explicit opt-in).
+
+3. **🟢 `.env.example` `CORS_ORIGINS` comment claimed empty = "wide-open dev mode" — the opposite of the actual behavior.** With CORS_ORIGINS unset, development falls back to a *restrictive* localhost allowlist (main.ts `DEV_LOCALHOST_ORIGINS`: localhost:3000/3001/5173/5174), and every non-development environment *aborts boot*. The comment now describes the real contract instead of inviting operators to rely on non-existent wide-open behavior.
+
+4. **🟢 `.env.example` `JWT_EXPIRES_IN` did not document the boot-time lifetime constraints.** `main.ts` exits at boot for zero-leading magnitudes (`0s`, `007d` — `JWT_EXPIRES_IN_REGEX`) and for lifetimes over `MAX_JWT_EXPIRES_IN_DAYS` (30 days); the comment now states both alongside the 24h default so a surprising boot failure is predictable from the env file alone.
+
+5. **🟢 `apps/api/src/common/tenant-context.ts` header claimed the context is populated "from JWT claims **or API key**".** No API-key authentication path exists anywhere in the codebase — `TenantGuard` reads only the `JwtValidatedUser` produced by `JwtStrategy`. Stale claim removed (comment/code agreement).
+
+### Reviewed but NOT changed (false positives / deferred)
+
+- **Tenant isolation (RLS boot assertions, superuser boot refusal, app-level `tenantId` filters), secret redaction across REST/MCP/durable surfaces, idempotency-key charset consistency, ReDoS guards, and `@Public()` scope scanning** re-verified by independent reads this round; intact. No new 🔴/🟡 exploit paths found.
+- **`registry` `OPTIONAL_ID_PATTERN` (dots allowed) vs `McpService.buildContext`/`TenantGuard` `TENANT_ID_PATTERN` (no dots) for `userId`/`agentId`.** Layered validation with the strictest boundary winning; both sites carry comments explaining the intent. Not a divergence that can accept input the other rejects at runtime — no change.
+- **`get_type_table_values` (discovery-tools.ts) still returns all type-table rows with no `take` cap.** Deferred again: admin-curated reference data with a handful of seeded values; truncation middleware bounds downstream surfaces.
+- **`sanitizeLogOutput` deprecated shim** retained (no production callers; back-compat).
+- **`queue.module.ts` local `MAX_RETRIES = 10`** — intentionally scoped; not shared with other retry loops.
+
+## Test Results (round 171)
+```
+api:       449 passed (17 files)   (unchanged)
+shared:    229 passed (4 files)    (unchanged)
+mcp-tools: 166 passed (4 files)    (unchanged)
+database:   34 passed, 10 skipped (3 files) (DB-backed; unchanged)
+──────────────────────────────
+Total:     878 passed, 10 skipped
+```
+lint ✓ · typecheck ✓ · build ✓ (docs-only round — no runtime code paths touched except one comment)
 
 ## Findings & Actions (round 170)
 

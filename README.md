@@ -150,6 +150,15 @@ npm run db:seed
    # No changes needed for local development — defaults match docker compose
    ```
 
+   Then export the variables into your shell before running any npm/compose
+   command below. The workspace scripts do NOT auto-load the repo-root `.env`:
+   `prisma` only looks in `packages/database`, the seed runs via `tsx` (which
+   loads no `.env` at all), and `docker compose` reads `.env` from the
+   `docker/` directory. Exporting once fixes every consumer:
+   ```bash
+   set -a; source .env; set +a
+   ```
+
 3. **Start infrastructure** (PostgreSQL, Redis, MinIO)
    ```bash
    cd docker && docker compose up -d
@@ -164,11 +173,12 @@ npm run db:seed
 
    The compose init script creates the `besterp_app` role, but Row-Level Security
    (`rls-setup.sql`) must be applied **after** migrations because it enables
-   RLS on tables that migrations create:
+   RLS on tables that migrations create. The seed inserts hard-coded test
+   tenants and refuses to run without an explicit opt-in (`ALLOW_SEED=1`):
    ```bash
    npm run db:migrate
    docker exec -i besterp-postgres psql -U besterp -d besterp -f /setup/rls-setup.sql
-   npm run db:seed
+   ALLOW_SEED=1 npm run db:seed
    ```
 
 6. **Run the application**

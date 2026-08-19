@@ -1,5 +1,37 @@
 # BestERP — Security & Architecture Fixes
 
+## Changes Applied (2026-08-19) — Code Review Round 171
+
+### 🟡 README quickstart never delivered `.env` values to the tools that need them
+
+**Problem:** The "Getting Started" flow says `cp .env.example .env` at the repo root, but no downstream tool auto-loads that file: `npm run db:migrate` runs `prisma migrate dev` from `packages/database` and Prisma only auto-loads `.env` from the CWD/schema dir (verified: `P1012 Environment variable not found: DATABASE_URL` with only a root `.env`); `npm run db:seed` runs via `tsx`, which loads no `.env` (verified, tsx 4.23); and `docker compose up -d` from `docker/` reads `.env` from the compose project directory (`docker/`), so `${POSTGRES_PASSWORD}` & co. never resolved. A user following the README verbatim failed at step 5 with misleading tool errors.
+
+**Fix:** The quickstart now exports the file once (`set -a; source .env; set +a`) with a comment explaining why — the shell environment propagates to compose interpolation and every npm/tsx/prisma child process, fixing all consumers with one step.
+
+### 🟡 README quickstart seed step omitted the required `ALLOW_SEED=1` opt-in
+
+**Problem:** Round 33 made `db:seed` refuse to run without `ALLOW_SEED=1` (it inserts hard-coded test tenants). CI was updated to set it, but the README was not — `npm run db:seed` exited with "Refusing to seed: ALLOW_SEED is not set to '1'."
+
+**Fix:** The step is now `ALLOW_SEED=1 npm run db:seed` with a one-line rationale.
+
+### 🟢 `.env.example` `CORS_ORIGINS` comment described the opposite of the actual behavior
+
+**Problem:** The comment said "leave empty for wide-open dev mode", but an unset/empty `CORS_ORIGINS` falls back to a *restrictive* localhost allowlist in development (`DEV_LOCALHOST_ORIGINS`) and *aborts boot* in every non-development environment. The comment invited operators to rely on behavior that does not exist.
+
+**Fix:** The comment now states the real contract (restrictive localhost fallback in dev; required elsewhere).
+
+### 🟢 `.env.example` `JWT_EXPIRES_IN` did not document the boot-time constraints
+
+**Problem:** `main.ts` exits at boot for zero-leading values (`0s`, `007d`) and lifetimes over 30 days (`MAX_JWT_EXPIRES_IN_DAYS`); the env file only mentioned the 24h default.
+
+**Fix:** Both constraints are now documented next to the knob.
+
+### 🟢 `tenant-context.ts` stale "or API key" comment
+
+**Problem:** The header claimed the context is populated "from JWT claims or API key" — no API-key path exists anywhere; `TenantGuard` reads only the validated JWT user.
+
+**Fix:** Comment now matches the code (JWT claims only).
+
 ## Changes Applied (2026-08-19) — Code Review Round 170
 
 ### 🟡 `add_contact_mechanism` `countryCode` strip-HTML parity — REST accepted what MCP rejected

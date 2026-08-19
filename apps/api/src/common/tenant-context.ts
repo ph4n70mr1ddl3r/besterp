@@ -1,6 +1,6 @@
 // Tenant context — Request-scoped tenant/user identity.
 //
-// Populated by the TenantGuard from JWT claims or API key.
+// Populated by the TenantGuard from validated JWT claims.
 // Injected into services that need tenant-scoped database access.
 //
 // This is the source of truth for "who is making this request" at the
