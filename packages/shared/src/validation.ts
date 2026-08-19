@@ -68,17 +68,21 @@ export const UUID_REGEX: RegExp =
  * long and still rejects addresses that are valid in practice (e.g.
  * `user+tag@example.com`).
  *
- * The final TLD segment is alpha-only (`[a-zA-Z]{2,}`): numeric or
+ * The final TLD segment is strictly alpha (`[a-zA-Z]{2,63}`): numeric or
  * digit-containing TLDs like `example.123` / `example.c0m` never exist in
  * practice and are rejected, matching the rejection behavior of Zod's
  * `.email()` and class-validator's `@IsEmail` so all three surfaces agree.
+ * Hyphens are excluded from the TLD: the previous optional
+ * `(?:[a-zA-Z-]{0,61}[a-zA-Z])?` tail admitted non-existent hyphenated TLDs
+ * (`example.co-m`) while still rejecting the only legitimate hyphen+digit
+ * TLD family (punycode `xn--*`) — simultaneously too lax and too strict.
  *
  * Used by:
  * - PartyService.addContactMechanism (email type)
  * - Zod schemas in party-tools.ts (via .email() — kept aligned by tests)
  * - DTOs in party.dto.ts (via class-validator's @IsEmail — kept aligned by tests)
  */
-export const EMAIL_REGEX: RegExp = /^(?!\.)(?!.*\.\.)[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+(?<!\.)@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*\.[a-zA-Z]{2,}(?:[a-zA-Z-]{0,61}[a-zA-Z])?$/;
+export const EMAIL_REGEX: RegExp = /^(?!\.)(?!.*\.\.)[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+(?<!\.)@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*\.[a-zA-Z]{2,63}$/;
 
 /**
  * E.164 country code validation — `+` followed by 1 to 3 digits, first digit
@@ -92,11 +96,25 @@ export const EMAIL_REGEX: RegExp = /^(?!\.)(?!.*\.\.)[a-zA-Z0-9.!#$%&'*+/=?^_`{|
 export const COUNTRY_CODE_REGEX: RegExp = /^\+[1-9]\d{0,2}$/;
 
 /**
+ * ISO 3166-1 alpha-2/alpha-3 country code — exactly 2 or 3 ASCII letters.
+ * Apply AFTER trim+uppercase. The length-only checks previously used by all
+ * three layers (REST DTO, MCP Zod, service) admitted garbage like "1A" or
+ * "++" despite every layer documenting "ISO 3166-1 alpha-2/3".
+ *
+ * Used by PartyService.addContactMechanism (postal type) and both boundary
+ * schemas for the postal country field.
+ */
+export const COUNTRY_CODE_ISO_REGEX: RegExp = /^[A-Z]{2,3}$/;
+
+/**
  * ISO 8601 date validation regex.
  *
  * Accepts:
  * - `2024-06-15` (date-only)
- * - `2024-06-15T00:00:00` (local time)
+ * - `2024-06-15Z` (date-only with UTC marker; V8 parses this as UTC midnight —
+ *   accepted for backwards compatibility with the documented contract)
+ * - `2024-06-15T00:00:00` (naive datetime — parsed as UTC, see
+ *   normalizeISODateTimeToUTC)
  * - `2024-06-15T00:00:00.000Z` (UTC with milliseconds)
  * - `2024-06-15T00:00:00+01:00` (with timezone offset)
  *
@@ -112,6 +130,35 @@ export const ISO_DATE_REGEX: RegExp =
   /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])(Z|T([01]\d|2[0-3]):[0-5]\d:[0-5]\d(\.\d+)?(Z|\+14:00|-12:00|\+(0\d|1[0-3]):[0-5]\d|-(0\d|1[0-1]):[0-5]\d)?)?$/;
 
 /**
+ * Normalize an ISO 8601 string so date-only and naive-datetime forms mean
+ * the same instant regardless of the host timezone.
+ *
+ * Per ES spec, `new Date("2024-06-15")` is UTC midnight, but
+ * `new Date("2024-06-15T00:00:00")` (no offset) is LOCAL midnight — two
+ * semantically identical inputs resolve to different instants on any non-UTC
+ * host, silently shifting stored dates (birth dates, role from-dates) by a
+ * day. Appending `Z` to the naive form makes every accepted form resolve
+ * identically.
+ */
+export function normalizeISODateTimeToUTC(value: string): string {
+  // Has a time component but no offset/Z suffix → treat as UTC.
+  if (/T[0-9:]/.test(value) && !/(Z|[+-]\d{2}:\d{2})$/.test(value)) {
+    return `${value}Z`;
+  }
+  return value;
+}
+
+/**
+ * Parse an ISO 8601 date string to a Date with timezone-independent
+ * semantics (see normalizeISODateTimeToUTC). Use this instead of
+ * `new Date(value)` for any user-supplied date so storage does not depend
+ * on the server's timezone.
+ */
+export function parseISODateTimeAsUTC(value: string): Date {
+  return new Date(normalizeISODateTimeToUTC(value));
+}
+
+/**
  * Days in each month. Index 0 is unused; month 1 = January.
  * February is set to 29; a separate leap-year check catches non-leap Feb 29.
  */
@@ -123,7 +170,9 @@ const DAYS_IN_MONTH = Object.freeze([0, 31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 
  * Also enforces month-specific day limits (e.g. Feb 30 is rejected).
  */
 export function isValidISODate(value: string): boolean {
-  if (!ISO_DATE_REGEX.test(value) || Number.isNaN(new Date(value).getTime())) {
+  // Parse the UTC-normalized form so the validity verdict is computed on the
+  // same instant callers store via parseISODateTimeAsUTC.
+  if (!ISO_DATE_REGEX.test(value) || Number.isNaN(parseISODateTimeAsUTC(value).getTime())) {
     return false;
   }
   // Use regex match groups instead of raw slice to stay robust against

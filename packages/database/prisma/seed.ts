@@ -165,12 +165,18 @@ async function seedContactTypes(prisma: PrismaClient): Promise<number> {
 }
 
 async function seedTenants(prisma: PrismaClient): Promise<[string, string]> {
+  // Seed tenants use the TENANT party type (pt-tenant) — the type this seed
+  // defines specifically for "an organization that is a tenant on the
+  // platform". Seeding them as plain pt-org left pt-tenant defined-but-unused,
+  // so tenant detection by type returned nothing in a seeded database.
+  // Upserts use update: {} so already-seeded databases keep their existing
+  // type; only fresh seeds get pt-tenant.
   const tenantA = await prisma.party.upsert({
     where: { partyId: "tenant-acme" },
     update: {},
     create: {
       partyId: "tenant-acme",
-      partyTypeId: "pt-org",
+      partyTypeId: "pt-tenant",
       tenantId: "tenant-acme",
       name: "Acme Corporation",
       description: "Seed tenant for testing",
@@ -188,7 +194,7 @@ async function seedTenants(prisma: PrismaClient): Promise<[string, string]> {
     update: {},
     create: {
       partyId: "tenant-globex",
-      partyTypeId: "pt-org",
+      partyTypeId: "pt-tenant",
       tenantId: "tenant-globex",
       name: "Globex Industries",
       description: "Seed tenant for testing",

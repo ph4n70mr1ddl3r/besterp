@@ -180,6 +180,60 @@ describe("ToolRegistry", () => {
       expect(result.error?.code).toBe("INVALID_CONTEXT_ID");
     });
 
+    it("should reject zero-width/bidi characters in identity fields (round 172)", async () => {
+      // JS \s does NOT cover zero-width joiners or bidi overrides, so a
+      // userId like "user\u200b1" previously passed OPTIONAL_ID_PATTERN.
+      // Two visually-identical IDs then hash to different idempotency
+      // composite keys and confuse log/audit correlation.
+      const zw = await registry.execute("list_available_tools", {}, {
+        ...mockContext,
+        userId: "user\u200b1",
+      });
+      expect(zw.success).toBe(false);
+      expect(zw.error?.code).toBe("INVALID_USER_ID");
+
+      const bidi = await registry.execute("list_available_tools", {}, {
+        ...mockContext,
+        agentId: "agent\u202Eevil",
+      });
+      expect(bidi.success).toBe(false);
+      expect(bidi.error?.code).toBe("INVALID_CONTEXT_ID");
+
+      const bom = await registry.execute("list_available_tools", {}, {
+        ...mockContext,
+        conversationId: "conv\ufeff1",
+      });
+      expect(bom.success).toBe(false);
+      expect(bom.error?.code).toBe("INVALID_CONTEXT_ID");
+    });
+
+    it("should trim a whitespace-padded agentId instead of rejecting it (identity-field consistency)", async () => {
+      // userId is accepted-after-trim; agentId/conversationId previously
+      // validated the UNTRIMMED value, so " agent-1" was hard-rejected while
+      // " user-1" was accepted — an inconsistency between same-shaped fields.
+      const contexts: ToolContext[] = [];
+      registry.register({
+        name: "capture_agent_tool",
+        description: "test",
+        inputSchema: z.object({}),
+        riskLevel: "none",
+        handler: async (_i: unknown, ctx: ToolContext) => {
+          contexts.push(ctx);
+          return { success: true, data: "ok" };
+        },
+      });
+      const result = await registry.execute("capture_agent_tool", {}, {
+        ...mockContext,
+        agentId: "  agent-1  ",
+        conversationId: " conv-1 ",
+      });
+      expect(result.success).toBe(true);
+      // Trimmed values must propagate (same contract as tenantId/userId) so
+      // durable audit/idempotency rows store the validated form.
+      expect(contexts[0].agentId).toBe("agent-1");
+      expect(contexts[0].conversationId).toBe("conv-1");
+    });
+
     it("should reject a malformed tenantId before executing the handler", async () => {
       // tenantId is the primary isolation boundary. A malformed value here is
       // a cross-tenant access path, so the registry must fail closed with a
@@ -528,7 +582,7 @@ describe("ToolRegistry", () => {
       registry.register({
         name: "test_idem_tool",
         description: "test",
-        inputSchema: z.object({ idempotencyKey: z.string() }),
+        inputSchema: z.object({}),
         riskLevel: "low",
         handler,
       });
@@ -554,7 +608,7 @@ describe("ToolRegistry", () => {
       registry.register({
         name: "test_idem_tool2",
         description: "test",
-        inputSchema: z.object({ idempotencyKey: z.string() }),
+        inputSchema: z.object({}),
         riskLevel: "low",
         handler: async () => ({ success: true }),
       });
@@ -584,7 +638,7 @@ describe("ToolRegistry", () => {
       registry.register({
         name: "test_idem_tool3",
         description: "test",
-        inputSchema: z.object({ idempotencyKey: z.string() }),
+        inputSchema: z.object({}),
         riskLevel: "low",
         handler: async () => ({ success: true }),
       });
@@ -611,7 +665,7 @@ describe("ToolRegistry", () => {
       registry.register({
         name: "test_idem_tool4",
         description: "test",
-        inputSchema: z.object({ idempotencyKey: z.string() }),
+        inputSchema: z.object({}),
         riskLevel: "low",
         handler: async () => ({ success: true }),
       });

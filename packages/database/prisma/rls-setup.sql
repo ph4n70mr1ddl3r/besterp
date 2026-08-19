@@ -35,11 +35,15 @@ GRANT EXECUTE ON FUNCTION set_tenant_context(TEXT) TO besterp_app;
 -- provisioned as a superuser. Superusers ALWAYS bypass RLS (see FORCE RLS
 -- note above), so a misprovisioned besterp_app would silently disable tenant
 -- isolation for every query. Fail loudly at setup time rather than leaking
--- data across tenants.
+-- data across tenants. Also fail when the role itself is missing (e.g.
+-- create-roles.sql was not run): the scalar subquery below would otherwise
+-- yield NULL, and `IF NULL` silently evaluates as false, letting setup
+-- proceed into a GRANT-free state instead of failing loudly.
 DO $$
 BEGIN
-  IF (SELECT rolsuper FROM pg_roles WHERE rolname = 'besterp_app') THEN
-    RAISE EXCEPTION 'Refusing to set up RLS: role besterp_app is a superuser and bypasses RLS';
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'besterp_app')
+     OR (SELECT rolsuper FROM pg_roles WHERE rolname = 'besterp_app') THEN
+    RAISE EXCEPTION 'Refusing to set up RLS: role besterp_app is missing or is a superuser (superusers bypass RLS)';
   END IF;
 END $$;
 
@@ -169,10 +173,11 @@ CREATE POLICY tenant_isolation_idempotency_record ON idempotency_record
   );
 
 -- ─── Subtype tables (protected via their tenant-scoped parent) ──
--- These tables lack a direct tenant_id column, so each policy joins through
--- the tenant-scoped parent that owns it: person and organization join through
--- party; postal_address, telecom_number, and email_address join through
--- contact_mechanism.
+-- person and organization join through party; postal_address joins through
+-- contact_mechanism. email_address and telecom_number carry their own
+-- tenant_id columns (migrations 20260724 / 20260819000003, backing their
+-- tenant-scoped unique constraints) and are additionally constrained by it
+-- — see their policies below.
 
 -- ─── Partial Unique Index: Active Party Roles ────────────────────
 -- Prevents duplicate active roles at the DB level (defense-in-depth).
@@ -245,12 +250,18 @@ CREATE POLICY tenant_isolation_postal_address ON postal_address
   );
 
 -- Telecom Number (subtype of ContactMechanism)
+-- telecom_number carries its own tenant_id (migration 20260819000003,
+-- backing the (tenant_id, country_code, area_code, line_number) unique
+-- constraint). Same dual constraint as email_address: the row's own
+-- tenant_id must match, preventing a mismatched-tenant row from silently
+-- occupying a slot in the tenant-scoped unique index.
 ALTER TABLE telecom_number ENABLE ROW LEVEL SECURITY;
 ALTER TABLE telecom_number FORCE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS tenant_isolation_telecom_number ON telecom_number;
 CREATE POLICY tenant_isolation_telecom_number ON telecom_number
   USING (
     current_setting('app.current_tenant', TRUE) != ''
+    AND tenant_id = current_setting('app.current_tenant', TRUE)
     AND contact_mechanism_id IN (
       SELECT contact_mechanism_id FROM contact_mechanism
       WHERE tenant_id = current_setting('app.current_tenant', TRUE)
@@ -258,6 +269,7 @@ CREATE POLICY tenant_isolation_telecom_number ON telecom_number
   )
   WITH CHECK (
     current_setting('app.current_tenant', TRUE) != ''
+    AND tenant_id = current_setting('app.current_tenant', TRUE)
     AND contact_mechanism_id IN (
       SELECT contact_mechanism_id FROM contact_mechanism
       WHERE tenant_id = current_setting('app.current_tenant', TRUE)
@@ -265,12 +277,22 @@ CREATE POLICY tenant_isolation_telecom_number ON telecom_number
   );
 
 -- Email Address (subtype of ContactMechanism)
+-- email_address carries its own tenant_id (migration 20260724, backing the
+-- (tenant_id, email) unique constraint). Unlike postal_address and
+-- telecom_number, the policy additionally requires the row's own tenant_id
+-- to match the current tenant — otherwise a buggy/legacy write path could
+-- persist a row whose tenant_id disagrees with its owning contact
+-- mechanism. Such a row would silently occupy a slot in the tenant-scoped
+-- unique index while being invisible to that tenant (visibility derives
+-- from the contact_mechanism join), producing unexplainable duplicate-
+-- email errors for emails the tenant cannot see.
 ALTER TABLE email_address ENABLE ROW LEVEL SECURITY;
 ALTER TABLE email_address FORCE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS tenant_isolation_email_address ON email_address;
 CREATE POLICY tenant_isolation_email_address ON email_address
   USING (
     current_setting('app.current_tenant', TRUE) != ''
+    AND tenant_id = current_setting('app.current_tenant', TRUE)
     AND contact_mechanism_id IN (
       SELECT contact_mechanism_id FROM contact_mechanism
       WHERE tenant_id = current_setting('app.current_tenant', TRUE)
@@ -278,6 +300,7 @@ CREATE POLICY tenant_isolation_email_address ON email_address
   )
   WITH CHECK (
     current_setting('app.current_tenant', TRUE) != ''
+    AND tenant_id = current_setting('app.current_tenant', TRUE)
     AND contact_mechanism_id IN (
       SELECT contact_mechanism_id FROM contact_mechanism
       WHERE tenant_id = current_setting('app.current_tenant', TRUE)

@@ -61,6 +61,7 @@ import {
   MAX_SEARCH_OFFSET,
   MAX_DATE_STRING_LENGTH,
   COUNTRY_CODE_REGEX,
+  COUNTRY_CODE_ISO_REGEX,
 } from "@besterp/shared";
 
 function sanitizeTransform(): PropertyDecorator {
@@ -383,6 +384,7 @@ export class PostalAddressDto {
   @IsNotEmpty()
   @MinLength(MIN_COUNTRY_CODE_LENGTH)
   @MaxLength(MAX_COUNTRY_CODE_LENGTH)
+  @Matches(COUNTRY_CODE_ISO_REGEX, { message: "country must be a 2-3 letter ISO 3166-1 alpha-2/3 code (e.g., 'US', 'DE')" })
   country!: string;
 }
 

@@ -56,8 +56,11 @@ export const MAX_LINE_NUMBER_LENGTH = 20;
 /** Maximum length for phone extensions. */
 export const MAX_EXTENSION_LENGTH = 10;
 
-/** Maximum length for phone country codes (E.164). */
-export const MAX_PHONE_COUNTRY_CODE_LENGTH = 5;
+/** Maximum length for phone country codes (E.164: '+' plus up to 3 digits = 4 chars).
+ *  Matches COUNTRY_CODE_REGEX in validation.ts — previously 5, so a 5-char code
+ *  passed every length pre-check only to fail the regex with a less specific
+ *  error. */
+export const MAX_PHONE_COUNTRY_CODE_LENGTH = 4;
 
 /** Default E.164 country code for phone numbers when none is provided. */
 export const DEFAULT_PHONE_COUNTRY_CODE = "+1";

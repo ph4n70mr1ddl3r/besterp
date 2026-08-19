@@ -1,5 +1,111 @@
 # BestERP — Security & Architecture Fixes
 
+## Changes Applied (2026-08-19) — Code Review Round 172
+
+### 🔴 Schema/migration drift: 14 indexes declared in `schema.prisma` were never created by any migration
+
+**Problem:** Every `@@index` added after the init migration (FK-support indexes like `party.party_type_id` and `*_parent_type_id`, audit-query indexes like `ai_action_log (tenant_id, created_at)`, cleanup indexes like `idempotency_record (status, expires_at)`, and `email_address (email)`) existed only in the schema — a fresh `migrate deploy` database did not match `schema.prisma`, so the next `prisma migrate dev` would emit a large surprise migration and production lacked the indexes (every FK check cascading to a seq scan). The repo already had two migrations fixing exactly this drift class.
+
+**Fix:** Migration `20260819000000_add_schema_declared_indexes` creates all 14 with Prisma-convention names (`<table>_<columns>_idx`) and `IF NOT EXISTS`, matching the established style.
+
+### 🔴 Naive ISO datetimes silently shifted stored dates by the host timezone
+
+**Problem:** Per ES spec, `new Date("2024-06-15")` is UTC midnight but `new Date("2024-06-15T00:00:00")` (no offset) is LOCAL midnight — two semantically identical inputs differing by the host TZ offset (verified 8h on Asia/Taipei). `birthDate`, `registrationDate`, and role `fromDate` were all parsed with bare `new Date(value)`, so stored dates depended on the server's timezone and could shift by a day.
+
+**Fix:** New shared helpers `normalizeISODateTimeToUTC` / `parseISODateTimeAsUTC` (exported from `@besterp/shared`) append `Z` to the naive-datetime form so every accepted form resolves to the same instant; all three parse sites in `party.service.ts` use them. `isValidISODate` computes its verdict on the normalized value. Regression tests added (meaningful on any host TZ).
+
+### 🔴 `ai_action_log.user_id` nullable in the database but required in the schema
+
+**Problem:** Same drift class as round-38's `tenant_id`: the init migration declared `user_id` TEXT (nullable) while `schema.prisma` mandates NOT NULL — the 20260718 migration closed only `tenant_id`. A `migrate deploy` database could accept NULL user_id audit rows the schema promises cannot exist, breaking audit attribution.
+
+**Fix:** Migration `20260819000001_ai_action_log_user_id_not_null` (backfill `''` + `SET NOT NULL`, mirroring the 20260718 pattern).
+
+### 🔴 Email/telecom duplicate pre-checks contradicted their own DB constraints
+
+**Problem:** `@@unique([tenantId, email])` is tenant-scoped, but `checkEmailDuplicate` scoped its `findFirst` to the requesting party — an email already held by a *different* party in the tenant passed the pre-check, then the create tripped P2002 and surfaced the generic transaction-error message instead of the curated redacted-email error (caller-visible detail depended on which party held the address). Conversely, telecom had **no** DB constraint at all: `checkTelecomDuplicate` was a find-then-insert TOCTOU race with no backstop, unlike both sibling paths in the same transaction.
+
+**Fix:** `checkEmailDuplicate` is now tenant-scoped (matching the constraint exactly), message updated to "already registered in this tenant". Telecom gets the same enforcement net email has: migration `20260819000003_telecom_number_tenant_unique` adds a denormalized `tenant_id` (backfilled from `contact_mechanism`, NOT NULL) plus `@@unique([tenantId, countryCode, areaCode, lineNumber])`; schema, RLS policy (own `tenant_id` check, mirroring email), service pre-check scope, and the nested create all updated. Tests updated/added for both.
+
+### 🟡 RLS policy on `email_address` ignored the table's own `tenant_id` column
+
+**Problem:** Every other tenant_id-bearing table enforces `tenant_id = current_setting('app.current_tenant')` in both `USING` and `WITH CHECK`; `email_address` only validated the parent contact mechanism. A buggy/legacy write could persist a row whose `tenant_id` disagrees with its owning tenant — silently occupying a slot in the `(tenant_id, email)` unique index while invisible to that tenant, producing unexplainable duplicate-email errors.
+
+**Fix:** Both policy clauses now additionally require the row's own `tenant_id` to match (applied to `telecom_number` too, same rationale). Stale subtype-table header comment fixed.
+
+### 🟡 Email unique index created under a non-Prisma name → permanent `migrate dev` drift
+
+**Problem:** Migration 20260724 created `email_address_tenant_email_unique_idx`, but the schema's `@@unique([tenantId, email])` expects Prisma's generated name `email_address_tenant_id_email_key`. Prisma identifies indexes by name, so every `migrate dev` diff emitted DROP+CREATE churn for the index enforcing tenant-scoped email uniqueness.
+
+**Fix:** Migration `20260819000002_rename_email_unique_index` renames it (`IF EXISTS`-guarded).
+
+### 🟡 MCP silently stripped unknown input keys while REST rejected them
+
+**Problem:** REST's ValidationPipe uses `forbidNonWhitelisted` (loud 400 on a typo'd field), but the MCP tool schemas were plain `z.object` — the identical payload "succeeded" with the field dropped, so an agent believed data was stored that never was. The registry now strips the promoted `idempotencyKey` envelope from raw input before validation (it lives in the context), so strictness does not break idempotent calls.
+
+**Fix:** All tool input schemas (party + discovery, top-level and nested) converted to `z.strictObject`; unknown keys return `INVALID_INPUT`. Tests added (unknown top-level key, unknown nested key, idempotencyKey envelope still accepted).
+
+### 🟡 Boot-time env validators were unreachable for the scenarios they describe
+
+**Problem:** `AuthModule`'s `JwtModule.register({ secret: resolveJwtSecret() })` and `QueueModule.forRoot()` evaluate at module-load time; `main.ts` statically imported `AppModule`, so with `JWT_SECRET` missing in production (or Redis misconfigured) the process died during ESM evaluation with a raw import-time stack trace — the carefully-reasoned `validateJwtSecretPresence` / `validateRedisConfig` clean one-line exits never ran.
+
+**Fix:** `main.ts` now dynamic-imports `AppModule` after `validateEnvironment()`, making the fail-fast contract authoritative. Also: the dev-mode `DATABASE_URL` warning described a degraded-boot posture that cannot occur (`PrismaService.initializeAppClient` throws unconditionally) — it is now a clean fatal error matching actual behavior.
+
+### 🟡 Audit-drop warning could attach to the wrong response
+
+**Problem:** `wasDropDetected()` read-and-reset a single process-global flag shared by all concurrent tool executions: when request A's audit write was dropped, an unrelated request B could consume the flag and carry the `_auditWarning`, while A's own response never did — under N drops at most one warning landed, on an arbitrary response.
+
+**Fix:** `BackpressureManager.log()` now returns a per-entry handle (`wasDropped()`); queue-full drops are known synchronously and attributed exactly; slot-timeout drops flip the entry's own flag (best-effort) while keeping the stderr log as the durable signal.
+
+### 🟡 Inconsistent idempotency-key retry guidance could double-execute writes
+
+**Problem:** P2034/P2028 said "retry with the same idempotency key (do not use a new key)" while P2024, P1000–P1003/P1017, and the generic INTERNAL_ERROR path said "try again with a **new** idempotency key". P1017 (connection dropped mid-flight) is precisely the ambiguous-outcome case where a new key defeats idempotency — the original write may have committed, contradicting the key-hopping rationale documented in `idempotency.ts`.
+
+**Fix:** All ambiguous-outcome messages now direct same-key retries.
+
+### 🟢 Country code accepted non-letter values on every layer despite the documented ISO 3166-1 contract
+
+**Problem:** All three layers enforced only length 2–3, so `"1A"` / `"A-"` passed REST, MCP, and the service and were stored as `country`.
+
+**Fix:** New shared `COUNTRY_CODE_ISO_REGEX` (`/^[A-Z]{2,3}$/`) applied at all three layers (DTO `@Matches`, MCP `.regex()`, service check). Tests added.
+
+### 🟢 `DomainExceptionFilter` array-message path omitted `stripHtmlTags`
+
+**Problem:** The string-message path applied `stripHtmlTags(sanitizeForLogOutput(...))` but the array (ValidationPipe) path only ran `sanitizeForLogOutput`, which does not strip HTML — a validation message echoing markup reached clients verbatim while the string path stripped it.
+
+**Fix:** Array map now applies both, matching the string path. Test added.
+
+### 🟢 Seed tenants typed `ORGANIZATION` although the seed defines a `TENANT` type for them
+
+**Problem:** The seed creates `pt-tenant` ("Automatically used when onboarding a new tenant organization") but seeded `tenant-acme`/`tenant-globex` as `pt-org` — `pt-tenant` was defined-but-unused and tenant detection by type returned nothing in a seeded database.
+
+**Fix:** Seed tenants now use `pt-tenant` (upserts keep existing rows' type via `update: {}`).
+
+### 🟢 `rls-setup.sql` superuser guard silently passed when `besterp_app` was missing
+
+**Problem:** `IF (SELECT rolsuper FROM pg_roles WHERE rolname = 'besterp_app')` evaluates to `IF NULL` → false when the role does not exist (create-roles.sql not yet run), so the "fail loudly at setup time" guard proceeded silently into a GRANT-free state.
+
+**Fix:** The guard also fails when the role is missing.
+
+### 🟢 `OPTIONAL_ID_PATTERN` did not reject zero-width/bidi characters despite its documented purpose
+
+**Problem:** JS `\s` does not cover U+200B–200F, U+202A–202E, U+2060–206F, U+00AD, U+061C, U+FEFF — two visually-identical userIds both passed the auth gate and hashed to different idempotency composite keys.
+
+**Fix:** These ranges added to the negated class. Also: `agentId`/`conversationId` were validated *untrimmed* while `userId` was accepted-after-trim (`" agent-1"` hard-rejected, `" user-1"` accepted) — optional identity fields are now trimmed and the trimmed values propagate (same contract as tenantId/userId). Tests added.
+
+### 🟢 `EMAIL_REGEX` TLD rule was simultaneously too lax and too strict
+
+**Problem:** The optional `(?:[a-zA-Z-]{0,61}[a-zA-Z])?` tail admitted non-existent hyphenated TLDs (`example.co-m`) while still rejecting the only legitimate hyphen+digit TLD family (punycode `xn--*`) — contradicting its own "alpha-only TLD" doc.
+
+**Fix:** TLD is now strictly `[a-zA-Z]{2,63}`. Tests added.
+
+### 🟢 Misc consistency
+
+- `MAX_PHONE_COUNTRY_CODE_LENGTH` 5 → 4 (matches `COUNTRY_CODE_REGEX`: `+` + 1–3 digits; a 5-char code previously passed length pre-checks then failed the regex with a less specific error).
+- `findSimilarNames` 2-char minimum now guards both sides of the stem-matching disjunct (a 1-char part previously matched any existing part containing it).
+- `findSimilarNames`/dead-code: unused `_definition` parameter removed from `executeAndUpdate`.
+- `test:watch` added to `@besterp/shared` and `@besterp/mcp-tools` (previously only `@besterp/database` had it).
+- Deliberately kept: the `@deprecated sanitizeLogOutput` alias (3-line delegate, heavily covered by tests; removal is churn without functional benefit) and `postinstall: "prisma generate || true"` (CI installs without a DB — failures surface at typecheck instead).
+
 ## Changes Applied (2026-08-19) — Code Review Round 171
 
 ### 🟡 README quickstart never delivered `.env` values to the tools that need them

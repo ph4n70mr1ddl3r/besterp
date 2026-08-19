@@ -17,9 +17,11 @@ import { sanitizeForLogOutput, redactSensitiveFieldValues, validateTenantIdEnhan
 /** Permissive pattern for optional identity fields (userId, agentId, conversationId).
  *  More lenient than TENANT_ID_PATTERN to accommodate real-world identifiers
  *  (e.g. john.doe, user+role) while still rejecting control characters and
- *  zero-width sequences that could confuse downstream sanitization. */
+ *  zero-width/bidi sequences (JS \s does NOT cover these) that could confuse
+ *  downstream sanitization or make two visually-identical IDs hash to
+ *  different idempotency composite keys. */
 // eslint-disable-next-line no-control-regex
-const OPTIONAL_ID_PATTERN = /^[^\s\x00-\x1f\x7f-\x9f]{1,200}$/;
+const OPTIONAL_ID_PATTERN = /^[^\s\x00-\x1f\x7f-\x9f\u00ad\u061c\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufeff]{1,200}$/;
 
 const VALID_RISK_LEVELS: readonly RiskLevel[] = ["none", "low", "medium", "high", "critical"];
 
@@ -221,7 +223,7 @@ export class ToolRegistry {
         },
         // Final handler — validates input with Zod, then calls the handler
         async (input, ctx) => {
-          const parsed = definition.inputSchema.safeParse(input);
+          const parsed = definition.inputSchema.safeParse(this.stripPromotedIdempotencyKey(input));
           if (!parsed.success) {
             const issueString = parsed.error.issues
               .map((i) => `${i.path.map((p) => String(p)).join(".")}: ${i.message}`)
@@ -277,6 +279,23 @@ export class ToolRegistry {
   }
 
   /**
+   * Remove the idempotency-key envelope from raw input before schema
+   * validation. executeTool promotes `idempotencyKey` into the context
+   * (which the idempotency middleware reads — it never reads the input
+   * field), and tool input schemas deliberately do not declare it. Strict
+   * tool schemas (z.strictObject, matching REST ValidationPipe's
+   * forbidNonWhitelisted posture) reject undeclared keys, so the envelope
+   * must be stripped first or every idempotent call would fail validation.
+   * Non-object inputs pass through untouched.
+   */
+  private stripPromotedIdempotencyKey(input: unknown): unknown {
+    if (input == null || typeof input !== "object" || Array.isArray(input)) return input;
+    if (!("idempotencyKey" in input)) return input;
+    const { idempotencyKey: _promoted, ...rest } = input as Record<string, unknown>;
+    return rest;
+  }
+
+  /**
    * Validate the identity fields of a tool-execution context at the
    * auth boundary. `tenantId` and `userId` are used to scope idempotency
    * records, tag the durable audit row, and (inside handlers) set the RLS
@@ -321,10 +340,13 @@ export class ToolRegistry {
     if (agentIdError) return { error: agentIdError };
     const conversationIdError = this.validateOptionalIdentityField(context.conversationId, "conversationId", MAX_CONVERSATION_ID_LENGTH);
     if (conversationIdError) return { error: conversationIdError };
+    const agentId = this.normalizedOptionalIdentityField(context.agentId);
+    const conversationId = this.normalizedOptionalIdentityField(context.conversationId);
     // Only rebuild the context when a value actually changed — avoids
     // needless object churn (and a new reference) on the common path.
-    const identityChanged = tenantId !== context.tenantId || userId !== context.userId;
-    return { context: identityChanged ? { ...context, tenantId, userId } : context };
+    const identityChanged = tenantId !== context.tenantId || userId !== context.userId
+      || agentId !== context.agentId || conversationId !== context.conversationId;
+    return { context: identityChanged ? { ...context, tenantId, userId, agentId, conversationId } : context };
   }
 
   private contextIdentityError(code: string, fieldLabel: string): ToolResult {
@@ -349,7 +371,12 @@ export class ToolRegistry {
     maxLength: number,
   ): ToolResult | null {
     if (value === undefined) return null;
-    if (typeof value !== "string" || value.length === 0 || value.length > maxLength || !OPTIONAL_ID_PATTERN.test(value)) {
+    // Trim before validating — userId above is accepted-after-trim, so
+    // rejecting " agent-1" here while accepting " user-1" above was an
+    // inconsistency between identity fields of the same shape. Whitespace-only
+    // values fall through to the length check and are rejected.
+    const trimmed = value.trim();
+    if (typeof trimmed !== "string" || trimmed.length === 0 || trimmed.length > maxLength || !OPTIONAL_ID_PATTERN.test(trimmed)) {
       return {
         success: false,
         error: {
@@ -360,6 +387,17 @@ export class ToolRegistry {
       };
     }
     return null;
+  }
+
+  /**
+   * Trim an optional agent/conversation identity field. Returns the trimmed
+   * value, or undefined when absent. Paired with validateOptionalIdentityField
+   * (which validates the trimmed form) so the values persisted into the
+   * durable idempotency + audit sinks match the values that were validated —
+   * the same trimmed-values-must-propagate contract tenantId/userId follow.
+   */
+  private normalizedOptionalIdentityField(value: string | undefined): string | undefined {
+    return value === undefined ? undefined : value.trim();
   }
 
   /**
@@ -447,11 +485,14 @@ export class ToolRegistry {
         const lower = existing.toLowerCase();
         // Substring match (minimum 2 chars to reduce false positives)
         if (lower.includes(lowerName) || lowerName.includes(lower)) return true;
-        // Check Levenshtein-like: shared word stems
-        const nameParts = lowerName.split(/[_\s]+/).filter(Boolean);
-        const existingParts = lower.split(/[_\s]+/).filter(Boolean);
+        // Check Levenshtein-like: shared word stems. Guard BOTH directions
+        // with the >=2-char minimum the substring match above documents —
+        // previously only `ep.includes(p)` was guarded, so a 1-char part
+        // (e.g. "a" from "add_a") matched any existing part containing it.
+        const nameParts = lowerName.split(/[_\s]+/).filter((p) => p.length >= 2);
+        const existingParts = lower.split(/[_\s]+/).filter((p) => p.length >= 2);
         return nameParts.length > 0 && existingParts.length > 0 &&
-          nameParts.some((p) => p.length >= 2 && existingParts.some((ep) => ep.includes(p) || p.includes(ep)));
+          nameParts.some((p) => existingParts.some((ep) => ep.includes(p) || p.includes(ep)));
       })
       .slice(0, 5);
   }

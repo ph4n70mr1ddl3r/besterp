@@ -226,6 +226,29 @@ describe("DomainExceptionFilter", () => {
       expect(Array.isArray(messages)).toBe(true);
     });
 
+    it("strips HTML tags from array validation messages in production (round 172)", () => {
+      // Regression: the array path (ValidationPipe shape) only ran
+      // sanitizeForLogOutput, which does NOT strip HTML, while the string
+      // path applied stripHtmlTags — so a validation message echoing markup
+      // reached clients verbatim.
+      process.env.NODE_ENV = "production";
+      const ctx = createMockHost();
+      const error = new HttpException(
+        { statusCode: 400, error: "Bad Request", message: [
+          "name must be shorter than or equal to 500 characters",
+          "email must be an email. Received: \"<script>alert(1)</script>\"",
+        ] },
+        HttpStatus.BAD_REQUEST,
+      );
+
+      filter.catch(error, ctx.host);
+
+      const body = ctx.captured.body as Record<string, unknown>;
+      const messages = body.message as string[];
+      expect(JSON.stringify(messages)).not.toContain("<script>");
+      expect(messages[0]).toBe("name must be shorter than or equal to 500 characters");
+    });
+
     it("keeps a string message in production", () => {
       process.env.NODE_ENV = "production";
       const ctx = createMockHost();

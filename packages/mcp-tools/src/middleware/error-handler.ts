@@ -184,7 +184,7 @@ const PRISMA_ERROR_HANDLERS: Record<string, ErrorFactory> = {
       success: false,
       error: {
         code: "DATABASE_CONNECTION_ERROR",
-        message: `The '${definition.name}' operation timed out waiting for a database connection from the pool. The service may be under heavy load. Try again with a new idempotency key.`,
+        message: `The '${definition.name}' operation timed out waiting for a database connection from the pool. The service may be under heavy load. Retry the same request with the same idempotency key (do not use a new key — the first attempt's outcome is unknown).`,
         suggestedTools: [definition.name, "list_available_tools"],
       },
     };
@@ -199,7 +199,15 @@ function handlePrismaError(prismaCode: string, prismaMeta: { target?: string | s
       success: false,
       error: {
         code: "DATABASE_CONNECTION_ERROR",
-        message: "The database connection failed. The service may be temporarily unavailable. Try again with a new idempotency key.",
+        // Same-key guidance: P1017 (connection dropped mid-flight) is the
+        // ambiguous-outcome case where a new key defeats idempotency — the
+        // original write may have committed, and the first attempt's
+        // idempotency record is exactly what a same-key retry needs to
+        // replay or deduplicate. Minting a new key can double-execute and
+        // contradicts the key-hopping rationale documented in
+        // idempotency.ts. The unreachable-server codes (P1001-P1003) never
+        // started the operation, where same-key is equally safe.
+        message: "The database connection failed. The service may be temporarily unavailable. Retry the same request with the same idempotency key (do not use a new key).",
         suggestedTools: ["list_available_tools"],
       },
     };
@@ -228,7 +236,7 @@ function handleGenericError(error: unknown, definition: { name: string }, tenant
     success: false,
     error: {
       code: "INTERNAL_ERROR",
-      message: `Unexpected error in '${definition.name}'. Check server logs for details. Try again with a new idempotency key if applicable.`,
+      message: `Unexpected error in '${definition.name}'. Check server logs for details. If this was a write, retry the same request with the same idempotency key (do not use a new key).`,
       suggestedTools: [definition.name, "list_available_tools"],
     },
   };

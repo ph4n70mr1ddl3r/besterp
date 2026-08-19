@@ -161,17 +161,21 @@ async function executeAndLog(prisma: PrismaClient, backpressure: BackpressureMan
   // durable ai_action_log trail. Persist the sanitized error detail instead,
   // mirroring the throw branch (code is redacted to [REDACTED] at the sink the
   // same way, since `code` is a sensitive field name).
-  backpressure.log({
+  const auditWrite = backpressure.log({
     ...base,
     toolOutput: result.success ? result.data ?? null : formatSoftFailureOutput(result),
   });
 
-  // If audit entries were dropped due to backpressure, surface a non-fatal
-  // warning to the agent so it knows the durable audit trail has a gap. This
-  // is critical for compliance-sensitive ERP systems where silent audit loss
-  // is a regulatory issue. The warning does NOT affect success/data — the
-  // tool still completed successfully; only the audit side-effect was lost.
-  if (backpressure.wasDropDetected()) {
+  // If THIS request's audit entry was dropped due to backpressure, surface a
+  // non-fatal warning to the agent so it knows the durable audit trail has a
+  // gap. This is critical for compliance-sensitive ERP systems where silent
+  // audit loss is a regulatory issue. The warning does NOT affect
+  // success/data — the tool still completed successfully; only the audit
+  // side-effect was lost. Drop status is tracked PER ENTRY: the previous
+  // process-global wasDropDetected() flag was consumed by whichever request
+  // polled next, so an unrelated concurrent response could carry (or swallow)
+  // another request's warning.
+  if (auditWrite.wasDropped()) {
     result = attachAuditWarning(result);
   }
 
@@ -203,9 +207,19 @@ async function executeAndLog(prisma: PrismaClient, backpressure: BackpressureMan
 
 // ─── Backpressure Manager ────────────────────────────────────────
 
+/**
+ * Per-entry handle returned by BackpressureManager.log(). `wasDropped()`
+ * reports whether THIS entry was dropped by backpressure — queue-full drops
+ * are known synchronously (before log() returns); write-slot timeouts flip
+ * the flag asynchronously, which is best-effort (the response may already
+ * have been returned — the stderr drop log remains the durable signal).
+ */
+interface AuditWriteHandle {
+  wasDropped(): boolean;
+}
+
 interface BackpressureManager {
-  log(entry: AuditLogEntry): void;
-  wasDropDetected(): boolean;
+  log(entry: AuditLogEntry): AuditWriteHandle;
 }
 
 function createBackpressureManager(prisma: PrismaClient): BackpressureManager {
@@ -218,9 +232,8 @@ function createBackpressureManager(prisma: PrismaClient): BackpressureManager {
   const writeQueue: QueueEntry[] = [];
   let droppedCount = 0;
   let errorCount = 0;
-  let dropDetected = false;
 
-  function acquireWriteSlot(): Promise<{ acquired: boolean }> {
+  function acquireWriteSlot(onDrop: () => void): Promise<{ acquired: boolean }> {
     if (activeWrites < MAX_CONCURRENT_AUDIT_WRITES) {
       activeWrites++;
       return Promise.resolve({ acquired: true });
@@ -236,13 +249,13 @@ function createBackpressureManager(prisma: PrismaClient): BackpressureManager {
           entry.settled = true;
           const idx = writeQueue.indexOf(entry);
           if (idx !== -1) writeQueue.splice(idx, 1);
-          // Count slot-timeout drops the same way queue-full drops are counted
-          // (droppedCount/dropDetected) so the drop-detector consumed by
-          // executeAndLog (wasDropDetected → agent-facing audit-gap warning)
-          // reflects them. Previously only the queue-full path bumped these
-          // counters, so a sustained write-slot stall was silently lost.
+          // Count slot-timeout drops the same way queue-full drops are
+          // counted (droppedCount + the per-entry onDrop flip consumed by
+          // executeAndLog's agent-facing audit-gap warning) so they are
+          // reflected. Previously only the queue-full path bumped these,
+          // so a sustained write-slot stall was silently lost.
           droppedCount++;
-          dropDetected = true;
+          onDrop();
           try {
             process.stderr.write(`[AuditLog] Write slot timeout after ${AUDIT_WRITE_QUEUE_TIMEOUT_MS}ms — dropping audit entry (total dropped: ${droppedCount})\n`);
           } catch {
@@ -255,7 +268,7 @@ function createBackpressureManager(prisma: PrismaClient): BackpressureManager {
         // setTimeout can fail under extreme memory pressure — drop immediately
         // rather than leaving the entry in the queue without a timer.
         droppedCount++;
-        dropDetected = true;
+        onDrop();
         try {
           process.stderr.write(`[AuditLog] Failed to create timeout for write slot — dropping audit entry (total dropped: ${droppedCount})\n`);
         } catch {
@@ -292,24 +305,36 @@ function createBackpressureManager(prisma: PrismaClient): BackpressureManager {
   }
 
   return {
-    log(entry: AuditLogEntry): void {
+    log(entry: AuditLogEntry): AuditWriteHandle {
+      // Per-entry drop flag: the agent-facing warning must reflect THIS
+      // request's entry only. The previous process-global dropDetected flag
+      // was consumed once by an arbitrary later request, attaching the
+      // warning to the wrong response (and dropping it for the right one).
+      let entryDropped = false;
       if (writeQueue.length >= MAX_AUDIT_QUEUE_SIZE) {
         droppedCount++;
-        dropDetected = true;
+        entryDropped = true;
         try {
           process.stderr.write(`[AuditLog] Queue full (${MAX_AUDIT_QUEUE_SIZE}), dropping audit entry for '${sanitizeLogMessage(entry.toolCalled)}' (total dropped: ${droppedCount})\n`);
         } catch {
           // stderr may be closed.
         }
-        return;
+        return { wasDropped: () => true };
       }
       let slotAcquired = false;
       // Top-level .catch prevents unhandledRejection if logAction throws
       // synchronously before returning a promise. The inner .catch only
       // handles async rejections from within the .then() callback.
-      acquireWriteSlot()
+      acquireWriteSlot(() => {
+        entryDropped = true;
+      })
         .then(({ acquired }) => {
-          if (!acquired) return;
+          if (!acquired) {
+            // Slot timeout for THIS entry — flip its flag for any caller
+            // still polling (best-effort: the response may already be gone).
+            entryDropped = true;
+            return;
+          }
           slotAcquired = true;
           return logAction(prisma, entry);
         })
@@ -345,11 +370,7 @@ function createBackpressureManager(prisma: PrismaClient): BackpressureManager {
           // Suppress any top-level rejection to prevent unhandledRejection.
           // This is a fire-and-forget path; errors are already logged above.
         });
-    },
-    wasDropDetected() {
-      const detected = dropDetected;
-      dropDetected = false;
-      return detected;
+      return { wasDropped: () => entryDropped };
     },
   };
 }

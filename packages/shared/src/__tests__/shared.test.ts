@@ -4,7 +4,7 @@
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { validateTenantId, validateTenantIdEnhancedForAuth, withTenant } from "../tenant.js";
-import { COUNTRY_CODE_REGEX, EMAIL_REGEX, UUID_REGEX, isValidISODate } from "../validation.js";
+import { COUNTRY_CODE_REGEX, COUNTRY_CODE_ISO_REGEX, EMAIL_REGEX, UUID_REGEX, isValidISODate, normalizeISODateTimeToUTC, parseISODateTimeAsUTC } from "../validation.js";
 import { JWT_EXPIRES_IN_REGEX, resolveRedisTls } from "../constants.js";
 import {
   ConcurrencyConflictError,
@@ -159,6 +159,27 @@ describe("UUID_REGEX / EMAIL_REGEX sanity check", () => {
     expect(EMAIL_REGEX.test("user@example.123")).toBe(false);
     expect(EMAIL_REGEX.test("user@example.c0m")).toBe(false);
     expect(EMAIL_REGEX.test("user@example.2day")).toBe(false);
+  });
+  it("EMAIL_REGEX rejects hyphenated non-existent TLDs (round 172)", () => {
+    // Regression: an optional `(?:[a-zA-Z-]{0,61}[a-zA-Z])?` tail admitted
+    // hyphens into the TLD, so `example.co-m` validated although no such
+    // TLD exists — while the only legitimate hyphen+digit TLD family
+    // (punycode xn--*) was still rejected. The TLD is now strictly alpha.
+    expect(EMAIL_REGEX.test("user@example.co-m")).toBe(false);
+    expect(EMAIL_REGEX.test("user@example.e- commerce")).toBe(false);
+    // Longest real TLDs still fit the 63-char alpha bound.
+    expect(EMAIL_REGEX.test("user@example.abcdefghijklmnopqrstuvwxyzabcdefghij")).toBe(true);
+    expect(EMAIL_REGEX.test(`user@example.${"a".repeat(63)}`)).toBe(true);
+    expect(EMAIL_REGEX.test(`user@example.${"a".repeat(64)}`)).toBe(false);
+  });
+  it("COUNTRY_CODE_ISO_REGEX accepts only 2-3 ASCII letters (round 172)", () => {
+    expect(COUNTRY_CODE_ISO_REGEX.test("US")).toBe(true);
+    expect(COUNTRY_CODE_ISO_REGEX.test("DEU")).toBe(true);
+    expect(COUNTRY_CODE_ISO_REGEX.test("us")).toBe(false);
+    expect(COUNTRY_CODE_ISO_REGEX.test("1A")).toBe(false);
+    expect(COUNTRY_CODE_ISO_REGEX.test("A-")).toBe(false);
+    expect(COUNTRY_CODE_ISO_REGEX.test("U")).toBe(false);
+    expect(COUNTRY_CODE_ISO_REGEX.test("USAB")).toBe(false);
   });
 });
 
@@ -439,6 +460,28 @@ describe("isValidISODate", () => {
   it("rejects non-date strings", () => {
     expect(isValidISODate("not-a-date")).toBe(false);
     expect(isValidISODate("")).toBe(false);
+  });
+
+  it("naive datetimes resolve to the same instant as date-only regardless of host TZ (round 172)", () => {
+    // Per ES spec, new Date("2024-06-15") is UTC midnight while
+    // new Date("2024-06-15T00:00:00") (no offset) is LOCAL midnight — two
+    // semantically identical inputs differing by the host TZ offset.
+    // parseISODateTimeAsUTC normalizes the naive form to UTC so storage is
+    // timezone-independent. This test is meaningful on any host TZ: the two
+    // parsed instants must be EQUAL (on a UTC host they trivially are; on
+    // Asia/Taipei they previously differed by 8h).
+    const dateOnly = parseISODateTimeAsUTC("2024-06-15").getTime();
+    const naiveDatetime = parseISODateTimeAsUTC("2024-06-15T00:00:00").getTime();
+    expect(naiveDatetime).toBe(dateOnly);
+    expect(parseISODateTimeAsUTC("2024-06-15T00:00:00").toISOString()).toBe("2024-06-15T00:00:00.000Z");
+    // Explicit offsets are honored, not normalized away.
+    expect(parseISODateTimeAsUTC("2024-06-15T00:00:00+01:00").toISOString()).toBe("2024-06-14T23:00:00.000Z");
+    // normalizeISODateTimeToUTC only touches the naive-datetime form.
+    expect(normalizeISODateTimeToUTC("2024-06-15")).toBe("2024-06-15");
+    expect(normalizeISODateTimeToUTC("2024-06-15T00:00:00")).toBe("2024-06-15T00:00:00Z");
+    expect(normalizeISODateTimeToUTC("2024-06-15T00:00:00Z")).toBe("2024-06-15T00:00:00Z");
+    expect(normalizeISODateTimeToUTC("2024-06-15T00:00:00.500")).toBe("2024-06-15T00:00:00.500Z");
+    expect(normalizeISODateTimeToUTC("2024-06-15T00:00:00+02:00")).toBe("2024-06-15T00:00:00+02:00");
   });
 });
 

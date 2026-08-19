@@ -47,7 +47,7 @@ function createListAvailableTools(registry: ToolRegistry): ToolDefinition {
 Use this to discover what operations you can perform in the ERP system.
 Each tool listing includes its risk level and confirmation requirements.`,
 
-    inputSchema: z.object({
+    inputSchema: z.strictObject({
       // Trim, and normalize whitespace-only input to no filter — the same
       // convention as optionalFilteredString (round 107): a whitespace-only
       // optional filter means "no filter", never a match-nothing empty string
@@ -141,7 +141,7 @@ function createGetTypeTableValues(prisma: PrismaClient): ToolDefinition {
 Use this before creating entities to know valid types, roles, and classifications.
 Type tables are the ERP's vocabulary — they define what classifications are available.`,
 
-    inputSchema: z.object({
+    inputSchema: z.strictObject({
       typeName: z.enum(["PARTY_TYPE", "ROLE_TYPE", "CONTACT_MECHANISM_TYPE"])
         .describe("The type table to query"),
     }),

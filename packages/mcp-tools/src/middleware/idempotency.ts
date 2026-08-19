@@ -153,7 +153,7 @@ export function idempotencyMiddleware(prisma: PrismaClient): ToolMiddleware {
       return handleExistingRecord(existingRecord, inputHash, keyResult.key, definition.name);
     }
 
-    return executeAndUpdate(prisma, keyResult.key, tenantId, input, context, definition, next);
+    return executeAndUpdate(prisma, keyResult.key, tenantId, input, context, next);
   };
 }
 
@@ -491,7 +491,6 @@ function handleExistingRecord(
 async function executeAndUpdate(
   prisma: PrismaClient, idempotencyKey: string, tenantId: string,
   input: unknown, context: ToolContext,
-  _definition: { name: string },
   next: (input: unknown, context: ToolContext) => Promise<ToolResult>,
 ): Promise<ToolResult> {
   let toolResult: ToolResult;

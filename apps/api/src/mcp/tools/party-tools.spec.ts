@@ -252,6 +252,48 @@ describe("Party MCP Tools", () => {
     });
   });
 
+  describe("strict input schemas (unknown-key parity with REST forbidNonWhitelisted)", () => {
+    it("should reject an unknown top-level key instead of silently dropping it (round 172)", async () => {
+      // A typo'd field (partyTypeId) previously passed plain z.object,
+      // which STRIPS unknown keys — the tool "succeeded" while the data was
+      // never stored. REST's forbidNonWhitelisted rejects the same payload
+      // with a 400; the MCP schemas are strict to match.
+      const result = await registry.execute(
+        "create_party",
+        { partyType: "PERSON", name: "Jane Doe", person: { firstName: "Jane", lastName: "Doe" }, partyTypeId: "pt-person" },
+        createContext({ partyService: mockPartyService }),
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe("INVALID_INPUT");
+      expect(mockPartyService.createParty).not.toHaveBeenCalled();
+    });
+
+    it("should reject an unknown nested subtype key", async () => {
+      const result = await registry.execute(
+        "create_party",
+        { partyType: "PERSON", name: "Jane Doe", person: { firstName: "Jane", lastName: "Doe", middleNam: "typo" } },
+        createContext({ partyService: mockPartyService }),
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe("INVALID_INPUT");
+      expect(mockPartyService.createParty).not.toHaveBeenCalled();
+    });
+
+    it("should still accept the idempotencyKey envelope alongside tool arguments", async () => {
+      // The registry strips the promoted idempotencyKey from raw input
+      // before schema validation, so a strict schema must not reject it.
+      const result = await registry.execute(
+        "get_party",
+        { partyId: "550e8400-e29b-41d4-a716-446655440000", idempotencyKey: "idem-strict-1" },
+        createContext({ partyService: mockPartyService }),
+      );
+
+      expect(result.success).toBe(true);
+    });
+  });
+
   describe("search_parties", () => {
     it("should search with no filters", async () => {
       const result = await registry.execute("search_parties", {}, createContext({ partyService: mockPartyService }));

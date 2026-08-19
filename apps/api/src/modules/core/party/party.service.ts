@@ -38,7 +38,9 @@ import {
   UUID_REGEX,
   EMAIL_REGEX,
   COUNTRY_CODE_REGEX,
+  COUNTRY_CODE_ISO_REGEX,
   isValidISODate,
+  parseISODateTimeAsUTC,
   stripHtmlTags,
   sanitizeForLogOutput,
   sanitizePostalAddress,
@@ -348,7 +350,11 @@ export class PartyService {
         };
         if (sanitizedPerson) {
           const rawBirthDate = sanitizedPerson.birthDate;
-          const parsedBirthDate = rawBirthDate ? new Date(rawBirthDate) : null;
+          // parseISODateTimeAsUTC (not new Date) so a naive datetime like
+          // "1990-06-15T00:00:00" resolves to UTC midnight — identical to the
+          // date-only form — instead of local midnight, which silently shifts
+          // the stored date by a day on non-UTC hosts.
+          const parsedBirthDate = rawBirthDate ? parseISODateTimeAsUTC(rawBirthDate) : null;
           // Belt-and-suspenders: requireValidDate already rejects non-ISO
           // strings, but this guards against any future bypass path.
           if (parsedBirthDate && isNaN(parsedBirthDate.getTime())) {
@@ -369,7 +375,8 @@ export class PartyService {
         }
         if (sanitizedOrg) {
           const rawRegistrationDate = sanitizedOrg.registrationDate;
-          const parsedRegistrationDate = rawRegistrationDate ? new Date(rawRegistrationDate) : null;
+          // Same UTC-normalization rationale as birthDate above.
+          const parsedRegistrationDate = rawRegistrationDate ? parseISODateTimeAsUTC(rawRegistrationDate) : null;
           if (parsedRegistrationDate && isNaN(parsedRegistrationDate.getTime())) {
             throw new InvalidTypeValueError(
               `registrationDate produced an invalid Date.`,
@@ -759,7 +766,9 @@ export class PartyService {
     // Reuse requireValidDate for ISO 8601 format validation to avoid
     // duplicating the regex + Date.parse logic used for birthDate/registrationDate.
     PartyService.requireValidDate(trimmed, "fromDate");
-    const parsed = new Date(trimmed);
+    // parseISODateTimeAsUTC so a naive datetime resolves to UTC midnight
+    // (same instant as the date-only form) regardless of the host timezone.
+    const parsed = parseISODateTimeAsUTC(trimmed);
     // Belt-and-suspenders: isValidISODate already ensures parseability via
     // Date.parse, but a future validation path that bypasses it would store
     // an Invalid Date corrupt timestamp silently (matching the birthDate
@@ -962,13 +971,13 @@ export class PartyService {
     PartyService.requireStringField(postalAddress.addressLine1, "addressLine1", MAX_ADDRESS_LINE_LENGTH, "postal address", "add_contact_mechanism");
     PartyService.requireStringField(postalAddress.city, "city", MAX_CITY_LENGTH, "postal address", "add_contact_mechanism");
     const trimmedCountry = PartyService.requireStringField(postalAddress.country, "country", MAX_COUNTRY_CODE_LENGTH, "postal address", "add_contact_mechanism");
-    // Enforce the same minimum as the Zod schema / DTO (ISO 3166-1
-    // alpha-2). requireStringField only guards against empty/oversize,
-    // so a 1-char value like "U" would otherwise slip past the service
-    // layer — the last line of defense for MCP callers that bypass Zod.
-    if (trimmedCountry.length < MIN_COUNTRY_CODE_LENGTH) {
+    // Enforce the ISO 3166-1 alpha format the Zod schema / DTO document.
+    // requireStringField only guards against empty/oversize, so values like
+    // "1A" or "A-" would otherwise slip past every layer — the service is
+    // the last line of defense for MCP callers that bypass Zod.
+    if (trimmedCountry.length < MIN_COUNTRY_CODE_LENGTH || !COUNTRY_CODE_ISO_REGEX.test(trimmedCountry)) {
       throw new InvalidTypeValueError(
-        `country must be at least ${MIN_COUNTRY_CODE_LENGTH} characters (ISO 3166-1 alpha-2/3). Received: '${trimmedCountry}'.`,
+        `country must be a 2-3 letter ISO 3166-1 alpha-2/3 code (e.g., 'US', 'DE'). Received: '${trimmedCountry}'.`,
         { suggestedTools: ["add_contact_mechanism"], context: { field: "country", received: trimmedCountry, minLength: MIN_COUNTRY_CODE_LENGTH } }
       );
     }
@@ -1064,19 +1073,24 @@ export class PartyService {
     return normalized;
   }
 
-  /** Throw DuplicateEntityError if the email is already registered for this party. */
+  /**
+   * Throw DuplicateEntityError if the email is already registered in this
+   * tenant. Scoped to match the DB constraint exactly: schema.prisma
+   * enforces @@unique([tenantId, email]) — tenant-wide, NOT per party — so
+   * the pre-check must look tenant-wide too. A party-scoped pre-check
+   * passes when the email belongs to a different party in the same tenant,
+   * then the nested create trips P2002 and surfaces the generic
+   * handleTransactionError message instead of this curated redacted-email
+   * error, making the caller-visible detail depend on which party holds
+   * the address.
+   */
   private static async checkEmailDuplicate(
-    tx: Prisma.TransactionClient, partyId: string, tenantId: string, normalizedEmail: string,
+    tx: Prisma.TransactionClient, tenantId: string, normalizedEmail: string,
   ): Promise<void> {
-    // Scope the query to the current party via the partyContacts relation.
-    // Without this, findFirst returns an indeterminate match across all
-    // parties in the tenant, and the in-memory some() check on the wrong
-    // result would miss the duplicate (e.g., party B's email is found but
-    // the check looks for party A → false negative → duplicate allowed).
     const existingEmail = await tx.emailAddress.findFirst({
       where: {
         email: normalizedEmail,
-        contactMechanism: { tenantId, partyContacts: { some: { partyId } } },
+        tenantId,
       },
     });
     if (existingEmail) {
@@ -1090,28 +1104,36 @@ export class PartyService {
         ? `${normalizedEmail.slice(0, Math.min(2, atIdx))}***@${normalizedEmail.slice(atIdx + 1)}`
         : "***";
       throw new DuplicateEntityError(
-        `Email '${redactedEmail}' is already registered for this party.`,
+        `Email '${redactedEmail}' is already registered in this tenant.`,
         { suggestedTools: ["add_contact_mechanism"], context: { contactMechanismType: "EMAIL_ADDRESS", email: redactedEmail } }
       );
     }
   }
 
-  /** Throw DuplicateEntityError if the phone number is already registered for this party. */
+  /**
+   * Throw DuplicateEntityError if the phone number is already registered in
+   * this tenant. Scoped to match the DB constraint exactly: schema.prisma
+   * enforces @@unique([tenantId, countryCode, areaCode, lineNumber]) —
+   * tenant-wide (migration 20260819000003), mirroring email. The pre-check
+   * is for the friendly curated message; the constraint is the race-proof
+   * backstop whose P2002 maps to DuplicateEntityError via
+   * handleTransactionError.
+   */
   private static async checkTelecomDuplicate(
-    tx: Prisma.TransactionClient, partyId: string, tenantId: string,
+    tx: Prisma.TransactionClient, tenantId: string,
     sanitizedCountryCode: string, sanitizedAreaCode: string, sanitizedLineNumber: string,
   ): Promise<void> {
     const existingTel = await tx.telecomNumber.findFirst({
       where: {
+        tenantId,
         countryCode: sanitizedCountryCode,
         areaCode: sanitizedAreaCode,
         lineNumber: sanitizedLineNumber,
-        contactMechanism: { tenantId, partyContacts: { some: { partyId } } },
       },
     });
     if (existingTel) {
       throw new DuplicateEntityError(
-        `Phone number ${sanitizedCountryCode} (${sanitizedAreaCode}) ${sanitizedLineNumber} is already registered for this party.`,
+        `Phone number ${sanitizedCountryCode} (${sanitizedAreaCode}) ${sanitizedLineNumber} is already registered in this tenant.`,
         { suggestedTools: ["add_contact_mechanism"], context: { contactMechanismType: "TELECOM_NUMBER" } }
       );
     }
@@ -1173,7 +1195,7 @@ export class PartyService {
         }
 
         if (normalizedEmail) {
-          await PartyService.checkEmailDuplicate(tx, partyId, tenantId, normalizedEmail);
+          await PartyService.checkEmailDuplicate(tx, tenantId, normalizedEmail);
         }
 
         if (type === "TELECOM_NUMBER" && telecomNumber) {
@@ -1193,7 +1215,7 @@ export class PartyService {
           const sanitizedCountryCode = telecomNumber.countryCode
             ? stripHtmlTags(telecomNumber.countryCode.trim())
             : DEFAULT_PHONE_COUNTRY_CODE;
-          await PartyService.checkTelecomDuplicate(tx, partyId, tenantId, sanitizedCountryCode, sanitizedAreaCode, sanitizedLineNumber);
+          await PartyService.checkTelecomDuplicate(tx, tenantId, sanitizedCountryCode, sanitizedAreaCode, sanitizedLineNumber);
         }
 
         // Sanitize the postal address ONCE so the stored value and the
@@ -1211,7 +1233,11 @@ export class PartyService {
             contactMechanismTypeId,
             tenantId,
             postalAddress: sanitizedPostal ? { create: sanitizedPostal } : undefined,
-            telecomNumber: type === "TELECOM_NUMBER" && telecomNumber ? { create: sanitizeTelecomNumber(telecomNumber) } : undefined,
+            // tenantId is denormalized onto telecom_number (migration
+            // 20260819000003) to back the tenant-scoped unique constraint —
+            // the race-proof backstop for checkTelecomDuplicate above, same
+            // pattern as email_address.
+            telecomNumber: type === "TELECOM_NUMBER" && telecomNumber ? { create: { ...sanitizeTelecomNumber(telecomNumber), tenantId } } : undefined,
             emailAddress: type === "EMAIL_ADDRESS" && normalizedEmail 
               ? { create: { email: normalizedEmail, tenantId } } 
               : undefined,

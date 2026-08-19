@@ -20,6 +20,7 @@ import {
 import {
   UUID_REGEX,
   COUNTRY_CODE_REGEX,
+  COUNTRY_CODE_ISO_REGEX,
   isValidISODate,
   stripHtmlTags,
   sanitizeForLogOutput,
@@ -247,7 +248,14 @@ function uuidParam(description: string) {
     .describe(description);
 }
 
-const personSchema = z.object({
+// All tool input schemas use z.strictObject: unknown keys are REJECTED
+// (INVALID_INPUT), matching the REST boundary's ValidationPipe
+// forbidNonWhitelisted posture. Plain z.object silently strips unknown
+// keys, so a typo'd field (e.g. partyTypeId) "succeeded" while the data
+// was never stored — the agent believed a write happened that did not.
+// The registry strips the idempotencyKey envelope from raw input before
+// validation, so idempotent calls are unaffected.
+const personSchema = z.strictObject({
   firstName: sanitizedString(1, MAX_PERSON_NAME_LENGTH).describe("First/given name"),
   lastName: sanitizedString(1, MAX_PERSON_NAME_LENGTH).describe("Last/family name"),
   middleName: optionalFilteredString(MAX_MIDDLE_NAME_LENGTH).describe("Middle name"),
@@ -255,13 +263,13 @@ const personSchema = z.object({
   gender: optionalFilteredString(MAX_GENDER_LENGTH).describe("Gender"),
 });
 
-const organizationSchema = z.object({
+const organizationSchema = z.strictObject({
   legalName: sanitizedString(1, MAX_LEGAL_NAME_LENGTH).describe("Legal/registered name of the organization"),
   taxId: optionalFilteredString(MAX_TAX_ID_LENGTH).describe("Tax identification number"),
   registrationDate: optionalIsoDate().describe("Date of registration (ISO 8601)"),
 });
 
-const postalAddressSchema = z.object({
+const postalAddressSchema = z.strictObject({
   addressLine1: sanitizedString(1, MAX_ADDRESS_LINE_LENGTH).describe("Street address line 1"),
   addressLine2: optionalFilteredString(MAX_ADDRESS_LINE_LENGTH).describe("Street address line 2"),
   city: sanitizedString(1, MAX_CITY_LENGTH).describe("City"),
@@ -269,11 +277,11 @@ const postalAddressSchema = z.object({
   postalCode: optionalFilteredString(MAX_POSTAL_CODE_LENGTH).describe("Postal/ZIP code"),
   country: z.string()
     .transform(s => stripHtmlTags(s.trim().toUpperCase()))
-    .pipe(z.string().min(MIN_COUNTRY_CODE_LENGTH).max(MAX_COUNTRY_CODE_LENGTH))
-    .describe("Country code (e.g., US, DE, JP)"),
+    .pipe(z.string().min(MIN_COUNTRY_CODE_LENGTH).max(MAX_COUNTRY_CODE_LENGTH).regex(COUNTRY_CODE_ISO_REGEX, "Must be a 2-3 letter ISO 3166-1 alpha-2/3 code (e.g., 'US', 'DE')"))
+    .describe("ISO 3166-1 alpha-2/3 country code (e.g., US, DE, JPN)"),
 });
 
-const telecomNumberSchema = z.object({
+const telecomNumberSchema = z.strictObject({
   // Strip HTML the same way every other string input on this schema does
   // (sanitizedString / optionalFilteredString) and the way the REST
   // TelecomNumberDto.countryCode does (@optionalSanitizeTransform). The old
@@ -296,7 +304,7 @@ const telecomNumberSchema = z.object({
   extension: optionalFilteredString(MAX_EXTENSION_LENGTH).describe("Extension"),
 });
 
-const emailAddressSchema = z.object({
+const emailAddressSchema = z.strictObject({
   // Route through the SAME `EMAIL_REGEX` the service layer uses (party.service.ts),
   // not Zod's built-in `.email()`. Zod's validator accepts addresses the
   // service's `EMAIL_REGEX` rejects (e.g. a double-dot local part
@@ -311,7 +319,7 @@ const emailAddressSchema = z.object({
 
 // ─── Tool: create_party ───────────────────────────────────────────
 
-const createPartySchema = z.object({
+const createPartySchema = z.strictObject({
   partyType: z.enum(["PERSON", "ORGANIZATION"]).describe("Type of party to create"),
   name: sanitizedString(1, MAX_PARTY_NAME_LENGTH).describe("Display name for the party (1-500 characters)"),
   description: optionalFilteredString(MAX_PARTY_DESCRIPTION_LENGTH).describe("Optional description (max 1000 characters)"),
@@ -380,7 +388,7 @@ const getParty: ToolDefinition = {
 
 Returns full party details. Use this to inspect a specific party's information.`,
 
-  inputSchema: z.object({
+  inputSchema: z.strictObject({
     partyId: uuidParam("The unique UUID of the party"),
   }),
 
@@ -405,7 +413,7 @@ Returns full party details. Use this to inspect a specific party's information.`
 
 // ─── Tool: search_parties ─────────────────────────────────────────
 
-const searchPartiesSchema = z.object({
+const searchPartiesSchema = z.strictObject({
   name: optionalSearchFilterString(MAX_PARTY_NAME_LENGTH).describe("Filter by name (case-insensitive partial match; must not be whitespace-only)"),
   partyType: z.enum(["PERSON", "ORGANIZATION"]).optional().describe("Filter by party type"),
   roleType: optionalSearchFilterString(MAX_ROLE_TYPE_LENGTH).describe("Filter by role type name (e.g., 'Customer', 'Supplier'; must not be whitespace-only)"),
@@ -451,7 +459,7 @@ Use this to find customers, suppliers, or any party by name, type, or role.`,
 
 // ─── Tool: add_party_role ─────────────────────────────────────────
 
-const addPartyRoleSchema = z.object({
+const addPartyRoleSchema = z.strictObject({
   partyId: uuidParam("The UUID of the party to assign the role to"),
   roleType: sanitizedString(1, MAX_ROLE_TYPE_LENGTH).describe("Role type name (e.g., 'Customer', 'Supplier', 'Employee')"),
   fromDate: optionalIsoDate().describe(`Start date for the role (ISO 8601, max ${MAX_DATE_STRING_LENGTH} chars, default: now)`),
@@ -507,7 +515,7 @@ For idempotent writes, pass an idempotencyKey (string, max 500 chars) along with
 
 // ─── Tool: add_contact_mechanism ──────────────────────────────────
 
-const addContactMechanismSchema = z.object({
+const addContactMechanismSchema = z.strictObject({
   partyId: uuidParam("The UUID of the party to add the contact to"),
   contactMechanismType: z.enum(["POSTAL_ADDRESS", "TELECOM_NUMBER", "EMAIL_ADDRESS"])
     .describe("Type of contact mechanism"),

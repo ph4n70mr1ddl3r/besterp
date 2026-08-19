@@ -3,8 +3,53 @@
 ## Scope
 Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
  `mcp-tools`, `apps/api`, plus README/`.env.example`/docker/CI) conducted on
- 2026-08-19. This is review 171; rounds 1–170 are documented in earlier
+ 2026-08-19. This is review 172; rounds 1–171 are documented in earlier
  revisions of this file and `CHANGES.md`.
+
+## Findings & Actions (round 172)
+
+### Fixed this round
+
+1. **🔴 14 indexes declared in `schema.prisma` were never created by any migration.** FK-support indexes (`party.party_type_id`, `party_type/role_type.parent_type_id` — every FK check/delete cascades to a seq scan without them), audit-query indexes (`ai_action_log (tenant_id, created_at)`, `(tenant_id, tool_called)`, `user_id`, `agent_id`, `conversation_id`), cleanup indexes (`idempotency_record (status, expires_at)`, `tool_name`), `party (tenant_id, party_type_id)`, `party_role (from_date)`, `(thru_date)`, and `email_address (email)` existed only in the schema — a fresh `migrate deploy` database does not match `schema.prisma`, so the next `prisma migrate dev` emits a large surprise migration (the repo already has two migrations fixing exactly this drift class). **Fix:** migration `20260819000000_add_schema_declared_indexes` creates all 14 with Prisma-convention names and `IF NOT EXISTS`.
+
+2. **🔴 Naive ISO datetimes silently shifted stored dates by the host timezone.** Per ES spec `new Date("2024-06-15")` is UTC midnight but `new Date("2024-06-15T00:00:00")` is LOCAL midnight (verified 8h apart on Asia/Taipei) — `birthDate`/`registrationDate`/`fromDate` all parsed with bare `new Date(value)`, so stored dates depended on the server TZ and could shift by a day. **Fix:** new shared `normalizeISODateTimeToUTC`/`parseISODateTimeAsUTC` helpers (naive form gets `Z` appended) used at all three parse sites and inside `isValidISODate`; TZ-independent regression tests added.
+
+3. **🔴 `ai_action_log.user_id` nullable in the DB while the schema mandates NOT NULL.** Same drift class the 20260718 migration fixed for `tenant_id` — its own header notes the init migration used `TEXT NOT NULL` everywhere else, but it left `user_id` nullable. **Fix:** migration `20260819000001` (backfill `''` + `SET NOT NULL`, mirroring 20260718).
+
+4. **🔴 Duplicate-check pre-checks contradicted their own DB constraints (email), and telecom had no constraint at all.** `@@unique([tenantId, email])` is tenant-scoped but `checkEmailDuplicate` scoped to the requesting party — an email held by another party in the tenant passed the pre-check, then P2002 surfaced the generic transaction error instead of the curated redacted-email message. Telecom had **no** unique constraint: `checkTelecomDuplicate` was a find-then-insert TOCTOU race, un-backstopped unlike both sibling paths in the same transaction. **Fix:** email pre-check re-scoped tenant-wide (message: "already registered in this tenant"); telecom gets the same enforcement net email has — migration `20260819000003` adds denormalized `tenant_id` (backfilled, NOT NULL) + `@@unique([tenantId, countryCode, areaCode, lineNumber])`, with schema, RLS policy, service scope, and nested create all updated. Tests updated/added.
+
+5. **🟡 RLS policy on `email_address` ignored the row's own `tenant_id`** — every other tenant_id-bearing table enforces `tenant_id = current_setting(...)` in both clauses; email only validated the parent contact mechanism, so a mismatched-tenant row could silently occupy a slot in the tenant-scoped unique index while invisible to that tenant. **Fix:** both clauses now also check the row's own `tenant_id` (telecom too, same rationale); stale subtype-table header comment fixed.
+
+6. **🟡 Email unique index carried a non-Prisma name → permanent `migrate dev` drift** (20260724 created `email_address_tenant_email_unique_idx`; the schema expects `email_address_tenant_id_email_key`; Prisma identifies indexes by name). **Fix:** migration `20260819000002` renames it, `IF EXISTS`-guarded.
+
+7. **🟡 MCP silently stripped unknown input keys while REST rejected them** (`z.object` vs ValidationPipe `forbidNonWhitelisted`): a typo'd field "succeeded" with the data never stored — the agent believed a write happened that did not. **Fix:** all tool schemas (top-level and nested, party + discovery) converted to `z.strictObject`; the registry strips the promoted `idempotencyKey` envelope from raw input before validation so idempotent calls still pass. Tests added.
+
+8. **🟡 Boot-time env validators were unreachable for their documented scenarios.** `AuthModule`'s `JwtModule.register({ secret: resolveJwtSecret() })` and `QueueModule.forRoot()` evaluate at module-load time; `main.ts`'s static `AppModule` import meant production-with-missing-`JWT_SECRET` died during ESM evaluation with a raw stack trace, never reaching the clean `validateJwtSecretPresence` exit. **Fix:** `main.ts` dynamic-imports `AppModule` after `validateEnvironment()`. Also the dev `DATABASE_URL` *warning* described a degraded-boot that cannot occur (`PrismaService.initializeAppClient` throws unconditionally) — now a clean fatal error.
+
+9. **🟡 Audit-drop warning attached to arbitrary responses.** `wasDropDetected()` read-and-reset one process-global flag shared across concurrent executions: request A's drop could be consumed by unrelated request B's response (and A's own response never warned). **Fix:** `log()` returns a per-entry `wasDropped()` handle — queue-full drops attribute exactly; slot-timeout drops flip their own flag best-effort with stderr as the durable signal.
+
+10. **🟡 Retry guidance told agents to mint NEW idempotency keys for ambiguous-outcome failures** (P2024, P1000–P1003/P1017, generic INTERNAL_ERROR) while P2034/P2028 correctly said same-key. P1017 (connection dropped mid-flight) is exactly the case where a new key can double-execute. **Fix:** all ambiguous-outcome messages now direct same-key retries.
+
+11. **🟢 Cross-cutting smaller fixes:** country code enforced as 2–3 ASCII letters at all three layers (new shared `COUNTRY_CODE_ISO_REGEX`; previously `"1A"` was stored); `DomainExceptionFilter` array-message path now applies `stripHtmlTags` like the string path; seed tenants use the seeded-but-unused `pt-tenant` type; `rls-setup.sql` superuser guard fails when `besterp_app` is missing (previously `IF NULL` → silently passed); `OPTIONAL_ID_PATTERN` rejects zero-width/bidi controls (JS `\s` doesn't cover U+200B…/U+202E…); `agentId`/`conversationId` trimmed + trimmed values propagate (was inconsistent with `userId`); `EMAIL_REGEX` TLD strictly alpha 2–63 (was admitting `example.co-m` while rejecting punycode anyway); `MAX_PHONE_COUNTRY_CODE_LENGTH` 5→4 (matches `COUNTRY_CODE_REGEX`); `findSimilarNames` 2-char guard on both disjuncts; dead `_definition` param removed; `test:watch` added to shared/mcp-tools for workspace consistency.
+
+### Reviewed but NOT changed (false positives / deferred)
+
+- **`sanitizeLogOutput` deprecated shim** retained again (3-line delegate; test-covered; removal is churn).
+- **`postinstall: "prisma generate || true"`** in `@besterp/database` retained: installs must succeed in DB-less CI; failures surface at typecheck/test time with clear Prisma errors.
+- **`packages/*/build` emitting unused `dist/`** retained: harmless dual purpose (typecheck + artifact emit); repointing `main` at `dist` would change workspace resolution for no consumer benefit today.
+- **`ISO_DATE_REGEX` accepting date-only+`Z` (`2024-06-15Z`)** retained: non-standard but V8-stable (parses as UTC midnight — consistent with the new normalization), explicitly tested, and rejecting it would break the documented accepted-forms contract.
+- **Guards/auth chain, RLS wiring, pagination math, PrismaService tenant-client cache, error/redaction surfaces, health probes** re-verified; no new issues.
+
+## Test Results (round 172)
+```
+api:       454 passed (17 files)   (+5)
+shared:    232 passed (4 files)    (+3)
+mcp-tools: 168 passed (4 files)    (+2)
+database:   34 passed, 10 skipped (3 files) (DB-backed; unchanged)
+──────────────────────────────
+Total:     888 passed, 10 skipped
+```
+lint ✓ · typecheck ✓ · prisma generate ✓ (schema → client regenerated for `telecom_number.tenantId`)
 
 ## Findings & Actions (round 171)
 

@@ -2077,12 +2077,15 @@ describe("PartyService", () => {
       expect(JSON.stringify(err)).not.toMatch(/a@example\.com/);
     });
 
-    it("scopes the email duplicate check to the requesting party (no false positive for other parties)", async () => {
+    it("scopes the email duplicate check to the tenant, matching the DB unique constraint", async () => {
       mockAdminTypes();
-      // Regression guard for round-30 scoping fix: the duplicate query must be
-      // filtered by partyContacts.some({ partyId }) so an identical email
-      // registered to a DIFFERENT party is not mistaken for a duplicate of the
-      // requesting party.
+      // Round-172: the schema enforces @@unique([tenantId, email]) —
+      // TENANT-wide, not per party — so the pre-check must be tenant-scoped
+      // too. A party-scoped pre-check passed when the email belonged to a
+      // different party in the same tenant, then the nested create tripped
+      // P2002 and surfaced the generic transaction-error message instead of
+      // the curated redacted-email error. The query must therefore filter on
+      // tenantId directly (no partyContacts relation).
       const input: AddContactMechanismInput = {
         tenantId: "tenant-1",
         partyId: "11111111-1111-1111-1111-111111111111",
@@ -2090,11 +2093,10 @@ describe("PartyService", () => {
         emailAddress: { email: "shared@example.com" },
       };
 
-      let capturedWhere: { contactMechanism?: unknown } | undefined;
+      let capturedWhere: { tenantId?: unknown; contactMechanism?: unknown } | undefined;
       const captureWhere = vi.fn().mockImplementation((args: any) => {
         capturedWhere = args.where;
-        // Only the requesting party owns this email — simulate the
-        // scoped query returning no match for the requesting party.
+        // No existing row in this tenant — the create proceeds.
         return Promise.resolve(null);
       });
       const mockDb = {
@@ -2125,19 +2127,13 @@ describe("PartyService", () => {
 
       mockPrismaService.tenantScoped.mockReturnValue(mockDb);
 
-      // No DuplicateEntityError should be thrown because the existing match
-      // (if any) belongs to a different party — the scope filter excludes it.
       await expect(partyService.addContactMechanism(input)).resolves.toBeDefined();
 
-      // The query must have been scoped to the requesting party via the
-      // partyContacts relation, not a tenant-wide findFirst.
+      // The query must have been scoped tenant-wide on tenantId only —
+      // matching @@unique([tenantId, email]) — with no partyContacts filter.
       expect(capturedWhere).toBeDefined();
-      expect(capturedWhere!.contactMechanism).toEqual(
-        expect.objectContaining({
-          tenantId: "tenant-1",
-          partyContacts: { some: { partyId: "11111111-1111-1111-1111-111111111111" } },
-        }),
-      );
+      expect(capturedWhere!.tenantId).toBe("tenant-1");
+      expect(capturedWhere!.contactMechanism).toBeUndefined();
     });
 
     it("should throw InvalidTypeValueError when areaCode is missing for telecom", async () => {
@@ -2228,7 +2224,25 @@ describe("PartyService", () => {
         },
       };
 
-      await expect(partyService.addContactMechanism(input)).rejects.toThrow(/country must be at least/);
+      await expect(partyService.addContactMechanism(input)).rejects.toThrow(/country must be a 2-3 letter ISO 3166-1/);
+    });
+
+    it("should throw error for a non-letter country that passes the length check (round 172)", async () => {
+      // "1A" satisfies the 2-3 char length bound on every layer but is not
+      // an ISO 3166-1 alpha code — the service must reject it (previously
+      // all three layers only checked length, so garbage was stored).
+      const input: AddContactMechanismInput = {
+        tenantId: "tenant-1",
+        partyId: "12345678-1234-1234-1234-123456789abc",
+        contactMechanismType: "POSTAL_ADDRESS",
+        postalAddress: {
+          addressLine1: "123 Main St",
+          city: "Anytown",
+          country: "1A",
+        },
+      };
+
+      await expect(partyService.addContactMechanism(input)).rejects.toThrow(/country must be a 2-3 letter ISO 3166-1/);
     });
 
     it("should throw error for email exceeding max length", async () => {
@@ -2544,10 +2558,15 @@ describe("PartyService", () => {
 
       expect(captured.length).toBe(1);
       expect(captured[0]).toMatchObject({
+        // Round 172: tenant-scoped (tenantId direct, no contactMechanism
+        // relation) to match @@unique([tenantId, countryCode, areaCode,
+        // lineNumber]) — same alignment as the email pre-check.
+        tenantId: "tenant-1",
         countryCode: "+44",
         areaCode: "20",
         lineNumber: "79461234",
       });
+      expect((captured[0] as { contactMechanism?: unknown }).contactMechanism).toBeUndefined();
     });
 
     it("rejects a non-string optional postal address field instead of silently passing it through requireMaxLength", async () => {

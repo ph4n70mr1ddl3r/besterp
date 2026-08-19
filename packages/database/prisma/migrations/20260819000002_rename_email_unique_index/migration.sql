@@ -1,0 +1,16 @@
+-- Rename the tenant/email unique index to Prisma's expected name.
+--
+-- 20260724000000_add_email_unique_constraint created
+-- "email_address_tenant_email_unique_idx", but schema.prisma's
+-- @@unique([tenantId, email]) expects Prisma's generated name
+-- "email_address_tenant_id_email_key". Prisma identifies indexes by name, so
+-- every subsequent `prisma migrate dev` diffs the database against the
+-- schema and emits DROP INDEX + CREATE UNIQUE INDEX churn for this index —
+-- churn that risks running concurrently with a rebuild of the index
+-- enforcing tenant-scoped email uniqueness.
+--
+-- Unlike party_name_trgm_idx (a GIN/trgm index Prisma cannot represent), this
+-- unique index is fully representable in the schema, so it must carry the
+-- Prisma name. IF EXISTS guards databases where the index was already
+-- renamed manually.
+ALTER INDEX IF EXISTS "email_address_tenant_email_unique_idx" RENAME TO "email_address_tenant_id_email_key";

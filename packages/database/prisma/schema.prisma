@@ -198,6 +198,7 @@ model PostalAddress {
 
 model TelecomNumber {
   contactMechanismId String  @id @map("contact_mechanism_id")
+  tenantId           String  @map("tenant_id")
   countryCode        String  @default("+1") @map("country_code")
   areaCode           String  @map("area_code")
   lineNumber         String  @map("line_number")
@@ -205,6 +206,9 @@ model TelecomNumber {
 
   contactMechanism ContactMechanism @relation(fields: [contactMechanismId], references: [contactMechanismId], onDelete: Cascade)
 
+  // DB-level backstop for the service-layer duplicate check (same rationale
+  // as EmailAddress @@unique below). Added in migration 20260819000003.
+  @@unique([tenantId, countryCode, areaCode, lineNumber])
   @@map("telecom_number")
 }
 

@@ -14,7 +14,6 @@ import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 import { sanitizeForLogOutput, JWT_EXPIRES_IN_REGEX, MAX_JWT_EXPIRES_IN_DAYS, isDev, isProd } from "@besterp/shared";
 import { isWeakSecret, MIN_JWT_SECRET_LENGTH } from "./auth/secret-strength.js";
-import { AppModule } from "./app.module.js";
 import express, { type Request, type Response, type NextFunction } from "express";
 import type { Server } from "node:http";
 // Import tenant-context for the Express module augmentation (req.requestId).
@@ -67,8 +66,15 @@ function validateRequiredEnvVars(): void {
     logger.error(`Missing required environment variables: ${missing.join(", ")}. Exiting.`);
     process.exit(1);
   }
+  // In development, DATABASE_URL missing is ALSO fatal — not a degraded-boot
+  // warning. PrismaService.initializeAppClient() throws unconditionally when
+  // DATABASE_URL is unset (every environment), so NestFactory.create would
+  // crash with a raw stack trace anyway; exiting here gives the clean
+  // one-line error instead. (A previous warning here described a
+  // boot-then-fail-later posture that could never actually occur.)
   if (!process.env.DATABASE_URL && isDev()) {
-    logger.warn("DATABASE_URL not set — database operations will fail. Set DATABASE_URL before running the API.");
+    logger.error("DATABASE_URL is not set. The API cannot start without a database. Set DATABASE_URL and retry. Exiting.");
+    process.exit(1);
   }
 }
 
@@ -361,6 +367,17 @@ async function bootstrap() {
     logger.error(err instanceof Error ? err.message : String(err));
     process.exit(1);
   }
+
+  // Dynamic import AFTER validateEnvironment(): AppModule's decorators
+  // evaluate config at module-load time (AuthModule's JwtModule.register
+  // calls resolveJwtSecret(); QueueModule.forRoot() throws in non-dev when
+  // Redis env vars are missing). With a static import, that evaluation runs
+  // BEFORE bootstrap() — so the carefully-ordered validators above (clean
+  // one-line errors, process.exit(1)) were unreachable for exactly the
+  // scenarios they document, and the process instead died during ESM module
+  // evaluation with a raw import-time stack trace. Importing here keeps the
+  // fail-fast-with-clean-error contract in main.ts authoritative.
+  const { AppModule } = await import("./app.module.js");
 
   const app = await NestFactory.create(AppModule, { bodyParser: false });
 

@@ -188,7 +188,7 @@ export class DomainExceptionFilter implements ExceptionFilter {
           })
           .filter(Boolean);
         safeBody.message = cleaned.length > 0
-          ? cleaned.map((c) => sanitizeForLogOutput(c))
+          ? cleaned.map((c) => stripHtmlTags(sanitizeForLogOutput(c)))
           : (status === 400 ? "Validation failed" : "Request error");
       } else {
         safeBody.message = status === 400 ? "Validation failed" : "Request error";
