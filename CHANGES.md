@@ -1,5 +1,19 @@
 # BestERP — Security & Architecture Fixes
 
+## Changes Applied (2026-08-19) — Code Review Round 170
+
+### 🟡 `add_contact_mechanism` `countryCode` strip-HTML parity — REST accepted what MCP rejected
+
+**Problem:** The MCP `telecomNumberSchema.countryCode` transform only trimmed, while the REST `TelecomNumberDto.countryCode` strips HTML via `@optionalSanitizeTransform` (and every other MCP string helper strips it). An HTML-wrapped E.164 code like `"+44<script>alert(1)</script>"` was accepted on REST (sanitized to `"+44"`, within the cap after strip) but rejected on MCP (raw 27-char string exceeded the cap and failed the E.164 regex) — a silent cross-surface divergence, with MCP contradicting its own storage path (`sanitizeTelecomNumber`, `checkTelecomDuplicate`), which stores `"+44"`.
+
+**Fix:** the MCP countryCode transform now strips HTML and normalizes HTML-only input to `undefined` (so the service default `'+1'` applies), matching REST exactly. The service's `validateTelecomSubtype` also now strips HTML *before* the length/E.164 regex checks (mirroring `validateEmailSubtype`'s strip-then-validate), so direct/internal callers no longer get rejected for input their own storage layer would sanitize to valid; the error message reports the stripped value actually validated. Four regression tests added (2 MCP, 2 service). No behavioural change for legitimate codes (`+1`, `+44`, …).
+
+### 🟢 `rls-setup.sql` subtype-table comment inaccuracy
+
+**Problem:** The comment claimed subtype policies join through the parent `party` table, but only `person`/`organization` do — `postal_address`/`telecom_number`/`email_address` join through `contact_mechanism`.
+
+**Fix:** the comment now describes both accurately.
+
 ## Changes Applied (2026-08-16) — Code Review Round 151
 
 ### 🟡 `search_parties` advertised paginated pages that the offset ceiling makes unreachable

@@ -549,6 +549,47 @@ describe("Party MCP Tools", () => {
       );
     });
 
+    it("should strip HTML from an HTML-wrapped countryCode and accept the sanitized value (round-170 REST parity)", async () => {
+      const uuid = "550e8400-e29b-41d4-a716-446655440000";
+      // Regression: the countryCode transform only trimmed, so "+44<script>…</script>"
+      // was rejected on MCP while the identical input was accepted on REST
+      // (sanitized to "+44"). The transform now strips HTML like every other
+      // string input and like the REST TelecomNumberDto.countryCode.
+      const result = await registry.execute("add_contact_mechanism", {
+        partyId: uuid,
+        contactMechanismType: "TELECOM_NUMBER",
+        telecomNumber: {
+          areaCode: "555",
+          lineNumber: "1234567",
+          countryCode: "+44<script>alert(1)</script>",
+        },
+      }, createContext({ partyService: mockPartyService }));
+
+      expect(result.success).toBe(true);
+      expect(mockPartyService.addContactMechanism).toHaveBeenCalledWith(
+        expect.objectContaining({
+          telecomNumber: expect.objectContaining({ countryCode: "+44" }),
+        })
+      );
+    });
+
+    it("should normalize an HTML-only countryCode to undefined (service defaults to +1)", async () => {
+      const uuid = "550e8400-e29b-41d4-a716-446655440000";
+      const result = await registry.execute("add_contact_mechanism", {
+        partyId: uuid,
+        contactMechanismType: "TELECOM_NUMBER",
+        telecomNumber: {
+          areaCode: "555",
+          lineNumber: "1234567",
+          countryCode: "<script>alert(1)</script>",
+        },
+      }, createContext({ partyService: mockPartyService }));
+
+      expect(result.success).toBe(true);
+      const args = mockPartyService.addContactMechanism.mock.calls[0]?.[0] as { telecomNumber?: { countryCode?: string } };
+      expect(args.telecomNumber?.countryCode).toBeUndefined();
+    });
+
     it("should accept a whitespace-padded email that trims within max length", async () => {
       const uuid = "550e8400-e29b-41d4-a716-446655440000";
       const result = await registry.execute("add_contact_mechanism", {

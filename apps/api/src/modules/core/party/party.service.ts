@@ -1015,7 +1015,18 @@ export class PartyService {
     PartyService.requireStringField(telecomNumber.areaCode, "areaCode", MAX_AREA_CODE_LENGTH, "telecom number", "add_contact_mechanism");
     PartyService.requireStringField(telecomNumber.lineNumber, "lineNumber", MAX_LINE_NUMBER_LENGTH, "telecom number", "add_contact_mechanism");
     if (telecomNumber.countryCode) {
-      const trimmedCountryCode = telecomNumber.countryCode.trim();
+      // Strip HTML BEFORE the length/regex checks so validation agrees with
+      // (a) validateEmailSubtype's strip-then-validate pattern below, (b) the
+      // storage sanitizer (sanitizeTelecomNumber in @besterp/shared and the
+      // checkTelecomDuplicate strip at line 1183), and (c) both boundary
+      // layers — the REST DTO (@optionalSanitizeTransform then @MaxLength +
+      // @Matches) and the MCP schema (transform then .max().regex()) both
+      // validate the STRIPPED value. Previously the length cap ran on the raw
+      // trimmed input, so an HTML-wrapped code like "+44<script>…</script>"
+      // was rejected here (raw length 27 > 5) while the same input succeeded
+      // on REST after sanitization — the service diverged from its own
+      // storage layer (round-170 review).
+      const trimmedCountryCode = stripHtmlTags(telecomNumber.countryCode.trim());
       PartyService.requireMaxLength(trimmedCountryCode, "countryCode", MAX_PHONE_COUNTRY_CODE_LENGTH, "add_contact_mechanism");
       if (!COUNTRY_CODE_REGEX.test(trimmedCountryCode)) {
         throw new InvalidTypeValueError(`countryCode must be an E.164 country code (e.g., '+1', '+44'). Received: ${trimmedCountryCode}.`, { suggestedTools: ["add_contact_mechanism"], context: { field: "countryCode", invalidValue: trimmedCountryCode } });

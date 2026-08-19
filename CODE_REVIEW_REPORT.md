@@ -2,8 +2,37 @@
 
 ## Scope
 Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
- `mcp-tools`, `apps/api`) conducted on 2026-08-17. This is review 169;
- rounds 1–168 are documented in earlier revisions of this file and `CHANGES.md`.
+ `mcp-tools`, `apps/api`) conducted on 2026-08-19. This is review 170;
+ rounds 1–169 are documented in earlier revisions of this file and `CHANGES.md`.
+
+## Findings & Actions (round 170)
+
+### Fixed this round
+
+1. **🟡 `add_contact_mechanism` `countryCode` strip-HTML parity — REST accepted HTML-wrapped E.164 codes that MCP rejected.** The MCP `telecomNumberSchema.countryCode` transform (`party-tools.ts`) only *trimmed*, while the REST `TelecomNumberDto.countryCode` strips HTML via `@optionalSanitizeTransform` and every other MCP string helper (`sanitizedString`, `optionalFilteredString`) strips it too. A value like `"+44<script>alert(1)</script>"` was therefore **accepted on REST** (sanitized to `"+44"`, ≤ the 5-char cap after strip) but **rejected on MCP** (trim only → the raw 27-char string exceeded the cap and failed the E.164 regex) — a silent REST-vs-MCP divergence for identical input, with the MCP surface on the *strict* side while its own storage path (shared `sanitizeTelecomNumber`, and the `checkTelecomDuplicate` strip in the service) would have stored `"+44"`. **Fix:** the MCP countryCode transform now strips HTML and normalizes HTML-only input to `undefined` (so the service default `'+1'` applies — matching REST exactly); this also brings the field in line with the file's own strip-HTML convention for every other string input.
+
+2. **🟡 `party.service.ts` `validateTelecomSubtype` validated the raw value while its storage layer sanitized it.** The service length-checked and regex-checked the *raw trimmed* `countryCode`, so a direct/internal caller bypassing the boundary DTOs/Zod (the "service is last line of defense" scenario) got an `InvalidTypeValueError` for input that the very next stage of the same method path (`sanitizeTelecomNumber` / the `checkTelecomDuplicate` strip) would normalize to a valid stored `"+44"` — validation and storage disagreed, and the service contradicted its own email precedent (`validateEmailSubtype` strips HTML *before* `EMAIL_REGEX`). **Fix:** strip HTML *before* the length and E.164 regex checks (the error message now reports the stripped value actually validated). No behavioural change for any legitimate E.164 code — `stripHtmlTags` never alters a code like `+1`/`+44`.
+
+3. **🟢 `rls-setup.sql` subtype-table comment claimed policies join through the parent `party` table.** `person`/`organization` do join through `party`, but `postal_address`/`telecom_number`/`email_address` join through `contact_mechanism`. The comment now states both accurately.
+
+### Reviewed but NOT changed (false positives / deferred)
+
+- **Tenant isolation (RLS boot assertions, superuser boot refusal, app-level `tenantId` filters), secret redaction across REST/MCP/durable surfaces, idempotency-key charset consistency, ReDoS, and `@Public()` scope scanning** remain intact and were re-verified by independent reads this round. No new 🔴/🟡 exploit paths found.
+- **`get_type_table_values` (discovery-tools.ts) still returns all type-table rows with no `take` cap.** Deferred again: admin-curated reference data with a handful of seeded values; truncation middleware bounds downstream surfaces.
+- **`sanitizeLogOutput` deprecated shim** retained as before (no production callers; back-compat).
+- **`party.service.ts` — `requireMaxLength` one-line `if` branches.** Lint warns at function level but each is a single statement; grouping into braces would add visual noise for negligible readability gain. Kept as-is.
+- **`queue.module.ts:128` — local `MAX_RETRIES = 10` for Redis retry strategy.** Intentionally scoped to QueueModule; not shared with other retry loops (idempotency uses `IDEMPOTENCY_MAX_RETRIES = 3`). No change.
+
+## Test Results (round 170)
+```
+api:       449 passed (17 files)  (+4: countryCode strip-HTML parity)
+shared:    229 passed (4 files)   (unchanged)
+mcp-tools: 166 passed (4 files)   (unchanged)
+database:   34 passed, 10 skipped (3 files) (DB-backed; unchanged)
+──────────────────────────────
+Total:     878 passed, 10 skipped
+```
+lint ✓ · typecheck ✓ · build ✓ · `npm audit` 0 vulnerabilities
 
 ## Findings & Actions (round 169)
 

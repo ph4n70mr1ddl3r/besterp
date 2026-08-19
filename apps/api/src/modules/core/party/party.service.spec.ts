@@ -2439,6 +2439,69 @@ describe("PartyService", () => {
       expect(result.telecomNumber?.countryCode).toBe("+44");
     });
 
+    it("should accept an HTML-wrapped countryCode by stripping HTML before E.164 validation (round-170 parity)", async () => {
+      mockAdminTypes();
+      // Regression: validateTelecomSubtype previously length-checked and
+      // regex-checked the RAW trimmed value, so an HTML-wrapped code like
+      // "+44<script>alert(1)</script>" (27 chars) was rejected here while the
+      // identical input succeeded on REST (sanitized to "+44") and its own
+      // storage path (sanitizeTelecomNumber / checkTelecomDuplicate) would
+      // have stored "+44". Validation must agree with the stored value.
+      const mockDb = {
+        contactMechanismType: {
+          findUnique: vi.fn().mockResolvedValue({ contactMechanismTypeId: "cmt-telecom" }),
+        },
+        $transaction: vi.fn().mockImplementation(async (fn) => {
+          const tx = {
+            party: { findUnique: vi.fn().mockResolvedValue({ partyId: "12345678-1234-1234-1234-123456789abc" }) },
+            telecomNumber: { findFirst: vi.fn().mockResolvedValue(null) },
+            contactMechanism: {
+              create: vi.fn().mockResolvedValue({
+                contactMechanismId: "contact-telecom-170",
+                contactMechanismType: { name: "TELECOM_NUMBER" },
+                postalAddress: null,
+                telecomNumber: { countryCode: "+44", areaCode: "20", lineNumber: "79461234", extension: null },
+                emailAddress: null,
+              }),
+            },
+          };
+          return fn(tx);
+        }),
+      };
+      mockPrismaService.tenantScoped.mockReturnValue(mockDb);
+
+      const input: AddContactMechanismInput = {
+        tenantId: "tenant-1",
+        partyId: "12345678-1234-1234-1234-123456789abc",
+        contactMechanismType: "TELECOM_NUMBER",
+        telecomNumber: {
+          countryCode: "+44<script>alert(1)</script>",
+          areaCode: "20",
+          lineNumber: "79461234",
+        },
+      };
+
+      const result = await partyService.addContactMechanism(input);
+      expect(result.telecomNumber?.countryCode).toBe("+44");
+    });
+
+    it("should report the stripped value when an HTML-wrapped countryCode is still invalid (round-170)", async () => {
+      // The E.164 check now runs on the stripped value, so the error message
+      // must surface what was actually validated (not the HTML-wrapped raw).
+      const input: AddContactMechanismInput = {
+        tenantId: "tenant-1",
+        partyId: "12345678-1234-1234-1234-123456789abc",
+        contactMechanismType: "TELECOM_NUMBER",
+        telecomNumber: {
+          countryCode: "<b>+1x</b>",
+          areaCode: "20",
+          lineNumber: "79461234",
+        },
+      };
+
+      await expect(partyService.addContactMechanism(input)).rejects.toThrow(/Received: \+1x\./);
+    });
+
     it("should scope the telecom duplicate check on countryCode (round-50 fix)", async () => {
       mockAdminTypes();
       // Regression: checkTelecomDuplicate previously matched only on

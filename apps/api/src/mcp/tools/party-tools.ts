@@ -274,9 +274,21 @@ const postalAddressSchema = z.object({
 });
 
 const telecomNumberSchema = z.object({
+  // Strip HTML the same way every other string input on this schema does
+  // (sanitizedString / optionalFilteredString) and the way the REST
+  // TelecomNumberDto.countryCode does (@optionalSanitizeTransform). The old
+  // transform only trimmed, so an HTML-wrapped E.164 code like
+  // "+44<script>…</script>" was rejected here while the identical input was
+  // accepted on REST (sanitized to "+44") — a cross-surface divergence
+  // (round-170 review). HTML-only input normalizes to undefined so the
+  // service default of '+1' applies, matching REST's undefined normalization.
   countryCode: z.string()
     .optional()
-    .transform(s => s?.trim() || undefined)
+    .transform(s => {
+      if (s === undefined) return undefined;
+      const trimmed = stripHtmlTags(s.trim());
+      return trimmed.length === 0 ? undefined : trimmed;
+    })
     .pipe(z.string().min(1).max(MAX_PHONE_COUNTRY_CODE_LENGTH).regex(COUNTRY_CODE_REGEX, "Must be an E.164 country code (e.g., '+1', '+44')").optional())
     .describe("E.164 country code (e.g., '+1', '+44'). The service layer applies a default of '+1' if omitted."),
   areaCode: sanitizedString(1, MAX_AREA_CODE_LENGTH).describe("Area code"),

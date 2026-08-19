@@ -168,9 +168,11 @@ CREATE POLICY tenant_isolation_idempotency_record ON idempotency_record
     AND tenant_id = current_setting('app.current_tenant', TRUE)
   );
 
--- ─── Subtype tables (protected via parent party) ────────────────
--- These tables lack a direct tenant_id column, so policies JOIN through
--- the parent Party table to enforce isolation.
+-- ─── Subtype tables (protected via their tenant-scoped parent) ──
+-- These tables lack a direct tenant_id column, so each policy joins through
+-- the tenant-scoped parent that owns it: person and organization join through
+-- party; postal_address, telecom_number, and email_address join through
+-- contact_mechanism.
 
 -- ─── Partial Unique Index: Active Party Roles ────────────────────
 -- Prevents duplicate active roles at the DB level (defense-in-depth).
