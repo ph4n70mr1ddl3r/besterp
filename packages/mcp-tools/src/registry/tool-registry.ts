@@ -193,19 +193,22 @@ export class ToolRegistry {
     // Runtime guard: only treat non-null objects as potential sources;
     // primitives (number, string, boolean) cannot have an idempotencyKey.
     //
-    // Fail closed: promote ANY present string key (including empty or
-    // over-length) so the idempotency middleware — which returns
-    // INVALID_IDEMPOTENCY_KEY for empty/over-length/unsafe keys — can
-    // reject it. Silently dropping an out-of-contract key here would
-    // disable idempotency protection for that call (a retry could
+    // Fail closed: promote ANY present key (including empty, over-length,
+    // or non-string values such as a numeric `12345`) so the idempotency
+    // middleware — which validates the key as `unknown` and returns
+    // INVALID_IDEMPOTENCY_KEY for empty/over-length/unsafe/NON-STRING
+    // values — can reject it. Silently dropping an out-of-contract key here
+    // would disable idempotency protection for that call (a retry could
     // duplicate a write) with no error, contradicting the middleware's
-    // fail-closed contract.
+    // fail-closed contract. The previous string-only typeof gate meant an
+    // agent passing a numeric/boolean/object key got its envelope silently
+    // stripped below and the write executed unprotected.
     const raw = (rawInput != null && typeof rawInput === "object" && !Array.isArray(rawInput))
       ? rawInput as Record<string, unknown>
       : null;
     const effectiveContext: ToolContext =
-      typeof raw?.idempotencyKey === "string" && !context.idempotencyKey
-        ? { ...auth.context, idempotencyKey: raw.idempotencyKey }
+      raw?.idempotencyKey != null && !context.idempotencyKey
+        ? { ...auth.context, idempotencyKey: raw.idempotencyKey as string }
         : auth.context;
 
     // Strip the idempotency-key envelope ONCE, BEFORE any middleware runs.

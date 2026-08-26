@@ -307,6 +307,22 @@ describe("Idempotency Middleware", () => {
     expect(mockPrisma.idempotencyRecord.create).not.toHaveBeenCalled();
   });
 
+  it("should reject a non-string idempotency key (present but invalid)", async () => {
+    // A numeric/boolean/object key in the context is a PRESENT but out-of-contract
+    // value. The registry now promotes ANY present envelope key (round 174) so
+    // this middleware's typeof guard can reject it — the write must never execute
+    // unprotected just because the caller sent a malformed key.
+    const input = { test: "value" };
+    const contextWithKey = { ...mockContext, idempotencyKey: 12345 as unknown as string };
+
+    const middleware = idempotencyMiddleware(mockPrisma as any);
+    const result = await middleware(input, contextWithKey, mockDefinition, successNext({ success: true, data: "should not reach" }));
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe("INVALID_IDEMPOTENCY_KEY");
+    expect(mockPrisma.idempotencyRecord.create).not.toHaveBeenCalled();
+  });
+
   it("should pass through when prisma is null", async () => {
     const input = { test: "value" };
     const contextWithKey = { ...mockContext, idempotencyKey: "some-key" };

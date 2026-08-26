@@ -741,6 +741,46 @@ describe("ToolRegistry", () => {
 
       expect(contextReceived[0].idempotencyKey).toBe("");
     });
+
+    it("should promote a NON-STRING idempotencyKey so the middleware fails closed (round 174)", async () => {
+      // Regression: the promotion gate previously required
+      // `typeof raw.idempotencyKey === "string"`, so a caller passing a
+      // numeric/boolean/object key had its envelope silently stripped by
+      // stripPromotedIdempotencyKey() while the call executed WITHOUT
+      // idempotency protection — the exact silent-loss class the fail-closed
+      // contract exists to prevent. The idempotency middleware validates the
+      // key as `unknown` and rejects non-strings with INVALID_IDEMPOTENCY_KEY,
+      // so any present value must reach it.
+      const inputsSeenByMiddleware: unknown[] = [];
+      const contextReceived: ToolContext[] = [];
+      const captureMw: ToolMiddleware = async (input, ctx, _def, next) => {
+        inputsSeenByMiddleware.push(input);
+        contextReceived.push(ctx);
+        return next(input, ctx);
+      };
+
+      registry.addGlobalMiddleware(captureMw);
+      registry.register({
+        name: "test_idem_tool5",
+        description: "test",
+        inputSchema: z.object({}),
+        riskLevel: "low",
+        handler: async () => ({ success: true }),
+      });
+
+      await registry.execute(
+        "test_idem_tool5",
+        { idempotencyKey: 12345 },
+        { tenantId: "t1", userId: "u1", services: {} },
+      );
+
+      // The non-string key must reach the middleware (fail closed), not be
+      // dropped so idempotency silently becomes a no-op...
+      expect(contextReceived[0].idempotencyKey).toBe(12345);
+      // ...and the envelope must still be stripped from the input so strict
+      // schemas see schema-conformant data.
+      expect(inputsSeenByMiddleware).toEqual([{}]);
+    });
   });
 });
 

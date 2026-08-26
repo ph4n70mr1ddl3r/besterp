@@ -3,8 +3,23 @@
 ## Scope
 Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
  `mcp-tools`, `apps/api`, plus README/`.env.example`/docker/CI) conducted on
- 2026-08-26. This is review 173; rounds 1–172 are documented in earlier
+ 2026-08-26. This is review 174; rounds 1–173 are documented in earlier
  revisions of this file and `CHANGES.md`.
+
+## Findings & Actions (round 174)
+
+### Fixed this round
+
+1. **🔴 Non-string `idempotencyKey` envelope silently disabled idempotency protection — violating the promotion path's own fail-closed contract.**
+   `ToolRegistry.execute()` promotes the envelope from raw input into context under an explicit fail-closed rule: any present key must reach the idempotency middleware so out-of-contract keys are REJECTED, because silently dropping one disables deduplication for that call and a retry could duplicate the write. But the gate required `typeof raw?.idempotencyKey === "string"` — a caller passing a numeric/boolean/object key had its envelope silently stripped by `stripPromotedIdempotencyKey()` while the write executed WITHOUT protection. `validateIdempotencyKey` already validates the key as `unknown` and returns `INVALID_IDEMPOTENCY_KEY` for non-strings, so the safe rejection existed one layer down; the registry simply never forwarded such values to it. Prior tests covered over-length/empty STRING keys only. **Fix:** promote ANY present value (`raw?.idempotencyKey != null`), so non-strings reach the middleware and fail closed. Regression tests added at both layers: registry-level promotion of a numeric key (envelope still stripped from pipeline input for strict schemas) and middleware-level rejection without record creation or handler execution.
+
+### Reviewed but NOT changed (false positives / deferred)
+
+- Re-verified prior rounds' deferred items (deprecated `sanitizeLogOutput` shim,
+  unused `dist/` output, ISO date-only+`Z` acceptance, postinstall `prisma generate || true`,
+  `OPTIONAL_ID_PATTERN` leniency unreachable through McpService) — unchanged.
+
+---
 
 ## Findings & Actions (round 173)
 

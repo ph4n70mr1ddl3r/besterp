@@ -1,5 +1,13 @@
 # BestERP — Security & Architecture Fixes
 
+## Changes Applied (2026-08-26) — Code Review Round 174
+
+### 🔴 Non-string `idempotencyKey` envelope silently disabled idempotency protection (fail-closed contract violated)
+
+**Problem:** `ToolRegistry.execute()` promotes the `idempotencyKey` envelope from raw tool input into the context under an explicit fail-closed contract: any present key must reach the idempotency middleware so out-of-contract keys are REJECTED, because silently dropping one disables deduplication for that call (a retry could duplicate the write). But the promotion gate required `typeof raw?.idempotencyKey === "string"` — a caller passing a numeric (`12345`), boolean, or object key had its envelope silently stripped by `stripPromotedIdempotencyKey()` while the write executed WITHOUT idempotency protection. The idempotency middleware's `validateIdempotencyKey` already validates the key as `unknown` and returns `INVALID_IDEMPOTENCY_KEY` for non-strings, so the safe behavior existed one layer down; the registry just never forwarded such values to it. Existing tests covered over-length and empty STRING keys only.
+
+**Fix:** The promotion condition is now `raw?.idempotencyKey != null` (any present value), so non-string keys reach the middleware and fail closed with `INVALID_IDEMPOTENCY_KEY`. Regression tests added at both layers: registry-level promotion of a numeric key (and envelope still stripped from pipeline input for strict schemas), and middleware-level rejection of a non-string key without record creation or handler execution.
+
 ## Changes Applied (2026-08-26) — Code Review Round 173
 
 ### 🔴 Round-172 strict-schema change silently disabled idempotency for every idempotent tool call
