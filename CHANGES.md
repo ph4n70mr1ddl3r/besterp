@@ -1,5 +1,19 @@
 # BestERP — Security & Architecture Fixes
 
+## Changes Applied (2026-08-26) — Code Review Round 173
+
+### 🔴 Round-172 strict-schema change silently disabled idempotency for every idempotent tool call
+
+**Problem:** Round 172 converted all tool input schemas to `z.strictObject` and added `stripPromotedIdempotencyKey` — but only in the registry's final Zod-validation step, which runs AFTER the idempotency middleware in the pipeline. That middleware computes its input hash via `definition.inputSchema.safeParse(input)` on the RAW pipeline input, which still carried the promoted `idempotencyKey` envelope — an undeclared key that `z.strictObject` rejects. Verified by probe: every idempotent call logged "Skipping idempotency … input failed Zod validation", no record was created, and a second identical call re-executed the handler (`replayed: undefined`) — exactly the duplicate-write risk idempotency exists to prevent, hitting precisely the calls that request protection. Existing middleware tests missed it because they use a permissive mock schema (`safeParse: () => ({success:true})`) rather than a real `z.strictObject`.
+
+**Fix:** `ToolRegistry.execute()` strips the envelope once, before any middleware runs; the final-handler strip remains as belt-and-suspenders for pipelines invoked outside `execute()`. End-to-end probe confirms record creation (`pending` → `completed`) and replay of the second identical call without re-execution. Regression test uses a real `z.strictObject` schema.
+
+### 🟡 `validateOptionalIdentityField` crashed on non-string context values instead of returning its structured error
+
+**Problem:** The guard called `.trim()` BEFORE its own `typeof value !== "string"` check — making the check unreachable for exactly the values it was written to guard. A direct JS caller constructing `ToolContext` with `agentId: 123` threw a raw TypeError out of `execute()`, before any middleware was composed, so nothing converted it into the structured `INVALID_CONTEXT_ID` result.
+
+**Fix:** Type-check first. Explicit `null` optional IDs are now treated as absent, consistent with `JwtStrategy.validateOptionalField` and McpService's `validateOptionalString` (both upstream of this boundary); `normalizedOptionalIdentityField` normalizes null→undefined too. Regression tests added.
+
 ## Changes Applied (2026-08-19) — Code Review Round 172
 
 ### 🔴 Schema/migration drift: 14 indexes declared in `schema.prisma` were never created by any migration

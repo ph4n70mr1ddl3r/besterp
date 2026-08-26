@@ -208,6 +208,20 @@ export class ToolRegistry {
         ? { ...auth.context, idempotencyKey: raw.idempotencyKey }
         : auth.context;
 
+    // Strip the idempotency-key envelope ONCE, BEFORE any middleware runs.
+    // The idempotency middleware computes its input hash via
+    // `definition.inputSchema.safeParse(input)`, and every tool schema is a
+    // z.strictObject that REJECTS the undeclared `idempotencyKey` key — so if
+    // the envelope were still present here, safeParse would fail for every
+    // idempotent call, the middleware would log "input failed Zod validation"
+    // and SKIP deduplication entirely (verified by probe: two identical calls
+    // with the same key both executed the handler; no record was ever
+    // created). Stripping here guarantees every middleware AND the final Zod
+    // validation step see schema-conformant input. The final handler's own
+    // strip remains as belt-and-suspenders in case a pipeline is invoked
+    // through a path that bypasses execute().
+    const pipelineInput = this.stripPromotedIdempotencyKey(raw);
+
     // Check pipeline cache — rebuilt only on register() or addGlobalMiddleware()
     let pipeline = this.pipelineCache.get(name);
     if (!pipeline) {
@@ -275,18 +289,26 @@ export class ToolRegistry {
       this.pipelineCache.set(name, pipeline);
     }
 
-    return pipeline(rawInput, effectiveContext);
+    return pipeline(pipelineInput, effectiveContext);
   }
 
   /**
    * Remove the idempotency-key envelope from raw input before schema
-   * validation. executeTool promotes `idempotencyKey` into the context
+   * validation. execute() promotes `idempotencyKey` into the context
    * (which the idempotency middleware reads — it never reads the input
    * field), and tool input schemas deliberately do not declare it. Strict
    * tool schemas (z.strictObject, matching REST ValidationPipe's
    * forbidNonWhitelisted posture) reject undeclared keys, so the envelope
    * must be stripped first or every idempotent call would fail validation.
-   * Non-object inputs pass through untouched.
+   *
+   * Called from TWO places by design:
+   * - `execute()` strips before the PIPELINE runs, because the idempotency
+   *   middleware hashes the raw input mid-pipeline (before the final Zod
+   *   step) — see the probe-verified regression note there.
+   * - The final handler strips again as defense-in-depth so a pipeline
+   *   composed/invoked outside execute() cannot feed the envelope to Zod.
+   *
+   * Accepts `unknown`; non-object inputs pass through untouched.
    */
   private stripPromotedIdempotencyKey(input: unknown): unknown {
     if (input == null || typeof input !== "object" || Array.isArray(input)) return input;
@@ -370,13 +392,35 @@ export class ToolRegistry {
     field: string,
     maxLength: number,
   ): ToolResult | null {
-    if (value === undefined) return null;
+    // Treat null as absent — mirrors JwtStrategy.validateOptionalField and
+    // McpService's validateOptionalString (both used upstream of this
+    // boundary), so an explicit null never reaches the trim/validate path
+    // below (where it would throw) nor the strict string check.
+    if (value === undefined || value === null) return null;
+    // Type-check BEFORE trim: a direct JS caller constructing a ToolContext
+    // with a non-string agentId/conversationId (e.g. a number) would throw a
+    // raw TypeError on .trim() below. This method runs inside execute()
+    // BEFORE any middleware is composed, so nothing would catch that throw —
+    // it would propagate out of the registry as an unhandled exception
+    // instead of the structured INVALID_CONTEXT_ID result. (The previous
+    // typeof check sat AFTER .trim(), making it unreachable for exactly the
+    // non-string values it was written to guard.)
+    if (typeof value !== "string") {
+      return {
+        success: false,
+        error: {
+          code: "INVALID_CONTEXT_ID",
+          message: `The ${field} is invalid. Contact the system administrator.`,
+          suggestedTools: ["list_available_tools"],
+        },
+      };
+    }
     // Trim before validating — userId above is accepted-after-trim, so
     // rejecting " agent-1" here while accepting " user-1" above was an
     // inconsistency between identity fields of the same shape. Whitespace-only
     // values fall through to the length check and are rejected.
     const trimmed = value.trim();
-    if (typeof trimmed !== "string" || trimmed.length === 0 || trimmed.length > maxLength || !OPTIONAL_ID_PATTERN.test(trimmed)) {
+    if (trimmed.length === 0 || trimmed.length > maxLength || !OPTIONAL_ID_PATTERN.test(trimmed)) {
       return {
         success: false,
         error: {
@@ -397,7 +441,10 @@ export class ToolRegistry {
    * the same trimmed-values-must-propagate contract tenantId/userId follow.
    */
   private normalizedOptionalIdentityField(value: string | undefined): string | undefined {
-    return value === undefined ? undefined : value.trim();
+    // Null is treated as absent by validateOptionalIdentityField (matching
+    // JwtStrategy/McpService), so it must be normalized away here too rather
+    // than crashing on .trim().
+    return value == null ? undefined : value.trim();
   }
 
   /**

@@ -3,10 +3,69 @@
 ## Scope
 Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
  `mcp-tools`, `apps/api`, plus README/`.env.example`/docker/CI) conducted on
- 2026-08-19. This is review 172; rounds 1–171 are documented in earlier
+ 2026-08-26. This is review 173; rounds 1–172 are documented in earlier
  revisions of this file and `CHANGES.md`.
 
-## Findings & Actions (round 172)
+## Findings & Actions (round 173)
+
+### Fixed this round
+
+1. **🔴 The round-172 strict-schema change silently disabled idempotency for every idempotent tool call.**
+   Round 172 converted all tool input schemas to `z.strictObject` and added
+   `stripPromotedIdempotencyKey` — but only in the registry's FINAL Zod-validation step,
+   which runs AFTER the idempotency middleware. That middleware computes its input hash via
+   `definition.inputSchema.safeParse(input)` on the RAW pipeline input, which still carried
+   the promoted `idempotencyKey` envelope — an undeclared key that `z.strictObject` rejects.
+   Verified by probe: every idempotent call logged "Skipping idempotency … input failed Zod
+   validation (1 issue(s))", no record was ever created, a second identical call re-executed
+   the handler (`replayed: undefined`) — exactly the duplicate-write risk idempotency exists
+   to prevent, affecting precisely the calls that request protection. Existing middleware
+   tests missed it because they use a permissive mock schema (`safeParse: () => ({success:true})`)
+   rather than a real `z.strictObject`. **Fix:** `ToolRegistry.execute()` now strips the
+   envelope ONCE, before any middleware runs (the final-handler strip remains as
+   belt-and-suspenders). End-to-end probe confirms: record created → pending → completed,
+   second identical call replays without re-executing. Regression test added with a real
+   `z.strictObject` schema.
+
+2. **🟡 `validateOptionalIdentityField` crashed on non-string context values instead of returning its structured error.**
+   The guard called `.trim()` BEFORE its own `typeof value !== "string"` check, making the
+   check unreachable for exactly the values it was written to guard: a direct JS caller
+   constructing `ToolContext` with `agentId: 123` threw a raw TypeError out of
+   `execute()` — before any middleware was composed, so nothing could convert it to the
+   structured `INVALID_CONTEXT_ID` result. **Fix:** type-check first; also treat explicit
+   `null` optional IDs as absent (consistent with `JwtStrategy.validateOptionalField` and
+   McpService's `validateOptionalString`, both upstream of this boundary), and normalize
+   null→undefined in `normalizedOptionalIdentityField` so it cannot crash either.
+   Regression tests added for non-string `agentId` (structured error) and `null`
+   `conversationId` (treated as absent).
+
+### Reviewed but NOT changed (false positives / deferred)
+
+- **`OPTIONAL_ID_PATTERN`'s claimed leniency (dots, `+`) is unreachable through McpService**:
+  `buildContext` enforces the stricter `TENANT_ID_PATTERN` on userId/agentId/conversationId,
+  so the lenient registry pattern can never accept what buildContext rejects. Conservative
+  direction (stricter boundary wins), documented behavior of both layers retained.
+- **`sanitizeLogOutput` deprecated shim, unused `dist/` output, `ISO_DATE_REGEX` accepting
+  date-only+`Z`, postinstall `prisma generate || true`** — re-verified; unchanged per prior
+  rounds' rationale.
+- **Guards/auth chain, RLS wiring/policies, pagination math, PrismaService tenant-client
+  cache + FinalizationRegistry lifecycle, health probes/Redis RESP framing, rate-limit/CORS/
+  proxy-hop bootstrap order, seed/cleanup guards, audit backpressure accounting,
+  DomainError.toJSON sanitization chain** — re-verified this round; no new issues.
+
+## Test Results (round 173)
+```
+api:       454 passed (17 files)
+shared:    232 passed (4 files)
+mcp-tools: 171 passed (4 files)    (+3 regression tests)
+database:   34 passed, 10 skipped (3 files) (DB-backed; unchanged)
+──────────────────────────────
+Total:     891 passed, 10 skipped
+```
+
+---
+
+## Historical: Findings & Actions (round 172)
 
 ### Fixed this round
 

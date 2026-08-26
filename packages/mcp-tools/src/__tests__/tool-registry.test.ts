@@ -549,6 +549,69 @@ describe("ToolRegistry", () => {
     });
   });
 
+  describe("execute-time envelope stripping and context identity guards", () => {
+    it("should strip the idempotencyKey envelope BEFORE middleware runs (strict-schema hash regression)", async () => {
+      // Regression: the idempotency middleware computes its input hash via
+      // `definition.inputSchema.safeParse(input)`. Since all tool schemas
+      // became z.strictObject, an input still carrying the promoted
+      // `idempotencyKey` envelope failed that parse, the middleware logged
+      // "input failed Zod validation" and SKIPPED deduplication entirely —
+      // every idempotent call silently lost its protection. The envelope
+      // must be stripped in execute() BEFORE the pipeline runs, not only at
+      // the final Zod step.
+      const inputsSeenByMiddleware: unknown[] = [];
+      const captureMw: ToolMiddleware = async (input, ctx, _def, next) => {
+        inputsSeenByMiddleware.push(input);
+        return next(input, ctx);
+      };
+      registry.addGlobalMiddleware(captureMw);
+      registry.register({
+        name: "strict_idem_tool",
+        description: "test",
+        inputSchema: z.strictObject({ name: z.string() }),
+        riskLevel: "low",
+        handler: async () => ({ success: true }),
+      });
+
+      const result = await registry.execute(
+        "strict_idem_tool",
+        { name: "x", idempotencyKey: "key-1" },
+        { tenantId: "t1", userId: "u1", services: {} },
+      );
+
+      expect(result.success).toBe(true);
+      expect(inputsSeenByMiddleware).toEqual([{ name: "x" }]);
+    });
+
+    it("should return INVALID_CONTEXT_ID for a non-string agentId instead of throwing", async () => {
+      // Regression: validateOptionalIdentityField called .trim() BEFORE its
+      // typeof guard, so a direct JS caller constructing a ToolContext with
+      // agentId: 123 crashed with a raw TypeError out of execute() — before
+      // any middleware could convert it to a structured error.
+      registry.register(makeTool("agent_probe_tool"));
+      const result = await registry.execute(
+        "agent_probe_tool",
+        {},
+        { tenantId: "t1", userId: "u1", agentId: 123 as unknown as string, services: {} },
+      );
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.error.code).toBe("INVALID_CONTEXT_ID");
+        expect(result.error.message).toContain("agentId");
+      }
+    });
+
+    it("should not throw for a null conversationId (treated as absent)", async () => {
+      registry.register(makeTool("conv_probe_tool"));
+      const result = await registry.execute(
+        "conv_probe_tool",
+        {},
+        { tenantId: "t1", userId: "u1", conversationId: null as unknown as string, services: {} },
+      );
+      expect(result.success).toBe(true);
+    });
+  });
+
   describe("tool name validation", () => {
     it("should reject non-snake_case tool names with camelCase", () => {
       expect(() => registry.register(makeTool("camelCase"))).toThrow(/snake_case/);
