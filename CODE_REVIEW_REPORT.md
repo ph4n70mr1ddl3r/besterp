@@ -3,8 +3,23 @@
 ## Scope
 Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
  `mcp-tools`, `apps/api`, plus README/`.env.example`/docker/CI) conducted on
- 2026-08-26. This is review 174; rounds 1–173 are documented in earlier
+ 2026-08-26. This is review 175; rounds 1–174 are documented in earlier
  revisions of this file and `CHANGES.md`.
+
+## Findings & Actions (round 175)
+
+### Fixed this round
+
+1. **🟡 Service-layer postal `country` validation diverged from both boundary layers and its own storage sanitizer.**
+   `PartyService.validatePostalAddressSubtype` ran `requireStringField(postalAddress.country, …, MAX_COUNTRY_CODE_LENGTH, …)` on the RAW input before any normalization. Two consequences: (a) an HTML-wrapped code like `"<b>DE</b>"` was rejected as "too long" (raw length 9 > 3) while the identical input succeeded on REST (`PostalAddressDto` Transform strips HTML → uppercases → validates) and MCP (Zod transform) — the exact service-vs-storage divergence fixed for telecom `countryCode` in the round-170 review; (b) a lowercase-but-valid `"de"` failed the uppercase-only `COUNTRY_CODE_ISO_REGEX` even though every other layer normalizes it to `"DE"` (and `sanitizePostalAddress` stores it uppercased). Additionally, a direct caller passing a non-string `country` hit `.trim()` on a number inside `requireStringField` and surfaced as an unstructured TypeError/500 — the same class fixed for person/org fields in round 151. **Fix:** type-guard first, then strip HTML + uppercase BEFORE the length/format checks so validation agrees with both boundaries and the storage sanitizer; emptiness is now checked after stripping so HTML-only values are reported as required. Four regression tests added (HTML-wrapped accepted+stored as "DE", lowercase normalized to "DE", HTML-only rejected as required, non-string rejected with InvalidTypeValueError).
+
+### Reviewed but NOT changed (false positives / deferred)
+
+- Re-verified prior rounds' deferred items (deprecated `sanitizeLogOutput` shim,
+  unused `dist/` output, ISO date-only+`Z` acceptance, postinstall `prisma generate || true`,
+  `OPTIONAL_ID_PATTERN` leniency unreachable through McpService) — unchanged.
+
+---
 
 ## Findings & Actions (round 174)
 

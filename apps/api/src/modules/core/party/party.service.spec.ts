@@ -2245,6 +2245,116 @@ describe("PartyService", () => {
       await expect(partyService.addContactMechanism(input)).rejects.toThrow(/country must be a 2-3 letter ISO 3166-1/);
     });
 
+    function postalMockDb() {
+      let created: Record<string, any> | undefined;
+      const create = vi.fn().mockImplementation(async (args: { data: Record<string, any> }) => {
+        created = args.data;
+        return {
+          contactMechanismId: "contact-123",
+          contactMechanismTypeId: "cmt-postal",
+          contactMechanismType: { name: "POSTAL_ADDRESS", contactMechanismTypeId: "cmt-postal" },
+          postalAddress: { addressLine1: "123 Main St", addressLine2: null, city: "Anytown", stateProvince: null, postalCode: null, country: "US" },
+          telecomNumber: null,
+          emailAddress: null,
+        };
+      });
+      const mockDb = {
+        $transaction: vi.fn().mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => fn({
+          party: { findUnique: vi.fn().mockResolvedValue({ partyId: "12345678-1234-1234-1234-123456789abc" }) },
+          contactMechanism: { create },
+        })),
+        _create: create,
+        _created: () => created,
+      };
+      return mockDb;
+    }
+
+    it("should accept an HTML-wrapped country code, matching the REST/MCP boundaries (round 175)", async () => {
+      // Regression (round 175): requireStringField ran its length cap on the
+      // RAW input, so "<b>DE</b>" (raw length 9 > 3) was rejected as "too
+      // long" at the service while the identical input succeeded on REST
+      // (PostalAddressDto Transform) and MCP (Zod transform) after HTML
+      // stripping — the same service-vs-storage divergence fixed for telecom
+      // countryCode in round 170.
+      mockAdminTypes();
+      const input: AddContactMechanismInput = {
+        tenantId: "tenant-1",
+        partyId: "12345678-1234-1234-1234-123456789abc",
+        contactMechanismType: "POSTAL_ADDRESS",
+        postalAddress: {
+          addressLine1: "123 Main St",
+          city: "Anytown",
+          country: "<b>DE</b>",
+        },
+      };
+      const mockDb = postalMockDb();
+      mockPrismaService.tenantScoped.mockReturnValue(mockDb);
+
+      await expect(partyService.addContactMechanism(input)).resolves.toBeDefined();
+      expect(mockDb._created()?.postalAddress?.create?.country).toBe("DE");
+    });
+
+    it("should accept a lowercase ISO country code and store it uppercased (round 175)", async () => {
+      // Regression (round 175): COUNTRY_CODE_ISO_REGEX is uppercase-only but
+      // both boundary layers and the storage sanitizer (sanitizePostalAddress)
+      // normalize to uppercase before validating/storing. The service checked
+      // the raw trimmed value, rejecting "de" that every other layer accepts
+      // and stores as "DE".
+      mockAdminTypes();
+      const input: AddContactMechanismInput = {
+        tenantId: "tenant-1",
+        partyId: "12345678-1234-1234-1234-123456789abc",
+        contactMechanismType: "POSTAL_ADDRESS",
+        postalAddress: {
+          addressLine1: "123 Main St",
+          city: "Anytown",
+          country: "de",
+        },
+      };
+      const mockDb = postalMockDb();
+      mockPrismaService.tenantScoped.mockReturnValue(mockDb);
+
+      await expect(partyService.addContactMechanism(input)).resolves.toBeDefined();
+      expect(mockDb._created()?.postalAddress?.create?.country).toBe("DE");
+    });
+
+    it("should reject an HTML-only country code as required (strips to empty)", async () => {
+      // Defense-in-depth: an HTML-only value passes typeof/trim but must be
+      // rejected because nothing visible remains after sanitization — the
+      // storage sanitizer would otherwise persist an empty country.
+      const input: AddContactMechanismInput = {
+        tenantId: "tenant-1",
+        partyId: "12345678-1234-1234-1234-123456789abc",
+        contactMechanismType: "POSTAL_ADDRESS",
+        postalAddress: {
+          addressLine1: "123 Main St",
+          city: "Anytown",
+          country: "<i></i>",
+        },
+      };
+
+      await expect(partyService.addContactMechanism(input)).rejects.toThrow(InvalidTypeValueError);
+      await expect(partyService.addContactMechanism(input)).rejects.toThrow(/country is required/);
+    });
+
+    it("should throw InvalidTypeValueError for a non-string country instead of a raw TypeError", async () => {
+      // Mirrors the round-151 type guards on person/org fields: a direct
+      // caller passing country: 12 previously hit .trim() on a number and
+      // surfaced as an unstructured 500 INTERNAL_ERROR.
+      const input = {
+        tenantId: "tenant-1",
+        partyId: "12345678-1234-1234-1234-123456789abc",
+        contactMechanismType: "POSTAL_ADDRESS",
+        postalAddress: {
+          addressLine1: "123 Main St",
+          city: "Anytown",
+          country: 12,
+        },
+      } as any;
+
+      await expect(partyService.addContactMechanism(input)).rejects.toThrow(InvalidTypeValueError);
+    });
+
     it("should throw error for email exceeding max length", async () => {
       const input: AddContactMechanismInput = {
         tenantId: "tenant-1",

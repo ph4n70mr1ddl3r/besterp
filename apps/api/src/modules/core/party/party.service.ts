@@ -964,21 +964,43 @@ export class PartyService {
     if (!postalAddress) {
       throw new MissingSubtypeDataError("postalAddress is required when contactMechanismType is POSTAL_ADDRESS.", { suggestedTools: ["add_contact_mechanism"], context: { contactMechanismType: "POSTAL_ADDRESS", missingField: "postalAddress" } });
     }
-    // requireStringField validates and returns the trimmed value — capture
-    // to avoid re-trimming downstream. The trimmedCountry is used for the
-    // min-length check below; the others are already canonical for
-    // sanitizePostalAddress which operates on the raw object.
     PartyService.requireStringField(postalAddress.addressLine1, "addressLine1", MAX_ADDRESS_LINE_LENGTH, "postal address", "add_contact_mechanism");
     PartyService.requireStringField(postalAddress.city, "city", MAX_CITY_LENGTH, "postal address", "add_contact_mechanism");
-    const trimmedCountry = PartyService.requireStringField(postalAddress.country, "country", MAX_COUNTRY_CODE_LENGTH, "postal address", "add_contact_mechanism");
-    // Enforce the ISO 3166-1 alpha format the Zod schema / DTO document.
-    // requireStringField only guards against empty/oversize, so values like
-    // "1A" or "A-" would otherwise slip past every layer — the service is
-    // the last line of defense for MCP callers that bypass Zod.
-    if (trimmedCountry.length < MIN_COUNTRY_CODE_LENGTH || !COUNTRY_CODE_ISO_REGEX.test(trimmedCountry)) {
+    if (typeof postalAddress.country !== "string") {
       throw new InvalidTypeValueError(
-        `country must be a 2-3 letter ISO 3166-1 alpha-2/3 code (e.g., 'US', 'DE'). Received: '${trimmedCountry}'.`,
-        { suggestedTools: ["add_contact_mechanism"], context: { field: "country", received: trimmedCountry, minLength: MIN_COUNTRY_CODE_LENGTH } }
+        "country must be a string.",
+        { suggestedTools: ["add_contact_mechanism"], context: { field: "country", received: typeof postalAddress.country } }
+      );
+    }
+    // Normalize BEFORE the length/format checks so validation agrees with
+    // (a) both boundary layers — the REST PostalAddressDto country Transform
+    // and the MCP Zod schema both strip → uppercase → validate — and
+    // (b) the storage sanitizer (sanitizePostalAddress), which uppercases.
+    // Previously requireStringField ran its length cap on the RAW input, so
+    // an HTML-wrapped code like "<b>DE</b>" (raw length 9 > 3) was rejected
+    // as "too long" here while the identical input succeeded on REST/MCP
+    // after sanitization, and a lowercase-but-valid "de" failed the
+    // uppercase-only COUNTRY_CODE_ISO_REGEX even though every other layer
+    // normalizes it to "DE" — the same service-vs-storage divergence fixed
+    // for telecom countryCode in the round-170 review. The emptiness check
+    // runs AFTER stripping so an HTML-only value ("<i></i>") is reported as
+    // required rather than accepted past this gate.
+    const normalizedCountry = stripHtmlTags(postalAddress.country.trim()).toUpperCase();
+    if (normalizedCountry.length === 0) {
+      throw new InvalidTypeValueError(
+        "country is required for postal address",
+        { suggestedTools: ["add_contact_mechanism"], context: { parentType: "postal address", field: "country" } }
+      );
+    }
+    PartyService.requireMaxLength(normalizedCountry, "country", MAX_COUNTRY_CODE_LENGTH, "add_contact_mechanism");
+    // Enforce the ISO 3166-1 alpha format the Zod schema / DTO document.
+    // The length checks above only guard against empty/oversize, so values
+    // like "1A" or "A-" would otherwise slip past every layer — the service
+    // is the last line of defense for callers that bypass the boundaries.
+    if (normalizedCountry.length < MIN_COUNTRY_CODE_LENGTH || !COUNTRY_CODE_ISO_REGEX.test(normalizedCountry)) {
+      throw new InvalidTypeValueError(
+        `country must be a 2-3 letter ISO 3166-1 alpha-2/3 code (e.g., 'US', 'DE'). Received: '${sanitizeForLogOutput(postalAddress.country.trim())}'.`,
+        { suggestedTools: ["add_contact_mechanism"], context: { field: "country", received: normalizedCountry, minLength: MIN_COUNTRY_CODE_LENGTH } }
       );
     }
     // Type-guard optional fields before requireMaxLength — a direct caller

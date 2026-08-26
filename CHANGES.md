@@ -1,5 +1,13 @@
 # BestERP — Security & Architecture Fixes
 
+## Changes Applied (2026-08-26) — Code Review Round 175
+
+### 🟡 Service-layer postal `country` validation diverged from boundaries and storage sanitizer
+
+**Problem:** `PartyService.validatePostalAddressSubtype` validated the RAW trimmed country against the length cap and the uppercase-only ISO regex before any normalization. An HTML-wrapped code like `"<b>DE</b>"` was rejected as too long at the service while the same input succeeded on REST/MCP after their strip→uppercase transforms (round-170 divergence class), and lowercase `"de"` failed the uppercase-only regex although every other layer normalizes and stores it uppercased. A non-string `country` also crashed with a raw TypeError instead of a structured domain error.
+
+**Fix:** Type-guard first, then strip HTML + normalize case BEFORE the length/format checks; emptiness is checked post-strip so HTML-only values are rejected as required. Four regression tests added.
+
 ## Changes Applied (2026-08-26) — Code Review Round 174
 
 ### 🔴 Non-string `idempotencyKey` envelope silently disabled idempotency protection (fail-closed contract violated)
