@@ -3,21 +3,27 @@
 ## Scope
 Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
  `mcp-tools`, `apps/api`, plus README/`.env.example`/docker/CI) conducted on
- 2026-08-26. This is review 175; rounds 1–174 are documented in earlier
+ 2026-08-26. This is review 176; rounds 1–175 are documented in earlier
  revisions of this file and `CHANGES.md`.
 
-## Findings & Actions (round 175)
+## Findings & Actions (round 176)
 
 ### Fixed this round
 
-1. **🟡 Service-layer postal `country` validation diverged from both boundary layers and its own storage sanitizer.**
-   `PartyService.validatePostalAddressSubtype` ran `requireStringField(postalAddress.country, …, MAX_COUNTRY_CODE_LENGTH, …)` on the RAW input before any normalization. Two consequences: (a) an HTML-wrapped code like `"<b>DE</b>"` was rejected as "too long" (raw length 9 > 3) while the identical input succeeded on REST (`PostalAddressDto` Transform strips HTML → uppercases → validates) and MCP (Zod transform) — the exact service-vs-storage divergence fixed for telecom `countryCode` in the round-170 review; (b) a lowercase-but-valid `"de"` failed the uppercase-only `COUNTRY_CODE_ISO_REGEX` even though every other layer normalizes it to `"DE"` (and `sanitizePostalAddress` stores it uppercased). Additionally, a direct caller passing a non-string `country` hit `.trim()` on a number inside `requireStringField` and surfaced as an unstructured TypeError/500 — the same class fixed for person/org fields in round 151. **Fix:** type-guard first, then strip HTML + uppercase BEFORE the length/format checks so validation agrees with both boundaries and the storage sanitizer; emptiness is now checked after stripping so HTML-only values are reported as required. Four regression tests added (HTML-wrapped accepted+stored as "DE", lowercase normalized to "DE", HTML-only rejected as required, non-string rejected with InvalidTypeValueError).
+1. **🟡 `searchParties` pagination clamp propagated NaN/non-integers into Prisma's `take`/`skip`, surfacing as an opaque 500 instead of a structured error.**
+   The clamp `Math.min(Math.max(limit, MIN_SEARCH_LIMIT), MAX_SEARCH_LIMIT)` does not normalize garbage: `Math.max(NaN, 1)` is `NaN` and non-integers pass straight through. Both boundary layers reject these (REST `@IsInt/@Min/@Max`, MCP `z.number().int()`), but the service's documented posture is "last line of defense for direct/internal callers," and every other out-of-contract field there produces a structured `InvalidTypeValueError` (the round-151/159 typeof guards). Instead, a direct caller passing `limit: NaN` or `limit: 12.5` handed Prisma a garbage `take`/`skip`; Prisma's client-side ValidationError carries no P-code, so `handleTransactionError` re-threw it unchanged → REST 500 / MCP INTERNAL_ERROR with no actionable detail. **Fix:** `requireIntegerPageParam` validates finite+integer before clamping; the received value is stringified in context when non-finite because `JSON.stringify(NaN)` → null would erase the diagnostic. Four regression tests added (NaN limit/offset, non-integer limit, Infinity offset).
+
+2. **🟡 `attachAuditWarning` wiped Map/Set/Date payloads and flattened class instances on the backpressure-drop path.**
+   The function exists specifically to attach the audit-gap warning WITHOUT corrupting the payload, and its comment enumerated string/number/array corruption cases — but its plain-object gate was only `typeof === "object" && !Array.isArray`. A `Map` or `Set` or `Date` slipped through to the spread branch, where spreading yields `{}` (none of them own enumerable properties) so the ENTIRE tool payload was replaced by `{ _auditWarning }` — silent data loss precisely when the audit row was already dropped. Class instances survived as own-property bags but lost their prototype/methods. **Fix:** a prototype-based `isPlainObjectData` discriminator (same convention as truncate.ts/crypto.ts) routes every non-plain object to the wrapper branch `{ _auditWarning, data }` alongside the original; null-prototype objects still merge. Five regression tests added (Map entries preserved by identity, Set/Date wrapped, class instance keeps methods, null-prototype object merges).
 
 ### Reviewed but NOT changed (false positives / deferred)
 
 - Re-verified prior rounds' deferred items (deprecated `sanitizeLogOutput` shim,
   unused `dist/` output, ISO date-only+`Z` acceptance, postinstall `prisma generate || true`,
   `OPTIONAL_ID_PATTERN` leniency unreachable through McpService) — unchanged.
+- Full pass over main.ts bootstrap ordering, health-service Redis probe (RESP framing,
+  cache/inflight dedup), queue module fail-closed env guards, rls-extension proxy traps,
+  request-id validation, public-scope boot scan, cleanup-script advisory lock — no new issues.
 
 ---
 

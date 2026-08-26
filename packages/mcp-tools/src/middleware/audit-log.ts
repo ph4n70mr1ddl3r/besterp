@@ -22,14 +22,19 @@ const AUDIT_DROP_WARNING =
  *
  * Object-spreading a non-object result would corrupt it: spreading a string
  * produces numeric index keys (`"ok"` → `{ 0: "o", 1: "k" }`), a number is
- * silently discarded, and an array's indices become keys. Only merge the
- * warning INTO a plain-object result; for scalar/array results wrap the
- * warning alongside the original value so the agent sees both the warning and
- * the uncorrupted data.
+ * silently discarded, an array's indices become keys, and — the case the
+ * original object/array check missed — spreading a Map, Set, or Date yields
+ * `{}` because none of them own enumerable properties, so the ENTIRE payload
+ * was replaced by `{ _auditWarning }` with no trace of the tool's data. Class
+ * instances survive the spread as own-property bags but lose their prototype
+ * and methods. Only merge the warning INTO a PLAIN-object result (prototype
+ * is Object.prototype or null); every other value routes to the wrapper
+ * alongside the original so the agent sees both the warning and the
+ * uncorrupted data.
  */
 export function attachAuditWarning(result: ToolResult, warning = AUDIT_DROP_WARNING): ToolResult {
   const data = result.data;
-  if (data != null && typeof data === "object" && !Array.isArray(data)) {
+  if (data != null && isPlainObjectData(data)) {
     // Spread the tool's own fields first, then set `_auditWarning` LAST so a
     // tool result that happens to carry its own `_auditWarning` key cannot
     // overwrite the injected audit-gap warning — the compliance-critical
@@ -40,6 +45,19 @@ export function attachAuditWarning(result: ToolResult, warning = AUDIT_DROP_WARN
     return { ...result, data: { _auditWarning: warning, data } };
   }
   return { ...result, data: { _auditWarning: warning } };
+}
+
+/**
+ * True for plain objects only (prototype Object.prototype or null) — the same
+ * discriminator truncate.ts's normaliseContainer and crypto.ts's sortObject
+ * use before recursing into user-shaped objects. Arrays, Map/Set/Date/class
+ * instances fail this check and take the non-destructive wrapper path in
+ * attachAuditWarning instead of being spread into a bare object literal.
+ */
+function isPlainObjectData(data: unknown): data is Record<string, unknown> {
+  if (typeof data !== "object" || data === null || Array.isArray(data)) return false;
+  const proto = Object.getPrototypeOf(data);
+  return proto === Object.prototype || proto === null;
 }
 
 /**

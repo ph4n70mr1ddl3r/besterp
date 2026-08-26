@@ -1518,6 +1518,27 @@ describe("PartyService", () => {
       expect(ok.items).toEqual([]);
       expect(ok.total).toBe(0);
     });
+
+    it("should reject NaN / non-integer limit and offset with a structured error (round 176)", async () => {
+      // Regression: the clamp Math.min(Math.max(limit, 1), 500) does NOT
+      // normalize garbage — Math.max(NaN, 1) === NaN and non-integers pass
+      // through — so a direct/internal caller bypassing the DTO/Zod integer
+      // validation handed Prisma a NaN/non-integer take/skip. Prisma's
+      // client-side ValidationError carries no P-code, so it escaped as an
+      // opaque 500 INTERNAL_ERROR instead of the structured InvalidTypeValueError.
+      await expect(
+        partyService.searchParties({ tenantId: "tenant-1", limit: Number.NaN })
+      ).rejects.toThrow(/limit must be a finite integer/);
+      await expect(
+        partyService.searchParties({ tenantId: "tenant-1", offset: Number.NaN })
+      ).rejects.toThrow(/offset must be a finite integer/);
+      await expect(
+        partyService.searchParties({ tenantId: "tenant-1", limit: 12.5 })
+      ).rejects.toThrow(/limit must be a finite integer/);
+      await expect(
+        partyService.searchParties({ tenantId: "tenant-1", offset: Infinity })
+      ).rejects.toThrow(/offset must be a finite integer/);
+    });
   });
 
   describe("addPartyRole edge cases", () => {

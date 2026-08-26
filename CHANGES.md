@@ -1,5 +1,19 @@
 # BestERP — Security & Architecture Fixes
 
+## Changes Applied (2026-08-26) — Code Review Round 176
+
+### 🟡 `searchParties` pagination clamp propagated NaN/non-integers into Prisma `take`/`skip`
+
+**Problem:** The clamp `Math.min(Math.max(limit, MIN_SEARCH_LIMIT), MAX_SEARCH_LIMIT)` does not normalize garbage: `Math.max(NaN, 1)` is `NaN` and non-integers pass through. Both boundary layers reject these (REST `@IsInt/@Min/@Max`, MCP `z.number().int()`), but the service is the last line of defense for direct/internal callers — and every other out-of-contract field there produces a structured `InvalidTypeValueError` (round-151/159 typeof-guard class). A direct caller passing `limit: NaN` or `limit: 12.5` instead handed Prisma a garbage `take`/`skip`; Prisma's client-side ValidationError carries no P-code, so `handleTransactionError` re-threw it unchanged and the caller saw an opaque 500 / MCP INTERNAL_ERROR.
+
+**Fix:** New `requireIntegerPageParam` validates finite+integer before clamping (received value stringified in the error context when non-finite, since `JSON.stringify(NaN)` → null would erase it). Four regression tests added (NaN limit/offset, non-integer limit, Infinity offset).
+
+### 🟡 `attachAuditWarning` wiped Map/Set/Date payloads and flattened class instances on the backpressure-drop path
+
+**Problem:** The function exists to attach the audit-gap warning WITHOUT corrupting the payload, but its plain-object gate was only `typeof === "object" && !Array.isArray`. A `Map`, `Set`, or `Date` slipped through to the spread branch, where spreading yields `{}` (none of them own enumerable properties) — the ENTIRE tool payload was silently replaced by `{ _auditWarning }` exactly when the durable audit row had already been dropped. Class instances survived as own-property bags but lost their prototype/methods.
+
+**Fix:** A prototype-based `isPlainObjectData` discriminator (same convention as truncate.ts's normaliseContainer / crypto.ts's sortObject) routes every non-plain object to the non-destructive wrapper branch `{ _auditWarning, data }`; null-prototype objects still merge. Five regression tests added (Map preserved by identity with entries intact, Set/Date wrapped, class-instance methods retained, null-prototype merges).
+
 ## Changes Applied (2026-08-26) — Code Review Round 175
 
 ### 🟡 Service-layer postal `country` validation diverged from boundaries and storage sanitizer

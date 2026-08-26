@@ -1030,6 +1030,47 @@ describe("Audit Log Middleware", () => {
       expect(out.data).toMatchObject({ value: 1 });
       expect((out.data as Record<string, unknown>)._auditWarning).toContain("audit");
     });
+
+    it("does NOT wipe a Map result (round 176)", () => {
+      // Regression: the plain-object check was only typeof+!Array.isArray,
+      // so a Map reached the spread branch. Spreading a Map yields {} (Maps
+      // own no enumerable properties), silently REPLACING the payload with
+      // { _auditWarning } on the rare backpressure-drop path.
+      const map = new Map([["a", 1], ["b", 2]]);
+      const out = attachAuditWarning({ success: true, data: map });
+      expect(out.data).toEqual({ _auditWarning: expect.stringContaining("audit"), data: map });
+      expect((out.data as { data: Map<string, number> }).data.get("a")).toBe(1);
+    });
+
+    it("does NOT wipe a Set or Date result (round 176)", () => {
+      const set = new Set([1, 2, 3]);
+      const date = new Date("2026-01-01T00:00:00Z");
+      const setOut = attachAuditWarning({ success: true, data: set });
+      const dateOut = attachAuditWarning({ success: true, data: date });
+      expect(setOut.data).toEqual({ _auditWarning: expect.stringContaining("audit"), data: set });
+      expect(dateOut.data).toEqual({ _auditWarning: expect.stringContaining("audit"), data: date });
+    });
+
+    it("preserves the prototype of class-instance results instead of flattening them", () => {
+      class Result {
+        constructor(public value: number) {}
+        double(): number { return this.value * 2; }
+      }
+      const instance = new Result(21);
+      const out = attachAuditWarning({ success: true, data: instance });
+      // The wrapper keeps the original reference — spread would have produced
+      // a bare own-property bag ({ value: 21 }) with double() lost.
+      expect((out.data as { data: Result }).data).toBe(instance);
+      expect((out.data as { data: Result }).data.double()).toBe(42);
+    });
+
+    it("still merges into null-prototype objects", () => {
+      const data = Object.create(null) as Record<string, unknown>;
+      data.value = 1;
+      const out = attachAuditWarning({ success: true, data });
+      expect(out.data).toMatchObject({ value: 1 });
+      expect((out.data as Record<string, unknown>)._auditWarning).toContain("audit");
+    });
   });
 
   it("should log successful tool execution", async () => {
