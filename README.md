@@ -2,7 +2,7 @@
 
 A modern, AI-powered ERP system with multi-tenant architecture, built with NestJS and Prisma.
 
-## 🚀 Features
+## Features
 
 - **Multi-tenant architecture** with Row-Level Security (RLS)
 - **AI Agent Integration** via MCP (Model Context Protocol) tools
@@ -11,7 +11,7 @@ A modern, AI-powered ERP system with multi-tenant architecture, built with NestJ
 - **Type-safe** with TypeScript and Zod validation
 - **Production-ready** with security best practices
 
-## 📁 Project Structure
+## Project Structure
 
 ```
 besterp/
@@ -30,33 +30,33 @@ besterp/
 └── docs/                     # Documentation
 ```
 
-## 🔧 Recent Improvements
+## Recent Improvements
 
-### ✅ Enhanced Error Handling
+### Enhanced Error Handling
 - **Structured domain errors** with machine-readable codes
 - **Comprehensive input validation** with detailed error messages
 - **Context-aware error handling** with suggested next actions
 - **Consistent error patterns** across all services
 
-### 🛡️ Security Improvements  
+### Security Improvements
 - **Enhanced tenant validation** with SQL injection protection
 - **Input sanitization** for all user-provided data
 - **Comprehensive error context** for debugging
 - **Defense-in-depth** validation at multiple levels
 
-### 🧪 Expanded Test Coverage
+### Expanded Test Coverage
 - **Unit tests for business logic** (PartyService, MCP tools)
 - **Integration tests** for middleware and tool registry
 - **Database validation tests** for RLS functionality
 - **Crypto utility tests** for data integrity
 
-### 📊 Performance Optimizations
+### Performance Optimizations
 - **Query optimization** with better indexing strategies
 - **Pagination handling** with proper limits and offsets
 - **Efficient data validation** with early rejection
 - **Transaction management** for data consistency
 
-## 🛠️ Development
+## Development
 
 ### Running Tests
 
@@ -97,7 +97,7 @@ npm run db:migrate
 npm run db:seed
 ```
 
-## 🏗️ Architecture
+## Architecture
 
 ### Multi-Tenant Security
 - **Row-Level Security (RLS)** enforced at database level
@@ -117,7 +117,7 @@ npm run db:seed
 - **Event-driven architecture** for domain events
 - **Repository pattern** for data access abstraction
 
-## 🔐 Security Features
+## Security Features
 
 ### Input Validation
 - **Zod schemas** for all API inputs
@@ -137,7 +137,7 @@ npm run db:seed
 - **Audit logging** tracks all data modifications
 - **Idempotency keys** prevent duplicate operations
 
-## 🚀 Getting Started
+## Getting Started
 
 1. **Install dependencies**
    ```bash
@@ -191,7 +191,7 @@ npm run db:seed
    curl http://localhost:3000/api/health
    ```
 
-## 📚 API Documentation
+## API Documentation
 
 ### Party Management
 - `POST /api/parties` - Create new party (person/organization)
@@ -209,7 +209,7 @@ npm run db:seed
 - `add_party_role` - Assign roles to parties
 - `add_contact_mechanism` - Add contact information
 
-## 🤝 Contributing
+## Contributing
 
 1. Fork the repository
 2. Create a feature branch
@@ -217,6 +217,6 @@ npm run db:seed
 4. Run the test suite
 5. Submit a pull request
 
-## 📄 License
+## License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
