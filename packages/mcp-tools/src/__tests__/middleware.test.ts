@@ -1748,6 +1748,25 @@ describe("Error Handler Middleware", () => {
     expect(ctx.detail).toBe("failed at [DATABASE_URL]");
   });
 
+  it("should preserve array context values with element-level redaction", async () => {
+    // Regression: sanitizeContextValueForToolResult previously dropped array
+    // values (e.g. { issues: [...] }) because it treated them as non-objects.
+    // A DomainError whose context carries an array must reflect it to the
+    // agent so the structured data is not silently lost.
+    const domainError = new DomainError(
+      "ARRAY_CONTEXT",
+      "Has array data",
+      { context: { issues: ["issue-a", "issue-b"] } as any },
+    );
+
+    const result = await errorHandlerMiddleware({}, mockContext, mockDefinition, throwingNext(domainError));
+
+    expect(result.success).toBe(false);
+    const ctx = result.error?.context as Record<string, unknown>;
+    expect(ctx).toBeDefined();
+    expect(ctx.issues).toEqual(["issue-a", "issue-b"]);
+  });
+
   it("should handle Prisma unique constraint violations", async () => {
     const prismaError: any = new Error("Unique constraint violation");
     prismaError.code = "P2002";

@@ -153,9 +153,18 @@ export function normalizeISODateTimeToUTC(value: string): string {
  * semantics (see normalizeISODateTimeToUTC). Use this instead of
  * `new Date(value)` for any user-supplied date so storage does not depend
  * on the server's timezone.
+ *
+ * Belt-and-suspenders NaN guard: callers are expected to validate the input
+ * via isValidISODate before invoking this function, but the guard catches
+ * misbehaving callers (or future regression) so an invalid Date cannot leak
+ * into storage or downstream logic.
  */
 export function parseISODateTimeAsUTC(value: string): Date {
-  return new Date(normalizeISODateTimeToUTC(value));
+  const date = new Date(normalizeISODateTimeToUTC(value));
+  if (Number.isNaN(date.getTime())) {
+    throw new Error(`Invalid ISO date string: "${value}".`);
+  }
+  return date;
 }
 
 /**

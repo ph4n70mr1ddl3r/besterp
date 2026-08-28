@@ -50,7 +50,11 @@ const MAX_ERROR_LOG_LINE_LENGTH = 500;
 function sanitizeContextValueForToolResult(value: unknown): Record<string, unknown> | undefined {
   const sanitized = redactSensitiveFieldValues(value);
   if (sanitized === null || sanitized === undefined) return undefined;
-  if (typeof sanitized === "object" && sanitized !== null && !Array.isArray(sanitized)) {
+  // Preserve arrays so structured data (e.g. { issues: [...] }) is reflected
+  // to the agent instead of being silently dropped. Element-level redaction
+  // (URLs/paths/secrets) is handled by redactSensitiveFieldValues below.
+  if (Array.isArray(sanitized)) return sanitized as unknown as Record<string, unknown>;
+  if (typeof sanitized === "object" && sanitized !== null) {
     const obj = sanitized as Record<string, unknown>;
     if (Object.keys(obj).length === 0) return undefined;
     return obj;

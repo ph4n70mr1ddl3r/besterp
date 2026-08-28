@@ -463,7 +463,13 @@ export class ToolRegistry {
   }> {
     return Array.from(this.tools.values()).map((entry) => ({
       name: entry.definition.name,
-      description: entry.definition.description.split("\n").find((s) => s.trim().length > 0) ?? entry.definition.description,
+      // Return the full description (including multi-line content) so agents
+      // using discovery see the complete documentation, not just the first
+      // line. The tool's input schema carries the full description via
+      // entry.definition.description, so the discovery surface should not
+      // artificially truncate it — that information is available to agents
+      // that read the full schema but would be lost on a bare discovery pass.
+      description: entry.definition.description,
       riskLevel: entry.definition.riskLevel,
       entity: entry.definition.entity,
       tags: entry.definition.tags ? [...entry.definition.tags] : undefined,

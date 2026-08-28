@@ -514,10 +514,10 @@ describe("ToolRegistry", () => {
   });
 
   describe("getDiscoveryInfo", () => {
-    it("should return first-line description for each tool", () => {
+    it("should return the full multi-line description for each tool", () => {
       registry.register({
         name: "tool_a",
-        description: "First line.\nSecond line.",
+        description: "First line.\nSecond line of details.",
         inputSchema: z.object({}),
         riskLevel: "low",
         entity: "party",
@@ -527,7 +527,8 @@ describe("ToolRegistry", () => {
 
       const info = registry.getDiscoveryInfo();
       expect(info).toHaveLength(1);
-      expect(info[0].description).toBe("First line.");
+      // Full description preserved (was previously truncated to first line).
+      expect(info[0].description).toBe("First line.\nSecond line of details.");
       expect(info[0].entity).toBe("party");
       expect(info[0].tags).toEqual(["create"]);
     });

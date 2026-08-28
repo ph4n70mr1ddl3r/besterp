@@ -61,13 +61,14 @@ export class DomainError extends Error {
       // crafted entry cannot reach durable sinks verbatim.
       suggestedTools: this.suggestedTools?.map((t) => sanitizeForLogOutput(t)),
       // Redact values stored under sensitive-named keys (password, apiKey, …)
-      // and sanitize every string leaf before serialization. toJSON is the
-      // canonical structured serializer used for audit logs, idempotency
-      // records, and any other context where errors are serialized — so a secret
-      // attached under a sensitive-named context key must not reach those
-      // durable sinks verbatim. This keeps toJSON consistent with the REST
-      // DomainExceptionFilter.sanitizeContext path and the MCP
-      // redactSensitiveFields surface.
+      // AND run every string leaf through sanitizeForLogOutput so that
+      // durable sinks (audit logs, idempotency records) cannot persist
+      // absolute filesystem paths, connection strings, or other
+      // attacker-influenceable prose verbatim. The REST
+      // DomainExceptionFilter scrubs both surfaces; toJSON is the canonical
+      // serializer for durable sinks, so a string carrying e.g.
+      // `/opt/app/node_modules/.env` under a benign key would previously
+      // reach those sinks unredacted while the REST surface would strip it.
       // redactSensitiveFieldValues is idempotent; the filter also redacts,
       // making this defense-in-depth for the durable-sink serialization path.
       context: redactSensitiveFieldValues(this.context),

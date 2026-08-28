@@ -408,6 +408,24 @@ describe("DomainError subclasses", () => {
     expect(json.message).toContain("[DATABASE_URL]");
   });
 
+  it("DomainError toJSON sanitizes string values under benign context keys (durable-sink leak)", () => {
+    // Context string leaves under non-sensitive keys were previously returned
+    // verbatim by toJSON — redactSensitiveFieldValues only scrubs secrets under
+    // sensitive-named keys. A string carrying an absolute filesystem path or
+    // connection string under a benign key would leak into durable sinks
+    // (audit logs, idempotency records) that serialize via toJSON. The shared
+    // redactor now runs every string leaf through sanitizeForLogOutput, so
+    // these durable sinks are consistent with the REST error-filter surface.
+    const error = new DomainError("TEST", "msg", {
+      context: { path: "/opt/app/node_modules/.env", url: "postgres://u:p@host/db" },
+    });
+    const json = error.toJSON();
+    expect(json.context.path).toContain("[PATH]");
+    expect(json.context.path).not.toContain("/opt/app/node_modules/.env");
+    expect(json.context.url).toContain("[DATABASE_URL]");
+    expect(json.context.url).not.toContain("postgres://u:p@host/db");
+  });
+
   it("isDomainError returns true for DomainError instances", () => {
     expect(isDomainError(new DomainError("C", "m"))).toBe(true);
     expect(isDomainError(new EntityNotFoundError("m"))).toBe(true);
@@ -482,6 +500,14 @@ describe("isValidISODate", () => {
     expect(normalizeISODateTimeToUTC("2024-06-15T00:00:00Z")).toBe("2024-06-15T00:00:00Z");
     expect(normalizeISODateTimeToUTC("2024-06-15T00:00:00.500")).toBe("2024-06-15T00:00:00.500Z");
     expect(normalizeISODateTimeToUTC("2024-06-15T00:00:00+02:00")).toBe("2024-06-15T00:00:00+02:00");
+  });
+
+  it("throws on an invalid string that the regex allows but Date.parse rejects (belt-and-suspenders)", () => {
+    // parseISODateTimeAsUTC is called after isValidISODate in production paths,
+    // but callers that bypass the guard must not get an invalid Date — the
+    // function itself enforces the NaN contract so storage never receives a
+    // NaT (Not-a-Time) value.
+    expect(() => parseISODateTimeAsUTC("2024-13-45")).toThrow("Invalid ISO date");
   });
 });
 
