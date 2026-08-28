@@ -21,8 +21,8 @@ besterp/
 │   │   ├── mcp/tools/           # MCP tool definitions
 │   │   ├── auth/               # Authentication & authorization
 │   │   ├── prisma/             # Database service
-│   │   └── common/             # Shared utilities
-│   └── test/                  # Test files
+│   │   ├── common/             # Shared utilities
+│   │   └── *.spec.ts           # Unit/integration tests (17 files)
 ├── packages/
 │   ├── shared/                # Shared utilities (errors, crypto, validation)
 │   ├── database/             # Database utilities & RLS extension

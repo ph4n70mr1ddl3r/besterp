@@ -1,10 +1,10 @@
 # Code Review Report
 
 ## Scope
-Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
- `mcp-tools`, `apps/api`, plus README/`.env.example`/docker/CI) conducted on
- 2026-08-26. This is review 176; rounds 1–175 are documented in earlier
- revisions of this file and `CHANGES.md`.
+ Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
+  `mcp-tools`, `apps/api`, plus README/`.env.example`/docker/CI) conducted on
+  2026-08-27. This is review 177; rounds 1–176 are documented in earlier
+  revisions of this file and `CHANGES.md`.
 
 ## Findings & Actions (round 176)
 
