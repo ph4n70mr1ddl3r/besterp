@@ -3,8 +3,47 @@
 ## Scope
  Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
  `mcp-tools`, `apps/api`, plus README/`.env.example`/docker/CI) conducted on
- 2026-08-28. This is review 180; rounds 1–179 are documented in earlier
+ 2026-08-28. This is review 181; rounds 1–180 are documented in earlier
  revisions of this file and `CHANGES.md`.
+
+## Findings & Actions (round 181)
+
+### Fixed this round
+
+None — all prior findings resolved. Comprehensive pass over the entire codebase
+confirmed no new issues.
+
+### Reviewed but NOT changed (false positives / deferred)
+
+- Re-verified all prior rounds' deferred items (deprecated `sanitizeLogOutput` shim,
+  unused `dist/` output, ISO date-only+`Z` acceptance, postinstall `prisma
+  generate || true`, `OPTIONAL_ID_PATTERN` leniency unreachable through
+  McpService) — unchanged.
+- Full-file re-read of all production source files: `party.service.ts` (1508 lines),
+  `party.dto.ts` (496 lines), `domain-exception.filter.ts` (231 lines),
+  `error-handler.ts` (272 lines), `idempotency.ts` (639 lines), `audit-log.ts` (448 lines),
+  `tool-registry.ts` (598 lines), `sanitize.ts` (735 lines), `crypto.ts` (428 lines),
+  `validation.ts` (203 lines), `tenant.ts` (173 lines), `truncate.ts` (361 lines),
+  `main.ts` (561 lines), `prisma.service.ts` (519 lines), `jwt.strategy.ts` (162 lines),
+  `tenant.guard.ts` (133 lines), `public-scope.ts` (93 lines), `bootstrap-config.ts` (164 lines),
+  `queue.module.ts` (195 lines), `health.service.ts` (536 lines), `discovery-tools.ts` (190 lines),
+  `party-tools.ts` (584 lines), `schema/tool-definition.ts`, `middleware/index.ts`,
+  `rls-extension.ts` (310 lines), `cleanup-expired-idempotency.ts`, `seed.ts`,
+  `schema.prisma` (285 lines), `package.json`, `.npmrc`, `tsconfig.base.json`,
+  `eslint.config.js`, `.github/workflows/ci.yml`, `docker/docker-compose.yml`,
+  `README.md`, `.env.example`.
+- grep confirms: zero stray `console.log` / `console.error` / `console.warn` in
+  production source (only `Logger` instances used); zero `TODO`/`FIXME`/`HACK`
+  comments; zero bare `as any` casts in production source (only in test files);
+  one intentional `@ts-expect-error` in `tool-registry.test.ts` (documented).
+- Lint ✓ · typecheck ✓ · build ✓ · `npm audit`: 3 high (deepmerge-ts transitive via
+  `@prisma/config` — pinned to 8.0.2 via override; nested transitive dep tracked
+  for prisma upgrade).
+- Test counts verified: api 459 (17 files), shared 234 (4 files), mcp-tools 179
+  (4 files), database 34 passed + 10 skipped (3 files). Total 906 passed, 10 skipped.
+  Matches report.
+
+---
 
 ## Findings & Actions (round 180)
 
@@ -203,6 +242,17 @@
   cache + FinalizationRegistry lifecycle, health probes/Redis RESP framing, rate-limit/CORS/
   proxy-hop bootstrap order, seed/cleanup guards, audit backpressure accounting,
   DomainError.toJSON sanitization chain** — re-verified this round; no new issues.
+
+## Test Results (round 181)
+```
+api:       459 passed (17 files)    (unchanged)
+shared:    234 passed (4 files)     (unchanged)
+mcp-tools: 179 passed (4 files)    (unchanged)
+database:   34 passed, 10 skipped (3 files) (DB-backed; unchanged)
+──────────────────────────────
+Total:     906 passed, 10 skipped
+```
+lint ✓ · typecheck ✓ · build ✓ · `npm audit`: 3 high (deepmerge-ts transitive via `@prisma/config` — pinned to 8.0.2 via override; nested transitive dep tracked for prisma upgrade)
 
 ## Test Results (round 180)
 ```
