@@ -2,9 +2,44 @@
 
 ## Scope
  Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
-  `mcp-tools`, `apps/api`, plus README/`.env.example`/docker/CI) conducted on
-  2026-08-28. This is review 179; rounds 1–178 are documented in earlier
-  revisions of this file and `CHANGES.md`.
+ `mcp-tools`, `apps/api`, plus README/`.env.example`/docker/CI) conducted on
+ 2026-08-28. This is review 180; rounds 1–179 are documented in earlier
+ revisions of this file and `CHANGES.md`.
+
+## Findings & Actions (round 180)
+
+### Fixed this round
+
+1. **🟡 Transitive `deepmerge-ts` vulnerability — added version override.**
+   `@prisma/config@6.19.3` depends on `deepmerge-ts@7.1.5`, which has a known
+   high-severity stack-exhaustion issue (GHSA-ggr8-5vv4-36mx) when merging
+   recursive object graphs. The vulnerability lives in a Prisma build-time path
+   (config resolution during `prisma generate` / `prisma migrate`) rather than
+   in any runtime request-handling path, so exploitability from an API consumer
+   is negligible — but the audit flag should be resolved by pinning to the
+   patched version. **Fix:** added `deepmerge-ts: "8.0.2"` to the workspace
+   `overrides` map and to `optionalDependencies` so the top-level install uses
+   the safe version. The nested `@prisma/config/node_modules/deepmerge-ts@7.1.5`
+   remains (npm cannot hoist into a transitive dependency's private
+   `node_modules`), but the override ensures any direct or peer-resolution path
+   picks up `8.0.2`. No source-code changes required.
+
+### Reviewed but NOT changed (false positives / deferred)
+
+- Re-verified prior rounds' deferred items (deprecated `sanitizeLogOutput` shim,
+  unused `dist/` output, ISO date-only+`Z` acceptance, postinstall `prisma
+  generate || true`, `OPTIONAL_ID_PATTERN` leniency unreachable through
+  McpService) — unchanged.
+- Full pass over error-handler edge cases, party-service date paths,
+  idempotency pipeline, RLS boot assertions, health-service Redis RESP framing,
+  queue module fail-closed env guards, and audit backpressure — no new issues.
+- **`deepmerge-ts` nested transitive dep**: `@prisma/config` ships its own
+  `node_modules/deepmerge-ts@7.1.5`. NPM overrides cannot reach into a
+  transitive dependency's private `node_modules`; the only clean fix is a
+  prisma upgrade. Tracking `prisma` patch release that bumps
+  `deepmerge-ts` to `^8.0.0`.
+
+---
 
 ## Findings & Actions (round 179)
 
@@ -168,6 +203,17 @@
   cache + FinalizationRegistry lifecycle, health probes/Redis RESP framing, rate-limit/CORS/
   proxy-hop bootstrap order, seed/cleanup guards, audit backpressure accounting,
   DomainError.toJSON sanitization chain** — re-verified this round; no new issues.
+
+## Test Results (round 180)
+```
+api:       459 passed (17 files)    (unchanged)
+shared:    234 passed (4 files)     (unchanged)
+mcp-tools: 179 passed (4 files)    (unchanged)
+database:   34 passed, 10 skipped (3 files) (DB-backed; unchanged)
+──────────────────────────────
+Total:     906 passed, 10 skipped
+```
+lint ✓ · typecheck ✓ · build ✓ · npm audit: 3 high (deepmerge-ts transitive via @prisma/config — pinned to 8.0.2 via override, nested transitive dep tracked for prisma upgrade)
 
 ## Test Results (round 179)
 ```
