@@ -54,12 +54,16 @@ function sanitizeContextValueForToolResult(value: unknown): unknown {
   // to the agent instead of being silently dropped. Element-level redaction
   // (URLs/paths/secrets) is handled by redactSensitiveFieldValues below.
   if (Array.isArray(sanitized)) return sanitized;
-  if (typeof sanitized === "object" && sanitized !== null) {
+  // Preserve primitive values (string, number, boolean) so structured
+  // context data like { count: 42 } or { status: "active" } reaches the
+  // agent instead of being silently dropped. Only plain objects are
+  // destructured; everything else passes through.
+  if (typeof sanitized === "object") {
     const obj = sanitized as Record<string, unknown>;
     if (Object.keys(obj).length === 0) return undefined;
     return obj;
   }
-  return undefined;
+  return sanitized;
 }
 
 function handleDomainError(error: DomainError, definition: { name: string }): ToolResult {

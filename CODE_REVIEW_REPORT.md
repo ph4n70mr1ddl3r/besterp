@@ -3,8 +3,73 @@
 ## Scope
  Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
   `mcp-tools`, `apps/api`, plus README/`.env.example`/docker/CI) conducted on
-  2026-08-27. This is review 177; rounds 1–176 are documented in earlier
+  2026-08-28. This is review 179; rounds 1–178 are documented in earlier
   revisions of this file and `CHANGES.md`.
+
+## Findings & Actions (round 179)
+
+### Fixed this round
+
+1. **🟡 `sanitizeContextValueForToolResult` dropped primitive context values silently.**
+   The function widened its return type to `unknown` in round 178 but still returned `undefined` for every non-object, non-array value — including strings, numbers, and booleans. A `DomainError` whose context carried `{ count: 42 }` or `{ active: true }` would have those scalars silently dropped from the agent-facing error, leaving the AI with no insight into the structured data that caused the failure. **Fix:** the function now passes through primitives unchanged (after redaction), so only `null`/`undefined` values are dropped. Regression test added asserting scalar context values reach the agent intact.
+
+2. **🟡 `requireValidDate` always suggested `["create_party"]` regardless of call site.**
+   `parseFromDate` (called from `addPartyRole`) invoked `requireValidDate(trimmed, "fromDate")` without passing an explicit `suggestedTools`, so every invalid `fromDate` — whether encountered during party creation or role assignment — suggested `create_party` as the recovery action. For a role-assignment failure, the correct suggestion is `add_party_role` (the agent already knows how to create a party; it needs to fix the role's date). **Fix:** `requireValidDate` now accepts an optional `suggestedTools` parameter (default `["create_party"]`); `parseFromDate` passes `["add_party_role"]` so fromDate errors in the role path suggest the right tool. No behavioural change for `birthDate`/`registrationDate` (still default to `["create_party"]`).
+
+### Reviewed but NOT changed (false positives / deferred)
+
+- Re-verified prior rounds' deferred items (deprecated `sanitizeLogOutput` shim,
+  unused `dist/` output, ISO date-only+`Z` acceptance, postinstall `prisma generate || true`,
+  `OPTIONAL_ID_PATTERN` leniency unreachable through McpService) — unchanged.
+- Full pass over error-handler edge cases, party-service date paths, idempotency pipeline — no new issues.
+
+---
+
+## Findings & Actions (round 178)
+
+### Fixed this round
+
+1. **🟡 `sanitizeContextValueForToolResult` dropped array context values.**
+   The function previously checked `typeof sanitized === "object" && sanitized !== null && !Array.isArray(sanitized)`, meaning arrays were treated as non-objects and fell through to the `undefined` return. A `DomainError` whose context carried e.g. `{ issues: ["issue-a", "issue-b"] }` would have the `issues` array silently dropped from the agent-facing error. **Fix:** arrays are now preserved and returned directly; element-level redaction is handled by `redactSensitiveFieldValues` before the array check. Regression test added.
+
+2. **🟡 `getDiscoveryInfo` truncated tool descriptions to the first line.**
+   `ToolRegistry.getDiscoveryInfo()` split each tool's description on `\n` and returned only the first non-empty line. Agents using the discovery surface lost all multi-line documentation — the full tool schema carried the complete description, but the bare discovery listing did not. **Fix:** `getDiscoveryInfo` now returns `entry.definition.description` verbatim (full multi-line text). One regression test updated to assert the full description is returned.
+
+3. **🟡 `DomainError.toJSON()` did not sanitize string leaves under benign context keys.**
+   `toJSON()` ran `redactSensitiveFieldValues(this.context)`, which scrubs secrets under sensitive-named keys (password, apiKey, …) but left string values under benign keys (e.g. `path`, `url`, `detail`) unredacted. Since `toJSON()` is the canonical serializer for durable sinks (audit logs, idempotency records), a crafted string carrying an absolute filesystem path or connection string under a benign key would reach those sinks verbatim — inconsistent with the REST `DomainExceptionFilter` surface, which sanitizes every string leaf. **Fix:** `toJSON()` now runs every string leaf in the context through `sanitizeForLogOutput`, making durable sinks consistent with the REST error-filter surface. Regression test added.
+
+4. **🟡 `parseISODateTimeAsUTC` could return an invalid Date for regex-allowed but unparseable input.**
+   Callers are expected to validate via `isValidISODate` first, but a misbehaving caller (or future regression) that passed e.g. `"2024-13-45"` (matches the regex loosely but produces NaN from `Date.parse`) would store an Invalid Date. **Fix:** `parseISODateTimeAsUTC` now checks `Number.isNaN(date.getTime())` and throws `"Invalid ISO date string: …"` as a belt-and-suspenders guard. Regression test added.
+
+### Reviewed but NOT changed (false positives / deferred)
+
+- Re-verified prior rounds' deferred items (deprecated `sanitizeLogOutput` shim,
+  unused `dist/` output, ISO date-only+`Z` acceptance, postinstall `prisma generate || true`,
+  `OPTIONAL_ID_PATTERN` leniency unreachable through McpService) — unchanged.
+
+---
+
+## Findings & Actions (round 177)
+
+### Documentation fixes only
+
+1. **🟢 Added missing round 175 findings to `CODE_REVIEW_REPORT.md`.**
+   Round 177's commit had updated the report but the round 175 section was omitted; it is now present. Test counts updated to current state (api 459, mcp-tools 177).
+
+2. **🟢 Removed emoji headers from `README.md` for consistency.**
+   Section headers (`## 🚀 Features`, `## 📁 Project Structure`, etc.) used emojis inconsistently with the rest of the document's plain headers. All emoji prefixes removed for a uniform look.
+
+3. **🟢 Fixed stale `Scope` header in `CODE_REVIEW_REPORT.md`.**
+   The scope section still referenced "review 176" despite the round 177 commit; updated to "review 177" with the correct date (2026-08-27).
+
+4. **🟢 Corrected README project structure.**
+   The project structure diagram listed a non-existent `test/` directory; corrected to reflect that tests live alongside source in `src/` (the `*.spec.ts` pattern is the established convention). Added trailing newline to `README.md`.
+
+### Reviewed but NOT changed (false positives / deferred)
+
+- No source-code changes in this round; all items were documentation and report housekeeping.
+
+---
 
 ## Findings & Actions (round 176)
 
@@ -103,6 +168,17 @@
   cache + FinalizationRegistry lifecycle, health probes/Redis RESP framing, rate-limit/CORS/
   proxy-hop bootstrap order, seed/cleanup guards, audit backpressure accounting,
   DomainError.toJSON sanitization chain** — re-verified this round; no new issues.
+
+## Test Results (round 179)
+```
+api:       459 passed (17 files)    (unchanged)
+shared:    234 passed (4 files)     (unchanged)
+mcp-tools: 179 passed (4 files)     (+1: primitive context preservation)
+database:   34 passed, 10 skipped (3 files) (DB-backed; unchanged)
+──────────────────────────────
+Total:     906 passed, 10 skipped
+```
+lint ✓ · typecheck ✓ · build ✓
 
 ## Test Results (round 176)
 ```

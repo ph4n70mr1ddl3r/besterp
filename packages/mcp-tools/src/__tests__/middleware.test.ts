@@ -1767,6 +1767,25 @@ describe("Error Handler Middleware", () => {
     expect(ctx.issues).toEqual(["issue-a", "issue-b"]);
   });
 
+  it("should preserve primitive context values (string, number, boolean)", async () => {
+    // Regression guard: sanitizeContextValueForToolResult previously returned
+    // undefined for every non-object value, silently dropping useful scalar
+    // context like { count: 42 } or { active: true } from agent-facing errors.
+    const domainError = new DomainError(
+      "PRIMITIVE_CONTEXT",
+      "Has scalar data",
+      { context: { count: 42, active: true, label: "test" } as any },
+    );
+
+    const result = await errorHandlerMiddleware({}, mockContext, mockDefinition, throwingNext(domainError));
+
+    expect(result.success).toBe(false);
+    const ctx = result.error?.context as Record<string, unknown>;
+    expect(ctx.count).toBe(42);
+    expect(ctx.active).toBe(true);
+    expect(ctx.label).toBe("test");
+  });
+
   it("should handle Prisma unique constraint violations", async () => {
     const prismaError: any = new Error("Unique constraint violation");
     prismaError.code = "P2002";

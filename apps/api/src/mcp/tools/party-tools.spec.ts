@@ -5,6 +5,8 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { ToolRegistry, type ToolContext } from "@besterp/mcp-tools";
 import { registerPartyTools } from "./party-tools.js";
 
+const TEST_PARTY_UUID = "550e8400-e29b-41d4-a716-446655440000";
+
 // ─── Mock PartyService ─────────────────────────────────────────
 
 function createMockPartyService() {
@@ -65,13 +67,13 @@ describe("Party MCP Tools", () => {
   describe("getPartyService (internal guard)", () => {
     it("should throw InvalidTypeValueError when partyService is missing", async () => {
       await expect(
-        registry.execute("get_party", { partyId: "550e8400-e29b-41d4-a716-446655440000" }, createContext())
+        registry.execute("get_party", { partyId: TEST_PARTY_UUID }, createContext())
       ).rejects.toThrow("PartyService not available");
     });
 
     it("should throw InvalidTypeValueError when partyService is not an object", async () => {
       await expect(
-        registry.execute("get_party", { partyId: "550e8400-e29b-41d4-a716-446655440000" }, createContext({ partyService: "not-an-object" }))
+        registry.execute("get_party", { partyId: TEST_PARTY_UUID }, createContext({ partyService: "not-an-object" }))
       ).rejects.toThrow("PartyService not available");
     });
   });
@@ -229,7 +231,7 @@ describe("Party MCP Tools", () => {
 
   describe("get_party", () => {
     it("should get a party with valid UUID", async () => {
-      const uuid = "550e8400-e29b-41d4-a716-446655440000";
+      const uuid = TEST_PARTY_UUID;
       const result = await registry.execute("get_party", { partyId: uuid }, createContext({ partyService: mockPartyService }));
 
       expect(result.success).toBe(true);
@@ -286,7 +288,7 @@ describe("Party MCP Tools", () => {
       // before schema validation, so a strict schema must not reject it.
       const result = await registry.execute(
         "get_party",
-        { partyId: "550e8400-e29b-41d4-a716-446655440000", idempotencyKey: "idem-strict-1" },
+        { partyId: TEST_PARTY_UUID, idempotencyKey: "idem-strict-1" },
         createContext({ partyService: mockPartyService }),
       );
 
@@ -395,7 +397,7 @@ describe("Party MCP Tools", () => {
 
   describe("add_party_role", () => {
     it("should add a role with valid input", async () => {
-      const uuid = "550e8400-e29b-41d4-a716-446655440000";
+      const uuid = TEST_PARTY_UUID;
       const result = await registry.execute("add_party_role", {
         partyId: uuid,
         roleType: "Customer",
@@ -424,7 +426,7 @@ describe("Party MCP Tools", () => {
     });
 
     it("should reject empty roleType", async () => {
-      const uuid = "550e8400-e29b-41d4-a716-446655440000";
+      const uuid = TEST_PARTY_UUID;
       const result = await registry.execute("add_party_role", {
         partyId: uuid,
         roleType: "",
@@ -436,7 +438,7 @@ describe("Party MCP Tools", () => {
 
   describe("add_contact_mechanism", () => {
     it("should add email with valid input", async () => {
-      const uuid = "550e8400-e29b-41d4-a716-446655440000";
+      const uuid = TEST_PARTY_UUID;
       const result = await registry.execute("add_contact_mechanism", {
         partyId: uuid,
         contactMechanismType: "EMAIL_ADDRESS",
@@ -448,7 +450,7 @@ describe("Party MCP Tools", () => {
     });
 
     it("should add postal address with valid input", async () => {
-      const uuid = "550e8400-e29b-41d4-a716-446655440000";
+      const uuid = TEST_PARTY_UUID;
       const result = await registry.execute("add_contact_mechanism", {
         partyId: uuid,
         contactMechanismType: "POSTAL_ADDRESS",
@@ -463,7 +465,7 @@ describe("Party MCP Tools", () => {
     });
 
     it("should add telecom number with valid input", async () => {
-      const uuid = "550e8400-e29b-41d4-a716-446655440000";
+      const uuid = TEST_PARTY_UUID;
       const result = await registry.execute("add_contact_mechanism", {
         partyId: uuid,
         contactMechanismType: "TELECOM_NUMBER",
@@ -477,7 +479,7 @@ describe("Party MCP Tools", () => {
     });
 
     it("should reject EMAIL_ADDRESS without emailAddress field", async () => {
-      const uuid = "550e8400-e29b-41d4-a716-446655440000";
+      const uuid = TEST_PARTY_UUID;
       const result = await registry.execute("add_contact_mechanism", {
         partyId: uuid,
         contactMechanismType: "EMAIL_ADDRESS",
@@ -489,7 +491,7 @@ describe("Party MCP Tools", () => {
     });
 
     it("should reject POSTAL_ADDRESS without postalAddress field", async () => {
-      const uuid = "550e8400-e29b-41d4-a716-446655440000";
+      const uuid = TEST_PARTY_UUID;
       const result = await registry.execute("add_contact_mechanism", {
         partyId: uuid,
         contactMechanismType: "POSTAL_ADDRESS",
@@ -500,7 +502,7 @@ describe("Party MCP Tools", () => {
     });
 
     it("should reject invalid contactMechanismType", async () => {
-      const uuid = "550e8400-e29b-41d4-a716-446655440000";
+      const uuid = TEST_PARTY_UUID;
       const result = await registry.execute("add_contact_mechanism", {
         partyId: uuid,
         contactMechanismType: "INVALID_TYPE",
@@ -534,7 +536,7 @@ describe("Party MCP Tools", () => {
     });
 
     it("should include nextActions in get_party response", async () => {
-      const uuid = "550e8400-e29b-41d4-a716-446655440000";
+      const uuid = TEST_PARTY_UUID;
       const result = await registry.execute("get_party", { partyId: uuid }, createContext({ partyService: mockPartyService }));
 
       expect(result.nextActions).toBeDefined();
@@ -552,7 +554,7 @@ describe("Party MCP Tools", () => {
     // agree. The pre-transform .max() is removed; the pipe's .max() still enforces
     // the cap on the canonical (trimmed) value.
     it("should accept a whitespace-padded country code that trims within max length", async () => {
-      const uuid = "550e8400-e29b-41d4-a716-446655440000";
+      const uuid = TEST_PARTY_UUID;
       const result = await registry.execute("add_contact_mechanism", {
         partyId: uuid,
         contactMechanismType: "POSTAL_ADDRESS",
@@ -572,7 +574,7 @@ describe("Party MCP Tools", () => {
     });
 
     it("should accept a whitespace-padded countryCode that trims within max length", async () => {
-      const uuid = "550e8400-e29b-41d4-a716-446655440000";
+      const uuid = TEST_PARTY_UUID;
       const result = await registry.execute("add_contact_mechanism", {
         partyId: uuid,
         contactMechanismType: "TELECOM_NUMBER",
@@ -592,7 +594,7 @@ describe("Party MCP Tools", () => {
     });
 
     it("should strip HTML from an HTML-wrapped countryCode and accept the sanitized value (round-170 REST parity)", async () => {
-      const uuid = "550e8400-e29b-41d4-a716-446655440000";
+      const uuid = TEST_PARTY_UUID;
       // Regression: the countryCode transform only trimmed, so "+44<script>…</script>"
       // was rejected on MCP while the identical input was accepted on REST
       // (sanitized to "+44"). The transform now strips HTML like every other
@@ -616,7 +618,7 @@ describe("Party MCP Tools", () => {
     });
 
     it("should normalize an HTML-only countryCode to undefined (service defaults to +1)", async () => {
-      const uuid = "550e8400-e29b-41d4-a716-446655440000";
+      const uuid = TEST_PARTY_UUID;
       const result = await registry.execute("add_contact_mechanism", {
         partyId: uuid,
         contactMechanismType: "TELECOM_NUMBER",
@@ -633,7 +635,7 @@ describe("Party MCP Tools", () => {
     });
 
     it("should accept a whitespace-padded email that trims within max length", async () => {
-      const uuid = "550e8400-e29b-41d4-a716-446655440000";
+      const uuid = TEST_PARTY_UUID;
       const result = await registry.execute("add_contact_mechanism", {
         partyId: uuid,
         contactMechanismType: "EMAIL_ADDRESS",
@@ -649,7 +651,7 @@ describe("Party MCP Tools", () => {
     });
 
     it("should still reject a trimmed value that exceeds max length", async () => {
-      const uuid = "550e8400-e29b-41d4-a716-446655440000";
+      const uuid = TEST_PARTY_UUID;
       // "USAX" is 4 chars after trim — exceeds MAX_COUNTRY_CODE_LENGTH (3)
       const result = await registry.execute("add_contact_mechanism", {
         partyId: uuid,
