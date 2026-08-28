@@ -45,6 +45,17 @@ describe("stripHtmlTags", () => {
     expect(stripHtmlTags("<style")).toBe("");
   });
 
+  it("removes incomplete opening tags with multiple letters", () => {
+    // stripIncompleteOpeningTags requires 2+ letters after < (the regex is
+    // <[a-zA-Z]{2,}[^>]*), so single-letter tags like "<a" are left intact
+    // (they are not valid HTML open tags anyway). Multi-letter incomplete
+    // tags must be stripped.
+    expect(stripHtmlTags("<script malicious")).toBe("");
+    expect(stripHtmlTags("<style bad")).toBe("");
+    expect(stripHtmlTags("text <div more")).toBe("text  more");
+    expect(stripHtmlTags("<ab")).toBe("");
+  });
+
   it("handles deeply nested encoded strings with iteration cap", () => {
     const deepNested = "&amp;".repeat(5) + "lt;x&gt;";
     // After decoding all &amp; → & and stripping <x>, the leftover & chars remain

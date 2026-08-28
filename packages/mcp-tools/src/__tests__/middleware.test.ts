@@ -1651,7 +1651,12 @@ describe("Error Handler Middleware", () => {
     expect(result.error?.suggestedTools).toEqual(["test_tool", "list_available_tools"]);
   });
 
-  it("should omit context when domain error carries no context", async () => {
+  it("should preserve empty context (not drop it to undefined)", async () => {
+    // Regression guard (round 182): sanitizeContextValueForToolResult
+    // previously returned undefined for empty objects, silently dropping
+    // context that existed but carried no keys. An empty context must now
+    // be reflected to the agent so the caller can distinguish "no context"
+    // from "empty context".
     const domainError = new DomainError(
       "NO_CONTEXT",
       "No context provided",
@@ -1661,7 +1666,7 @@ describe("Error Handler Middleware", () => {
 
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe("NO_CONTEXT");
-    expect(result.error?.context).toBeUndefined();
+    expect(result.error?.context).toEqual({});
   });
 
   it("should include context when domain error carries context", async () => {
@@ -2160,5 +2165,27 @@ describe("Error Handler Middleware", () => {
     // Depth 20 must be preserved (the cap is exclusive: depth > 20 → "[Too deep]")
     expect(ctx).toBeDefined();
     expect(ctx!.level0.level1.level2.level3.level4.level5.level6.level7.level8.level9.level10.level11.level12.level13.level14.level15.level16.level17.level18.level19).toBe("deep-value");
+  });
+
+  it("should preserve an empty object context instead of dropping it", async () => {
+    // Regression guard (round 182): sanitizeContextValueForToolResult
+    // previously returned undefined for empty objects, silently dropping
+    // context that existed but carried no keys. The audit-log path
+    // preserves empty objects, so the two surfaces were inconsistent. An
+    // empty context must now be reflected to the agent so the caller can
+    // distinguish "no context" from "empty context".
+    const domainError = new DomainError(
+      "EMPTY_CONTEXT",
+      "Has empty context",
+      { context: {} as any },
+    );
+
+    const result = await errorHandlerMiddleware({}, mockContext, mockDefinition, throwingNext(domainError));
+
+    expect(result.success).toBe(false);
+    const ctx = result.error?.context;
+    // Empty object must be preserved, not dropped to undefined.
+    expect(ctx).toBeDefined();
+    expect(ctx).toEqual({});
   });
 });

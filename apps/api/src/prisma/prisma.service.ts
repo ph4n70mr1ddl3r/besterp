@@ -40,13 +40,16 @@ export class PrismaService
     // or removeTenantClient — any unexpected operation here must not throw an
     // unhandled exception that aborts the shutdown sequence.
     if (this._destroyed) return;
-    // Race condition guard: between the old client being GC'd and this callback
-    // firing, a NEW client for the same tenantId may have been created and cached.
-    // Only delete the cache entry if the WeakRef for this tenantId is actually
-    // dead — if a new client exists, its WeakRef would still be alive.
     try {
       const ref = this.tenantClientCache.get(tenantId);
+      // Double-check that the ref is still the current one in the cache and
+      // still dead. Between the initial get() and deref(), a new client for
+      // the same tenant may have been created and a new WeakRef stored, so
+      // the old dead ref would pass the first deref() check but the cache
+      // entry would now point to a live client. Deleting then would remove
+      // the live client from the cache and wipe its LRU timestamp.
       if (ref && ref.deref()) return;
+      if (this.tenantClientCache.get(tenantId) !== ref) return;
       this.tenantClientCache.delete(tenantId);
       this.unregisterTokens.delete(tenantId);
       this.lastAccessed.delete(tenantId);

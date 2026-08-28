@@ -867,10 +867,21 @@ export class PartyService {
             { suggestedTools: ["add_party_role"], context: { partyId } }
           );
         }
-        return tx.partyRole.findUnique({
+        const role = await tx.partyRole.findUnique({
           where: { partyRoleId: inserted.partyRoleId },
           include: { roleType: true },
-        }) as Promise<Prisma.PartyRoleGetPayload<{ include: { roleType: true } }>>;
+        });
+        // The row was just inserted in this same transaction, so it must exist.
+        // A missing row here would indicate a schema-level bug (e.g. a trigger
+        // or partition pruning that removed the row), so surface it as a clear
+        // error rather than silently returning null.
+        if (!role) {
+          throw new InvalidTypeValueError(
+            "Unexpected state: inserted role not found after successful ON CONFLICT DO NOTHING.",
+            { suggestedTools: ["add_party_role"], context: { partyId } }
+          );
+        }
+        return role;
       }, { timeout: TX_TIMEOUT_MS });
     } catch (err) {
       if (err instanceof ConcurrencyRetryError) {

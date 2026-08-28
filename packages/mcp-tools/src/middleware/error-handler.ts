@@ -54,14 +54,12 @@ function sanitizeContextValueForToolResult(value: unknown): unknown {
   // to the agent instead of being silently dropped. Element-level redaction
   // (URLs/paths/secrets) is handled by redactSensitiveFieldValues below.
   if (Array.isArray(sanitized)) return sanitized;
-  // Preserve primitive values (string, number, boolean) so structured
-  // context data like { count: 42 } or { status: "active" } reaches the
-  // agent instead of being silently dropped. Only plain objects are
-  // destructured; everything else passes through.
+  // Preserve empty objects so the agent sees that context was provided even
+  // when it carries no keys — dropping them silently made it impossible to
+  // distinguish "no context" from "empty context", and the audit-log path
+  // preserves empty objects so the two surfaces were inconsistent.
   if (typeof sanitized === "object") {
-    const obj = sanitized as Record<string, unknown>;
-    if (Object.keys(obj).length === 0) return undefined;
-    return obj;
+    return sanitized as Record<string, unknown>;
   }
   return sanitized;
 }
