@@ -47,13 +47,13 @@ function extractPrismaError(error: unknown): { code: string | undefined; meta: {
 /** Maximum length for a single error message in the error handler stderr log. */
 const MAX_ERROR_LOG_LINE_LENGTH = 500;
 
-function sanitizeContextValueForToolResult(value: unknown): Record<string, unknown> | undefined {
+function sanitizeContextValueForToolResult(value: unknown): unknown {
   const sanitized = redactSensitiveFieldValues(value);
   if (sanitized === null || sanitized === undefined) return undefined;
   // Preserve arrays so structured data (e.g. { issues: [...] }) is reflected
   // to the agent instead of being silently dropped. Element-level redaction
   // (URLs/paths/secrets) is handled by redactSensitiveFieldValues below.
-  if (Array.isArray(sanitized)) return sanitized as unknown as Record<string, unknown>;
+  if (Array.isArray(sanitized)) return sanitized;
   if (typeof sanitized === "object" && sanitized !== null) {
     const obj = sanitized as Record<string, unknown>;
     if (Object.keys(obj).length === 0) return undefined;
@@ -78,7 +78,7 @@ function handleDomainError(error: DomainError, definition: { name: string }): To
       suggestedTools: (error.suggestedTools?.length ?? 0) > 0
         ? [...error.suggestedTools].map((t) => sanitizeForLogOutput(t))
         : [definition.name, "list_available_tools"],
-      context: sanitizeContextValueForToolResult(error.context),
+      context: sanitizeContextValueForToolResult(error.context) as Record<string, unknown> | undefined,
     },
   };
 }

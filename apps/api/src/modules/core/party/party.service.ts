@@ -776,7 +776,7 @@ export class PartyService {
     }
     // Reuse requireValidDate for ISO 8601 format validation to avoid
     // duplicating the regex + Date.parse logic used for birthDate/registrationDate.
-    PartyService.requireValidDate(trimmed, "fromDate");
+    PartyService.requireValidDate(trimmed, "fromDate", ["add_party_role"]);
     // parseISODateTimeAsUTC so a naive datetime resolves to UTC midnight
     // (same instant as the date-only form) regardless of the host timezone.
     const parsed = parseISODateTimeAsUTC(trimmed);
@@ -1424,18 +1424,18 @@ export class PartyService {
    *  Also enforces a 30-char max length (matching the Zod schema's
    *  .max(30) on birthDate/registrationDate) so an oversized
    *  string that bypasses Zod still gets caught here. */
-  private static requireValidDate(value: string, field: string): void {
+  private static requireValidDate(value: string, field: string, suggestedTools: string[] = ["create_party"]): void {
     if (typeof value !== "string") {
       throw new InvalidTypeValueError(
         `${field} must be a non-empty ISO 8601 date string.`,
-        { suggestedTools: ["create_party"], context: { field, received: value, type: typeof value } }
+        { suggestedTools, context: { field, received: value, type: typeof value } }
       );
     }
     const trimmed = value.trim();
     if (trimmed.length === 0) {
       throw new InvalidTypeValueError(
         `${field} must be a non-empty ISO 8601 date string.`,
-        { suggestedTools: ["create_party"], context: { field, received: value } }
+        { suggestedTools, context: { field, received: value } }
       );
     }
     // Defense-in-depth: cap the raw input length so that an absurdly long
@@ -1445,7 +1445,7 @@ export class PartyService {
     if (trimmed.length > MAX_DATE_STRING_LENGTH) {
       throw new InvalidTypeValueError(
         `${field} is too long (${trimmed.length} characters, max ${MAX_DATE_STRING_LENGTH}).`,
-        { suggestedTools: ["create_party"], context: { field, length: trimmed.length, maxLength: MAX_DATE_STRING_LENGTH } }
+        { suggestedTools, context: { field, length: trimmed.length, maxLength: MAX_DATE_STRING_LENGTH } }
       );
     }
     // Validate the TRIMMED value so a date with surrounding whitespace
@@ -1456,7 +1456,7 @@ export class PartyService {
     if (!isValidISODate(trimmed)) {
       throw new InvalidTypeValueError(
         `${field} is not a valid ISO 8601 date. Received: ${sanitizeForLogOutput(value)}.`,
-        { suggestedTools: ["create_party"], context: { field, invalidValue: value } }
+        { suggestedTools, context: { field, invalidValue: value } }
       );
     }
   }
