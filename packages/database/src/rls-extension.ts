@@ -67,10 +67,12 @@ class LruCache<K, V> {
  * Enhanced tenant ID validation — delegates to validateTenantId for shared logic.
  * Returns the trimmed tenant ID or throws InvalidTenantIdError.
  *
- * Kept as a separate export so callers that need the RLS-extension import path
- * can validate without reaching into @besterp/shared directly. Functionally
- * identical to validateTenantId since that function already throws
- * InvalidTenantIdError for every failure path.
+ * Retained as an explicit named export so rls-extension.test.ts can import it
+ * directly from this module (the test suite validates the RLS-extension path,
+ * not the shared-path, and splitting the test between two modules would add
+ * import noise for negligible coverage gain). Functionally identical to
+ * validateTenantId since that function already throws InvalidTenantIdError
+ * for every failure path.
  */
 export function validateTenantIdEnhanced(tenantId: string): string {
   return validateTenantId(tenantId);
