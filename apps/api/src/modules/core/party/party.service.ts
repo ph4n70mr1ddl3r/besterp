@@ -543,10 +543,15 @@ export class PartyService {
     // lone exception. RLS still protects the read if the context-setting path
     // regresses, but a single app-level filter removes the cross-tenant read
     // risk entirely should that ever happen.
-    const party = await db.party.findUnique({
-      where: { partyId, tenantId: trimmedTenantId },
-      include: PartyService.PARTY_INCLUDE,
-    });
+    let party: PartyWithIncludes | null;
+    try {
+      party = await db.party.findUnique({
+        where: { partyId, tenantId: trimmedTenantId },
+        include: PartyService.PARTY_INCLUDE,
+      });
+    } catch (err) {
+      throw PartyService.handleTransactionError(err, "get_party", "get_party", "party");
+    }
 
     if (!party) {
       throw new EntityNotFoundError(
@@ -888,7 +893,7 @@ export class PartyService {
         // Retry the transaction — addPartyRole's bounded retry loop handles it.
         throw err;
       }
-      throw PartyService.handleTransactionError(err, "add_party_role", "get_party", "party role");
+      throw PartyService.handleTransactionError(err, "add_party_role", "add_party_role", "party role");
     }
   }
 

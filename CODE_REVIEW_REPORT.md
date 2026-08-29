@@ -3,8 +3,58 @@
 ## Scope
  Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
  `mcp-tools`, `apps/api`, plus README/`.env.example`/docker/CI) conducted on
- 2026-08-29. This is review 183; rounds 1–182 are documented in earlier
+ 2026-08-29. This is review 184; rounds 1–183 are documented in earlier
  revisions of this file and `CHANGES.md`.
+
+## Findings & Actions (round 184)
+
+### Fixed this round
+
+1. **🟡 `getParty` in `party.service.ts` lacked the try/catch + `handleTransactionError` wrapper that every other DB-call site uses.**
+   `createPartyTransaction`, `searchParties`, `addPartyRoleTransaction`, and
+   `addContactMechanismTransaction` all wrap their Prisma calls in
+   `try/catch` and re-throw via `handleTransactionError`, which converts raw
+   Prisma errors (connection failures, unexpected P-codes) into structured
+   `DomainError` responses with actionable `suggestedTools`. `getParty` called
+   `db.party.findUnique` directly — a Prisma connection failure would surface
+   as an unhandled exception (opaque 500) instead of a structured error.
+   **Fix:** wrapped the query in `try/catch` with `handleTransactionError(err, "get_party", "get_party", "party")`, matching the pattern used by every other service method.
+
+2. **🟡 `addPartyRoleTransaction` passed `"get_party"` as `suggestTool` to `handleTransactionError`.**
+   Every other call passes the same tool name for both `retryTool` and
+   `suggestTool` (e.g. `"create_party", "create_party"`). The
+   `add_party_role` path passed `"add_party_role", "get_party"`, so a P2002
+   duplicate-role error surfaced `suggestedTools: ["get_party"]` — a hint to
+   look up the party, which the caller already has — instead of the self-
+   explanatory `["add_party_role"]`. **Fix:** changed the suggest tool to
+   `"add_party_role"`.
+
+3. **🟡 `DomainError` constructor accepted `cause: null` because the guard used `!== undefined`.**
+   `options?.cause !== undefined` does not exclude `null` — a caller passing
+   `{ cause: null }` would forward `{ cause: null }` to the `Error` constructor,
+   which throws a `TypeError` in runtimes that require `cause` to be an object
+   or `undefined`. **Fix:** changed the guard to `options?.cause != null`
+   (loose equality), which excludes both `null` and `undefined`.
+
+### Reviewed but NOT changed (false positives / deferred)
+
+- Re-verified all prior rounds' deferred items (deprecated `sanitizeLogOutput` shim,
+  unused `dist/` output, ISO date-only+`Z` acceptance, postinstall `prisma
+  generate || true`, `OPTIONAL_ID_PATTERN` leniency unreachable through
+  McpService) — unchanged.
+- Full-file re-read of all production source files confirmed no new issues.
+- grep confirms: zero stray `console.log` / `console.error` / `console.warn` in
+  production source (only `Logger` instances used); zero `TODO`/`FIXME`/`HACK`
+  comments; zero bare `as any` casts in production source (only in test files);
+  one intentional `@ts-expect-error` in `tool-registry.test.ts` (documented).
+- Lint ✓ · typecheck ✓ · build ✓ · `npm audit`: 3 high (deepmerge-ts transitive via
+  `@prisma/config` — pinned to 8.0.2 via override; nested transitive dep tracked
+  for prisma upgrade).
+- Test counts verified: api 459 (17 files), shared 235 (4 files), mcp-tools 180
+  (4 files), database 34 passed + 10 skipped (3 files). Total 908 passed, 10 skipped.
+  Matches report.
+
+---
 
 ## Findings & Actions (round 183)
 
@@ -280,6 +330,17 @@ confirmed no new issues.
   cache + FinalizationRegistry lifecycle, health probes/Redis RESP framing, rate-limit/CORS/
   proxy-hop bootstrap order, seed/cleanup guards, audit backpressure accounting,
   DomainError.toJSON sanitization chain** — re-verified this round; no new issues.
+
+## Test Results (round 184)
+```
+api:       459 passed (17 files)    (unchanged)
+shared:    235 passed (4 files)     (unchanged)
+mcp-tools: 180 passed (4 files)    (unchanged)
+database:   34 passed, 10 skipped (3 files) (DB-backed; unchanged)
+──────────────────────────────
+Total:     908 passed, 10 skipped
+```
+lint ✓ · typecheck ✓ · build ✓ · `npm audit`: 3 high (deepmerge-ts transitive via `@prisma/config` — pinned to 8.0.2 via override; nested transitive dep tracked for prisma upgrade)
 
 ## Test Results (round 183)
 ```
