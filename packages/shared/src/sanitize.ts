@@ -127,7 +127,13 @@ function stripScriptStyleContent(input: string): string {
 function stripOrphanedScriptStyleTags(input: string): string {
   return input
     .replace(/<script\b[^>]*\/?>/gi, "")
-    .replace(/<style\b[^>]*\/?>/gi, "");
+    .replace(/<style\b[^>]*\/?>/gi, "")
+    // Also strip bare <script>/<style> that lack a closing > entirely
+    // (e.g. "<script malicious") — the generic incomplete-tag rule below
+    // only matches when followed by whitespace or end-of-string, so these
+    // must be caught here to avoid leaking script/style content.
+    .replace(/<script\b[^>]*/gi, "")
+    .replace(/<style\b[^>]*/gi, "");
 }
 
 /** Remove HTML comments. */
@@ -145,7 +151,12 @@ function stripRemainingHtmlTags(input: string): string {
 
 /** Strip incomplete/orphaned opening tags (missing closing >). */
 function stripIncompleteOpeningTags(input: string): string {
-  return input.replace(/<[a-zA-Z]{2,}[^>]*/g, "");
+  // Match an opening tag name (<div, <span, etc.) only when it is followed
+  // by whitespace or end-of-string. This avoids greedily consuming trailing
+  // text that is not part of the tag (e.g. "text <div more" → "text  more"
+  // instead of "text "). Script/style bare openings are handled by
+  // stripOrphanedScriptStyleTags above.
+  return input.replace(/<[a-zA-Z]{2,}(?=\s|$)/g, "");
 }
 
 /**

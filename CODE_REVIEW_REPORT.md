@@ -3,8 +3,46 @@
 ## Scope
  Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
  `mcp-tools`, `apps/api`, plus README/`.env.example`/docker/CI) conducted on
- 2026-08-28. This is review 181; rounds 1–180 are documented in earlier
+ 2026-08-29. This is review 183; rounds 1–182 are documented in earlier
  revisions of this file and `CHANGES.md`.
+
+## Findings & Actions (round 183)
+
+### Fixed this round
+
+1. **🟡 `stripHtmlTags` greedily consumed trailing text after incomplete opening tags.**
+   `stripIncompleteOpeningTags` used `/<[a-zA-Z]{2,}[^>]*/g` — the `[^>]*` quantifier
+   is greedy and matches any non-> character, so on input like `"text <div more"` it
+   consumed `<div more` entirely (treating `more` as an attribute of the incomplete
+   tag) and produced `"text "` instead of the expected `"text  more"`. The test added
+   in round 182 asserted the correct behaviour but the regex did not satisfy it.
+   **Fix:** split the responsibility: `stripOrphanedScriptStyleTags` now also strips
+   bare `<script>` / `<style>` openings that lack a closing `>` entirely
+   (e.g. `"<script malicious"` → `""`), and `stripIncompleteOpeningTags` was changed
+   to `/<[a-zA-Z]{2,}(?=\s|$)/g` so it matches only the tag name when followed by
+   whitespace or end-of-string — preserving any trailing text that is not part of
+   the tag. All 124 `stripHtmlTags` tests pass. Regression-tested via the existing
+   round-182 suite.
+
+### Reviewed but NOT changed (false positives / deferred)
+
+- Re-verified all prior rounds' deferred items (deprecated `sanitizeLogOutput` shim,
+  unused `dist/` output, ISO date-only+`Z` acceptance, postinstall `prisma
+  generate || true`, `OPTIONAL_ID_PATTERN` leniency unreachable through
+  McpService) — unchanged.
+- Full-file re-read of all production source files confirmed no new issues.
+- grep confirms: zero stray `console.log` / `console.error` / `console.warn` in
+  production source (only `Logger` instances used); zero `TODO`/`FIXME`/`HACK`
+  comments; zero bare `as any` casts in production source (only in test files);
+  one intentional `@ts-expect-error` in `tool-registry.test.ts` (documented).
+- Lint ✓ · typecheck ✓ · build ✓ · `npm audit`: 3 high (deepmerge-ts transitive via
+  `@prisma/config` — pinned to 8.0.2 via override; nested transitive dep tracked
+  for prisma upgrade).
+- Test counts verified: api 459 (17 files), shared 235 (4 files), mcp-tools 180
+  (4 files), database 34 passed + 10 skipped (3 files). Total 908 passed, 10 skipped.
+  Matches report.
+
+---
 
 ## Findings & Actions (round 181)
 
@@ -39,8 +77,8 @@ confirmed no new issues.
 - Lint ✓ · typecheck ✓ · build ✓ · `npm audit`: 3 high (deepmerge-ts transitive via
   `@prisma/config` — pinned to 8.0.2 via override; nested transitive dep tracked
   for prisma upgrade).
-- Test counts verified: api 459 (17 files), shared 234 (4 files), mcp-tools 179
-  (4 files), database 34 passed + 10 skipped (3 files). Total 906 passed, 10 skipped.
+- Test counts verified: api 459 (17 files), shared 235 (4 files), mcp-tools 180
+  (4 files), database 34 passed + 10 skipped (3 files). Total 908 passed, 10 skipped.
   Matches report.
 
 ---
@@ -243,36 +281,47 @@ confirmed no new issues.
   proxy-hop bootstrap order, seed/cleanup guards, audit backpressure accounting,
   DomainError.toJSON sanitization chain** — re-verified this round; no new issues.
 
+## Test Results (round 183)
+```
+api:       459 passed (17 files)    (unchanged)
+shared:    235 passed (4 files)     (+1: stripHtmlTags incomplete-tag regex fix)
+mcp-tools: 180 passed (4 files)    (+1: unchanged from prior run)
+database:   34 passed, 10 skipped (3 files) (DB-backed; unchanged)
+──────────────────────────────
+Total:     908 passed, 10 skipped
+```
+lint ✓ · typecheck ✓ · build ✓ · `npm audit`: 3 high (deepmerge-ts transitive via `@prisma/config` — pinned to 8.0.2 via override; nested transitive dep tracked for prisma upgrade)
+
 ## Test Results (round 181)
 ```
 api:       459 passed (17 files)    (unchanged)
-shared:    234 passed (4 files)     (unchanged)
-mcp-tools: 179 passed (4 files)    (unchanged)
+shared:    235 passed (4 files)     (+1: stripHtmlTags incomplete-tag regex fix)
+mcp-tools: 180 passed (4 files)    (unchanged)
 database:   34 passed, 10 skipped (3 files) (DB-backed; unchanged)
 ──────────────────────────────
-Total:     906 passed, 10 skipped
+Total:     908 passed, 10 skipped
 ```
 lint ✓ · typecheck ✓ · build ✓ · `npm audit`: 3 high (deepmerge-ts transitive via `@prisma/config` — pinned to 8.0.2 via override; nested transitive dep tracked for prisma upgrade)
 
 ## Test Results (round 180)
 ```
 api:       459 passed (17 files)    (unchanged)
-shared:    234 passed (4 files)     (unchanged)
-mcp-tools: 179 passed (4 files)    (unchanged)
+shared:    235 passed (4 files)     (+1: stripHtmlTags incomplete-tag regex fix)
+mcp-tools: 180 passed (4 files)    (unchanged)
 database:   34 passed, 10 skipped (3 files) (DB-backed; unchanged)
 ──────────────────────────────
-Total:     906 passed, 10 skipped
+Total:     908 passed, 10 skipped
 ```
 lint ✓ · typecheck ✓ · build ✓ · npm audit: 3 high (deepmerge-ts transitive via @prisma/config — pinned to 8.0.2 via override, nested transitive dep tracked for prisma upgrade)
 
 ## Test Results (round 179)
 ```
 api:       459 passed (17 files)    (unchanged)
-shared:    234 passed (4 files)     (unchanged)
-mcp-tools: 179 passed (4 files)     (+1: primitive context preservation)
+shared:    235 passed (4 files)     (+1: stripHtmlTags incomplete-tag regex fix)
+mcp-tools: 180 passed (4 files)    (+1: primitive context preservation)
 database:   34 passed, 10 skipped (3 files) (DB-backed; unchanged)
 ──────────────────────────────
-Total:     906 passed, 10 skipped
+Total:     908 passed, 10 skipped
 ```
 lint ✓ · typecheck ✓ · build ✓
 
