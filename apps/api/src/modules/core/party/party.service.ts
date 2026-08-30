@@ -764,7 +764,7 @@ export class PartyService {
     if (!trimmed) {
       throw new InvalidTypeValueError("roleType cannot be empty", { suggestedTools: ["get_type_table_values"], context: { field: "roleType", received: roleType } });
     }
-    PartyService.requireMaxLength(trimmed, "Role type", MAX_ROLE_TYPE_LENGTH, "get_type_table_values");
+    PartyService.requireMaxLength(trimmed, "Role type", MAX_ROLE_TYPE_LENGTH, "add_party_role");
     return trimmed;
   }
 
