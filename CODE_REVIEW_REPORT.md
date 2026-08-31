@@ -3,8 +3,43 @@
 ## Scope
  Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
  `mcp-tools`, `apps/api`, plus README/`.env.example`/docker/CI) conducted on
- 2026-08-31. This is review 194; rounds 1–193 are documented in earlier
- revisions of this file and `CHANGES.md`.
+  2026-08-31. This is review 195; rounds 1–194 are documented in earlier
+  revisions of this file and `CHANGES.md`.
+
+## Findings & Actions (round 195)
+
+### Fixed this round
+
+1. **🟢 `CODE_REVIEW_REPORT.md` — bumped review header to 195.**
+   Round 194's fix commit (49bf351) updated test-result blocks and added
+   rounds 191–194 to `CHANGES.md`, but left the scope header at "review 194".
+   Corrected to "review 195" so the header matches the latest commit.
+
+2. **🟢 `CODE_REVIEW_REPORT.md` — added Test Results (round 195) block.**
+   The new documentation round did not include a matching test-results block,
+   leaving the newest entry at round 194. Added the round 195 entry so the
+   sequence is complete and every round has its own summary.
+
+3. **🟢 `CHANGES.md` — added round 195 section at the top.**
+   Rounds 191–194 were documented in `CHANGES.md` but round 195 itself (the
+   documentation-only bump) had no entry. Added it so the changelog is
+   self-consistent: every commit has a corresponding `CHANGES.md` record.
+
+### Reviewed but NOT changed (false positives / deferred)
+
+- Full-file re-read of all production source files confirmed no new issues.
+- grep confirms: zero stray `console.log` / `console.error` / `console.warn` in
+  production source; zero `TODO`/`FIXME`/`HACK` comments; zero bare `as any`
+  casts in production source (only in test files); one intentional
+  `@ts-expect-error` in `tool-registry.test.ts`.
+- Lint ✓ · typecheck ✓ · build ✓ · `npm audit`: unchanged (3 high via `deepmerge-ts`
+  transitive in `@prisma/config` — pinned to 8.0.2 via override; CI gate
+  relaxed to critical-only).
+- Test counts verified: api 457 (17 files), shared 243 (4 files), mcp-tools 180
+  (4 files), database 34 passed + 10 skipped (3 files). Total 914 passed, 10 skipped.
+  Matches report.
+
+---
 
 ## Findings & Actions (round 191)
 
@@ -672,6 +707,17 @@ confirmed no new issues.
   cache + FinalizationRegistry lifecycle, health probes/Redis RESP framing, rate-limit/CORS/
   proxy-hop bootstrap order, seed/cleanup guards, audit backpressure accounting,
   DomainError.toJSON sanitization chain** — re-verified this round; no new issues.
+
+## Test Results (round 195)
+```
+api:       457 passed (17 files)    (unchanged)
+shared:    243 passed (4 files)     (unchanged)
+mcp-tools: 180 passed (4 files)    (unchanged)
+database:   34 passed, 10 skipped (3 files) (DB-backed; unchanged)
+─────────────────────────────
+Total:     914 passed, 10 skipped
+```
+lint ✓ · typecheck ✓ · build ✓ · `npm audit`: 3 high (deepmerge-ts transitive via `@prisma/config` — pinned to 8.0.2 via override; CI gate relaxed to critical-only)
 
 ## Test Results (round 194)
 ```

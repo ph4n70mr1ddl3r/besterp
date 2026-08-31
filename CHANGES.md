@@ -1,5 +1,19 @@
 # BestERP — Security & Architecture Fixes
 
+## Changes Applied (2026-08-31) — Code Review Round 195
+
+### 🟢 Bumped review header and added missing round 195 entries
+
+**Problem:** Commit 49bf351 ("fix: code review round 195") updated test-result
+blocks and documented rounds 191–194 in `CHANGES.md`, but left the scope
+header in `CODE_REVIEW_REPORT.md` at "review 194" and did not add a round 195
+findings or test-results block. The changelog also lacked a round 195 entry
+for that documentation-only commit.
+
+**Fix:** Updated the report header to "review 195", added a round 195
+`Findings & Actions` section, added a round 195 `Test Results` block, and
+added a round 195 section to `CHANGES.md`.
+
 ## Changes Applied (2026-08-31) — Code Review Round 194
 
 ### 🟢 CI security audit gate relaxed to critical-only for known pinned `deepmerge-ts` high
