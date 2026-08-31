@@ -3,8 +3,38 @@
 ## Scope
  Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
  `mcp-tools`, `apps/api`, plus README/`.env.example`/docker/CI) conducted on
- 2026-08-30. This is review 189; rounds 1–188 are documented in earlier
+ 2026-08-31. This is review 190; rounds 1–189 are documented in earlier
  revisions of this file and `CHANGES.md`.
+
+## Findings & Actions (round 190)
+
+### Fixed this round
+
+1. **🟢 Removed stale `.opencode/plans/code-review-round-73.md`.** The plan file
+   from round 73 (116 rounds ago) was completely outdated — it referenced
+   "Phase 0b" notes in `prisma.module.ts` that had been replaced in a much
+   earlier round, and all its findings had already been resolved or superseded.
+   Kept the file would add no value and risk confusing future reviewers.
+
+### Reviewed but NOT changed (false positives / deferred)
+
+- Re-verified all prior rounds' deferred items (deprecated `sanitizeLogOutput` shim,
+  unused `dist/` output, ISO date-only+`Z` acceptance, postinstall `prisma
+  generate || true`, `OPTIONAL_ID_PATTERN` leniency unreachable through
+  McpService) — unchanged.
+- Full-file re-read of all production source files confirmed no new issues.
+- grep confirms: zero stray `console.log` / `console.error` / `console.warn` in
+  production source (only `Logger` instances used); zero `TODO`/`FIXME`/`HACK`
+  comments; zero bare `as any` casts in production source (only in test files);
+  one intentional `@ts-expect-error` in `tool-registry.test.ts` (documented).
+- Lint ✓ · typecheck ✓ · build ✓ · `npm audit`: 3 high (deepmerge-ts transitive via
+  `@prisma/config` — pinned to 8.0.2 via override; nested transitive dep tracked
+  for prisma upgrade).
+- Test counts verified: api 459 (17 files), shared 235 (4 files), mcp-tools 180
+  (4 files), database 34 passed + 10 skipped (3 files). Total 908 passed, 10 skipped.
+  Matches report.
+
+---
 
 ## Findings & Actions (round 189)
 
