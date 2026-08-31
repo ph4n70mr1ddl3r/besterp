@@ -6,7 +6,7 @@
 
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from "@nestjs/common";
 import { PrismaService } from "./prisma/prisma.service.js";
-import { sanitizeForLogOutput, sanitizeLogMessage, resolveRedisTls, isDev, isProd, DEFAULT_REDIS_PORT } from "@besterp/shared";
+import { sanitizeForLogOutput, resolveRedisTls, isDev, isProd, DEFAULT_REDIS_PORT } from "@besterp/shared";
 import { normalizeEnvironmentValue } from "./bootstrap-config.js";
 import * as fs from "node:fs/promises";
 import * as net from "node:net";
@@ -149,7 +149,7 @@ export class HealthService implements OnModuleInit, OnModuleDestroy {
         raw = await fs.readFile(p, "utf-8");
         break;
       } catch {
-        this.logger.debug(`package.json not found at: ${sanitizeLogMessage(p)}`);
+        this.logger.debug(`package.json not found at: ${sanitizeForLogOutput(p)}`);
       }
     }
     if (!raw) {

@@ -4,7 +4,7 @@
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { validateTenantId, validateTenantIdEnhancedForAuth, withTenant } from "../tenant.js";
-import { COUNTRY_CODE_REGEX, COUNTRY_CODE_ISO_REGEX, EMAIL_REGEX, UUID_REGEX, isValidISODate, normalizeISODateTimeToUTC, parseISODateTimeAsUTC } from "../validation.js";
+import { COUNTRY_CODE_REGEX, COUNTRY_CODE_ISO_REGEX, EMAIL_REGEX, UUID_REGEX, isValidISODate, normalizeISODateTimeToUTC, parseISODateTimeAsUTC, validateOptionalString } from "../validation.js";
 import { JWT_EXPIRES_IN_REGEX, resolveRedisTls } from "../constants.js";
 import {
   ConcurrencyConflictError,
@@ -508,6 +508,45 @@ describe("isValidISODate", () => {
     // function itself enforces the NaN contract so storage never receives a
     // NaT (Not-a-Time) value.
     expect(() => parseISODateTimeAsUTC("2024-13-45")).toThrow("Invalid ISO date");
+  });
+});
+
+describe("validateOptionalString", () => {
+  it("returns undefined for null/undefined input", () => {
+    expect(validateOptionalString("field", undefined, 100)).toBeUndefined();
+    expect(validateOptionalString("field", null, 100)).toBeUndefined();
+  });
+
+  it("throws InvalidTypeValueError for non-string input", () => {
+    expect(() => validateOptionalString("field", 42, 100)).toThrow("must be a string");
+    expect(() => validateOptionalString("field", true, 100)).toThrow("must be a string");
+    expect(() => validateOptionalString("field", {}, 100)).toThrow("must be a string");
+  });
+
+  it("trims whitespace and returns the trimmed value", () => {
+    expect(validateOptionalString("field", "  hello  ", 100)).toBe("hello");
+  });
+
+  it("returns undefined for an empty string", () => {
+    expect(validateOptionalString("field", "", 100)).toBeUndefined();
+  });
+
+  it("throws for whitespace-only input (value.length > 0 but trimmed is empty)", () => {
+    expect(() => validateOptionalString("field", "   ", 100)).toThrow("whitespace-only");
+  });
+
+  it("throws when trimmed value exceeds maxLength", () => {
+    expect(() => validateOptionalString("field", "x".repeat(101), 100)).toThrow("too long");
+    expect(() => validateOptionalString("field", "x".repeat(101), 100)).toThrow("max 100");
+  });
+
+  it("accepts a value exactly at maxLength", () => {
+    expect(validateOptionalString("field", "x".repeat(100), 100)).toBe("x".repeat(100));
+  });
+
+  it("includes field name and received type in the non-string error", () => {
+    expect(() => validateOptionalString("agentId", 123, 200))
+      .toThrow("agentId must be a string, received number");
   });
 });
 

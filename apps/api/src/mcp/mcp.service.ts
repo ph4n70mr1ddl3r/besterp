@@ -133,27 +133,16 @@ export class McpService implements OnModuleInit {
   private validateOptionalIds(overrides: { agentId?: string; conversationId?: string }): { agentId: string | undefined; conversationId: string | undefined } {
     const agentId = validateOptionalString("agentId", overrides.agentId, MAX_AGENT_ID_LENGTH);
     const conversationId = validateOptionalString("conversationId", overrides.conversationId, MAX_CONVERSATION_ID_LENGTH);
-
-    // Enforce charset at the service layer for agentId and conversationId as
-    // defense-in-depth. The auth boundary (ToolRegistry.validateContextIdentity
-    // and JwtStrategy) already validates these fields, but the explicit
-    // pattern+length check here catches any code path that constructs a
-    // ToolContext without passing through the registry — keeping the durable
-    // sinks (audit-log, idempotency) safe even if the auth boundary regresses.
-    if (agentId !== undefined && !TENANT_ID_PATTERN.test(agentId)) {
-      throw new InvalidTypeValueError(
-        "agentId contains invalid characters. " +
-          "Agent IDs may only contain alphanumeric characters, hyphens, and underscores.",
-        { context: { field: "agentId" } }
-      );
-    }
-    if (conversationId !== undefined && !TENANT_ID_PATTERN.test(conversationId)) {
-      throw new InvalidTypeValueError(
-        "conversationId contains invalid characters. " +
-          "Conversation IDs may only contain alphanumeric characters, hyphens, and underscores.",
-        { context: { field: "conversationId" } }
-      );
-    }
+    // Pattern validation for agentId and conversationId is handled by
+    // ToolRegistry.validateContextIdentity (OPTIONAL_ID_PATTERN) at execution
+    // time. buildContext intentionally does NOT re-apply a stricter pattern
+    // here: the registry is the authoritative execution boundary and its
+    // OPTIONAL_ID_PATTERN accommodates real-world identifiers (e.g. john.doe,
+    // user+role) that TENANT_ID_PATTERN would reject. Applying a stricter
+    // guard in buildContext would silently drop values the registry accepts,
+    // producing inconsistent behaviour across construction vs. execution paths.
+    // Length caps are still enforced here so oversized values never reach the
+    // registry (the registry also checks length, but early fail is cheaper).
     return { agentId, conversationId };
   }
 

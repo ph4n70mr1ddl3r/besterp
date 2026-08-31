@@ -16,7 +16,7 @@ import { Injectable, Logger, UnauthorizedException } from "@nestjs/common";
 import { PassportStrategy } from "@nestjs/passport";
 import { ExtractJwt, Strategy } from "passport-jwt";
 import { randomBytes } from "node:crypto";
-import { MAX_USER_ID_LENGTH, MAX_AGENT_ID_LENGTH, MAX_ROLE_LENGTH, MAX_TENANT_ID_LENGTH, isProd, validateTenantIdEnhancedForAuth, sanitizeForLogOutput } from "@besterp/shared";
+import { MAX_USER_ID_LENGTH, MAX_AGENT_ID_LENGTH, MAX_ROLE_LENGTH, MAX_TENANT_ID_LENGTH, isProd, validateTenantIdEnhancedForAuth, sanitizeForLogOutput, TENANT_ID_PATTERN } from "@besterp/shared";
 
 export interface JwtPayload {
   sub: string;      // user ID
@@ -92,6 +92,18 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
 
   async validate(payload: JwtPayload): Promise<JwtValidatedUser> {
     const userId = this.validateRequiredField(payload.sub, "user ID (sub)", MAX_USER_ID_LENGTH);
+    // Pattern-validate userId at the JWT boundary so a forged-but-correctly-signed
+    // token carrying a malicious sub (e.g. one containing control chars or
+    // characters that would break downstream log/audit formatting) is rejected
+    // at the earliest possible gate with a 401. TenantGuard and ToolRegistry
+    // also validate the pattern, but failing at the strategy keeps the auth
+    // boundary compact and ensures the error surfaces as 401 everywhere.
+    if (!TENANT_ID_PATTERN.test(userId)) {
+      throw new UnauthorizedException(
+        "Invalid token: user ID contains invalid characters. " +
+          "User IDs may only contain alphanumeric characters, hyphens, and underscores.",
+      );
+    }
     const tenantId = this.validateRequiredField(payload.tenantId, "tenantId", MAX_TENANT_ID_LENGTH);
 
     // Defense-in-depth: validate tenantId format at the auth boundary so a
@@ -119,6 +131,16 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     }
 
     const agentId = this.validateOptionalField(payload.agentId, "agentId", MAX_AGENT_ID_LENGTH);
+    // Pattern-validate agentId at the JWT boundary for the same reason as userId:
+    // a malicious sub carries the same trust level as a forged agentId — both
+    // become durable sink values (audit rows, idempotency keys). Reject non-
+    // conforming values here so they never reach TenantGuard or the MCP layer.
+    if (agentId !== undefined && !TENANT_ID_PATTERN.test(agentId)) {
+      throw new UnauthorizedException(
+        "Invalid token: agentId contains invalid characters. " +
+          "Agent IDs may only contain alphanumeric characters, hyphens, and underscores.",
+      );
+    }
     const role = this.validateOptionalField(payload.role, "role", MAX_ROLE_LENGTH);
 
     return {

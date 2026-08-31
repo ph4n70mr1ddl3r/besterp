@@ -45,6 +45,14 @@ describe("pluralize", () => {
     // only pluralize singular entity names like "party" → "parties").
     expect(pluralize("knives")).toBe("knives");
     expect(pluralize("lives")).toBe("lives");
+    // Words ending in -ves that are NOT in the irregular list should also
+    // pass through unchanged — the -ves short-circuit catches them before
+    // the regular rule could double-pluralize (e.g. "waves" → "waves", not
+    // "waveses"). The irregular list only covers a handful of canonical
+    // cases; everything else ending in -ves is treated as already plural.
+    expect(pluralize("waves")).toBe("waves");
+    expect(pluralize("caves")).toBe("caves");
+    expect(pluralize("doves")).toBe("doves");
   });
 
   it("handles irregular plurals", () => {

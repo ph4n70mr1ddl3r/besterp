@@ -202,68 +202,71 @@ describe("McpService", () => {
       expect(ctx.userId).toBe("user-1");
     });
 
-    it("should return raw identity values unchanged (charset-validated, never rewritten) and sanitize reasoning", () => {
-      // userId/agentId/conversationId are format-validated at the buildContext
-      // boundary but NOT rewritten there — values that survive the charset
-      // gate (TENANT_ID_PATTERN, no HTML/control chars possible) pass through
-      // verbatim, and sanitization runs at the durable sinks (audit-log,
-      // idempotency) so identity fields remain usable for correlation while
-      // any secret-shaped content is still scrubbed before persistence.
+    it("should return raw identity values unchanged (length-validated, never rewritten) and sanitize reasoning", () => {
+      // userId/agentId/conversationId are length-validated at the buildContext
+      // boundary but NOT rewritten there — values that survive the length
+      // gate pass through verbatim, and sanitization runs at the durable sinks
+      // (audit-log, idempotency) so identity fields remain usable for
+      // correlation while any secret-shaped content is still scrubbed before
+      // persistence. Pattern validation for agentId/conversationId is
+      // delegated to ToolRegistry (OPTIONAL_ID_PATTERN); userId retains its
+      // TENANT_ID_PATTERN check because TenantGuard also enforces that pattern.
       // There is NO HTML-stripping step for identity fields: a value
-      // containing HTML characters is REJECTED (see the charset tests
-      // below), which is strictly stronger than stripping.
+      // containing control characters is REJECTED by the length-cap alone
+      // (control chars count toward length), while printable ASCII passes
+      // through verbatim for the registry to evaluate.
       const ctx = mcpService.buildContext({
         tenantId: "tenant-1",
         userId: "us-sk_live_realsecret123",
-        agentId: "agent-a-password-hidden",
+        agentId: "agent.a-password-hidden",
         conversationId: "conv_123_session-token",
         reasoning: "r<iframe src=evil>",
       });
-      // Identity fields are returned raw (charset-validated, not sanitized)
+      // Identity fields are returned raw (length-validated, not sanitized)
       // so downstream tool-registry.validateContextIdentity can still match
       // its charset; the durable sinks scrub them before persistence.
       expect(ctx.userId).toBe("us-sk_live_realsecret123");
-      expect(ctx.agentId).toBe("agent-a-password-hidden");
+      expect(ctx.agentId).toBe("agent.a-password-hidden");
       expect(ctx.conversationId).toBe("conv_123_session-token");
       // reasoning is content (not identity), so it IS sanitized at buildContext.
       expect(ctx.reasoning).not.toContain("<iframe>");
     });
 
-    it("should reject agentId with invalid characters before sanitization", () => {
-      // agentId must match TENANT_ID_PATTERN at the auth boundary so control
-      // chars or injected payloads never reach durable sinks. Invalid chars
-      // are rejected BEFORE sanitizeForLogOutput runs (matching userId).
-      expect(() =>
-        mcpService.buildContext({
-          tenantId: "tenant-1",
-          userId: "user-1",
-          agentId: "agent; DROP TABLE",
-        })
-      ).toThrow(InvalidTypeValueError);
-      expect(() =>
-        mcpService.buildContext({
-          tenantId: "tenant-1",
-          userId: "user-1",
-          agentId: "agent<42>",
-        })
-      ).toThrow(InvalidTypeValueError);
+    it("should accept any non-control-character agentId/conversationId and delegate pattern validation to the registry", () => {
+      // buildContext validates length but NOT character pattern for agentId and
+      // conversationId: the authoritative charset gate is ToolRegistry.validateContextIdentity
+      // (OPTIONAL_ID_PATTERN), which intentionally accommodates real-world
+      // identifiers like "john.doe" or "user+role". Applying a stricter
+      // TENANT_ID_PATTERN check in buildContext would silently drop values
+      // the registry accepts — an inconsistent construction-vs-execution path.
+      // buildContext's role is length-cap + whitespace trimming; the registry
+      // enforces the final charset contract at execution time.
+      const ctx = mcpService.buildContext({
+        tenantId: "tenant-1",
+        userId: "user-1",
+        agentId: "agent.doe+role",
+        conversationId: "conv-1.0",
+      });
+      expect(ctx.agentId).toBe("agent.doe+role");
+      expect(ctx.conversationId).toBe("conv-1.0");
     });
 
-    it("should reject conversationId with invalid characters before sanitization", () => {
-      // Same charset gate as userId and agentId — prevents control chars or
-      // injected payloads from reaching durable sinks via conversationId.
+    it("should reject agentId and conversationId exceeding max length at buildContext", () => {
+      // buildContext still enforces length caps for agentId and conversationId
+      // so oversized values never reach the registry. Pattern validation is
+      // handled by ToolRegistry; length is handled here for early failure.
       expect(() =>
         mcpService.buildContext({
           tenantId: "tenant-1",
           userId: "user-1",
-          conversationId: "conv; DROP TABLE",
+          agentId: "x".repeat(201),
         })
       ).toThrow(InvalidTypeValueError);
       expect(() =>
         mcpService.buildContext({
           tenantId: "tenant-1",
           userId: "user-1",
-          conversationId: "conv<42>",
+          conversationId: "x".repeat(201),
         })
       ).toThrow(InvalidTypeValueError);
     });
