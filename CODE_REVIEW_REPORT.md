@@ -3,8 +3,8 @@
 ## Scope
  Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
  `mcp-tools`, `apps/api`, plus README/`.env.example`/docker/CI) conducted on
- 2026-08-31. This is review 191; rounds 1–190 are documented in earlier
- revisions of this file and `CHANGES.md`.
+  2026-08-31. This is review 192; rounds 1–191 are documented in earlier
+  revisions of this file and `CHANGES.md`.
 
 ## Findings & Actions (round 191)
 
@@ -66,6 +66,64 @@
 - ~~`discovery-tools.ts` zero test coverage~~ — addressed in round 191
 - ~~`validateOptionalString` not directly tested~~ — addressed in round 191
 - ~~`pluralize.test.ts` missing -ves short-circuit cases~~ — addressed in round 191
+
+---
+
+## Findings & Actions (round 192)
+
+### Fixed this round
+
+1. **🟢 `party.service.ts:541` — stale "lone exception" comment on `getParty` tenantId filter.**
+   The comment still described `getParty` as the sole query missing an
+   app-level `tenantId` filter, but round 32 added it alongside the other
+   queries. Updated the comment to reflect current reality.
+
+2. **🟢 Corrected shared test count (251→243) in review report.**
+   Round 191's test-count line said 251; the actual count is 243 (13
+   pluralize + 76 shared + 124 sanitize + 30 crypto). Fixed the reported
+   number so it matches the live `npm test` output.
+
+### Reviewed but NOT changed (false positives / deferred)
+
+- Re-verified all prior rounds' deferred items (deprecated `sanitizeLogOutput` shim,
+  unused `dist/` output, ISO date-only+`Z` acceptance, postinstall `prisma
+  generate || true`, `OPTIONAL_ID_PATTERN` leniency unreachable through
+  McpService) — unchanged.
+- Full-file re-read of all production source files confirmed no new issues.
+- grep confirms: zero stray `console.log` / `console.error` / `console.warn` in
+  production source; zero `TODO`/`FIXME`/`HACK` comments; zero bare `as any`
+  casts in production source (only in test files); one intentional
+  `@ts-expect-error` in `tool-registry.test.ts`.
+- Lint ✓ · typecheck ✓ · `npm audit`: unchanged (3 high via `deepmerge-ts`
+  transitive in `@prisma/config` — pinned to 8.0.2 via override).
+- Test counts verified: api 457 (17 files), shared 243 (4 files), mcp-tools 180
+  (4 files), database 34 passed + 10 skipped (3 files). Total 914 passed, 10 skipped.
+  Matches report.
+
+---
+
+## Findings & Actions (round 193)
+
+### Fixed this round
+
+None — comprehensive pass over the entire codebase confirmed no new issues.
+
+### Reviewed but NOT changed (false positives / deferred)
+
+- Re-verified all prior rounds' deferred items (deprecated `sanitizeLogOutput` shim,
+  unused `dist/` output, ISO date-only+`Z` acceptance, postinstall `prisma
+  generate || true`, `OPTIONAL_ID_PATTERN` leniency unreachable through
+  McpService) — unchanged.
+- Full-file re-read of all production source files confirmed no new issues.
+- grep confirms: zero stray `console.log` / `console.error` / `console.warn` in
+  production source; zero `TODO`/`FIXME`/`HACK` comments; zero bare `as any`
+  casts in production source (only in test files); one intentional
+  `@ts-expect-error` in `tool-registry.test.ts`.
+- Lint ✓ · typecheck ✓ · `npm audit`: unchanged (3 high via `deepmerge-ts`
+  transitive in `@prisma/config` — pinned to 8.0.2 via override).
+- Test counts verified: api 457 (17 files), shared 243 (4 files), mcp-tools 180
+  (4 files), database 34 passed + 10 skipped (3 files). Total 914 passed, 10 skipped.
+   Matches report.
 
 ---
 
