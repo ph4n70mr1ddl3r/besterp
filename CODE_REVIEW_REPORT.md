@@ -673,6 +673,50 @@ confirmed no new issues.
   proxy-hop bootstrap order, seed/cleanup guards, audit backpressure accounting,
   DomainError.toJSON sanitization chain** — re-verified this round; no new issues.
 
+## Test Results (round 194)
+```
+api:       457 passed (17 files)    (unchanged)
+shared:    243 passed (4 files)     (unchanged)
+mcp-tools: 180 passed (4 files)    (unchanged)
+database:   34 passed, 10 skipped (3 files) (DB-backed; unchanged)
+─────────────────────────────
+Total:     914 passed, 10 skipped
+```
+lint ✓ · typecheck ✓ · build ✓ · `npm audit`: 3 high (deepmerge-ts transitive via `@prisma/config` — pinned to 8.0.2 via override; CI gate relaxed to critical-only)
+
+## Test Results (round 193)
+```
+api:       457 passed (17 files)    (unchanged)
+shared:    243 passed (4 files)     (unchanged)
+mcp-tools: 180 passed (4 files)    (unchanged)
+database:   34 passed, 10 skipped (3 files) (DB-backed; unchanged)
+─────────────────────────────
+Total:     914 passed, 10 skipped
+```
+lint ✓ · typecheck ✓ · build ✓ · `npm audit`: 3 high (deepmerge-ts transitive via `@prisma/config` — pinned to 8.0.2 via override; CI gate relaxed to critical-only)
+
+## Test Results (round 192)
+```
+api:       457 passed (17 files)    (unchanged)
+shared:    243 passed (4 files)     (unchanged)
+mcp-tools: 180 passed (4 files)    (unchanged)
+database:   34 passed, 10 skipped (3 files) (DB-backed; unchanged)
+─────────────────────────────
+Total:     914 passed, 10 skipped
+```
+lint ✓ · typecheck ✓ · build ✓ · `npm audit`: 3 high (deepmerge-ts transitive via `@prisma/config` — pinned to 8.0.2 via override; CI gate relaxed to critical-only)
+
+## Test Results (round 191)
+```
+api:       457 passed (17 files)    (+2: discovery-tools + shared/validateOptionalString regressions)
+shared:    243 passed (4 files)     (+8: validateOptionalString + pluralize -ves tests)
+mcp-tools: 180 passed (4 files)    (unchanged)
+database:   34 passed, 10 skipped (3 files) (DB-backed; unchanged)
+─────────────────────────────
+Total:     914 passed, 10 skipped
+```
+lint ✓ · typecheck ✓ · build ✓ · `npm audit`: 3 high (deepmerge-ts transitive via `@prisma/config` — pinned to 8.0.2 via override; CI gate relaxed to critical-only)
+
 ## Test Results (round 186)
 ```
 api:       459 passed (17 files)    (unchanged)
