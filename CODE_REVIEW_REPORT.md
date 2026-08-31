@@ -3,8 +3,71 @@
 ## Scope
  Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
  `mcp-tools`, `apps/api`, plus README/`.env.example`/docker/CI) conducted on
- 2026-08-31. This is review 190; rounds 1–189 are documented in earlier
+ 2026-08-31. This is review 191; rounds 1–190 are documented in earlier
  revisions of this file and `CHANGES.md`.
+
+## Findings & Actions (round 191)
+
+### Fixed this round
+
+1. **🟡 `jwt.strategy.ts:93` — `userId`/`agentId` not pattern-validated at JWT boundary.**
+   `validateRequiredField` / `validateOptionalField` only checked type, emptiness,
+   and length — they did NOT test `TENANT_ID_PATTERN`. A JWT with a malicious
+   `sub` (e.g. one containing control characters or characters that would break
+   downstream log/audit formatting) would pass JwtStrategy and only be caught
+   later in TenantGuard. Added `TENANT_ID_PATTERN` checks for `userId` (required)
+   and `agentId` (optional) at the strategy layer so the auth boundary is
+   compact and failures surface as 401 uniformly.
+
+2. **🟡 `mcp.service.ts:133` — `buildContext` enforced `TENANT_ID_PATTERN` on
+   `agentId`/`conversationId` but `ToolRegistry` uses the more-permissive
+   `OPTIONAL_ID_PATTERN`.** The registry intentionally accepts real-world
+   identifiers like `"john.doe"` / `"user+role"`. buildContext's stricter check
+   silently dropped values the registry would accept — an inconsistent
+   construction-vs-execution path. Removed the redundant pattern checks from
+   buildContext; length caps remain as early-fail guards. Pattern validation
+   is now solely the registry's responsibility at execution time.
+
+3. **🟢 `health.service.ts:152` — used deprecated `sanitizeLogMessage`.**
+   Replaced with `sanitizeForLogOutput` to avoid silent divergence if the
+   deprecated shim's implementation changes.
+
+4. **🟢 `discovery-tools.spec.ts` — added full test coverage for both discovery
+   tools.** The file had zero dedicated tests. Added tests for
+   `list_available_tools` (entity filtering, whitespace-only normalization,
+   max-length rejection) and `get_type_table_values` (all three type tables,
+   HTML stripping, null field handling, totalAvailable count, deterministic
+   ordering assertion).
+
+5. **🟢 `shared.test.ts` — added `validateOptionalString` unit tests.**
+   Covered all three return paths (undefined for null/empty, throws for non-string,
+   returns trimmed for valid) plus whitespace-only rejection and max-length guard.
+
+6. **🟢 `pluralize.test.ts` — added `-ves` short-circuit tests.**
+   Added `"waves"`, `"caves"`, `"doves"` to verify the -ves guard catches
+   non-irregular words before the regular rule could double-pluralize them.
+
+### Reviewed but NOT changed (false positives / deferred)
+
+- Full-file re-read of all production source files confirmed no new issues.
+- grep confirms: zero stray `console.log` / `console.error` / `console.warn` in
+  production source; zero `TODO`/`FIXME`/`HACK` comments; zero bare `as any`
+  casts in production source (only in test files); one intentional
+  `@ts-expect-error` in `tool-registry.test.ts`.
+- Lint ✓ · typecheck ✓ · `npm audit`: unchanged.
+- Test counts verified: api 457 (17 files), shared 243 (4 files), mcp-tools 180
+  (4 files), database 34 passed + 10 skipped (3 files). Total 914 passed, 10 skipped.
+  Matches report.
+
+### Resolved candidates (cumulative)
+- ~~`jwt.strategy.ts` missing pattern validation for userId/agentId~~ — addressed in round 191
+- ~~`mcp.service.ts` buildContext TENANT_ID_PATTERN stricter than ToolRegistry OPTIONAL_ID_PATTERN~~ — addressed in round 191
+- ~~`health.service.ts` uses deprecated sanitizeLogMessage~~ — addressed in round 191
+- ~~`discovery-tools.ts` zero test coverage~~ — addressed in round 191
+- ~~`validateOptionalString` not directly tested~~ — addressed in round 191
+- ~~`pluralize.test.ts` missing -ves short-circuit cases~~ — addressed in round 191
+
+---
 
 ## Findings & Actions (round 190)
 

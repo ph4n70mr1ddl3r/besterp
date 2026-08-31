@@ -538,11 +538,9 @@ export class PartyService {
     const db: TenantScopedClient = this.prisma.tenantScoped(trimmedTenantId);
 
     // Defense-in-depth: scope by tenantId explicitly rather than relying on
-    // RLS alone. Every other query in this service adds tenantId to `where`
-    // (searchParties, addPartyRole, addContactMechanism); this query was the
-    // lone exception. RLS still protects the read if the context-setting path
-    // regresses, but a single app-level filter removes the cross-tenant read
-    // risk entirely should that ever happen.
+    // RLS alone. Every query in this service adds tenantId to `where` as a
+    // secondary safeguard alongside the RLS layer — if the context-setting
+    // path ever regresses, the app-level filter prevents cross-tenant reads.
     let party: PartyWithIncludes | null;
     try {
       party = await db.party.findUnique({
