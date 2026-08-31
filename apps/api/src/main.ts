@@ -552,7 +552,7 @@ async function bootstrap() {
       // half-initialized process running.
       await closeWithTimeout(app, "Listen-failure shutdown", resolveHardExitTimeout(process.env));
     } catch (closeErr) {
-      logger.debug(`App close error after listen failure: ${sanitizeForLogOutput(closeErr instanceof Error ? closeErr.message : String(closeErr))}`);
+      logger.warn(`App close error after listen failure: ${sanitizeForLogOutput(closeErr instanceof Error ? closeErr.message : String(closeErr))}`);
     }
     process.exit(1);
   }

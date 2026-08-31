@@ -1,5 +1,18 @@
 # BestERP — Security & Architecture Fixes
 
+## Changes Applied (2026-08-31) — Code Review Round 196
+
+### 🟢 `main.ts` — upgraded listen-failure cleanup error from `debug` to `warn`
+
+**Problem:** The catch block after a failed `app.listen()` logged the secondary
+close error at `logger.debug`. In production, debug-level logs are suppressed,
+so a hung or failing shutdown path would be invisible to operators even though
+the main listen failure was logged at `error`.
+
+**Fix:** Upgraded the cleanup error log from `logger.debug` to `logger.warn` so
+the secondary failure surfaces in production logs alongside the primary failure.
+The process exits with code 1 immediately after either way.
+
 ## Changes Applied (2026-08-31) — Code Review Round 195
 
 ### 🟢 Bumped review header and added missing round 195 entries

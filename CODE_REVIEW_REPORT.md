@@ -3,8 +3,36 @@
 ## Scope
  Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
  `mcp-tools`, `apps/api`, plus README/`.env.example`/docker/CI) conducted on
-  2026-08-31. This is review 195; rounds 1–194 are documented in earlier
+  2026-08-31. This is review 196; rounds 1–195 are documented in earlier
   revisions of this file and `CHANGES.md`.
+
+## Findings & Actions (round 196)
+
+### Fixed this round
+
+1. **🟢 `main.ts:555` — upgraded listen-failure cleanup error from `debug` to `warn`.**
+   The catch block after a failed `app.listen()` logged the secondary close error
+   at `logger.debug`. In production, debug-level logs are suppressed, so a hung
+   or failing shutdown path would be invisible to operators even though the main
+   listen failure was logged at `error`. Upgraded to `logger.warn` so the
+   cleanup error surfaces in production logs alongside the primary failure.
+   The process exits with code 1 immediately after either way.
+
+### Reviewed but NOT changed (false positives / deferred)
+
+- Full-file re-read of all production source files confirmed no new issues.
+- grep confirms: zero stray `console.log` / `console.error` / `console.warn` in
+  production source; zero `TODO`/`FIXME`/`HACK` comments; zero bare `as any`
+  casts in production source (only in test files); one intentional
+  `@ts-expect-error` in `tool-registry.test.ts`.
+- Lint ✓ · typecheck ✓ · build ✓ · `npm audit`: unchanged (3 high via `deepmerge-ts`
+  transitive in `@prisma/config` — pinned to 8.0.2 via override; CI gate
+  relaxed to critical-only).
+- Test counts verified: api 457 (17 files), shared 243 (4 files), mcp-tools 180
+  (4 files), database 34 passed + 10 skipped (3 files). Total 914 passed, 10 skipped.
+  Matches report.
+
+---
 
 ## Findings & Actions (round 195)
 
