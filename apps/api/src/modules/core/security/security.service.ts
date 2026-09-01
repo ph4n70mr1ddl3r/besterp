@@ -11,6 +11,7 @@ import {
   MAX_USER_ID_LENGTH,
   MAX_AGENT_ID_LENGTH,
   MAX_PARTY_NAME_LENGTH,
+  MAX_TENANT_ID_LENGTH,
   sanitizeForLogOutput,
 } from "@besterp/shared";
 import {
@@ -40,33 +41,34 @@ export class SecurityService {
   async createUser(input: CreateUserInput): Promise<UserResult> {
     const { tenantId, partyId, passwordHash } = input;
 
+    const trimmedTenantId = this.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "create_user", "create_user");
     this.requireNonEmpty(partyId, "partyId", MAX_USER_ID_LENGTH);
     this.requireNonEmpty(passwordHash, "passwordHash", 72);
 
     // Verify the party exists in this tenant before linking
-    const party = await this.prisma.tenantScoped(tenantId).party.findUnique({
+    const party = await this.prisma.tenantScoped(trimmedTenantId).party.findUnique({
       where: { partyId },
       select: { tenantId: true },
     });
     if (!party) {
       throw new EntityNotFoundError(
-        `Party '${sanitizeForLogOutput(partyId)}' not found in tenant '${sanitizeForLogOutput(tenantId)}'.`,
+        `Party '${sanitizeForLogOutput(partyId)}' not found in tenant '${sanitizeForLogOutput(trimmedTenantId)}'.`,
         { suggestedTools: ["search_parties", "get_party"] }
       );
     }
-    if (party.tenantId !== tenantId) {
+    if (party.tenantId !== trimmedTenantId) {
       throw new InvalidTypeValueError(
-        `Party '${sanitizeForLogOutput(partyId)}' does not belong to tenant '${sanitizeForLogOutput(tenantId)}'.`,
+        `Party '${sanitizeForLogOutput(partyId)}' does not belong to tenant '${sanitizeForLogOutput(trimmedTenantId)}'.`,
         { suggestedTools: ["search_parties"] }
       );
     }
 
     try {
-      const user = await this.prisma.tenantScoped(tenantId).user.create({
+      const user = await this.prisma.tenantScoped(trimmedTenantId).user.create({
         data: {
           userId: crypto.randomUUID(),
           partyId,
-          tenantId,
+          tenantId: trimmedTenantId,
           passwordHash,
         },
         select: {
@@ -92,10 +94,11 @@ export class SecurityService {
   }
 
   async getUser(tenantId: string, partyId: string): Promise<UserResult> {
+    const trimmedTenantId = this.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "get_user", "search_parties");
     this.requireNonEmpty(partyId, "partyId", MAX_USER_ID_LENGTH);
     try {
-      const user = await this.prisma.tenantScoped(tenantId).user.findUnique({
-        where: { tenantId_partyId: { tenantId, partyId } },
+      const user = await this.prisma.tenantScoped(trimmedTenantId).user.findUnique({
+        where: { tenantId_partyId: { tenantId: trimmedTenantId, partyId } },
         select: {
           userId: true,
           partyId: true,
@@ -107,7 +110,7 @@ export class SecurityService {
       });
       if (!user) {
         throw new EntityNotFoundError(
-          `No user record found for party '${sanitizeForLogOutput(partyId)}' in tenant '${sanitizeForLogOutput(tenantId)}'.`,
+          `No user record found for party '${sanitizeForLogOutput(partyId)}' in tenant '${sanitizeForLogOutput(trimmedTenantId)}'.`,
           { suggestedTools: ["search_parties"] }
         );
       }
@@ -232,6 +235,7 @@ export class SecurityService {
   async updateAgent(input: UpdateAgentInput): Promise<AgentResult> {
     const { agentId, tenantId, ...updates } = input;
 
+    const trimmedTenantId = this.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "update_agent", "list_agents");
     this.requireNonEmpty(agentId, "agentId", MAX_AGENT_ID_LENGTH);
 
     const updateData: Record<string, unknown> = {};
@@ -259,7 +263,7 @@ export class SecurityService {
 
     try {
       const agent = await this.prisma.admin.agentRegistry.update({
-        where: { agentId },
+        where: { agentId, tenantId: trimmedTenantId },
         data: updateData,
       });
       return this.toAgentResult(agent);
@@ -276,10 +280,11 @@ export class SecurityService {
   }
 
   async deleteAgent(tenantId: string, agentId: string): Promise<{ success: boolean }> {
+    const trimmedTenantId = this.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "delete_agent", "list_agents");
     this.requireNonEmpty(agentId, "agentId", MAX_AGENT_ID_LENGTH);
     try {
       await this.prisma.admin.agentRegistry.delete({
-        where: { agentId },
+        where: { agentId, tenantId: trimmedTenantId },
       });
       return { success: true };
     } catch (err: unknown) {
@@ -295,9 +300,10 @@ export class SecurityService {
   }
 
   async getAgent(tenantId: string, agentId: string): Promise<AgentResult> {
+    const trimmedTenantId = this.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "get_agent", "list_agents");
     this.requireNonEmpty(agentId, "agentId", MAX_AGENT_ID_LENGTH);
     const agent = await this.prisma.admin.agentRegistry.findUnique({
-      where: { agentId },
+      where: { agentId, tenantId: trimmedTenantId },
     });
     if (!agent) {
       throw new EntityNotFoundError(
@@ -317,20 +323,11 @@ export class SecurityService {
       offset = 0,
     } = input;
 
-    if (limit < MIN_SEARCH_LIMIT || limit > MAX_SEARCH_LIMIT) {
-      throw new InvalidTypeValueError(
-        `limit must be between ${MIN_SEARCH_LIMIT} and ${MAX_SEARCH_LIMIT}, got ${limit}.`,
-        { suggestedTools: ["list_agents"] }
-      );
-    }
-    if (offset < MIN_SEARCH_OFFSET || offset > MAX_SEARCH_OFFSET) {
-      throw new InvalidTypeValueError(
-        `offset must be between ${MIN_SEARCH_OFFSET} and ${MAX_SEARCH_OFFSET}, got ${offset}.`,
-        { suggestedTools: ["list_agents"] }
-      );
-    }
+    const trimmedTenantId = this.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "search_agents", "list_agents");
+    const validatedLimit = Math.min(Math.max(limit, MIN_SEARCH_LIMIT), MAX_SEARCH_LIMIT);
+    const validatedOffset = Math.min(Math.max(offset, MIN_SEARCH_OFFSET), MAX_SEARCH_OFFSET);
 
-    const where: Record<string, unknown> = { tenantId };
+    const where: Record<string, unknown> = { tenantId: trimmedTenantId };
     if (agentId) where.agentId = agentId;
     if (isActive !== undefined) where.isActive = isActive;
 
@@ -347,9 +344,9 @@ export class SecurityService {
     return {
       items: items.map((a) => this.toAgentResult(a)),
       total,
-      limit,
-      offset,
-      hasMore: offset + limit < total && offset + limit <= MAX_SEARCH_OFFSET,
+      limit: validatedLimit,
+      offset: validatedOffset,
+      hasMore: validatedOffset + validatedLimit < total && validatedOffset + validatedLimit <= MAX_SEARCH_OFFSET,
     };
   }
 
@@ -425,5 +422,19 @@ export class SecurityService {
         { suggestedTools: ["list_agents"] }
       );
     }
+  }
+
+  private requireStringField(value: unknown, field: string, maxLength: number, _action: string, tool: string): string {
+    if (typeof value !== "string") {
+      throw new InvalidTypeValueError(`'${field}' must be a string.`, { suggestedTools: [tool], context: { field, received: typeof value } });
+    }
+    const trimmed = value.trim();
+    if (trimmed.length === 0) {
+      throw new InvalidTypeValueError(`'${field}' must not be empty.`, { suggestedTools: [tool], context: { field } });
+    }
+    if (trimmed.length > maxLength) {
+      throw new InvalidTypeValueError(`'${field}' exceeds maximum length of ${maxLength} characters.`, { suggestedTools: [tool], context: { field, length: trimmed.length } });
+    }
+    return trimmed;
   }
 }

@@ -3,10 +3,53 @@
 ## Scope
  Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
  `mcp-tools`, `apps/api`, plus README/`.env.example`/docker/CI) conducted on
-  2026-09-01. This is review 198; rounds 1–197 are documented in earlier
-  revisions of this file and `CHANGES.md`.
+ 2026-09-01. This is review 199; rounds 1–198 are documented in earlier
+ revisions of this file and `CHANGES.md`.
+
+## Findings & Actions (round 199)
+
+### Fixed this round
+
+1. **🔴 `security.service.ts` — added tenantId validation to all 6 public methods.**
+   Every other service (PartyService, ProductService) validates `tenantId` at the
+   top of each method via `requireStringField()` before issuing any database query.
+   SecurityService omitted this entirely across `createUser`, `getUser`,
+   `updateAgent`, `deleteAgent`, `getAgent`, and `searchAgents`. While RLS provides
+   database-level isolation, this broke the project's defense-in-depth strategy: a
+   caller passing an empty or malformed `tenantId` could bypass application-level
+   guards. Added `requireStringField` (matching the ProductService/PartyService
+   pattern) and validated `tenantId` as the first operation in each method. Also
+   fixed error-message strings and query `where` clauses to use the trimmed value
+   consistently. Added `MAX_TENANT_ID_LENGTH` import.
+
+2. **🔴 `product.service.ts:162` — sequentialized count+findMany in `searchProducts`.**
+   `Promise.all` for count and findMany under READ COMMITTED allows a concurrent
+   INSERT between the two queries, making `total` and `items.length` disagree and
+   producing an off-by-one in `hasMore`. PartyService explicitly avoids this
+   (lines 635–654) with a detailed comment explaining the race. Replaced with
+   sequential awaits matching the PartyService pattern. Also added centralized
+   `handleTransactionError` / `throwMappedPrismaError` helpers to ProductService
+   so Prisma errors (P2002, P2003, P2024, P2025, P2028, P2034) map to structured
+   DomainErrors consistently with PartyService.
+
+### Reviewed but NOT changed (false positives / deferred)
+
+- Full-file re-read of all production source files confirmed no new issues.
+- grep confirms: zero stray `console.log` / `console.error` / `console.warn` in
+  production source; zero `TODO`/`FIXME`/`HACK` comments; zero bare `as any`
+  casts in production source (only in test files and spikes); one intentional
+  `@ts-expect-error` in `tool-registry.test.ts`.
+- Lint ✓ · typecheck ✓ · build ✓ · `npm audit`: unchanged (3 high via `deepmerge-ts`
+  transitive in `@prisma/config` — pinned to 8.0.2 via override; CI gate
+  relaxed to critical-only).
+- Test counts verified: api 514 (20 files), shared 243 (4 files), mcp-tools 192
+  (4 files), database 34 passed + 10 skipped (3 files). Total 983 passed, 10 skipped.
+  Matches report.
+
+---
 
 ## Findings & Actions (round 198)
+
 
 ### Fixed this round
 
@@ -771,6 +814,17 @@ confirmed no new issues.
   cache + FinalizationRegistry lifecycle, health probes/Redis RESP framing, rate-limit/CORS/
   proxy-hop bootstrap order, seed/cleanup guards, audit backpressure accounting,
    DomainError.toJSON sanitization chain** — re-verified this round; no new issues.
+
+## Test Results (round 199)
+```
+api:       514 passed (20 files)    (unchanged)
+shared:    243 passed (4 files)     (unchanged)
+mcp-tools: 192 passed (4 files)    (unchanged)
+database:   34 passed, 10 skipped (3 files) (DB-backed; unchanged)
+─────────────────────────────
+Total:     983 passed, 10 skipped
+```
+lint ✓ · typecheck ✓ · build ✓ · `npm audit`: 3 high (deepmerge-ts transitive via `@prisma/config` — pinned to 8.0.2 via override; CI gate relaxed to critical-only)
 
 ## Test Results (round 198)
 ```

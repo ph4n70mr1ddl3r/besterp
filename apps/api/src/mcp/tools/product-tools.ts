@@ -27,6 +27,7 @@ import type {
   AddProductFeatureInput,
   AddProductPriceInput,
   ProductResult,
+  GetProductResult,
   SearchProductsResult,
   ProductFeatureResult,
   ProductPriceResult,
@@ -35,7 +36,7 @@ import type {
 interface ProductServices {
   productService: {
     createProduct(input: CreateProductInput): Promise<ProductResult>;
-    getProduct(tenantId: string, productId: string): Promise<unknown>;
+    getProduct(tenantId: string, productId: string): Promise<GetProductResult>;
     searchProducts(input: SearchProductsInput): Promise<SearchProductsResult>;
     updateProduct(input: { tenantId: string; productId: string; name?: string; description?: string | null; sku?: string | null; productTypeId?: string }): Promise<ProductResult>;
     addProductFeature(input: AddProductFeatureInput): Promise<ProductFeatureResult>;

@@ -11,6 +11,7 @@ import {
   InvalidTypeValueError,
   EntityNotFoundError,
   DuplicateEntityError,
+  ConcurrencyConflictError,
   UUID_REGEX,
   sanitizeForLogOutput,
   stripHtmlTags,
@@ -159,16 +160,28 @@ export class ProductService {
       where.productType = { name: { equals: trimmedProductType, mode: "insensitive" as const } };
     }
 
-    const [total, items] = await Promise.all([
-      db.product.count({ where }),
-      db.product.findMany({
+    // Run count first, then findMany with the validated limit. Under READ
+    // COMMITTED, concurrent INSERTs between a parallel count+findMany can cause
+    // `total` and `items.length` to disagree (worst case: off-by-one in hasMore).
+    // Running sequentially avoids this: the count establishes a snapshot of the
+    // total, and findMany uses the same WHERE clause with a capped take so even
+    // if new rows are inserted between the two queries, we never return more than
+    // `limit` items or report hasMore=true when there are no more items.
+    // Mirrors PartyService.searchParties (round 176).
+    let total: number;
+    let items: Awaited<ReturnType<typeof db.product.findMany>>;
+    try {
+      total = await db.product.count({ where });
+      items = await db.product.findMany({
         where,
         include: { productType: { select: { name: true } }, category: { select: { name: true } } },
         take: validatedLimit,
         skip: validatedOffset,
         orderBy: [{ name: "asc" }, { productId: "asc" }],
-      }),
-    ]);
+      });
+    } catch (err) {
+      throw ProductService.handleTransactionError(err, "search_products", "search_products", "product");
+    }
 
     return {
       items: items.map((p) => this.toProductResult(p)),
@@ -309,6 +322,92 @@ export class ProductService {
   }
 
   // ─── Helpers ──────────────────────────────────────────────────
+
+  private static getPrismaErrorCode(err: unknown): string | undefined {
+    if (err && typeof err === "object" && "code" in err && typeof (err as { code: unknown }).code === "string") {
+      return (err as { code: string }).code;
+    }
+    return undefined;
+  }
+
+  private static throwMappedPrismaError(
+    code: string,
+    err: { code: string; meta?: Record<string, unknown> },
+    retryTool: string,
+    suggestTool: string,
+    entityName: string,
+  ): never {
+    switch (code) {
+      case "P2002": {
+        const field = ProductService.resolveConflictField(err);
+        throw new DuplicateEntityError(
+          `A ${entityName} with the same ${field} already exists in this tenant.`,
+          { suggestedTools: [suggestTool], context: { prismaCode: "P2002", conflictingField: field } }
+        );
+      }
+      case "P2003": {
+        const constraint = ProductService.resolveConstraintName(err);
+        throw new InvalidTypeValueError(
+          `Referenced ${entityName} does not exist (constraint: ${constraint}).`,
+          { suggestedTools: [suggestTool], context: { prismaCode: "P2003", constraint } }
+        );
+      }
+      case "P2025": {
+        throw new EntityNotFoundError(
+          `${entityName} not found for this operation.`,
+          { suggestedTools: [retryTool, suggestTool], context: { prismaCode: "P2025" } }
+        );
+      }
+      case "P2028":
+      case "P2034": {
+        throw new ConcurrencyConflictError(
+          `Transaction conflict or timeout on ${entityName} — please retry.`,
+          { suggestedTools: [retryTool], context: { prismaCode: code } }
+        );
+      }
+      case "P2024": {
+        throw new ConcurrencyConflictError(
+          `Connection pool timeout on ${entityName} — the service is under heavy load.`,
+          { suggestedTools: [retryTool], context: { prismaCode: code } }
+        );
+      }
+      default: {
+        throw err;
+      }
+    }
+  }
+
+  private static resolveConflictField(err: { code: string; meta?: Record<string, unknown> }): string {
+    const meta = err.meta as Record<string, unknown> | undefined;
+    const target = meta?.target as string[] | undefined;
+    if (Array.isArray(target) && target.length > 0 && typeof target[0] === "string") return target[0];
+    return "unique key";
+  }
+
+  private static resolveConstraintName(err: { code: string; meta?: Record<string, unknown> }): string {
+    const meta = err.meta as Record<string, unknown> | undefined;
+    const constraint = meta?.constraint as string | undefined;
+    return constraint ?? "unknown";
+  }
+
+  private static handleTransactionError(
+    err: unknown,
+    retryTool: string,
+    suggestTool: string,
+    entityName = "record",
+  ): never {
+    if (err == null || typeof err !== "object") {
+      throw new InvalidTypeValueError(
+        "Database operation failed with an unexpected error type.",
+        { context: { type: err === null ? "null" : typeof err } }
+      );
+    }
+    const code = ProductService.getPrismaErrorCode(err);
+    if (!code) throw err;
+    if (!/^P\d{4}$/.test(code)) throw err;
+    if (/^P1\d{3}$/.test(code)) throw err;
+    return ProductService.throwMappedPrismaError(code, err as { code: string; meta?: Record<string, unknown> }, retryTool, suggestTool, entityName);
+  }
 
   private requireStringField(value: unknown, field: string, maxLength: number, _action: string, tool: string): string {
     if (typeof value !== "string") {

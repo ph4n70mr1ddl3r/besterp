@@ -22,6 +22,7 @@ import {
 } from "@besterp/shared";
 import type {
   RegisterAgentInput,
+  UpdateAgentInput,
   AgentResult,
   SearchAgentsInput,
 } from "../../modules/core/security/security.types.js";
@@ -31,7 +32,7 @@ interface SecurityServices {
     registerAgent(input: RegisterAgentInput): Promise<AgentResult>;
     getAgent(tenantId: string, agentId: string): Promise<AgentResult>;
     searchAgents(input: SearchAgentsInput): Promise<{ items: AgentResult[]; total: number; limit: number; offset: number; hasMore: boolean }>;
-    updateAgent(input: { agentId: string; tenantId: string } & Partial<RegisterAgentInput>): Promise<AgentResult>;
+    updateAgent(input: UpdateAgentInput): Promise<AgentResult>;
     deleteAgent(tenantId: string, agentId: string): Promise<{ success: boolean }>;
   };
 }
@@ -323,11 +324,12 @@ Use this instead of delete_agent when you want to temporarily disable an agent.`
   handler: async (inputRaw: unknown, context: ToolContext) => {
     const input = inputRaw as DeactivateAgentInput_z;
     const svc = getSecurityService(context);
-    const agent = await svc.updateAgent({
+    const updateInput: UpdateAgentInput = {
       tenantId: context.tenantId,
       agentId: input.agentId,
       isActive: false,
-    } as Parameters<typeof svc.updateAgent>[0]);
+    };
+    const agent = await svc.updateAgent(updateInput);
     return {
       success: true,
       data: { agentId: agent.agentId, isActive: false },

@@ -1,5 +1,61 @@
 # BestERP — Security & Architecture Fixes
 
+## Changes Applied (2026-09-01) — Code Review Round 199
+
+### 🟢 `security.service.ts` — tenantId validation added to all 6 public methods
+
+**Problem:** Every other service (PartyService, ProductService) validates
+`tenantId` at the top of each method via `requireStringField()` before issuing
+any database query. SecurityService omitted this entirely across
+`createUser`, `getUser`, `updateAgent`, `deleteAgent`, `getAgent`, and
+`searchAgents`. While RLS provides database-level isolation, this broke the
+project's defense-in-depth strategy.
+
+**Fix:** Added `requireStringField` (matching the ProductService/PartyService
+pattern) and validated `tenantId` as the first operation in each method. Also
+fixed error-message strings and query `where` clauses to use the trimmed value
+consistently. Added `MAX_TENANT_ID_LENGTH` import from `@besterp/shared`.
+
+### 🟢 `product.service.ts:162` — sequentialized count+findMany in `searchProducts`
+
+**Problem:** `Promise.all` for count and findMany under READ COMMITTED allows a
+concurrent INSERT between the two queries, making `total` and `items.length`
+disagree and producing an off-by-one in `hasMore`. PartyService explicitly avoids
+this with sequential awaits.
+
+**Fix:** Replaced with sequential awaits matching the PartyService pattern. Also
+added centralized `handleTransactionError` / `throwMappedPrismaError` helpers to
+ProductService so Prisma errors (P2002, P2003, P2024, P2025, P2028, P2034) map
+to structured DomainErrors consistently with PartyService.
+
+### 🟡 `security.service.ts:320` — clamped pagination instead of throwing
+
+**Problem:** `searchAgents` threw `InvalidTypeValueError` when `limit` or `offset`
+were out of bounds. Both `PartyService.searchParties` and
+`ProductService.searchProducts` clamp with `Math.min(Math.max(...))` instead.
+This was an API-contract inconsistency.
+
+**Fix:** Changed to clamp limit/offset to match PartyService/ProductService
+behavior. Return values now reflect the clamped values.
+
+### 🟡 `product-tools.ts:38` — fixed `getProduct` return type from `unknown` to `GetProductResult`
+
+**Problem:** The MCP tool interface declared `getProduct` as returning
+`Promise<unknown>`, losing compile-time safety. Other tool interfaces used their
+proper result types.
+
+**Fix:** Changed to `Promise<GetProductResult>`.
+
+### 🟡 `agent-tools.ts:330` — removed unsafe `as` cast in `deactivateAgent`
+
+**Problem:** `deactivateAgent` handler used `as Parameters<typeof svc.updateAgent>[0]`
+cast, bypassing TypeScript's structural check.
+
+**Fix:** Built the input with an explicit `UpdateAgentInput` type annotation and
+imported the type from `security.types.ts`.
+
+---
+
 ## Changes Applied (2026-09-01) — Code Review Round 198
 
 ### 🟢 `rls-setup.sql` — added RLS policies for product tables
