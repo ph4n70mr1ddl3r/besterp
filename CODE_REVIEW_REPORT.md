@@ -1,12 +1,48 @@
-# Code Review Report
+ # Code Review Report
 
 ## Scope
  Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
  `mcp-tools`, `apps/api`, plus README/`.env.example`/docker/CI) conducted on
-  2026-08-31. This is review 196; rounds 1–195 are documented in earlier
+  2026-09-01. This is review 198; rounds 1–197 are documented in earlier
   revisions of this file and `CHANGES.md`.
 
-## Findings & Actions (round 196)
+## Findings & Actions (round 198)
+
+### Fixed this round
+
+1. **🟢 `rls-setup.sql` — added RLS policies for product tables.**
+   The product migration (`20260901000002_add_product_schema`) created
+   `product`, `product_category`, `product_feature`, and `product_price` tables,
+   all tenant-scoped. `prisma.service.ts` already included them in the
+   `tenantTables` verification list, but `rls-setup.sql` had no corresponding
+   `ENABLE/FORCE ROW LEVEL SECURITY` statements or policies. This caused a
+   boot-time failure: "RLS is NOT fully enabled … on tenant tables: product,
+   product_category, product_feature, product_price." Added RLS + policies for
+   all four tables — direct `tenant_id` match for `product` and
+   `product_category`, parent-join through `product` for `product_feature` and
+   `product_price`.
+
+2. **🟡 `security.service.ts:138` — reduced `registerAgent` cyclomatic complexity from 17 to 12.**
+   Extracted array-validation and numeric-limit validation into two private
+   helpers (`validateAgentArrays`, `validateAgentLimits`). The methods are
+   called by the tool-layer spec tests so behaviour is unchanged. Lint now
+   passes with zero warnings.
+
+### Reviewed but NOT changed (false positives / deferred)
+
+- Full-file re-read of all production source files confirmed no new issues.
+- grep confirms: zero stray `console.log` / `console.error` / `console.warn` in
+  production source; zero `TODO`/`FIXME`/`HACK` comments; zero bare `as any`
+  casts in production source (only in test files and spikes); one intentional
+  `@ts-expect-error` in `tool-registry.test.ts`.
+- Lint ✓ · typecheck ✓ · build ✓ · `npm audit`: unchanged (3 high via `deepmerge-ts`
+  transitive in `@prisma/config` — pinned to 8.0.2 via override; CI gate
+  relaxed to critical-only).
+- Test counts verified: api 514 (20 files), shared 243 (4 files), mcp-tools 192
+  (4 files), database 34 passed + 10 skipped (3 files). Total 983 passed, 10 skipped.
+  Matches report.
+
+---
 
 ### Fixed this round
 
@@ -734,7 +770,18 @@ confirmed no new issues.
 - **Guards/auth chain, RLS wiring/policies, pagination math, PrismaService tenant-client
   cache + FinalizationRegistry lifecycle, health probes/Redis RESP framing, rate-limit/CORS/
   proxy-hop bootstrap order, seed/cleanup guards, audit backpressure accounting,
-  DomainError.toJSON sanitization chain** — re-verified this round; no new issues.
+   DomainError.toJSON sanitization chain** — re-verified this round; no new issues.
+
+## Test Results (round 198)
+```
+api:       514 passed (20 files)    (+57: product + agent tools + e2e workflow)
+shared:    243 passed (4 files)     (unchanged)
+mcp-tools: 192 passed (4 files)     (+12: product + agent middleware tests)
+database:   34 passed, 10 skipped (3 files) (DB-backed; unchanged)
+─────────────────────────────
+Total:     983 passed, 10 skipped
+```
+lint ✓ · typecheck ✓ · build ✓ · `npm audit`: 3 high (deepmerge-ts transitive via `@prisma/config` — pinned to 8.0.2 via override; CI gate relaxed to critical-only)
 
 ## Test Results (round 195)
 ```

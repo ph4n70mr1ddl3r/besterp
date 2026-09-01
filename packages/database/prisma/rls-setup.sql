@@ -239,12 +239,83 @@ CREATE POLICY tenant_isolation_postal_address ON postal_address
     AND contact_mechanism_id IN (
       SELECT contact_mechanism_id FROM contact_mechanism
       WHERE tenant_id = current_setting('app.current_tenant', TRUE)
+  )
+   WITH CHECK (
+     current_setting('app.current_tenant', TRUE) != ''
+     AND tenant_id = current_setting('app.current_tenant', TRUE)
+     AND contact_mechanism_id IN (
+       SELECT contact_mechanism_id FROM contact_mechanism
+       WHERE tenant_id = current_setting('app.current_tenant', TRUE)
+     )
+   );
+
+-- ─── Product tables (tenant-scoped, ERP_PLAN Phase 1) ───────────
+-- product and product_category carry their own tenant_id columns.
+-- product_feature and product_price are protected via their parent product row.
+
+ALTER TABLE product ENABLE ROW LEVEL SECURITY;
+ALTER TABLE product FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation_product ON product;
+CREATE POLICY tenant_isolation_product ON product
+  USING (
+    current_setting('app.current_tenant', TRUE) != ''
+    AND tenant_id = current_setting('app.current_tenant', TRUE)
+  )
+  WITH CHECK (
+    current_setting('app.current_tenant', TRUE) != ''
+    AND tenant_id = current_setting('app.current_tenant', TRUE)
+  );
+
+ALTER TABLE product_category ENABLE ROW LEVEL SECURITY;
+ALTER TABLE product_category FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation_product_category ON product_category;
+CREATE POLICY tenant_isolation_product_category ON product_category
+  USING (
+    current_setting('app.current_tenant', TRUE) != ''
+    AND tenant_id = current_setting('app.current_tenant', TRUE)
+  )
+  WITH CHECK (
+    current_setting('app.current_tenant', TRUE) != ''
+    AND tenant_id = current_setting('app.current_tenant', TRUE)
+  );
+
+-- product_feature and product_price join through product; their policies
+-- ensure the owning product belongs to the current tenant, preventing a
+-- malformed write path from attaching another tenant's product metadata.
+ALTER TABLE product_feature ENABLE ROW LEVEL SECURITY;
+ALTER TABLE product_feature FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation_product_feature ON product_feature;
+CREATE POLICY tenant_isolation_product_feature ON product_feature
+  USING (
+    current_setting('app.current_tenant', TRUE) != ''
+    AND product_id IN (
+      SELECT product_id FROM product
+      WHERE tenant_id = current_setting('app.current_tenant', TRUE)
     )
   )
   WITH CHECK (
     current_setting('app.current_tenant', TRUE) != ''
-    AND contact_mechanism_id IN (
-      SELECT contact_mechanism_id FROM contact_mechanism
+    AND product_id IN (
+      SELECT product_id FROM product
+      WHERE tenant_id = current_setting('app.current_tenant', TRUE)
+    )
+  );
+
+ALTER TABLE product_price ENABLE ROW LEVEL SECURITY;
+ALTER TABLE product_price FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation_product_price ON product_price;
+CREATE POLICY tenant_isolation_product_price ON product_price
+  USING (
+    current_setting('app.current_tenant', TRUE) != ''
+    AND product_id IN (
+      SELECT product_id FROM product
+      WHERE tenant_id = current_setting('app.current_tenant', TRUE)
+    )
+  )
+  WITH CHECK (
+    current_setting('app.current_tenant', TRUE) != ''
+    AND product_id IN (
+      SELECT product_id FROM product
       WHERE tenant_id = current_setting('app.current_tenant', TRUE)
     )
   );

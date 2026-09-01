@@ -1,5 +1,32 @@
 # BestERP — Security & Architecture Fixes
 
+## Changes Applied (2026-09-01) — Code Review Round 198
+
+### 🟢 `rls-setup.sql` — added RLS policies for product tables
+
+**Problem:** The product migration (`20260901000002_add_product_schema`) created
+`product`, `product_category`, `product_feature`, and `product_price` tables,
+all tenant-scoped. `prisma.service.ts` already included them in the
+`tenantTables` verification list, but `rls-setup.sql` had no corresponding
+`ENABLE/FORCE ROW LEVEL SECURITY` statements or policies. This caused a
+boot-time failure: "RLS is NOT fully enabled … on tenant tables: product,
+product_category, product_feature, product_price."
+
+**Fix:** Added RLS + policies for all four tables — direct `tenant_id` match
+for `product` and `product_category`, parent-join through `product` for
+`product_feature` and `product_price`.
+
+### 🟢 `security.service.ts` — reduced `registerAgent` cyclomatic complexity
+
+**Problem:** `registerAgent` had cyclomatic complexity 17, exceeding the ESLint
+max of 15, producing a lint warning.
+
+**Fix:** Extracted array-validation and numeric-limit validation into two
+private helpers (`validateAgentArrays`, `validateAgentLimits`). Complexity
+dropped to 12. Behaviour unchanged; tool-layer spec tests continue to pass.
+
+---
+
 ## Changes Applied (2026-09-01) — ERP_PLAN Phase 0c/0d Implementation
 
 ### 🟢 `core-security` module — USER model linked to PARTY

@@ -154,34 +154,8 @@ export class SecurityService {
     this.requireNonEmpty(displayName, "displayName", MAX_PARTY_NAME_LENGTH);
     this.requireNonEmpty(description, "description", 1000);
     this.requireNonEmpty(version, "version", 64);
-
-    if (!Array.isArray(capabilities)) {
-      throw new InvalidTypeValueError("capabilities must be a string array.", {
-        suggestedTools: ["register_agent"],
-      });
-    }
-    if (capabilities.length > 50) {
-      throw new InvalidTypeValueError("capabilities must have at most 50 entries.", {
-        suggestedTools: ["register_agent"],
-      });
-    }
-    if (!Array.isArray(allowedEntityTypes)) {
-      throw new InvalidTypeValueError("allowedEntityTypes must be a string array.", {
-        suggestedTools: ["register_agent"],
-      });
-    }
-    if (maxToolCallsPerConversation < 1 || maxToolCallsPerConversation > 10000) {
-      throw new InvalidTypeValueError(
-        `maxToolCallsPerConversation must be between 1 and 10000, got ${maxToolCallsPerConversation}.`,
-        { suggestedTools: ["register_agent"] }
-      );
-    }
-    if (rateLimitPerMinute < 1 || rateLimitPerMinute > 1000) {
-      throw new InvalidTypeValueError(
-        `rateLimitPerMinute must be between 1 and 1000, got ${rateLimitPerMinute}.`,
-        { suggestedTools: ["register_agent"] }
-      );
-    }
+    this.validateAgentArrays(agentId, tenantId, capabilities, allowedEntityTypes);
+    this.validateAgentLimits(agentId, maxToolCallsPerConversation, rateLimitPerMinute);
 
     try {
       const agent = await this.prisma.admin.agentRegistry.create({
@@ -210,6 +184,48 @@ export class SecurityService {
         );
       }
       throw err;
+    }
+  }
+
+  private validateAgentArrays(
+    _agentId: string,
+    _tenantId: string,
+    capabilities: unknown,
+    allowedEntityTypes: unknown,
+  ): void {
+    if (!Array.isArray(capabilities)) {
+      throw new InvalidTypeValueError("capabilities must be a string array.", {
+        suggestedTools: ["register_agent"],
+      });
+    }
+    if (capabilities.length > 50) {
+      throw new InvalidTypeValueError("capabilities must have at most 50 entries.", {
+        suggestedTools: ["register_agent"],
+      });
+    }
+    if (!Array.isArray(allowedEntityTypes)) {
+      throw new InvalidTypeValueError("allowedEntityTypes must be a string array.", {
+        suggestedTools: ["register_agent"],
+      });
+    }
+  }
+
+  private validateAgentLimits(
+    _agentId: string,
+    maxToolCallsPerConversation: number,
+    rateLimitPerMinute: number,
+  ): void {
+    if (maxToolCallsPerConversation < 1 || maxToolCallsPerConversation > 10000) {
+      throw new InvalidTypeValueError(
+        `maxToolCallsPerConversation must be between 1 and 10000, got ${maxToolCallsPerConversation}.`,
+        { suggestedTools: ["register_agent"] }
+      );
+    }
+    if (rateLimitPerMinute < 1 || rateLimitPerMinute > 1000) {
+      throw new InvalidTypeValueError(
+        `rateLimitPerMinute must be between 1 and 1000, got ${rateLimitPerMinute}.`,
+        { suggestedTools: ["register_agent"] }
+      );
     }
   }
 
