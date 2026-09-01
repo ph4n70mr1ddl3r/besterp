@@ -362,3 +362,119 @@ model User {
   @@index([tenantId])
   @@map("user")
 }
+
+// ─── Product Type ───────────────────────────────────────────────
+// Classification table for product types (GOOD, SERVICE, RAW_MATERIAL, etc.).
+// Global reference data — not tenant-scoped. Implements Silverstone Ch. 3.
+
+model ProductType {
+  productTypeId String   @id @default(uuid()) @map("product_type_id")
+  parentTypeId  String?  @map("parent_type_id")
+  name          String   @unique
+  description   String
+  aiPromptHint  String?  @map("ai_prompt_hint")
+  isSystem      Boolean  @default(false) @map("is_system")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  parentType ProductType?  @relation("ProductTypeHierarchy", fields: [parentTypeId], references: [productTypeId])
+  childTypes ProductType[] @relation("ProductTypeHierarchy")
+
+  products Product[]
+
+  @@index([parentTypeId])
+  @@map("product_type")
+}
+
+// ─── Product Category ───────────────────────────────────────────
+// Hierarchical classification of products within a tenant.
+// Tenant-scoped — each tenant has its own category tree.
+
+model ProductCategory {
+  productCategoryId String    @id @default(uuid()) @map("product_category_id")
+  parentCategoryId  String?   @map("parent_category_id")
+  tenantId          String    @map("tenant_id")
+  name              String
+  description       String?
+  level             Int       @default(0) @map("level")
+  createdAt         DateTime  @default(now()) @map("created_at")
+
+  parentCategory ProductCategory?  @relation("ProductCategoryHierarchy", fields: [parentCategoryId], references: [productCategoryId])
+  childCategories ProductCategory[] @relation("ProductCategoryHierarchy")
+  products       Product[]
+
+  @@index([tenantId])
+  @@index([parentCategoryId])
+  @@map("product_category")
+}
+
+// ─── Product (Supertype) ────────────────────────────────────────
+// Core product entity. Every sellable/purchasable item is a Product.
+// Implements Silverstone Ch. 3 with supertype/subtype via product_type.
+
+model Product {
+  productId     String   @id @default(uuid()) @map("product_id")
+  productTypeId String   @map("product_type_id")
+  tenantId      String   @map("tenant_id")
+  name          String
+  description   String?
+  sku           String?  @unique
+  version       Int      @default(1) @map("version")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  // Type relation
+  productType ProductType @relation(fields: [productTypeId], references: [productTypeId])
+
+  // Optional category link
+  category ProductCategory? @relation(fields: [productCategoryId], references: [productCategoryId])
+  productCategoryId String? @map("product_category_id")
+
+  // Relations
+  features ProductFeature[]
+  prices   ProductPrice[]
+
+  @@index([tenantId])
+  @@index([productTypeId])
+  @@index([tenantId, productTypeId])
+  // pg_trgm GIN index for fuzzy name search (migration 20260901000002).
+  @@map("product")
+}
+
+// ─── Product Feature ────────────────────────────────────────────
+// Extensible key-value attributes for products (color, size, weight, etc.).
+// Follows the Silverstone PRODUCT_FEATURE pattern.
+
+model ProductFeature {
+  productFeatureId String   @id @default(uuid()) @map("product_feature_id")
+  productId        String   @map("product_id")
+  name             String
+  value            String
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  product Product @relation(fields: [productId], references: [productId], onDelete: Cascade)
+
+  @@index([productId])
+  @@map("product_feature")
+}
+
+// ─── Product Price ──────────────────────────────────────────────
+// Multiple price types per product with effective dating.
+// Implements Silverstone PRODUCT_PRICE pattern.
+
+model ProductPrice {
+  productPriceId String    @id @default(uuid()) @map("product_price_id")
+  productId      String    @map("product_id")
+  priceType      String    @map("price_type")
+  amount         Decimal   @db.Decimal(19, 4) @map("amount")
+  currencyCode   String    @default("USD") @map("currency_code")
+  fromDate       DateTime  @default(now()) @map("from_date")
+  thruDate       DateTime? @map("thru_date")
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  product Product @relation(fields: [productId], references: [productId], onDelete: Cascade)
+
+  @@index([productId])
+  @@index([fromDate])
+  @@index([productId, priceType])
+  @@map("product_price")
+}

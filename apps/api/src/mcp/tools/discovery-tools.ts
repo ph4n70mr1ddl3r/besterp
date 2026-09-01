@@ -11,7 +11,17 @@ import {
   ToolDefinition,
   ToolContext,
 } from "@besterp/mcp-tools";
-import { InvalidTypeValueError, sanitizeForLogOutput, stripHtmlTags, MAX_ENTITY_LENGTH } from "@besterp/shared";
+import {
+  InvalidTypeValueError,
+  sanitizeForLogOutput,
+  stripHtmlTags,
+  MAX_ENTITY_LENGTH,
+  DEFAULT_SEARCH_LIMIT,
+  MIN_SEARCH_LIMIT,
+  MAX_SEARCH_LIMIT,
+  MIN_SEARCH_OFFSET,
+  MAX_SEARCH_OFFSET,
+} from "@besterp/shared";
 
 // Mapping from type table names to Prisma model delegate keys and ID fields.
 const TYPE_TABLE_MAP = {
@@ -338,6 +348,255 @@ Example: get_valid_transitions({ entity: "party" }) returns { active: ["inactive
   };
 }
 
+// ─── Tool: search_across_entities ─────────────────────────────────
+
+function createSearchAcrossEntities(_prisma: PrismaClient): ToolDefinition {
+  return {
+    name: "search_across_entities",
+    description: `Universal search across all entity types in the ERP system.
+
+Use this when you don't know which specific entity type to query. Search by
+name with optional entity type filtering. Returns paginated results with a
+count of total matches per entity type.
+
+Example: search_across_entities({ query: "Acme" })
+Example: search_across_entities({ query: "Widget", entity: "product" })`,
+
+    inputSchema: z.strictObject({
+      query: z.string()
+        .transform((s) => s.trim())
+        .pipe(z.string().min(1).max(200))
+        .describe("Search term (partial match, case-insensitive)"),
+      entity: z.enum(["party", "product"]).optional()
+        .describe("Restrict search to a specific entity type. Omit to search all."),
+      limit: z.number().int().min(MIN_SEARCH_LIMIT).max(MAX_SEARCH_LIMIT).optional().default(DEFAULT_SEARCH_LIMIT),
+      offset: z.number().int().min(MIN_SEARCH_OFFSET).max(MAX_SEARCH_OFFSET).optional().default(0),
+    }),
+
+    riskLevel: "none",
+    entity: "universal_search",
+    tags: ["discovery", "search"],
+
+    handler: async (inputRaw: unknown, context: ToolContext) => {
+      const input = inputRaw as { query: string; entity?: string; limit: number; offset: number };
+
+      // search_across_entities is a read-only discovery tool that delegates to
+      // the appropriate service. Party search is handled by partyService;
+      // product search is handled by productService. Both are available via
+      // ToolContext.services.
+      if (input.entity) {
+        if (input.entity === "party") {
+          const svc = context.services.partyService;
+          if (!svc || typeof svc !== "object" || typeof (svc as Record<string, unknown>).searchParties !== "function") {
+            return {
+              success: false,
+              error: {
+                code: "ENTITY_NOT_FOUND",
+                message: "Party search service is not available.",
+                suggestedTools: ["list_available_tools"],
+              },
+            };
+          }
+          const result = await (svc as { searchParties: (input: { tenantId: string; name?: string; limit?: number; offset?: number }) => Promise<unknown> }).searchParties({
+            tenantId: context.tenantId,
+            name: input.query,
+            limit: input.limit,
+            offset: input.offset,
+          });
+          return { success: true, data: { entity: "party", query: input.query, ...(result as Record<string, unknown>) } };
+        }
+
+        if (input.entity === "product") {
+          const svc = context.services.productService;
+          if (!svc || typeof svc !== "object" || typeof (svc as Record<string, unknown>).searchProducts !== "function") {
+            return {
+              success: false,
+              error: {
+                code: "ENTITY_NOT_FOUND",
+                message: "Product search service is not available.",
+                suggestedTools: ["list_available_tools"],
+              },
+            };
+          }
+          const result = await (svc as { searchProducts: (input: { tenantId: string; name?: string; limit?: number; offset?: number }) => Promise<unknown> }).searchProducts({
+            tenantId: context.tenantId,
+            name: input.query,
+            limit: input.limit,
+            offset: input.offset,
+          });
+          return { success: true, data: { entity: "product", query: input.query, ...(result as Record<string, unknown>) } };
+        }
+
+        return {
+          success: false,
+          error: {
+            code: "ENTITY_NOT_FOUND",
+            message: `Entity type '${input.entity}' is not searchable. Available: party, product.`,
+            suggestedTools: ["list_available_tools", "describe_entity"],
+          },
+        };
+      }
+
+      // No entity specified — search parties and products in parallel
+      const [partyResult, productResult] = await Promise.allSettled([
+        (async () => {
+          const svc = context.services.partyService;
+          if (!svc || typeof svc !== "object" || typeof (svc as Record<string, unknown>).searchParties !== "function") return null;
+          return (svc as { searchParties: (input: { tenantId: string; name?: string; limit?: number; offset?: number }) => Promise<unknown> }).searchParties({
+            tenantId: context.tenantId,
+            name: input.query,
+            limit: input.limit,
+            offset: input.offset,
+          });
+        })(),
+        (async () => {
+          const svc = context.services.productService;
+          if (!svc || typeof svc !== "object" || typeof (svc as Record<string, unknown>).searchProducts !== "function") return null;
+          return (svc as { searchProducts: (input: { tenantId: string; name?: string; limit?: number; offset?: number }) => Promise<unknown> }).searchProducts({
+            tenantId: context.tenantId,
+            name: input.query,
+            limit: input.limit,
+            offset: input.offset,
+          });
+        })(),
+      ]);
+
+      return {
+        success: true,
+        data: {
+          query: input.query,
+          results: {
+            party: partyResult.status === "fulfilled" && partyResult.value ? partyResult.value : null,
+            product: productResult.status === "fulfilled" && productResult.value ? productResult.value : null,
+          },
+        },
+      };
+    },
+  };
+}
+
+// ─── Tool: explain_error ──────────────────────────────────────────
+
+/**
+ * Error code explanations for AI agents. Maps domain error codes and common
+ * Prisma codes to human-readable messages with actionable guidance.
+ *
+ * This is the "Layer 4" hallucination guard from AGENTIC_AI_DESIGN.md — when
+ * an agent encounters an unfamiliar error code, it can call this tool to get
+ * a plain-English explanation and suggested next steps instead of guessing.
+ */
+const ERROR_EXPLANATIONS: Record<string, { message: string; suggestedTools: string[]; context?: Record<string, string> }> = {
+  INVALID_TYPE_VALUE: {
+    message: "The value you provided does not match any valid option in the system. Type tables (PARTY_TYPE, ROLE_TYPE, etc.) define the allowed values.",
+    suggestedTools: ["get_type_table_values", "list_available_tools", "describe_entity"],
+    context: { tip: "Run get_type_table_values with the relevant typeName to see all valid options." },
+  },
+  ENTITY_NOT_FOUND: {
+    message: "The entity you referenced does not exist in this tenant. It may have been deleted, or the ID may be incorrect.",
+    suggestedTools: ["search_parties", "search_across_entities", "describe_entity"],
+    context: { tip: "Use search_across_entities to find the correct entity ID." },
+  },
+  DUPLICATE_ENTITY: {
+    message: "An entity with the same unique constraint already exists. The system prevents duplicate records for data integrity.",
+    suggestedTools: ["search_parties", "get_party"],
+    context: { tip: "Search for the existing entity and use its ID instead of creating a new one." },
+  },
+  MISSING_SUBTYPE_DATA: {
+    message: "Required subtype data is missing. When creating a PARTY, you must provide the correct subtype fields (person or organization).",
+    suggestedTools: ["create_party", "describe_entity"],
+    context: { tip: "Use describe_entity with entity='party' to see required subtype fields." },
+  },
+  CONCURRENCY_CONFLICT: {
+    message: "A concurrent modification was detected. Another operation modified the same record between your read and write.",
+    suggestedTools: [],
+    context: { tip: "Re-query the entity and retry the operation with a new idempotency key." },
+  },
+  P2002: {
+    message: "Database unique constraint violation — a record with the same unique field(s) already exists.",
+    suggestedTools: ["search_parties", "get_party"],
+    context: { tip: "Search for the existing record and reuse its ID, or modify the conflicting field." },
+  },
+  P2025: {
+    message: "Attempted to update or delete a record that does not exist.",
+    suggestedTools: ["get_party", "search_parties"],
+    context: { tip: "Verify the entity ID exists before attempting the operation." },
+  },
+  P2003: {
+    message: "Foreign key constraint violation — a referenced record does not exist.",
+    suggestedTools: ["get_type_table_values", "search_parties"],
+    context: { tip: "Ensure the referenced entity (e.g., party, role type) exists before creating the dependent record." },
+  },
+  P2034: {
+    message: "Transaction conflict or timeout — the database could not complete the operation due to concurrent access.",
+    suggestedTools: [],
+    context: { tip: "Retry the operation with the same idempotency key after a short delay." },
+  },
+  P1000: {
+    message: "Authentication failed — the database connection credentials are invalid.",
+    suggestedTools: [],
+    context: { tip: "Check DATABASE_URL and DATABASE_ADMIN_URL environment variables. This is a server configuration issue." },
+  },
+  P1001: {
+    message: "Cannot reach the database — the database server is not available.",
+    suggestedTools: [],
+    context: { tip: "Check that PostgreSQL is running and the connection string is correct. This is a server infrastructure issue." },
+  },
+  P1008: {
+    message: "Operation timed out — the database query took too long to complete.",
+    suggestedTools: [],
+    context: { tip: "This is likely a transient issue. Retry the operation." },
+  },
+};
+
+function createExplainError(_prisma: PrismaClient): ToolDefinition {
+  return {
+    name: "explain_error",
+    description: `Explain an error code and suggest how to recover.
+
+Use this when you encounter an error you don't understand. Returns a plain-
+English explanation and a list of tools that can help you fix the issue.
+
+Example: explain_error({ errorCode: "INVALID_TYPE_VALUE" })`,
+
+    inputSchema: z.strictObject({
+      errorCode: z.string()
+        .transform((s) => s.trim().toUpperCase())
+        .pipe(z.string().min(1).max(50))
+        .describe("The error code to explain (e.g., 'INVALID_TYPE_VALUE', 'P2002')"),
+    }),
+
+    riskLevel: "none",
+    entity: "error_explanation",
+    tags: ["discovery", "error"],
+
+    handler: async (inputRaw: unknown, _context: ToolContext) => {
+      const input = inputRaw as { errorCode: string };
+      const explanation = ERROR_EXPLANATIONS[input.errorCode];
+
+      if (!explanation) {
+        return {
+          success: false,
+          error: {
+            code: "UNKNOWN_ERROR_CODE",
+            message: `No explanation found for error code '${input.errorCode}'. Check the tool output for the exact error code, or contact support.`,
+            suggestedTools: ["list_available_tools"],
+          },
+        };
+      }
+
+      return {
+        success: true,
+        data: {
+          errorCode: input.errorCode,
+          message: explanation.message,
+          suggestedTools: explanation.suggestedTools,
+          context: explanation.context,
+        },
+      };
+    },
+  };
+}
+
 // ─── Registration ─────────────────────────────────────────────────
 
 export function registerDiscoveryTools(registry: ToolRegistry, prisma: PrismaClient): void {
@@ -345,4 +604,6 @@ export function registerDiscoveryTools(registry: ToolRegistry, prisma: PrismaCli
   registry.register(createGetTypeTableValues(prisma));
   registry.register(createDescribeEntity(prisma));
   registry.register(createGetValidTransitions(prisma));
+  registry.register(createSearchAcrossEntities(prisma));
+  registry.register(createExplainError(prisma));
 }

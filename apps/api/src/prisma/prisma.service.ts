@@ -307,6 +307,10 @@ export class PrismaService
       "postal_address",
       "telecom_number",
       "email_address",
+      "product",
+      "product_category",
+      "product_feature",
+      "product_price",
     ];
     try {
       // Query ALL force-RLS tables in `public` (do NOT pre-filter by

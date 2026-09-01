@@ -14,6 +14,7 @@ import {
 import { registerPartyTools } from "./tools/party-tools.js";
 import { registerDiscoveryTools } from "./tools/discovery-tools.js";
 import { registerAgentTools } from "./tools/agent-tools.js";
+import { registerProductTools } from "./tools/product-tools.js";
 
 @Injectable()
 export class McpService implements OnModuleInit {
@@ -35,6 +36,7 @@ export class McpService implements OnModuleInit {
     registerPartyTools(this.registry);
     registerDiscoveryTools(this.registry, this.prisma.admin);
     registerAgentTools(this.registry);
+    registerProductTools(this.registry);
 
     this.logger.log(
       `MCP Tool Server initialized with ${this.registry.names.length} tools: ` +

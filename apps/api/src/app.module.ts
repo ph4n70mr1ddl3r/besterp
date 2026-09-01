@@ -16,6 +16,7 @@ import { TenantGuard } from "./auth/tenant.guard.js";
 import { PrismaModule } from "./prisma/prisma.module.js";
 import { PartyModule } from "./modules/core/party/party.module.js";
 import { SecurityModule } from "./modules/core/security/security.module.js";
+import { ProductModule } from "./modules/core/product/product.module.js";
 import { McpModule } from "./mcp/mcp.module.js";
 import { QueueModule } from "./queue/queue.module.js";
 import { HealthModule } from "./health.module.js";
@@ -28,7 +29,8 @@ import { DomainExceptionFilter } from "./common/domain-exception.filter.js";
     PrismaModule,         // Global — provides PrismaService everywhere
     PartyModule,          // Core party domain (imports PrismaModule)
     SecurityModule,       // Core security: users + agent registry (imports PrismaModule)
-    McpModule.forRoot(),  // MCP tool server (imports PartyModule + SecurityModule + PrismaModule)
+    ProductModule,        // Core product domain (imports PrismaModule)
+    McpModule.forRoot(),  // MCP tool server (imports PartyModule + SecurityModule + ProductModule + PrismaModule)
     QueueModule.forRoot(), // Redis/BullMQ — domain events & async jobs
     HealthModule,        // Health check endpoints
   ],

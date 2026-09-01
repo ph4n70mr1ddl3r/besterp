@@ -339,6 +339,42 @@ Use this instead of delete_agent when you want to temporarily disable an agent.`
   },
 };
 
+// ─── Tool: delete_agent ────────────────────────────────────────
+
+const deleteAgentSchema = z.strictObject({
+  agentId: agentIdParam("The agent ID to delete"),
+});
+
+type DeleteAgentInput_z = z.infer<typeof deleteAgentSchema>;
+
+const deleteAgent: ToolDefinition = {
+  name: "delete_agent",
+  description: `Permanently delete a registered AI agent from the tenant.
+
+Unlike deactivate_agent (which soft-disables), this removes the agent record entirely.
+This operation is irreversible — use deactivate_agent if you want to temporarily
+disable an agent instead.`,
+
+  inputSchema: deleteAgentSchema,
+
+  riskLevel: "critical",
+  entity: "agent_registry",
+  tags: ["security", "agent", "delete"],
+
+  handler: async (inputRaw: unknown, context: ToolContext) => {
+    const input = inputRaw as DeleteAgentInput_z;
+    const svc = getSecurityService(context);
+    const result = await svc.deleteAgent(context.tenantId, input.agentId);
+    return {
+      success: true,
+      data: result,
+      nextActions: [
+        "Use 'list_agents' to verify the agent has been removed.",
+      ],
+    };
+  },
+};
+
 // ─── Registration ─────────────────────────────────────────────────
 
 export function registerAgentTools(registry: ToolRegistry): void {
@@ -347,4 +383,5 @@ export function registerAgentTools(registry: ToolRegistry): void {
   registry.register(describeAgent);
   registry.register(updateAgent);
   registry.register(deactivateAgent);
+  registry.register(deleteAgent);
 }

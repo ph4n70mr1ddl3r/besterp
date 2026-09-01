@@ -370,11 +370,13 @@ describe("Discovery MCP Tools", () => {
   });
 
   describe("registration safety", () => {
-    it("should register all four discovery tools without throwing", () => {
+    it("should register all six discovery tools without throwing", () => {
       expect(registry.names).toContain("list_available_tools");
       expect(registry.names).toContain("get_type_table_values");
       expect(registry.names).toContain("describe_entity");
       expect(registry.names).toContain("get_valid_transitions");
+      expect(registry.names).toContain("search_across_entities");
+      expect(registry.names).toContain("explain_error");
     });
 
     it("should include all discovery tools in getDiscoveryInfo", () => {
@@ -384,6 +386,107 @@ describe("Discovery MCP Tools", () => {
       expect(names).toContain("get_type_table_values");
       expect(names).toContain("describe_entity");
       expect(names).toContain("get_valid_transitions");
+      expect(names).toContain("search_across_entities");
+      expect(names).toContain("explain_error");
+    });
+  });
+
+  describe("search_across_entities", () => {
+    it("should reject unknown entity type at schema level", async () => {
+      const result = await registry.execute(
+        "search_across_entities",
+        { query: "Acme", entity: "nonexistent" as any },
+        mockContext,
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe("INVALID_INPUT");
+    });
+
+    it("should reject empty query", async () => {
+      const result = await registry.execute(
+        "search_across_entities",
+        { query: "   " },
+        mockContext,
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe("INVALID_INPUT");
+    });
+
+    it("should accept valid pagination params", async () => {
+      const result = await registry.execute(
+        "search_across_entities",
+        { query: "test", limit: 10, offset: 5 },
+        mockContext,
+      );
+
+      // Should not fail validation — result depends on service availability
+      expect(result.success !== false || result.error?.code !== "INVALID_INPUT").toBe(true);
+    });
+  });
+
+  describe("explain_error", () => {
+    it("should explain a known error code", async () => {
+      const result = await registry.execute(
+        "explain_error",
+        { errorCode: "INVALID_TYPE_VALUE" },
+        mockContext,
+      );
+
+      expect(result.success).toBe(true);
+      const data = result.data as { errorCode: string; message: string; suggestedTools: string[] };
+      expect(data.errorCode).toBe("INVALID_TYPE_VALUE");
+      expect(data.message).toContain("does not match any valid option");
+      expect(data.suggestedTools).toContain("get_type_table_values");
+    });
+
+    it("should explain a Prisma error code", async () => {
+      const result = await registry.execute(
+        "explain_error",
+        { errorCode: "P2002" },
+        mockContext,
+      );
+
+      expect(result.success).toBe(true);
+      const data = result.data as { errorCode: string; message: string };
+      expect(data.errorCode).toBe("P2002");
+      expect(data.message).toContain("unique constraint");
+    });
+
+    it("should return ENTITY_NOT_FOUND for unknown error code", async () => {
+      const result = await registry.execute(
+        "explain_error",
+        { errorCode: "NONEXISTENT_CODE" },
+        mockContext,
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe("UNKNOWN_ERROR_CODE");
+      expect(result.error?.message).toContain("NONEXISTENT_CODE");
+    });
+
+    it("should normalize error code to uppercase", async () => {
+      const result = await registry.execute(
+        "explain_error",
+        { errorCode: "  invalid_type_value  " },
+        mockContext,
+      );
+
+      expect(result.success).toBe(true);
+      const data = result.data as { errorCode: string };
+      expect(data.errorCode).toBe("INVALID_TYPE_VALUE");
+    });
+
+    it("should reject excessively long error code", async () => {
+      const result = await registry.execute(
+        "explain_error",
+        { errorCode: "x".repeat(51) },
+        mockContext,
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe("INVALID_INPUT");
     });
   });
 });

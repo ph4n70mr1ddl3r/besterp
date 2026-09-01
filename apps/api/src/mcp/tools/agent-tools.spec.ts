@@ -85,12 +85,13 @@ describe("Agent MCP Tools", () => {
   });
 
   describe("registration", () => {
-    it("should register all five agent tools", () => {
+    it("should register all six agent tools", () => {
       expect(registry.names).toContain("register_agent");
       expect(registry.names).toContain("list_agents");
       expect(registry.names).toContain("describe_agent");
       expect(registry.names).toContain("update_agent");
       expect(registry.names).toContain("deactivate_agent");
+      expect(registry.names).toContain("delete_agent");
     });
   });
 
@@ -258,6 +259,23 @@ describe("Agent MCP Tools", () => {
       expect(mockSecurityService.updateAgent).toHaveBeenCalledWith(
         expect.objectContaining({ tenantId: TEST_TENANT, agentId: TEST_AGENT_ID, isActive: false })
       );
+    });
+  });
+
+  describe("delete_agent", () => {
+    it("should delete an agent", async () => {
+      const result = await registry.execute("delete_agent", { agentId: TEST_AGENT_ID }, createContext({ securityService: mockSecurityService }));
+
+      expect(result.success).toBe(true);
+      expect(result.data).toEqual({ success: true });
+      expect(mockSecurityService.deleteAgent).toHaveBeenCalledWith(TEST_TENANT, TEST_AGENT_ID);
+    });
+
+    it("should reject empty agentId", async () => {
+      const result = await registry.execute("delete_agent", { agentId: "" }, createContext({ securityService: mockSecurityService }));
+
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe("INVALID_INPUT");
     });
   });
 

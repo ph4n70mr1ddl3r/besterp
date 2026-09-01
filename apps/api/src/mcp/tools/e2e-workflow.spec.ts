@@ -17,6 +17,7 @@ import { ToolRegistry, type ToolContext } from "@besterp/mcp-tools";
 import { registerPartyTools } from "./party-tools.js";
 import { registerDiscoveryTools } from "./discovery-tools.js";
 import { registerAgentTools } from "./agent-tools.js";
+import { registerProductTools } from "./product-tools.js";
 
 const TEST_TENANT = "tenant-acme";
 const TEST_USER = "user-1";
@@ -179,6 +180,7 @@ describe("End-to-End Agent Workflow: Create Customer with Contacts", () => {
     registerPartyTools(registry);
     registerDiscoveryTools(registry, mockPrisma as any);
     registerAgentTools(registry);
+    registerProductTools(registry);
   });
 
   it("should complete the full workflow: register agent → create party → add role → add contact → verify", async () => {

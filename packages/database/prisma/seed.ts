@@ -212,7 +212,7 @@ async function seedTenants(prisma: PrismaClient): Promise<[string, string]> {
 }
 
 async function seedEntityDescriptors(prisma: PrismaClient): Promise<number> {
-  const descriptors = await Promise.all([
+  const coreDescriptors = await Promise.all([
     prisma.entityDescriptor.upsert({
       where: { entityName: "party" },
       update: {},
@@ -314,8 +314,45 @@ async function seedEntityDescriptors(prisma: PrismaClient): Promise<number> {
       },
     }),
   ]);
-  console.log(`  [OK] ${descriptors.length} entity descriptors seeded\n`);
-  return descriptors.length;
+  const productDescriptors = await seedProductEntityDescriptors(prisma);
+  const all = [...coreDescriptors, ...productDescriptors];
+  console.log(`  [OK] ${all.length} entity descriptors seeded\n`);
+  return all.length;
+}
+
+async function seedProductEntityDescriptors(prisma: PrismaClient): Promise<Array<{ entityName: string }>> {
+  return Promise.all([
+    prisma.entityDescriptor.upsert({
+      where: { entityName: "product" },
+      update: {},
+      create: {
+        entityName: "product",
+        description: "A sellable or purchasable item in the ERP system. Can be a good (physical item) or service.",
+        aiPromptHint: "Use create_product to add items. Always assign a productType (GOOD or SERVICE). Products can have prices, features, and categories.",
+        keyFields: { productId: "UUID", tenantId: "tenant-slug", name: "display-name" },
+      },
+    }),
+    prisma.entityDescriptor.upsert({
+      where: { entityName: "product_feature" },
+      update: {},
+      create: {
+        entityName: "product_feature",
+        description: "An extensible key-value attribute on a product (e.g., color, size, weight).",
+        aiPromptHint: "Use add_product_feature to add attributes. Each feature has a name (the attribute) and a value (the setting).",
+        keyFields: { productFeatureId: "UUID", productId: "UUID (FK to product)", name: "attribute-name" },
+      },
+    }),
+    prisma.entityDescriptor.upsert({
+      where: { entityName: "product_price" },
+      update: {},
+      create: {
+        entityName: "product_price",
+        description: "A price entry for a product with a price type (LIST, WHOLESALE, etc.) and optional effective dating.",
+        aiPromptHint: "Use add_product_price to set pricing. A product can have multiple prices of different types. fromDate/thruDate control price validity periods.",
+        keyFields: { productPriceId: "UUID", productId: "UUID (FK to product)", priceType: "string" },
+      },
+    }),
+  ]);
 }
 
 async function seedConfirmationGates(prisma: PrismaClient): Promise<number> {
@@ -380,9 +417,59 @@ async function seedConfirmationGates(prisma: PrismaClient): Promise<number> {
         reason: "Disables an agent's access — affects all conversations using this agent identity.",
       },
     }),
+    prisma.confirmationGate.upsert({
+      where: { toolName: "delete_agent" },
+      update: {},
+      create: {
+        toolName: "delete_agent",
+        enabled: true,
+        description: "Permanently deleting a registered AI agent from the tenant.",
+        reason: "Irreversible operation that removes the agent record entirely. Use deactivate_agent for temporary disable.",
+      },
+    }),
   ]);
   console.log(`  [OK] ${gates.length} confirmation gates seeded`);
   return gates.length;
+}
+
+async function seedProductTypes(prisma: PrismaClient): Promise<number> {
+  const productTypes = await Promise.all([
+    prisma.productType.upsert({
+      where: { productTypeId: "pt-good" },
+      update: {},
+      create: {
+        productTypeId: "pt-good",
+        name: "GOOD",
+        description: "A physical, tangible item that can be stocked, shipped, and inventoried.",
+        aiPromptHint: "Use this type for physical products — widgets, components, raw materials, finished goods. Goods have SKUs, features (color, size), and prices.",
+        isSystem: true,
+      },
+    }),
+    prisma.productType.upsert({
+      where: { productTypeId: "pt-service" },
+      update: {},
+      create: {
+        productTypeId: "pt-service",
+        name: "SERVICE",
+        description: "An intangible offering such as consulting, labor, or subscription.",
+        aiPromptHint: "Use this type for non-physical offerings — consulting hours, support plans, training sessions. Services are billed by time or event rather than quantity shipped.",
+        isSystem: true,
+      },
+    }),
+    prisma.productType.upsert({
+      where: { productTypeId: "pt-raw-material" },
+      update: {},
+      create: {
+        productTypeId: "pt-raw-material",
+        name: "RAW_MATERIAL",
+        description: "An unprocessed material used in manufacturing or production.",
+        aiPromptHint: "Use this type for raw materials and bulk inputs that go into finished goods. Often tracked by weight or volume.",
+        isSystem: true,
+      },
+    }),
+  ]);
+  console.log(`  [OK] ${productTypes.length} product types seeded\n`);
+  return productTypes.length;
 }
 
 async function seedAgentRegistry(prisma: PrismaClient): Promise<number> {
@@ -442,6 +529,7 @@ async function main() {
   await seedPartyTypes(prisma);
   await seedRoleTypes(prisma);
   await seedContactTypes(prisma);
+  await seedProductTypes(prisma);
   await seedTenants(prisma);
   await seedEntityDescriptors(prisma);
   await seedConfirmationGates(prisma);

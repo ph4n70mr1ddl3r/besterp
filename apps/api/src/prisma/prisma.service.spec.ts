@@ -243,6 +243,10 @@ describe("PrismaService", () => {
         { relname: "postal_address", relrowsecurity: true, relforcerowsecurity: true },
         { relname: "telecom_number", relrowsecurity: true, relforcerowsecurity: true },
         { relname: "email_address", relrowsecurity: true, relforcerowsecurity: true },
+        { relname: "product", relrowsecurity: true, relforcerowsecurity: true },
+        { relname: "product_category", relrowsecurity: true, relforcerowsecurity: true },
+        { relname: "product_feature", relrowsecurity: true, relforcerowsecurity: true },
+        { relname: "product_price", relrowsecurity: true, relforcerowsecurity: true },
       ];
       (service.appClient as unknown as { $queryRaw: () => Promise<unknown> }).$queryRaw = vi
         .fn()
