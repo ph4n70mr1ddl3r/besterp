@@ -273,27 +273,27 @@ Validate core assumptions with a minimal prototype before committing to the full
 
 #### Phase 0c: Core Schema + Agentic Layer (Weeks 3-5)
 
-- [ ] Complete `core-party` schema (PARTY_ROLE, CONTACT_MECHANISM + all subtypes)
-- [ ] Implement `core-security` (USER linked to PARTY, ROLE, PERMISSION, AGENT restrictions)
-- [ ] Implement type-table infrastructure with AI-facing columns (`description`, `ai_prompt_hint`, `example`)
-- [ ] Seed scripts for all P0 type tables with AI descriptions
-- [ ] Implement multi-tenancy (RLS on all tenant-scoped tables + Prisma middleware)
-- [ ] Create `entity_descriptor` table and seed for all core entities
-- [ ] Create `ai_action_log` table and logging middleware
-- [ ] Create `confirmation_gate` table and enforcement middleware
-- [ ] Implement idempotency key middleware (generalized for all write tools)
-- [ ] Design agent permission model (inherits user perms + agent restrictions)
-- [ ] Design agent registry (agent_id, capabilities, version, rate limits)
+- [x] Complete `core-party` schema (PARTY_ROLE, CONTACT_MECHANISM + all subtypes)
+- [x] Implement `core-security` (USER linked to PARTY, ROLE, PERMISSION, AGENT restrictions)
+- [x] Implement type-table infrastructure with AI-facing columns (`description`, `ai_prompt_hint`)
+- [x] Seed scripts for all P0 type tables with AI descriptions
+- [x] Implement multi-tenancy (RLS on all tenant-scoped tables + Prisma middleware)
+- [x] Create `entity_descriptor` table and seed for all core entities
+- [x] Create `ai_action_log` table and logging middleware
+- [x] Create `confirmation_gate` table and enforcement middleware
+- [x] Implement idempotency key middleware (generalized for all write tools)
+- [x] Design agent permission model (inherits user perms + agent restrictions)
+- [x] Design agent registry (agent_id, capabilities, version, rate limits)
 
 #### Phase 0d: Discovery Tools + Testing (Weeks 5-6)
 
-- [ ] Build discovery tools: `describe_entity`, `get_type_table_values`, `get_valid_transitions`
-- [ ] Build `list_available_tools` discovery tool
-- [ ] Tool contract test framework
-- [ ] Tool contract tests for all `core-party` tools
-- [ ] End-to-end agent workflow test ("create a customer with contacts")
-- [ ] Idempotency tests (same key → same result, different input → error)
-- [ ] Confirmation gate tests
+- [x] Build discovery tools: `describe_entity`, `get_type_table_values`, `get_valid_transitions`
+- [x] Build `list_available_tools` discovery tool
+- [x] Tool contract test framework
+- [x] Tool contract tests for all `core-party` tools
+- [x] End-to-end agent workflow test ("create a customer with contacts")
+- [x] Idempotency tests (same key → same result, different input → error)
+- [x] Confirmation gate tests
 
 **Tool-First Development Workflow Established:**
 For every entity: define descriptor → define tools → define types → define status machine → implement domain → wire tools → test

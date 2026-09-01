@@ -293,6 +293,26 @@ async function seedEntityDescriptors(prisma: PrismaClient): Promise<number> {
         keyFields: { contactMechanismId: "UUID (FK to contact_mechanism)" },
       },
     }),
+    prisma.entityDescriptor.upsert({
+      where: { entityName: "agent_registry" },
+      update: {},
+      create: {
+        entityName: "agent_registry",
+        description: "AI agent identity registry per tenant. Each agent has capabilities, rate limits, and financial restrictions.",
+        aiPromptHint: "Use register_agent to create agents. Use list_agents to discover available agents. Agents inherit user permissions but may have additional restrictions.",
+        keyFields: { agentId: "string slug", tenantId: "tenant-slug" },
+      },
+    }),
+    prisma.entityDescriptor.upsert({
+      where: { entityName: "user" },
+      update: {},
+      create: {
+        entityName: "user",
+        description: "Human user account linked to a PARTY. Stores auth data (password hash) separate from party identity.",
+        aiPromptHint: "Users are linked to parties via partyId. Use get_party to find the party, then query user separately. Never expose passwordHash in tool results.",
+        keyFields: { userId: "UUID", partyId: "UUID (FK to party)", tenantId: "tenant-slug" },
+      },
+    }),
   ]);
   console.log(`  [OK] ${descriptors.length} entity descriptors seeded\n`);
   return descriptors.length;
@@ -330,9 +350,82 @@ async function seedConfirmationGates(prisma: PrismaClient): Promise<number> {
         reason: "Modifies party contact information that may be used for communications and billing.",
       },
     }),
+    prisma.confirmationGate.upsert({
+      where: { toolName: "register_agent" },
+      update: {},
+      create: {
+        toolName: "register_agent",
+        enabled: true,
+        description: "Registering a new AI agent in the tenant's agent registry.",
+        reason: "Creates a new agent identity with capabilities and restrictions that affect system access.",
+      },
+    }),
+    prisma.confirmationGate.upsert({
+      where: { toolName: "update_agent" },
+      update: {},
+      create: {
+        toolName: "update_agent",
+        enabled: true,
+        description: "Updating an existing agent's configuration or capabilities.",
+        reason: "Modifies agent permissions which may expand or restrict what the agent can do.",
+      },
+    }),
+    prisma.confirmationGate.upsert({
+      where: { toolName: "deactivate_agent" },
+      update: {},
+      create: {
+        toolName: "deactivate_agent",
+        enabled: true,
+        description: "Deactivating an agent, preventing it from making tool calls.",
+        reason: "Disables an agent's access — affects all conversations using this agent identity.",
+      },
+    }),
   ]);
   console.log(`  [OK] ${gates.length} confirmation gates seeded`);
   return gates.length;
+}
+
+async function seedAgentRegistry(prisma: PrismaClient): Promise<number> {
+  const agents = await Promise.all([
+    prisma.agentRegistry.upsert({
+      where: { agentId: "default-agent" },
+      update: {},
+      create: {
+        agentId: "default-agent",
+        tenantId: "tenant-acme",
+        displayName: "Default Agent",
+        description: "Default AI agent for tenant-acme. Has read access to parties.",
+        capabilities: ["list_agents", "describe_agent", "search_parties", "get_party"],
+        maxToolCallsPerConversation: 100,
+        maxConcurrentConversations: 5,
+        maxTransactionAmount: 0,
+        allowedEntityTypes: ["party"],
+        rateLimitPerMinute: 30,
+        version: "1.0.0",
+        isActive: true,
+      },
+    }),
+    prisma.agentRegistry.upsert({
+      where: { agentId: "default-agent" },
+      update: {},
+      create: {
+        agentId: "default-agent",
+        tenantId: "tenant-globex",
+        displayName: "Default Agent",
+        description: "Default AI agent for tenant-globex. Has read access to parties.",
+        capabilities: ["list_agents", "describe_agent", "search_parties", "get_party"],
+        maxToolCallsPerConversation: 100,
+        maxConcurrentConversations: 5,
+        maxTransactionAmount: 0,
+        allowedEntityTypes: ["party"],
+        rateLimitPerMinute: 30,
+        version: "1.0.0",
+        isActive: true,
+      },
+    }),
+  ]);
+  console.log(`  [OK] ${agents.length} default agents seeded\n`);
+  return agents.length;
 }
 
 async function main() {
@@ -352,6 +445,7 @@ async function main() {
   await seedTenants(prisma);
   await seedEntityDescriptors(prisma);
   await seedConfirmationGates(prisma);
+  await seedAgentRegistry(prisma);
 
   console.log("[SEED] Seeding complete!");
 }

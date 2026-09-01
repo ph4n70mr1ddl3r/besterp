@@ -2,6 +2,7 @@ import { Injectable, Logger, OnModuleInit } from "@nestjs/common";
 import { InvalidTypeValueError, MAX_USER_ID_LENGTH, MAX_IDEMPOTENCY_KEY_LENGTH, SAFE_IDEMPOTENCY_KEY, MAX_AGENT_ID_LENGTH, MAX_CONVERSATION_ID_LENGTH, MAX_REASONING_LENGTH, stripHtmlTags, sanitizeForLogOutput, TENANT_ID_PATTERN, validateTenantIdEnhancedForAuth, validateOptionalString } from "@besterp/shared";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { PartyService } from "../modules/core/party/party.service.js";
+import { SecurityService } from "../modules/core/security/security.service.js";
 import {
   ToolRegistry,
   errorHandlerMiddleware,
@@ -12,6 +13,7 @@ import {
 } from "@besterp/mcp-tools";
 import { registerPartyTools } from "./tools/party-tools.js";
 import { registerDiscoveryTools } from "./tools/discovery-tools.js";
+import { registerAgentTools } from "./tools/agent-tools.js";
 
 @Injectable()
 export class McpService implements OnModuleInit {
@@ -21,6 +23,7 @@ export class McpService implements OnModuleInit {
   constructor(
     private readonly prisma: PrismaService,
     private readonly partyService: PartyService,
+    private readonly securityService: SecurityService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -31,6 +34,7 @@ export class McpService implements OnModuleInit {
 
     registerPartyTools(this.registry);
     registerDiscoveryTools(this.registry, this.prisma.admin);
+    registerAgentTools(this.registry);
 
     this.logger.log(
       `MCP Tool Server initialized with ${this.registry.names.length} tools: ` +
@@ -71,6 +75,7 @@ export class McpService implements OnModuleInit {
       reasoning,
       services: {
         partyService: this.partyService,
+        securityService: this.securityService,
       },
     };
   }

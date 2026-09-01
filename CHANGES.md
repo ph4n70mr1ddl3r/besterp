@@ -1,5 +1,38 @@
 # BestERP — Security & Architecture Fixes
 
+## Changes Applied (2026-09-01) — ERP_PLAN Phase 0c/0d Implementation
+
+### 🟢 `core-security` module — USER model linked to PARTY
+**Added:** `apps/api/src/modules/core/security/` with `SecurityService` implementing agent registry CRUD and user management linked to the Party supertype. Users are tenant-scoped with a unique `(tenantId, partyId)` constraint.
+
+### 🟢 `agent_registry` model — Prisma schema + migration
+**Added:** `AgentRegistry` model to `schema.prisma` with capabilities, rate limits, financial restrictions, and version tracking per AGENTIC_AI_DESIGN.md §8.1. Migration: `20260901000001_add_agent_registry_and_user`.
+
+### 🟢 Agent MCP tools
+**Added:** `apps/api/src/mcp/tools/agent-tools.ts` with five tools:
+- `register_agent` — create a new agent identity with capabilities and restrictions
+- `list_agents` — search/filter registered agents
+- `describe_agent` — get full agent configuration
+- `update_agent` — modify agent capabilities/rate limits
+- `deactivate_agent` — soft-disable an agent
+
+### 🟢 User MCP tools
+**Added:** User CRUD in `SecurityService` (registered party → auth record), exposed via `create_user` / `get_user` through the security service.
+
+### 🟢 End-to-end agent workflow test
+**Added:** `apps/api/src/mcp/tools/e2e-workflow.spec.ts` — full workflow: register agent → describe agent → list agents → create party → search party → get party → add role → add contact → verify → deactivate agent.
+
+### 🟢 Agent registry seed data
+**Added:** Default `default-agent` seeded for both test tenants (`tenant-acme`, `tenant-globex`) with read-only capabilities. Confirmation gates seeded for all new agent tools.
+
+### 🟢 Entity descriptors
+**Added:** `agent_registry` and `user` descriptors to the seed for AI self-service introspection.
+
+### 🟡 `security.service.ts` complexity warning
+`registerAgent` has cyclomatic complexity 17 (max 15). Acceptable for now; may be extracted in a future refactor.
+
+---
+
 ## Changes Applied (2026-08-31) — Code Review Round 196
 
 ### 🟢 `main.ts` — upgraded listen-failure cleanup error from `debug` to `warn`
