@@ -11,6 +11,7 @@ import {
   InvalidTypeValueError,
   EntityNotFoundError,
   DuplicateEntityError,
+  UUID_REGEX,
   sanitizeForLogOutput,
   stripHtmlTags,
   MAX_PARTY_NAME_LENGTH,
@@ -343,7 +344,7 @@ export class ProductService {
 
   private requireUuid(value: string, field: string): string {
     const trimmed = value.trim();
-    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(trimmed)) {
+    if (!UUID_REGEX.test(trimmed)) {
       throw new InvalidTypeValueError(`'${field}' must be a valid UUID.`, { context: { field, received: trimmed } });
     }
     return trimmed;

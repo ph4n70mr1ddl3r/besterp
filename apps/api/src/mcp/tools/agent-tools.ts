@@ -332,7 +332,6 @@ Use this instead of delete_agent when you want to temporarily disable an agent.`
       success: true,
       data: { agentId: agent.agentId, isActive: false },
       nextActions: [
-        "Use 'reactivate_agent' to re-enable this agent.",
         "Use 'list_agents' to see all agents.",
       ],
     };

@@ -3,6 +3,7 @@ import { InvalidTypeValueError, MAX_USER_ID_LENGTH, MAX_IDEMPOTENCY_KEY_LENGTH, 
 import { PrismaService } from "../prisma/prisma.service.js";
 import { PartyService } from "../modules/core/party/party.service.js";
 import { SecurityService } from "../modules/core/security/security.service.js";
+import { ProductService } from "../modules/core/product/product.service.js";
 import {
   ToolRegistry,
   errorHandlerMiddleware,
@@ -25,6 +26,7 @@ export class McpService implements OnModuleInit {
     private readonly prisma: PrismaService,
     private readonly partyService: PartyService,
     private readonly securityService: SecurityService,
+    private readonly productService: ProductService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -78,6 +80,7 @@ export class McpService implements OnModuleInit {
       services: {
         partyService: this.partyService,
         securityService: this.securityService,
+        productService: this.productService,
       },
     };
   }

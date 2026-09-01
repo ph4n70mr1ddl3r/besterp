@@ -280,9 +280,9 @@ export class SecurityService {
 
   async getAgent(tenantId: string, agentId: string): Promise<AgentResult> {
     this.requireNonEmpty(agentId, "agentId", MAX_AGENT_ID_LENGTH);
-      const agent = await this.prisma.admin.agentRegistry.findUnique({
-        where: { agentId },
-      });
+    const agent = await this.prisma.admin.agentRegistry.findUnique({
+      where: { agentId },
+    });
     if (!agent) {
       throw new EntityNotFoundError(
         `Agent '${sanitizeForLogOutput(agentId)}' not found in tenant '${sanitizeForLogOutput(tenantId)}'.`,

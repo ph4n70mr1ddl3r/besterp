@@ -15,8 +15,9 @@ function createMcpService() {
 
   const mockPartyService = {} as any;
   const mockSecurityService = {} as any;
+  const mockProductService = {} as any;
 
-  const service = new McpService(mockPrisma, mockPartyService, mockSecurityService);
+  const service = new McpService(mockPrisma, mockPartyService, mockSecurityService, mockProductService);
 
   return service;
 }

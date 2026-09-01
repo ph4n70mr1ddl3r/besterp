@@ -11,6 +11,7 @@ import {
 } from "@besterp/mcp-tools";
 import {
   InvalidTypeValueError,
+  UUID_REGEX,
   stripHtmlTags,
   MAX_PARTY_NAME_LENGTH,
   MAX_PARTY_DESCRIPTION_LENGTH,
@@ -98,7 +99,7 @@ function optionalSearchFilterString(max: number) {
 function uuidParam(description: string) {
   return z.string()
     .transform((s) => s.trim())
-    .pipe(z.string().min(1).max(36).regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i, "Must be a valid UUID"))
+    .pipe(z.string().min(1).max(36).regex(UUID_REGEX, "Must be a valid UUID"))
     .describe(description);
 }
 
@@ -112,6 +113,7 @@ const createProductSchema = z.strictObject({
   name: sanitizedString(1, MAX_PARTY_NAME_LENGTH).describe("Product name (1-500 characters)"),
   description: optionalFilteredString(MAX_PARTY_DESCRIPTION_LENGTH).describe("Optional product description"),
   sku: optionalFilteredString(100).describe("Optional stock-keeping unit (must be unique within tenant)"),
+  categoryIds: z.array(z.string().uuid()).optional().describe("Optional category IDs to associate with this product"),
   features: z.array(z.strictObject({
     name: sanitizedString(1, 100).describe("Feature name (e.g., 'color', 'size')"),
     value: sanitizedString(1, 500).describe("Feature value"),
@@ -153,6 +155,7 @@ For idempotent writes, pass an idempotencyKey along with the tool arguments.`,
       name: input.name,
       description: input.description ?? null,
       sku: input.sku ?? null,
+      categoryIds: input.categoryIds,
       features: input.features,
     });
     return {
