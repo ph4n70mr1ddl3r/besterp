@@ -18,6 +18,7 @@ export {
   idempotencyMiddleware,
   auditLogMiddleware,
   errorHandlerMiddleware,
+  confirmationGateMiddleware,
 } from "./middleware/index.js";
 
 // Truncation utilities (re-exported for custom middleware authors)

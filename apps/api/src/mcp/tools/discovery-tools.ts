@@ -182,9 +182,167 @@ Type tables are the ERP's vocabulary — they define what classifications are av
   };
 }
 
+// ─── Tool: describe_entity ────────────────────────────────────────
+
+function createDescribeEntity(prisma: PrismaClient): ToolDefinition {
+  return {
+    name: "describe_entity",
+    description: `Describe an entity in the ERP system.
+
+Use this to understand the structure and purpose of an entity before creating or querying it.
+Returns the entity's description, AI prompt hint, and key fields.`,
+
+    inputSchema: z.strictObject({
+      entityName: z.string()
+        .transform((s) => s.trim().toLowerCase())
+        .pipe(z.string().min(1).max(64))
+        .describe("The entity name to describe (e.g., 'party', 'person', 'role_type')"),
+    }),
+
+    riskLevel: "none",
+    entity: "entity_descriptor",
+    tags: ["discovery", "schema"],
+
+    handler: async (inputRaw: unknown, _context: ToolContext) => {
+      const input = inputRaw as { entityName: string };
+      // Access via dynamic property — the entity_descriptor model is global
+      // reference data (not tenant-scoped), so admin client bypasses RLS.
+      const raw = (prisma as unknown as Record<string, unknown>)["entityDescriptor"];
+      if (!raw || typeof raw !== "object" || typeof (raw as Record<string, unknown>).findFirst !== "function") {
+        return {
+          success: false,
+          error: {
+            code: "ENTITY_NOT_FOUND",
+            message: `Entity descriptor table not available.`,
+            suggestedTools: ["list_available_tools"],
+          },
+        };
+      }
+      const delegate = raw as { findFirst: (opts: { where: { entityName: string } }) => Promise<Record<string, unknown> | null> };
+      const row = await delegate.findFirst({ where: { entityName: input.entityName } });
+
+      if (!row) {
+        return {
+          success: false,
+          error: {
+            code: "ENTITY_NOT_FOUND",
+            message: `No descriptor found for entity '${input.entityName}'. Use 'list_available_tools' to see available entities, or 'get_type_table_values' for classification vocabularies.`,
+            suggestedTools: ["list_available_tools"],
+          },
+        };
+      }
+
+      const description = typeof row.description === "string"
+        ? sanitizeForLogOutput(stripHtmlTags(row.description))
+        : null;
+      const aiPromptHint = typeof row.aiPromptHint === "string"
+        ? sanitizeForLogOutput(stripHtmlTags(row.aiPromptHint))
+        : null;
+      const keyFields = row.keyFields != null && typeof row.keyFields === "object"
+        ? row.keyFields
+        : null;
+
+      return {
+        success: true,
+        data: {
+          entityName: input.entityName,
+          description,
+          aiPromptHint,
+          keyFields,
+        },
+      };
+    },
+  };
+}
+
+// ─── Tool: get_valid_transitions ──────────────────────────────────
+
+/**
+ * Valid status transitions per entity.
+ *
+ * Each entry maps a from-status → set of allowed to-status values.
+ * Admin-curated reference data — not tenant-scoped. New entities added in
+ * future phases must register their transitions here so agents know the
+ * allowed state-machine edges before attempting a transition.
+ */
+const STATUS_TRANSITIONS: Record<string, Record<string, string[]>> = {
+  party: {
+    active: ["inactive", "suspended"],
+    inactive: ["active", "suspended"],
+    suspended: ["active", "inactive"],
+  },
+  order: {
+    draft: ["pending", "cancelled"],
+    pending: ["confirmed", "cancelled"],
+    confirmed: ["in_progress", "cancelled"],
+    in_progress: ["completed", "cancelled"],
+    completed: [],
+    cancelled: [],
+  },
+  invoice: {
+    draft: ["pending"],
+    pending: ["partially_paid", "overdue", "cancelled"],
+    partially_paid: ["paid", "overdue", "cancelled"],
+    paid: [],
+    overdue: ["paid", "cancelled"],
+    cancelled: [],
+  },
+};
+
+function createGetValidTransitions(_prisma: PrismaClient): ToolDefinition {
+  return {
+    name: "get_valid_transitions",
+    description: `Get valid status transitions for an entity.
+
+Use this before transitioning an entity's status to know which moves are allowed.
+Returns a map of current status → allowed next statuses.
+
+Example: get_valid_transitions({ entity: "party" }) returns { active: ["inactive", "suspended"], ... }`,
+
+    inputSchema: z.strictObject({
+      entity: z.string()
+        .transform((s) => s.trim().toLowerCase())
+        .pipe(z.string().min(1).max(64))
+        .describe("The entity name (e.g., 'party', 'order', 'invoice')"),
+    }),
+
+    riskLevel: "none",
+    entity: "status_transition",
+    tags: ["discovery", "status"],
+
+    handler: async (inputRaw: unknown, _context: ToolContext) => {
+      const input = inputRaw as { entity: string };
+      const transitions = STATUS_TRANSITIONS[input.entity];
+
+      if (transitions === undefined) {
+        // Enumerate all registered entities so the agent knows what's available.
+        const registered = Object.keys(STATUS_TRANSITIONS).join(", ");
+        return {
+          success: false,
+          error: {
+            code: "ENTITY_NOT_FOUND",
+            message: `No status transitions registered for entity '${input.entity}'. Available entities: ${registered}.`,
+            suggestedTools: ["describe_entity", "list_available_tools"],
+          },
+        };
+      }
+
+      return {
+        success: true,
+        data: {
+          entity: input.entity,
+          transitions,
+        },
+      };
+    },
+  };
+}
+
 // ─── Registration ─────────────────────────────────────────────────
 
 export function registerDiscoveryTools(registry: ToolRegistry, prisma: PrismaClient): void {
   registry.register(createListAvailableTools(registry));
   registry.register(createGetTypeTableValues(prisma));
+  registry.register(createDescribeEntity(prisma));
+  registry.register(createGetValidTransitions(prisma));
 }

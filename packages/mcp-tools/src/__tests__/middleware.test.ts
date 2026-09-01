@@ -5,7 +5,8 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { 
   idempotencyMiddleware, 
   auditLogMiddleware, 
-  errorHandlerMiddleware 
+  errorHandlerMiddleware,
+  confirmationGateMiddleware,
 } from "../middleware/index.js";
 import { attachAuditWarning } from "../middleware/audit-log.js";
 import { ToolDefinition, ToolContext, ToolResult } from "../schema/tool-definition.js";
@@ -2187,5 +2188,172 @@ describe("Error Handler Middleware", () => {
     // Empty object must be preserved, not dropped to undefined.
     expect(ctx).toBeDefined();
     expect(ctx).toEqual({});
+  });
+});
+
+describe("Confirmation Gate Middleware", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  const mockPrismaForGate = {
+    confirmationGate: {
+      findUnique: vi.fn(),
+    },
+  };
+
+  const highRiskDefinition: ToolDefinition = {
+    ...mockDefinition,
+    riskLevel: "high",
+  };
+
+  const criticalRiskDefinition: ToolDefinition = {
+    ...mockDefinition,
+    riskLevel: "critical",
+  };
+
+  const lowRiskDefinition: ToolDefinition = {
+    ...mockDefinition,
+    riskLevel: "low",
+  };
+
+  it("should pass through low-risk tools without checking the gate", async () => {
+    const middleware = confirmationGateMiddleware(mockPrismaForGate as any);
+    const result = await middleware({}, mockContext, lowRiskDefinition, successNext({ success: true, data: "ok" }));
+
+    expect(mockPrismaForGate.confirmationGate.findUnique).not.toHaveBeenCalled();
+    expect(result.success).toBe(true);
+  });
+
+  it("should pass through when gate is not configured for the tool", async () => {
+    (mockPrismaForGate.confirmationGate.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+
+    const middleware = confirmationGateMiddleware(mockPrismaForGate as any);
+    const result = await middleware({}, mockContext, highRiskDefinition, successNext({ success: true, data: "ok" }));
+
+    expect(result.success).toBe(true);
+  });
+
+  it("should pass through when gate is disabled", async () => {
+    (mockPrismaForGate.confirmationGate.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({ enabled: false });
+
+    const middleware = confirmationGateMiddleware(mockPrismaForGate as any);
+    const result = await middleware({}, mockContext, highRiskDefinition, successNext({ success: true, data: "ok" }));
+
+    expect(result.success).toBe(true);
+  });
+
+  it("should require confirmation when gate is enabled and risk is high", async () => {
+    (mockPrismaForGate.confirmationGate.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({ enabled: true });
+
+    const middleware = confirmationGateMiddleware(mockPrismaForGate as any);
+    const result = await middleware({}, mockContext, highRiskDefinition, successNext({ success: true, data: "ok" }));
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe("CONFIRMATION_REQUIRED");
+  });
+
+  it("should require confirmation for critical-risk tools too", async () => {
+    (mockPrismaForGate.confirmationGate.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({ enabled: true });
+
+    const middleware = confirmationGateMiddleware(mockPrismaForGate as any);
+    const result = await middleware({}, mockContext, criticalRiskDefinition, successNext({ success: true, data: "ok" }));
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe("CONFIRMATION_REQUIRED");
+  });
+
+  it("should accept a valid confirmation and pass it through sanitized", async () => {
+    (mockPrismaForGate.confirmationGate.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({ enabled: true });
+
+    const middleware = confirmationGateMiddleware(mockPrismaForGate as any);
+    const input = { name: "Jane", confirmation: "This is a valid confirmation reason for creating this party" };
+    const result = await middleware(input, mockContext, highRiskDefinition, successNext({ success: true, data: "ok" }));
+
+    expect(result.success).toBe(true);
+    // The next handler should receive the sanitized confirmation.
+    // Since we used successNext which ignores input, we verify via
+    // a custom next that captures the input.
+    let capturedInput: unknown;
+    const capturingNext = async (inp: unknown) => {
+      capturedInput = inp;
+      return { success: true, data: "ok" };
+    };
+    await middleware(input, mockContext, highRiskDefinition, capturingNext);
+    expect((capturedInput as Record<string, unknown>).confirmation).toBe(
+      "This is a valid confirmation reason for creating this party",
+    );
+  });
+
+  it("should reject a confirmation that is too short", async () => {
+    (mockPrismaForGate.confirmationGate.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({ enabled: true });
+
+    const middleware = confirmationGateMiddleware(mockPrismaForGate as any);
+    const input = { name: "Jane", confirmation: "too short" };
+    const result = await middleware(input, mockContext, highRiskDefinition, successNext({ success: true, data: "ok" }));
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe("INVALID_CONFIRMATION");
+    expect(result.error?.message).toContain("at least 10 characters");
+  });
+
+  it("should reject a non-string confirmation", async () => {
+    (mockPrismaForGate.confirmationGate.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({ enabled: true });
+
+    const middleware = confirmationGateMiddleware(mockPrismaForGate as any);
+    const input = { name: "Jane", confirmation: 12345 as unknown as string };
+    const result = await middleware(input, mockContext, highRiskDefinition, successNext({ success: true, data: "ok" }));
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe("INVALID_CONFIRMATION");
+  });
+
+  it("should reject a whitespace-only confirmation", async () => {
+    (mockPrismaForGate.confirmationGate.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({ enabled: true });
+
+    const middleware = confirmationGateMiddleware(mockPrismaForGate as any);
+    const input = { name: "Jane", confirmation: "   " };
+    const result = await middleware(input, mockContext, highRiskDefinition, successNext({ success: true, data: "ok" }));
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe("INVALID_CONFIRMATION");
+  });
+
+  it("should sanitize HTML in confirmation before passing through", async () => {
+    (mockPrismaForGate.confirmationGate.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({ enabled: true });
+
+    const middleware = confirmationGateMiddleware(mockPrismaForGate as any);
+    const input = { name: "Jane", confirmation: "<script>alert(1)</script> Creating a customer for invoice follow-up" };
+    let capturedInput: unknown;
+    const capturingNext = async (inp: unknown) => {
+      capturedInput = inp;
+      return { success: true, data: "ok" };
+    };
+    await middleware(input, mockContext, highRiskDefinition, capturingNext);
+    const confirmation = (capturedInput as Record<string, unknown>).confirmation as string;
+    expect(confirmation).not.toContain("<script>");
+    expect(confirmation).not.toContain("alert");
+    expect(confirmation).toContain("Creating a customer");
+  });
+
+  it("should pass through when DB is unavailable (does not block execution)", async () => {
+    (mockPrismaForGate.confirmationGate.findUnique as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("DB down"));
+
+    const middleware = confirmationGateMiddleware(mockPrismaForGate as any);
+    const result = await middleware({}, mockContext, highRiskDefinition, successNext({ success: true, data: "ok" }));
+
+    // Should pass through, not error out.
+    expect(result.success).toBe(true);
+  });
+
+  it("should reject null/undefined input object", async () => {
+    (mockPrismaForGate.confirmationGate.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({ enabled: true });
+
+    const middleware = confirmationGateMiddleware(mockPrismaForGate as any);
+    // Pass a primitive instead of an object
+    const result = await middleware("not-an-object" as unknown as object, mockContext, highRiskDefinition, successNext({ success: true, data: "ok" }));
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe("CONFIRMATION_REQUIRED");
   });
 });

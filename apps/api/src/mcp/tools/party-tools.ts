@@ -353,7 +353,7 @@ For idempotent writes, pass an idempotencyKey (string, max 500 chars) along with
 
   inputSchema: createPartySchema,
 
-  riskLevel: "low",
+  riskLevel: "high",
   entity: "party",
   tags: ["party", "create", "core"],
 
@@ -481,7 +481,7 @@ For idempotent writes, pass an idempotencyKey (string, max 500 chars) along with
 
   inputSchema: addPartyRoleSchema,
 
-  riskLevel: "low",
+  riskLevel: "high",
   entity: "party",
   tags: ["party", "role", "update"],
 
@@ -544,7 +544,7 @@ For idempotent writes, pass an idempotencyKey (string, max 500 chars) along with
 
   inputSchema: addContactMechanismSchema,
 
-  riskLevel: "low",
+  riskLevel: "high",
   entity: "party",
   tags: ["party", "contact", "create"],
 

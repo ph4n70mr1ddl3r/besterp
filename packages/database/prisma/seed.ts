@@ -211,6 +211,130 @@ async function seedTenants(prisma: PrismaClient): Promise<[string, string]> {
   return [tenantA.name, tenantB.name];
 }
 
+async function seedEntityDescriptors(prisma: PrismaClient): Promise<number> {
+  const descriptors = await Promise.all([
+    prisma.entityDescriptor.upsert({
+      where: { entityName: "party" },
+      update: {},
+      create: {
+        entityName: "party",
+        description: "A person or organization that interacts with the tenant. Every customer, supplier, employee, and tenant itself is a Party.",
+        aiPromptHint: "Use this entity when creating or querying any person or organization in the system. Always assign roles (Customer, Supplier, etc.) after creation.",
+        keyFields: { partyId: "UUID", tenantId: "tenant-slug", name: "display-name" },
+      },
+    }),
+    prisma.entityDescriptor.upsert({
+      where: { entityName: "person" },
+      update: {},
+      create: {
+        entityName: "person",
+        description: "Subtype of PARTY representing an individual human being. Links to Party via partyId (1:1).",
+        aiPromptHint: "Only used as a PARTY subtype. Create a PARTY with partyType=PERSON first, then fill in firstName, lastName, and optional middleName/birthDate/gender.",
+        keyFields: { partyId: "UUID (FK to party)" },
+      },
+    }),
+    prisma.entityDescriptor.upsert({
+      where: { entityName: "organization" },
+      update: {},
+      create: {
+        entityName: "organization",
+        description: "Subtype of PARTY representing a company or business entity. Links to Party via partyId (1:1).",
+        aiPromptHint: "Only used as a PARTY subtype. Create a PARTY with partyType=ORGANIZATION first, then fill in legalName and optional taxId/registrationDate.",
+        keyFields: { partyId: "UUID (FK to party)" },
+      },
+    }),
+    prisma.entityDescriptor.upsert({
+      where: { entityName: "party_role" },
+      update: {},
+      create: {
+        entityName: "party_role",
+        description: "Associates a role (Customer, Supplier, Employee, etc.) with a party for a time period. Supports effective dating via fromDate/thruDate.",
+        aiPromptHint: "Use add_party_role to assign roles. A party can have multiple active roles. Use get_type_table_values with ROLE_TYPE to see available roles.",
+        keyFields: { partyRoleId: "UUID", partyId: "UUID", roleTypeId: "role-slug" },
+      },
+    }),
+    prisma.entityDescriptor.upsert({
+      where: { entityName: "contact_mechanism" },
+      update: {},
+      create: {
+        entityName: "contact_mechanism",
+        description: "A contact point (address, phone, email) associated with a party. Each mechanism has exactly one subtype.",
+        aiPromptHint: "Use add_contact_mechanism to create. Choose POSTAL_ADDRESS, TELECOM_NUMBER, or EMAIL_ADDRESS — only one subtype per mechanism.",
+        keyFields: { contactMechanismId: "UUID", tenantId: "tenant-slug" },
+      },
+    }),
+    prisma.entityDescriptor.upsert({
+      where: { entityName: "postal_address" },
+      update: {},
+      create: {
+        entityName: "postal_address",
+        description: "Subtype of contact_mechanism representing a physical mailing address.",
+        aiPromptHint: "Requires postalAddress object with addressLine1, city, and country (ISO 3166-1 code). Optional: addressLine2, stateProvince, postalCode.",
+        keyFields: { contactMechanismId: "UUID (FK to contact_mechanism)" },
+      },
+    }),
+    prisma.entityDescriptor.upsert({
+      where: { entityName: "telecom_number" },
+      update: {},
+      create: {
+        entityName: "telecom_number",
+        description: "Subtype of contact_mechanism representing a phone number.",
+        aiPromptHint: "Requires telecomNumber with areaCode and lineNumber. Optional: countryCode (defaults to +1), extension.",
+        keyFields: { contactMechanismId: "UUID (FK to contact_mechanism)" },
+      },
+    }),
+    prisma.entityDescriptor.upsert({
+      where: { entityName: "email_address" },
+      update: {},
+      create: {
+        entityName: "email_address",
+        description: "Subtype of contact_mechanism representing an email address. Tenant-scoped unique.",
+        aiPromptHint: "Requires emailAddress with email field. Must be unique within the tenant.",
+        keyFields: { contactMechanismId: "UUID (FK to contact_mechanism)" },
+      },
+    }),
+  ]);
+  console.log(`  [OK] ${descriptors.length} entity descriptors seeded\n`);
+  return descriptors.length;
+}
+
+async function seedConfirmationGates(prisma: PrismaClient): Promise<number> {
+  const gates = await Promise.all([
+    prisma.confirmationGate.upsert({
+      where: { toolName: "create_party" },
+      update: {},
+      create: {
+        toolName: "create_party",
+        enabled: true,
+        description: "Creating a new party (person or organization) in the ERP system.",
+        reason: "Irreversible write that creates a new business entity visible to all agents in the tenant.",
+      },
+    }),
+    prisma.confirmationGate.upsert({
+      where: { toolName: "add_party_role" },
+      update: {},
+      create: {
+        toolName: "add_party_role",
+        enabled: true,
+        description: "Assigning a role (Customer, Supplier, Employee, etc.) to a party.",
+        reason: "Changes the party's permissions and business relationships within the tenant.",
+      },
+    }),
+    prisma.confirmationGate.upsert({
+      where: { toolName: "add_contact_mechanism" },
+      update: {},
+      create: {
+        toolName: "add_contact_mechanism",
+        enabled: true,
+        description: "Adding a contact mechanism (address, phone, or email) to a party.",
+        reason: "Modifies party contact information that may be used for communications and billing.",
+      },
+    }),
+  ]);
+  console.log(`  [OK] ${gates.length} confirmation gates seeded`);
+  return gates.length;
+}
+
 async function main() {
   // Refuse to seed into any non-local environment without an explicit opt-in.
   // The allowlist + ALLOW_SEED logic lives in assertSeedAllowed (see there for
@@ -226,6 +350,8 @@ async function main() {
   await seedRoleTypes(prisma);
   await seedContactTypes(prisma);
   await seedTenants(prisma);
+  await seedEntityDescriptors(prisma);
+  await seedConfirmationGates(prisma);
 
   console.log("[SEED] Seeding complete!");
 }

@@ -283,3 +283,34 @@ model IdempotencyRecord {
   @@id([idempotencyKey, tenantId])
   @@map("idempotency_record")
 }
+
+// ─── Entity Descriptor ──────────────────────────────────────────
+// AI-facing descriptions for every core entity. Populates the
+// `describe_entity` discovery tool so agents can introspect the schema
+// without reading raw Prisma output. Shared across tenants.
+
+model EntityDescriptor {
+  entityName      String   @id @map("entity_name")
+  description     String
+  aiPromptHint    String?  @map("ai_prompt_hint")
+  keyFields       Json?    @map("key_fields")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  @@map("entity_descriptor")
+}
+
+// ─── Confirmation Gate ──────────────────────────────────────────
+// Tracks which tools require agent confirmation before execution.
+// High/critical risk tools are enforced here; admin-curated values.
+// Global (non-tenant) reference data.
+
+model ConfirmationGate {
+  toolName      String   @id @map("tool_name")
+  enabled       Boolean  @default(true) @map("enabled")
+  description   String
+  reason        String?  @map("reason")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  @@map("confirmation_gate")
+}

@@ -1,5 +1,5 @@
-// Unit tests for Discovery MCP Tools — list_available_tools and get_type_table_values
-// Tests Zod schema validation, entity filtering, delegate access, and HTML sanitization
+// Unit tests for Discovery MCP Tools — list_available_tools, get_type_table_values, describe_entity, and get_valid_transitions
+// Tests Zod schema validation, entity filtering, delegate access, HTML sanitization, and transition lookup
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { ToolRegistry, type ToolContext } from "@besterp/mcp-tools";
@@ -25,6 +25,10 @@ function createMockPrisma() {
   const contactMechanismTypeRows = [
     { contactMechanismTypeId: "cm-1", name: "EMAIL_ADDRESS", description: "Email contact", aiPromptHint: null },
   ];
+  const entityDescriptorRows = [
+    { entityName: "party", description: "A person or organization", aiPromptHint: "Use for any party", keyFields: { partyId: "UUID" } },
+    { entityName: "order", description: "A sales or purchase order", aiPromptHint: null, keyFields: null },
+  ];
 
   return {
     partyType: {
@@ -35,6 +39,12 @@ function createMockPrisma() {
     },
     contactMechanismType: {
       findMany: vi.fn().mockResolvedValue(contactMechanismTypeRows),
+    },
+    entityDescriptor: {
+      findFirst: vi.fn().mockImplementation(({ where }: { where: { entityName: string } }) => {
+        const row = entityDescriptorRows.find((r) => r.entityName === where.entityName);
+        return Promise.resolve(row ?? null);
+      }),
     },
   } as unknown as PrismaClient;
 }
@@ -209,20 +219,171 @@ describe("Discovery MCP Tools", () => {
     });
   });
 
-  describe("registration safety", () => {
-    it("should register both discovery tools without throwing", () => {
-      // Verify the registration itself does not crash — the tools are
-      // registered in registerDiscoveryTools and should be immediately
-      // executable after registration.
-      expect(registry.names).toContain("list_available_tools");
-      expect(registry.names).toContain("get_type_table_values");
+  describe("describe_entity", () => {
+    it("should return descriptor for a known entity", async () => {
+      const result = await registry.execute(
+        "describe_entity",
+        { entityName: "party" },
+        mockContext,
+      );
+
+      expect(result.success).toBe(true);
+      const data = result.data as { entityName: string; description: string | null; aiPromptHint: string | null; keyFields: Record<string, string> | null };
+      expect(data.entityName).toBe("party");
+      expect(data.description).toBe("A person or organization");
+      expect(data.aiPromptHint).toBe("Use for any party");
+      expect(data.keyFields).toEqual({ partyId: "UUID" });
     });
 
-    it("should include discovery tools in getDiscoveryInfo", () => {
+    it("should return ENTITY_NOT_FOUND for unknown entity", async () => {
+      const result = await registry.execute(
+        "describe_entity",
+        { entityName: "nonexistent_entity" },
+        mockContext,
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe("ENTITY_NOT_FOUND");
+      expect(result.error?.message).toContain("nonexistent_entity");
+    });
+
+    it("should normalize entityName to lowercase", async () => {
+      // The handler trims and lowercases the input before querying.
+      const result = await registry.execute(
+        "describe_entity",
+        { entityName: "  PARTY  " },
+        mockContext,
+      );
+
+      expect(result.success).toBe(true);
+      const data = result.data as { entityName: string };
+      expect(data.entityName).toBe("party");
+    });
+
+    it("should reject entityName exceeding max length", async () => {
+      const result = await registry.execute(
+        "describe_entity",
+        { entityName: "x".repeat(65) },
+        mockContext,
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe("INVALID_INPUT");
+    });
+
+    it("should strip HTML from description and aiPromptHint", async () => {
+      // Re-mock with HTML in the descriptor.
+      const htmlPrisma = {
+        ...mockPrisma,
+        entityDescriptor: {
+          findFirst: vi.fn().mockResolvedValue({
+            entityName: "party",
+            description: "<b>HTML description</b>",
+            aiPromptHint: "<script>alert(1)</script>hint",
+            keyFields: null,
+          }),
+        },
+      } as unknown as PrismaClient;
+
+      const htmlRegistry = new ToolRegistry();
+      registerDiscoveryTools(htmlRegistry, htmlPrisma);
+
+      const result = await htmlRegistry.execute(
+        "describe_entity",
+        { entityName: "party" },
+        mockContext,
+      );
+
+      expect(result.success).toBe(true);
+      const data = result.data as { description: string | null; aiPromptHint: string | null };
+      expect(data.description).not.toContain("<b>");
+      expect(data.description).toContain("HTML description");
+      expect(data.aiPromptHint).not.toContain("<script>");
+      expect(data.aiPromptHint).not.toContain("alert");
+    });
+  });
+
+  describe("get_valid_transitions", () => {
+    it("should return transitions for party", async () => {
+      const result = await registry.execute(
+        "get_valid_transitions",
+        { entity: "party" },
+        mockContext,
+      );
+
+      expect(result.success).toBe(true);
+      const data = result.data as { entity: string; transitions: Record<string, string[]> };
+      expect(data.entity).toBe("party");
+      expect(data.transitions.active).toEqual(["inactive", "suspended"]);
+      expect(data.transitions.cancelled).toBeUndefined();
+    });
+
+    it("should return transitions for order", async () => {
+      const result = await registry.execute(
+        "get_valid_transitions",
+        { entity: "order" },
+        mockContext,
+      );
+
+      expect(result.success).toBe(true);
+      const data = result.data as { entity: string; transitions: Record<string, string[]> };
+      expect(data.entity).toBe("order");
+      expect(data.transitions.draft).toEqual(["pending", "cancelled"]);
+      expect(data.transitions.completed).toEqual([]);
+    });
+
+    it("should return ENTITY_NOT_FOUND for unknown entity", async () => {
+      const result = await registry.execute(
+        "get_valid_transitions",
+        { entity: "nonexistent" },
+        mockContext,
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe("ENTITY_NOT_FOUND");
+      expect(result.error?.message).toContain("nonexistent");
+      expect(result.error?.suggestedTools).toContain("describe_entity");
+    });
+
+    it("should normalize entity name to lowercase", async () => {
+      const result = await registry.execute(
+        "get_valid_transitions",
+        { entity: "  Party  " },
+        mockContext,
+      );
+
+      expect(result.success).toBe(true);
+      const data = result.data as { entity: string };
+      expect(data.entity).toBe("party");
+    });
+
+    it("should reject entity exceeding max length", async () => {
+      const result = await registry.execute(
+        "get_valid_transitions",
+        { entity: "x".repeat(65) },
+        mockContext,
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe("INVALID_INPUT");
+    });
+  });
+
+  describe("registration safety", () => {
+    it("should register all four discovery tools without throwing", () => {
+      expect(registry.names).toContain("list_available_tools");
+      expect(registry.names).toContain("get_type_table_values");
+      expect(registry.names).toContain("describe_entity");
+      expect(registry.names).toContain("get_valid_transitions");
+    });
+
+    it("should include all discovery tools in getDiscoveryInfo", () => {
       const info = registry.getDiscoveryInfo();
       const names = info.map((d) => d.name);
       expect(names).toContain("list_available_tools");
       expect(names).toContain("get_type_table_values");
+      expect(names).toContain("describe_entity");
+      expect(names).toContain("get_valid_transitions");
     });
   });
 });

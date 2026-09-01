@@ -7,6 +7,7 @@ import {
   errorHandlerMiddleware,
   idempotencyMiddleware,
   auditLogMiddleware,
+  confirmationGateMiddleware,
   type ToolContext,
 } from "@besterp/mcp-tools";
 import { registerPartyTools } from "./tools/party-tools.js";
@@ -26,6 +27,7 @@ export class McpService implements OnModuleInit {
     this.registry.addGlobalMiddleware(errorHandlerMiddleware);
     this.registry.addGlobalMiddleware(auditLogMiddleware(this.prisma.admin));
     this.registry.addGlobalMiddleware(idempotencyMiddleware(this.prisma.admin));
+    this.registry.addGlobalMiddleware(confirmationGateMiddleware(this.prisma.admin));
 
     registerPartyTools(this.registry);
     registerDiscoveryTools(this.registry, this.prisma.admin);
