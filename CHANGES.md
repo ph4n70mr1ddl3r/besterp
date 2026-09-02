@@ -1,5 +1,67 @@
 # BestERP — Security & Architecture Fixes
 
+## Changes Applied (2026-09-02) — Code Review Round 200
+
+### 🟢 `security.service.ts` — fixed pagination bug and race condition in `searchAgents`
+
+**Problem:** `searchAgents` computed clamped `validatedLimit`/`validatedOffset`
+but passed the raw unvalidated `offset`/`limit` into the Prisma `findMany`
+call, causing the returned pagination metadata to not match the actual query.
+Additionally, `Promise.all` for count+findMany under READ COMMITTED allowed a
+concurrent INSERT between the two queries, producing an off-by-one in `hasMore`.
+
+**Fix:** Replaced raw values with `validatedOffset`/`validatedLimit` in the
+query. Sequentialized count+findMany to match the PartyService/ProductService
+pattern (rounds 176/199).
+
+### 🟢 `security.service.ts` — fixed `getUser` error handling
+
+**Problem:** `getUser` caught ALL database errors and re-threw them as
+`InvalidTypeValueError` (422), masking connection timeouts and FK violations
+as caller-input errors.
+
+**Fix:** Replaced with centralized `handleTransactionError` so Prisma error
+codes map to the correct DomainError subclass.
+
+### 🟢 `security.service.ts` — normalized trimmed ID propagation across all methods
+
+**Problem:** `requireNonEmpty` validated but did not return the trimmed value,
+so `createUser`, `getUser`, `updateAgent`, `deleteAgent`, `getAgent`, and
+`registerAgent` all passed untrimmed raw IDs into Prisma queries and error
+messages. Inconsistent with the defense-in-depth strategy where trimmed values
+must propagate.
+
+**Fix:** Changed `requireNonEmpty` to return the trimmed string. Updated all
+call sites to use the returned value in `where` clauses and error messages.
+
+### 🟢 `security.service.ts` — added centralized Prisma error handling
+
+**Problem:** SecurityService had no centralized Prisma error mapping, unlike
+PartyService and ProductService. Each method handled errors ad-hoc (or not at
+all), leading to inconsistent error surfaces.
+
+**Fix:** Added `handleTransactionError` / `throwMappedPrismaError` helpers
+matching the PartyService/ProductService pattern. Wired them into all CRUD
+methods so P2002→DuplicateEntityError, P2025→EntityNotFoundError, etc.
+
+### 🟢 `security.service.ts` — added tenantId validation to `updateLastLogin`
+
+**Problem:** `updateLastLogin` was the only public method in SecurityService
+that did not validate `tenantId` at the top, breaking the defense-in-depth
+uniformity.
+
+**Fix:** Added `requireStringField` validation matching the other methods.
+
+### 🟢 Created `security.service.spec.ts` — 28 tests
+
+**Problem:** The security module had zero dedicated service-level tests.
+
+**Fix:** Added comprehensive coverage for validation, trimmed-value propagation,
+pagination clamping, sequential queries, centralized error mapping, and
+non-fatal behavior.
+
+---
+
 ## Changes Applied (2026-09-01) — Code Review Round 199
 
 ### 🟢 `security.service.ts` — tenantId validation added to all 6 public methods

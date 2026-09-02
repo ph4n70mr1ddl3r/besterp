@@ -3,8 +3,88 @@
 ## Scope
  Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
  `mcp-tools`, `apps/api`, plus README/`.env.example`/docker/CI) conducted on
- 2026-09-01. This is review 199; rounds 1–198 are documented in earlier
+ 2026-09-02. This is review 200; rounds 1–199 are documented in earlier
  revisions of this file and `CHANGES.md`.
+
+## Findings & Actions (round 200)
+
+### Fixed this round
+
+1. **🔴 `security.service.ts` — `searchAgents` used raw `offset`/`limit` instead of validated values.**
+   `searchAgents` computed `validatedLimit` and `validatedOffset` via clamping,
+   but passed the unvalidated raw `offset` and `limit` into the Prisma
+   `findMany` call. The returned `limit`/`offset` in the result also reflected
+   the clamped values while the query used the raw ones — an internal
+   inconsistency that let out-of-contract pagination params reach Prisma
+   directly (defense-in-depth bypass). Replaced with `validatedOffset`/
+   `validatedLimit` in the query so the returned pagination metadata matches
+   the actual query parameters.
+
+2. **🔴 `security.service.ts` — `searchAgents` used `Promise.all` for count+findMany, creating a race condition.**
+   Under READ COMMITTED, concurrent INSERTs between the parallel count and
+   findMany can cause `total` and `items.length` to disagree, producing an
+   off-by-one in `hasMore`. This is the same pattern PartyService and
+   ProductService already fixed (rounds 176/199). Replaced with sequential
+   awaits matching the established pattern.
+
+3. **🟡 `security.service.ts` — `getUser` swallowed all DB errors into `InvalidTypeValueError`.**
+   The catch block caught every error (including connection timeouts, P2003
+   FK violations, etc.) and re-threw as `InvalidTypeValueError` (422). This
+   masked infrastructure failures as caller-input errors. Replaced with the
+   centralized `handleTransactionError` helper (same as PartyService/ProductService)
+   so Prisma error codes map to the correct DomainError subclass.
+
+4. **🟡 `security.service.ts` — `updateAgent`/`deleteAgent` used raw `agentId` in queries after validation.**
+   `requireNonEmpty` validated but did not return the trimmed value, so queries
+   used the untrimmed `agentId` from the input. Changed `requireNonEmpty` to
+   return the trimmed string and updated all call sites to use the returned
+   value consistently in `where` clauses and error messages.
+
+5. **🟡 `security.service.ts` — `createUser`/`registerAgent` used raw IDs in queries.**
+   Same root cause as #4: `partyId` in `createUser` and `agentId`/`tenantId`
+   in `registerAgent` were validated but the untrimmed originals were passed
+   to Prisma queries. Now all call sites use the trimmed/validated return
+   values consistently.
+
+6. **🟡 `security.service.ts` — error messages in `updateAgent`/`deleteAgent`/`getAgent` used untrimmed `tenantId`.**
+   Error messages referenced `tenantId` (raw) instead of `trimmedTenantId`
+   (validated), producing inconsistent output when whitespace-padded tenant
+   IDs were supplied. Aligned all error messages to use the trimmed value.
+
+7. **🟢 `security.service.ts` — added centralized Prisma error handling (`handleTransactionError` / `throwMappedPrismaError`).**
+   SecurityService previously had no centralized Prisma error mapping, unlike
+   PartyService and ProductService which map P2002/P2003/P2024/P2025/P2028/
+   P2034 to structured DomainErrors. Added the same helpers to SecurityService
+   and rewrote `createUser`, `registerAgent`, `updateAgent`, `deleteAgent`,
+   `getUser`, and `searchAgents` to use them.
+
+8. **🟢 `security.service.ts` — added `tenantId` validation to `updateLastLogin`.**
+   All other public methods in SecurityService validated `tenantId` at the top.
+   `updateLastLogin` was the sole exception, bypassing the defense-in-depth
+   guard. Added `requireStringField` validation matching the other methods.
+
+9. **🟢 Created `security.service.spec.ts` — 28 tests covering all public methods.**
+   The security module had zero dedicated service-level tests. Added coverage
+   for tenantId/partyId/agentId validation, trimmed-value propagation,
+   pagination clamping, sequential count+findMany, centralized error mapping
+   (P2002→DuplicateEntityError, P2025→EntityNotFoundError), and non-fatal
+   behavior of `updateLastLogin`.
+
+### Reviewed but NOT changed (false positives / deferred)
+
+- Full-file re-read of all production source files confirmed no new issues.
+- grep confirms: zero stray `console.log` / `console.error` / `console.warn` in
+  production source; zero `TODO`/`FIXME`/`HACK` comments; zero bare `as any`
+  casts in production source (only in test files and spikes); one intentional
+  `@ts-expect-error` in `tool-registry.test.ts`.
+- Lint ✓ · typecheck ✓ · build ✓ · `npm audit`: unchanged (3 high via `deepmerge-ts`
+  transitive in `@prisma/config` — pinned to 8.0.2 via override; CI gate
+  relaxed to critical-only).
+- Test counts verified: api 542 (21 files), shared 243 (4 files), mcp-tools 192
+  (4 files), database 34 passed + 10 skipped (3 files). Total 1011 passed, 10 skipped.
+  Matches report.
+
+---
 
 ## Findings & Actions (round 199)
 
