@@ -8,13 +8,18 @@ import { PrismaService } from "../../../prisma/prisma.service.js";
 import {
   InvalidTypeValueError,
   EntityNotFoundError,
-  DuplicateEntityError,
-  ConcurrencyConflictError,
   MAX_USER_ID_LENGTH,
   MAX_AGENT_ID_LENGTH,
   MAX_PARTY_NAME_LENGTH,
   MAX_TENANT_ID_LENGTH,
   sanitizeForLogOutput,
+  computeHasMore,
+  handleTransactionError as mapPrismaError,
+  DEFAULT_SEARCH_LIMIT,
+  MIN_SEARCH_LIMIT,
+  MAX_SEARCH_LIMIT,
+  MIN_SEARCH_OFFSET,
+  MAX_SEARCH_OFFSET,
 } from "@besterp/shared";
 import {
   CreateUserInput,
@@ -25,12 +30,6 @@ import {
   SearchAgentsInput,
   SearchAgentsResult,
 } from "./security.types.js";
-
-const DEFAULT_SEARCH_LIMIT = 50;
-const MIN_SEARCH_LIMIT = 1;
-const MAX_SEARCH_LIMIT = 500;
-const MIN_SEARCH_OFFSET = 0;
-const MAX_SEARCH_OFFSET = 10_000;
 
 @Injectable()
 export class SecurityService {
@@ -84,7 +83,7 @@ export class SecurityService {
       });
       return this.toUserResult(user);
     } catch (err: unknown) {
-      throw SecurityService.handleTransactionError(err, "create_user", "search_parties", "user");
+      throw mapPrismaError(err, "create_user", "search_parties", "user");
     }
   }
 
@@ -113,7 +112,7 @@ export class SecurityService {
       return this.toUserResult(user);
     } catch (err) {
       if (err instanceof EntityNotFoundError) throw err;
-      throw SecurityService.handleTransactionError(err, "get_user", "search_parties", "user");
+      throw mapPrismaError(err, "get_user", "search_parties", "user");
     }
   }
 
@@ -153,7 +152,7 @@ export class SecurityService {
     this.requireNonEmpty(displayName, "displayName", MAX_PARTY_NAME_LENGTH);
     this.requireNonEmpty(description, "description", 1000);
     this.requireNonEmpty(version, "version", 64);
-    this.validateAgentArrays(validatedAgentId, validatedTenantId, capabilities, allowedEntityTypes);
+    this.validateAgentArrays(capabilities, allowedEntityTypes);
     this.validateAgentLimits(validatedAgentId, maxToolCallsPerConversation, rateLimitPerMinute);
 
     try {
@@ -175,13 +174,11 @@ export class SecurityService {
       });
       return this.toAgentResult(agent);
     } catch (err: unknown) {
-      throw SecurityService.handleTransactionError(err, "register_agent", "list_agents", "agent");
+      throw mapPrismaError(err, "register_agent", "list_agents", "agent");
     }
   }
 
   private validateAgentArrays(
-    _agentId: string,
-    _tenantId: string,
     capabilities: unknown,
     allowedEntityTypes: unknown,
   ): void {
@@ -257,7 +254,7 @@ export class SecurityService {
       });
       return this.toAgentResult(agent);
     } catch (err: unknown) {
-      throw SecurityService.handleTransactionError(err, "update_agent", "list_agents", "agent");
+      throw mapPrismaError(err, "update_agent", "list_agents", "agent");
     }
   }
 
@@ -270,7 +267,7 @@ export class SecurityService {
       });
       return { success: true };
     } catch (err: unknown) {
-      throw SecurityService.handleTransactionError(err, "delete_agent", "list_agents", "agent");
+      throw mapPrismaError(err, "delete_agent", "list_agents", "agent");
     }
   }
 
@@ -295,7 +292,7 @@ export class SecurityService {
       agentId,
       isActive,
       limit = DEFAULT_SEARCH_LIMIT,
-      offset = 0,
+      offset = MIN_SEARCH_OFFSET,
     } = input;
 
     const trimmedTenantId = this.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "search_agents", "list_agents");
@@ -317,12 +314,12 @@ export class SecurityService {
       total = await this.prisma.admin.agentRegistry.count({ where });
       items = await this.prisma.admin.agentRegistry.findMany({
         where,
-        orderBy: { createdAt: "asc" },
+        orderBy: [{ createdAt: "asc" }, { agentId: "asc" }],
         skip: validatedOffset,
         take: validatedLimit,
       });
     } catch (err) {
-      throw SecurityService.handleTransactionError(err, "search_agents", "list_agents", "agent");
+      throw mapPrismaError(err, "search_agents", "list_agents", "agent");
     }
 
     return {
@@ -330,89 +327,11 @@ export class SecurityService {
       total,
       limit: validatedLimit,
       offset: validatedOffset,
-      hasMore: validatedOffset + validatedLimit < total && validatedOffset + validatedLimit <= MAX_SEARCH_OFFSET,
+      hasMore: computeHasMore(validatedOffset, validatedLimit, total),
     };
   }
 
   // ─── Helpers ───────────────────────────────────────────────────
-
-  private static getPrismaErrorCode(err: unknown): string | undefined {
-    if (err && typeof err === "object" && "code" in err && typeof (err as { code: unknown }).code === "string") {
-      return (err as { code: string }).code;
-    }
-    return undefined;
-  }
-
-  private static throwMappedPrismaError(
-    code: string,
-    err: { code: string; meta?: Record<string, unknown> },
-    retryTool: string,
-    suggestTool: string,
-    entityName: string,
-  ): never {
-    switch (code) {
-      case "P2002": {
-        const meta = err.meta as Record<string, unknown> | undefined;
-        const target = meta?.target as string[] | undefined;
-        const field = Array.isArray(target) && target.length > 0 && typeof target[0] === "string"
-          ? target.join(" and ")
-          : "unique key";
-        throw new DuplicateEntityError(
-          `A ${entityName} with the same ${field} already exists.`,
-          { suggestedTools: [suggestTool], context: { prismaCode: "P2002", conflictingField: field } }
-        );
-      }
-      case "P2003": {
-        const meta = err.meta as Record<string, unknown> | undefined;
-        const constraint = (meta?.constraint as string | undefined) ?? "unknown";
-        throw new InvalidTypeValueError(
-          `Referenced ${entityName} does not exist (constraint: ${constraint}).`,
-          { suggestedTools: [suggestTool], context: { prismaCode: "P2003", constraint } }
-        );
-      }
-      case "P2025": {
-        throw new EntityNotFoundError(
-          `${entityName} not found for this operation.`,
-          { suggestedTools: [retryTool, suggestTool], context: { prismaCode: "P2025" } }
-        );
-      }
-      case "P2028":
-      case "P2034": {
-        throw new ConcurrencyConflictError(
-          `Transaction conflict or timeout on ${entityName} — please retry.`,
-          { suggestedTools: [retryTool], context: { prismaCode: code } }
-        );
-      }
-      case "P2024": {
-        throw new ConcurrencyConflictError(
-          `Connection pool timeout on ${entityName} — the service is under heavy load.`,
-          { suggestedTools: [retryTool], context: { prismaCode: code } }
-        );
-      }
-      default: {
-        throw err;
-      }
-    }
-  }
-
-  private static handleTransactionError(
-    err: unknown,
-    retryTool: string,
-    suggestTool: string,
-    entityName = "record",
-  ): never {
-    if (err == null || typeof err !== "object") {
-      throw new InvalidTypeValueError(
-        "Database operation failed with an unexpected error type.",
-        { context: { type: err === null ? "null" : typeof err } }
-      );
-    }
-    const code = SecurityService.getPrismaErrorCode(err);
-    if (!code) throw err;
-    if (!/^P\d{4}$/.test(code)) throw err;
-    if (/^P1\d{3}$/.test(code)) throw err;
-    return SecurityService.throwMappedPrismaError(code, err as { code: string; meta?: Record<string, unknown> }, retryTool, suggestTool, entityName);
-  }
 
   private toUserResult(u: {
     userId: string;

@@ -73,6 +73,8 @@ import {
   DEFAULT_SEARCH_LIMIT,
   MAX_TENANT_ID_LENGTH,
   DEFAULT_PHONE_COUNTRY_CODE,
+  computeHasMore,
+  handleTransactionError as mapPrismaError,
 } from "@besterp/shared";
 import {
   CreatePartyInput,
@@ -400,129 +402,8 @@ export class PartyService {
         // to handle the retryable race.
         throw err;
       }
-      throw PartyService.handleTransactionError(err, "create_party", "create_party", "party");
+      throw mapPrismaError(err, "create_party", "create_party", "party");
     }
-  }
-
-  /** Extract the conflicting field name(s) from a Prisma error's metadata.
-   *  For compound unique constraints `meta.target` is an array of field names;
-   *  join them so the error message is accurate (e.g. "same tenantId and email"
-   *  rather than just "same tenantId"). */
-  private static resolveConflictField(err: { meta?: Record<string, unknown> }): string {
-    const target = err.meta?.target;
-    if (Array.isArray(target) && target.length > 0 && typeof target[0] === "string") {
-      return target.join(" and ");
-    }
-    return "this record";
-  }
-
-  /** Extract the constraint name from a Prisma error's metadata. */
-  private static resolveConstraintName(err: { meta?: Record<string, unknown> }): string {
-    return (err.meta?.field_name as string | undefined)
-      ?? (err.meta?.constraint as string | undefined)
-      ?? "unknown";
-  }
-
-  /** Extract the error code from a Prisma-like error or return undefined. */
-  private static getPrismaErrorCode(err: unknown): string | undefined {
-    if (err && typeof err === "object" && "code" in err && typeof (err as { code: unknown }).code === "string") {
-      return (err as { code: string }).code;
-    }
-    return undefined;
-  }
-
-  /** Map a validated Prisma error code to a DomainError. Throws the mapped error. */
-  private static throwMappedPrismaError(
-    code: string, err: { code: string; meta?: Record<string, unknown> },
-    retryTool: string, suggestTool: string, entityName: string,
-  ): never {
-    switch (code) {
-      case "P2002": {
-        const field = PartyService.resolveConflictField(err);
-        throw new DuplicateEntityError(
-          `A ${entityName} with the same ${field} already exists in this tenant.`,
-          { suggestedTools: [suggestTool], context: { prismaCode: "P2002", conflictingField: field } }
-        );
-      }
-      case "P2003": {
-        const constraint = PartyService.resolveConstraintName(err);
-        throw new InvalidTypeValueError(
-          `Referenced ${entityName} does not exist (constraint: ${constraint}).`,
-          { suggestedTools: [suggestTool], context: { prismaCode: "P2003", constraint } }
-        );
-      }
-      case "P2025": {
-        throw new EntityNotFoundError(
-          `${entityName} not found for this operation.`,
-          { suggestedTools: [retryTool, suggestTool], context: { prismaCode: "P2025" } }
-        );
-      }
-      case "P2028":
-      case "P2034": {
-        throw new ConcurrencyConflictError(
-          `Transaction conflict or timeout on ${entityName} — please retry.`,
-          { suggestedTools: [retryTool], context: { prismaCode: code } }
-        );
-      }
-      case "P2024": {
-        throw new ConcurrencyConflictError(
-          `Connection pool timeout on ${entityName} — the service is under heavy load.`,
-          { suggestedTools: [retryTool], context: { prismaCode: code } }
-        );
-      }
-      default: {
-        // Re-throw unknown Prisma codes (e.g. future P3xxx, P4xxx) as the
-        // original error so the filter returns 500 instead of misreporting
-        // a transient infrastructure failure as a caller-input 422.
-        throw err;
-      }
-    }
-  }
-
-  /** Map Prisma transaction errors to DomainErrors. Throws the mapped error. */
-  private static handleTransactionError(
-    err: unknown,
-    retryTool: string,
-    suggestTool: string,
-    entityName = "record",
-  ): never {
-    // Belt-and-suspenders: if err is null/undefined/non-object, wrap it so
-    // downstream callers always receive a proper Error (never a thrown null).
-    if (err == null || typeof err !== "object") {
-      throw new InvalidTypeValueError(
-        "Database operation failed with an unexpected error type.",
-        { context: { type: err === null ? "null" : typeof err } }
-      );
-    }
-
-    // ConcurrencyRetryError is not a DomainError and should propagate as-is
-    // so the caller's retry loop can catch it. Do NOT map it here.
-    if (err instanceof ConcurrencyRetryError) {
-      throw err;
-    }
-
-    // Use duck-typing instead of `instanceof` to detect Prisma errors.
-    // Tenant-scoped clients are created via Proxy wrapping (rls-extension.ts),
-    // which can break `instanceof` checks for classes that rely on
-    // `[Symbol.hasInstance]`. Prisma error codes always start with "P"
-    // (e.g., P2002, P2025), so we gate on that prefix to avoid mistaking
-    // DomainError subclasses (which also carry a `code` property) for Prisma
-    // errors and routing them through the Prisma switch.
-    const code = PartyService.getPrismaErrorCode(err);
-    if (!code) throw err;
-    if (!/^P\d{4}$/.test(code)) throw err;
-
-    // P1xxx codes are connection/engine-level failures (P1000 auth failed,
-    // P1001 can't reach the database, P1002 timed out, P1017 server closed the
-    // connection). These are infrastructure failures, not caller-input errors:
-    // mapping them to InvalidTypeValueError would surface a transient DB
-    // outage to clients as "your input was wrong" (422) instead of a
-    // retryable server error. Re-throw the original error so the REST filter
-    // returns a generic 500 and the MCP error-handler treats it as a
-    // server-side failure.
-    if (/^P1\d{3}$/.test(code)) throw err;
-
-    return PartyService.throwMappedPrismaError(code, err as { code: string; meta?: Record<string, unknown> }, retryTool, suggestTool, entityName);
   }
 
   // ─── Get Party ────────────────────────────────────────────────
@@ -548,7 +429,7 @@ export class PartyService {
         include: PartyService.PARTY_INCLUDE,
       });
     } catch (err) {
-      throw PartyService.handleTransactionError(err, "get_party", "get_party", "party");
+      throw mapPrismaError(err, "get_party", "get_party", "party");
     }
 
     if (!party) {
@@ -650,7 +531,7 @@ export class PartyService {
         orderBy: [{ createdAt: "desc" }, { partyId: "asc" }],
       });
     } catch (err) {
-      throw PartyService.handleTransactionError(err, "search_parties", "search_parties", "party");
+      throw mapPrismaError(err, "search_parties", "search_parties", "party");
     }
 
     return {
@@ -666,8 +547,7 @@ export class PartyService {
       // 400s — a dead-end pagination loop (round 151). Rows beyond
       // MAX_SEARCH_OFFSET + limit are unreachable by design (offset capping),
       // so reporting hasMore=false at that boundary is the correct ceiling.
-      hasMore: validatedOffset + validatedLimit < total
-        && validatedOffset + validatedLimit <= MAX_SEARCH_OFFSET,
+      hasMore: computeHasMore(validatedOffset, validatedLimit, total),
     };
   }
 
@@ -891,7 +771,7 @@ export class PartyService {
         // Retry the transaction — addPartyRole's bounded retry loop handles it.
         throw err;
       }
-      throw PartyService.handleTransactionError(err, "add_party_role", "add_party_role", "party role");
+      throw mapPrismaError(err, "add_party_role", "add_party_role", "party role");
     }
   }
 
@@ -1294,7 +1174,7 @@ export class PartyService {
         });
       }, { timeout: TX_TIMEOUT_MS });
     } catch (err) {
-      throw PartyService.handleTransactionError(err, "add_contact_mechanism", "add_contact_mechanism", "contact mechanism");
+      throw mapPrismaError(err, "add_contact_mechanism", "add_contact_mechanism", "contact mechanism");
     }
   }
 

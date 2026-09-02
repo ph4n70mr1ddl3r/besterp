@@ -10,11 +10,10 @@ import type { TenantScopedClient } from "@besterp/database";
 import {
   InvalidTypeValueError,
   EntityNotFoundError,
-  DuplicateEntityError,
-  ConcurrencyConflictError,
   UUID_REGEX,
   sanitizeForLogOutput,
   stripHtmlTags,
+  parseISODateTimeAsUTC,
   MAX_PARTY_NAME_LENGTH,
   MAX_PARTY_DESCRIPTION_LENGTH,
   MAX_SEARCH_LIMIT,
@@ -23,6 +22,8 @@ import {
   MAX_SEARCH_OFFSET,
   DEFAULT_SEARCH_LIMIT,
   MAX_TENANT_ID_LENGTH,
+  computeHasMore,
+  handleTransactionError as mapPrismaError,
 } from "@besterp/shared";
 import {
   CreateProductInput,
@@ -59,8 +60,8 @@ export class ProductService {
 
     const trimmedTenantId = this.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "create", "create_product");
     const trimmedName = this.requireNonEmptyString(name.trim(), "name", MAX_PARTY_NAME_LENGTH);
-    const trimmedDescription = description !== undefined && description !== null ? this.requireOptionalString(description.trim(), "description", MAX_PARTY_DESCRIPTION_LENGTH) : null;
-    const trimmedSku = sku !== undefined && sku !== null ? this.requireOptionalString(sku.trim(), "sku", 100) : null;
+    const trimmedDescription = description !== undefined && description !== null ? this.requireOptionalString(stripHtmlTags(description.trim()), "description", MAX_PARTY_DESCRIPTION_LENGTH) : null;
+    const trimmedSku = sku !== undefined && sku !== null ? this.requireOptionalString(stripHtmlTags(sku.trim()), "sku", 100) : null;
 
     // Validate product type exists
     const productTypeRecord = await this.prisma.admin.productType.findUnique({ where: { name: productType } });
@@ -97,7 +98,7 @@ export class ProductService {
       this.logger.log(`Created product: ${sanitizeForLogOutput(trimmedName)} (${product.productId})`);
       return this.toProductResult(product);
     } catch (err: unknown) {
-      throw ProductService.handleTransactionError(err, "create_product", "search_products", "product");
+      throw mapPrismaError(err, "create_product", "search_products", "product");
     }
   }
 
@@ -167,7 +168,7 @@ export class ProductService {
         orderBy: [{ name: "asc" }, { productId: "asc" }],
       });
     } catch (err) {
-      throw ProductService.handleTransactionError(err, "search_products", "search_products", "product");
+      throw mapPrismaError(err, "search_products", "search_products", "product");
     }
 
     return {
@@ -175,7 +176,7 @@ export class ProductService {
       total,
       limit: validatedLimit,
       offset: validatedOffset,
-      hasMore: validatedOffset + validatedLimit < total && validatedOffset + validatedLimit <= MAX_SEARCH_OFFSET,
+      hasMore: computeHasMore(validatedOffset, validatedLimit, total),
     };
   }
 
@@ -189,8 +190,8 @@ export class ProductService {
 
     const updateData: Prisma.ProductUpdateInput = {};
     if (name !== undefined) updateData.name = this.requireNonEmptyString(name.trim(), "name", MAX_PARTY_NAME_LENGTH);
-    if (description !== undefined) updateData.description = description === null ? null : this.requireOptionalString(description.trim(), "description", MAX_PARTY_DESCRIPTION_LENGTH);
-    if (sku !== undefined) updateData.sku = sku === null ? null : this.requireOptionalString(sku.trim(), "sku", 100);
+    if (description !== undefined) updateData.description = description === null ? null : this.requireOptionalString(stripHtmlTags(description.trim()), "description", MAX_PARTY_DESCRIPTION_LENGTH);
+    if (sku !== undefined) updateData.sku = sku === null ? null : this.requireOptionalString(stripHtmlTags(sku.trim()), "sku", 100);
     if (productTypeId !== undefined) {
       const pt = await this.prisma.admin.productType.findUnique({ where: { name: productTypeId } });
       if (!pt) {
@@ -216,7 +217,7 @@ export class ProductService {
       });
       return this.toProductResult(product);
     } catch (err: unknown) {
-      throw ProductService.handleTransactionError(err, "update_product", "search_products", "product");
+      throw mapPrismaError(err, "update_product", "search_products", "product");
     }
   }
 
@@ -249,7 +250,7 @@ export class ProductService {
       return this.toFeatureResult(feature);
     } catch (err: unknown) {
       if (err instanceof EntityNotFoundError) throw err;
-      throw ProductService.handleTransactionError(err, "add_product_feature", "search_products", "product");
+      throw mapPrismaError(err, "add_product_feature", "search_products", "product");
     }
   }
 
@@ -276,12 +277,12 @@ export class ProductService {
         );
       }
 
-      const parsedFromDate = fromDate ? new Date(fromDate) : new Date();
+      const parsedFromDate = fromDate ? parseISODateTimeAsUTC(fromDate) : new Date();
       if (isNaN(parsedFromDate.getTime())) {
         throw new InvalidTypeValueError("fromDate must be a valid ISO 8601 date.", { suggestedTools: ["add_product_price"] });
       }
 
-      const parsedThruDate = thruDate ? new Date(thruDate) : null;
+      const parsedThruDate = thruDate ? parseISODateTimeAsUTC(thruDate) : null;
       if (parsedThruDate && isNaN(parsedThruDate.getTime())) {
         throw new InvalidTypeValueError("thruDate must be a valid ISO 8601 date.", { suggestedTools: ["add_product_price"] });
       }
@@ -301,97 +302,11 @@ export class ProductService {
       return this.toPriceResult(price);
     } catch (err: unknown) {
       if (err instanceof EntityNotFoundError) throw err;
-      throw ProductService.handleTransactionError(err, "add_product_price", "search_products", "product");
+      throw mapPrismaError(err, "add_product_price", "search_products", "product");
     }
   }
 
   // ─── Helpers ──────────────────────────────────────────────────
-
-  private static getPrismaErrorCode(err: unknown): string | undefined {
-    if (err && typeof err === "object" && "code" in err && typeof (err as { code: unknown }).code === "string") {
-      return (err as { code: string }).code;
-    }
-    return undefined;
-  }
-
-  private static throwMappedPrismaError(
-    code: string,
-    err: { code: string; meta?: Record<string, unknown> },
-    retryTool: string,
-    suggestTool: string,
-    entityName: string,
-  ): never {
-    switch (code) {
-      case "P2002": {
-        const field = ProductService.resolveConflictField(err);
-        throw new DuplicateEntityError(
-          `A ${entityName} with the same ${field} already exists in this tenant.`,
-          { suggestedTools: [suggestTool], context: { prismaCode: "P2002", conflictingField: field } }
-        );
-      }
-      case "P2003": {
-        const constraint = ProductService.resolveConstraintName(err);
-        throw new InvalidTypeValueError(
-          `Referenced ${entityName} does not exist (constraint: ${constraint}).`,
-          { suggestedTools: [suggestTool], context: { prismaCode: "P2003", constraint } }
-        );
-      }
-      case "P2025": {
-        throw new EntityNotFoundError(
-          `${entityName} not found for this operation.`,
-          { suggestedTools: [retryTool, suggestTool], context: { prismaCode: "P2025" } }
-        );
-      }
-      case "P2028":
-      case "P2034": {
-        throw new ConcurrencyConflictError(
-          `Transaction conflict or timeout on ${entityName} — please retry.`,
-          { suggestedTools: [retryTool], context: { prismaCode: code } }
-        );
-      }
-      case "P2024": {
-        throw new ConcurrencyConflictError(
-          `Connection pool timeout on ${entityName} — the service is under heavy load.`,
-          { suggestedTools: [retryTool], context: { prismaCode: code } }
-        );
-      }
-      default: {
-        throw err;
-      }
-    }
-  }
-
-  private static resolveConflictField(err: { code: string; meta?: Record<string, unknown> }): string {
-    const meta = err.meta as Record<string, unknown> | undefined;
-    const target = meta?.target as string[] | undefined;
-    if (Array.isArray(target) && target.length > 0 && typeof target[0] === "string") return target[0];
-    return "unique key";
-  }
-
-  private static resolveConstraintName(err: { code: string; meta?: Record<string, unknown> }): string {
-    const meta = err.meta as Record<string, unknown> | undefined;
-    const constraint = meta?.constraint as string | undefined;
-    return constraint ?? "unknown";
-  }
-
-  private static handleTransactionError(
-    err: unknown,
-    retryTool: string,
-    suggestTool: string,
-    entityName = "record",
-  ): never {
-    if (err == null || typeof err !== "object") {
-      throw new InvalidTypeValueError(
-        "Database operation failed with an unexpected error type.",
-        { context: { type: err === null ? "null" : typeof err } }
-      );
-    }
-    const code = ProductService.getPrismaErrorCode(err);
-    if (!code) throw err;
-    if (!/^P\d{4}$/.test(code)) throw err;
-    if (/^P1\d{3}$/.test(code)) throw err;
-    return ProductService.throwMappedPrismaError(code, err as { code: string; meta?: Record<string, unknown> }, retryTool, suggestTool, entityName);
-  }
 
   private requireStringField(value: unknown, field: string, maxLength: number, _action: string, tool: string): string {
     if (typeof value !== "string") {

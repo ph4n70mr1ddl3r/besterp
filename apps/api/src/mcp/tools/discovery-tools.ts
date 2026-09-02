@@ -299,7 +299,7 @@ const STATUS_TRANSITIONS: Record<string, Record<string, string[]>> = {
   },
 };
 
-function createGetValidTransitions(_prisma: PrismaClient): ToolDefinition {
+function createGetValidTransitions(): ToolDefinition {
   return {
     name: "get_valid_transitions",
     description: `Get valid status transitions for an entity.
@@ -350,7 +350,7 @@ Example: get_valid_transitions({ entity: "party" }) returns { active: ["inactive
 
 // ─── Tool: search_across_entities ─────────────────────────────────
 
-function createSearchAcrossEntities(_prisma: PrismaClient): ToolDefinition {
+function createSearchAcrossEntities(): ToolDefinition {
   return {
     name: "search_across_entities",
     description: `Universal search across all entity types in the ERP system.
@@ -603,7 +603,7 @@ export function registerDiscoveryTools(registry: ToolRegistry, prisma: PrismaCli
   registry.register(createListAvailableTools(registry));
   registry.register(createGetTypeTableValues(prisma));
   registry.register(createDescribeEntity(prisma));
-  registry.register(createGetValidTransitions(prisma));
-  registry.register(createSearchAcrossEntities(prisma));
+  registry.register(createGetValidTransitions());
+  registry.register(createSearchAcrossEntities());
   registry.register(createExplainError(prisma));
 }

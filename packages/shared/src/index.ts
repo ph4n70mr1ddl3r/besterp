@@ -17,6 +17,15 @@ export {
   getErrorCode,
 } from "./errors.js";
 
+export {
+  getPrismaErrorCode,
+  computeHasMore,
+  resolveConflictField,
+  resolveConstraintName,
+  throwMappedPrismaError,
+  handleTransactionError,
+} from "./prisma-error-mapper.js";
+
 export { hashInput } from "./crypto.js";
 
 export { pluralize } from "./pluralize.js";
