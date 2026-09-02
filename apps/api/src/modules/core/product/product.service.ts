@@ -350,8 +350,8 @@ export class ProductService {
     return trimmed;
   }
 
-  private requireNonEmptyFilter(value: string | undefined | null, field: string, maxLength: number, tools: string[]): string | null {
-    if (value === undefined || value === null) return null;
+  private requireNonEmptyFilter(value: string | undefined | null, field: string, maxLength: number, tools: string[]): string | undefined {
+    if (value === undefined || value === null) return undefined;
     const trimmed = value.trim();
     if (trimmed.length === 0) {
       throw new InvalidTypeValueError(`Filter '${field}' cannot be whitespace-only.`, { suggestedTools: tools, context: { field } });

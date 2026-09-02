@@ -480,12 +480,12 @@ export class PartyService {
       // Use contains for flexible partial matching (case-insensitive).
       // Trim whitespace to avoid useless LIKE '%  %' queries.
       // The pg_trgm GIN index (migration 20260619000000) supports these queries.
-      where.name = { contains: trimmedName, mode: "insensitive" };
+      where.name = { contains: trimmedName, mode: "insensitive" as const };
     }
 
     const trimmedPartyType = PartyService.requireNonEmptyFilter(partyType, "partyType", MAX_ROLE_TYPE_LENGTH, ["search_parties"]);
     if (trimmedPartyType) {
-      where.partyType = { name: { equals: trimmedPartyType, mode: "insensitive" } };
+      where.partyType = { name: { equals: trimmedPartyType, mode: "insensitive" as const } };
     }
 
     const trimmedRoleType = PartyService.requireNonEmptyFilter(roleType, "roleType", MAX_ROLE_TYPE_LENGTH, ["search_parties", "get_type_table_values"]);
@@ -500,7 +500,7 @@ export class PartyService {
       // (round 151).
       where.roles = {
         some: {
-          roleType: { name: { equals: trimmedRoleType, mode: "insensitive" } },
+          roleType: { name: { equals: trimmedRoleType, mode: "insensitive" as const } },
           thruDate: null,
         },
       };

@@ -3,8 +3,53 @@
 ## Scope
  Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
  `mcp-tools`, `apps/api`, plus README/`.env.example`/docker/CI) conducted on
- 2026-09-02. This is review 203; rounds 1–202 are documented in earlier
+ 2026-09-02. This is review 204; rounds 1–203 are documented in earlier
  revisions of this file and `CHANGES.md`.
+
+## Findings & Actions (round 204)
+
+### Fixed this round
+
+1. **🟡 `party.service.ts` — `mode: "insensitive"` missing `as const` type assertion.**
+   ProductService used `mode: "insensitive" as const` in its search queries
+   (lines 145, 150) but PartyService used `mode: "insensitive"` without the
+   `as const` assertion (lines 483, 488, 503). Without `as const`, TypeScript
+   infers `mode` as the broad string type rather than the literal `"insensitive"`,
+   which weakens type safety when the Prisma query object is assigned to a typed
+   variable or passed through generic helpers. Added `as const` to all three
+   PartyService occurrences to match the ProductService pattern.
+
+2. **🟡 `product.service.ts` — `requireNonEmptyFilter` returned `string | null` instead of `string | undefined`.**
+   ProductService's `requireNonEmptyFilter` returned `null` for undefined/null
+   input while PartyService's equivalent returned `undefined`. The two return
+   types are functionally equivalent for the truthiness checks used by callers,
+   but the inconsistency was a stylistic divergence between the two services.
+   Changed ProductService to return `string | undefined` to match PartyService.
+
+3. **🟢 `product.service.spec.ts` — expanded from 6 to 29 tests covering all public methods.**
+   The product service spec previously only tested `searchProducts`. Added
+   coverage for `createProduct` (tenantId/name/type validation, trimmed ID
+   propagation), `getProduct` (tenantId/UUID validation, not-found error,
+   trimmed ID propagation), `updateProduct` (tenantId/UUID validation, no-op
+   rejection, productType lookup), `addProductFeature` (tenantId/UUID/validation,
+   not-found error), and `addProductPrice` (tenantId/UUID/amount/date validation,
+   not-found error).
+
+### Reviewed but NOT changed (false positives / deferred)
+
+- Full-file re-read of all production source files confirmed no new issues.
+- grep confirms: zero stray `console.log` / `console.error` / `console.warn` in
+  production source; zero `TODO`/`FIXME`/`HACK` comments; zero bare `as any`
+  casts in production source (only in test files and spikes); one intentional
+  `@ts-expect-error` in `tool-registry.test.ts`.
+- Lint ✓ · typecheck ✓ · build ✓ · `npm audit`: unchanged (3 high via `deepmerge-ts`
+  transitive in `@prisma/config` — pinned to 8.0.2 via override; CI gate
+  relaxed to critical-only).
+- Test counts verified: api 574 (22 files), shared 243 (4 files), mcp-tools 192
+  (4 files), database 34 passed + 10 skipped (3 files). Total 1043 passed, 10 skipped.
+  Matches report.
+
+---
 
 ## Findings & Actions (round 203)
 
