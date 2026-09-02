@@ -97,20 +97,7 @@ export class ProductService {
       this.logger.log(`Created product: ${sanitizeForLogOutput(trimmedName)} (${product.productId})`);
       return this.toProductResult(product);
     } catch (err: unknown) {
-      const code = (err as { code?: string })?.code;
-      if (code === "P2002") {
-        throw new DuplicateEntityError(
-          `A product with the same SKU '${sanitizeForLogOutput(trimmedSku ?? "")}' already exists in this tenant.`,
-          { suggestedTools: ["search_products", "get_product"] }
-        );
-      }
-      if (code === "P2003") {
-        throw new InvalidTypeValueError(
-          `Referenced entity does not exist.`,
-          { suggestedTools: ["get_type_table_values", "search_products"] }
-        );
-      }
-      throw err;
+      throw ProductService.handleTransactionError(err, "create_product", "search_products", "product");
     }
   }
 
@@ -229,20 +216,7 @@ export class ProductService {
       });
       return this.toProductResult(product);
     } catch (err: unknown) {
-      const code = (err as { code?: string })?.code;
-      if (code === "P2025") {
-        throw new EntityNotFoundError(
-          `Product '${productId}' not found in tenant '${trimmedTenantId}'.`,
-          { suggestedTools: ["search_products", "get_product"] }
-        );
-      }
-      if (code === "P2002") {
-        throw new DuplicateEntityError(
-          `A product with the same SKU already exists in this tenant.`,
-          { suggestedTools: ["search_products"] }
-        );
-      }
-      throw err;
+      throw ProductService.handleTransactionError(err, "update_product", "search_products", "product");
     }
   }
 
@@ -258,20 +232,25 @@ export class ProductService {
 
     const db: TenantScopedClient = this.prisma.tenantScoped(trimmedTenantId);
 
-    const product = await db.product.findUnique({ where: { productId, tenantId: trimmedTenantId } });
-    if (!product) {
-      throw new EntityNotFoundError(
-        `Product '${productId}' not found in tenant '${trimmedTenantId}'.`,
-        { suggestedTools: ["search_products", "get_product"] }
-      );
+    try {
+      const product = await db.product.findUnique({ where: { productId, tenantId: trimmedTenantId } });
+      if (!product) {
+        throw new EntityNotFoundError(
+          `Product '${productId}' not found in tenant '${trimmedTenantId}'.`,
+          { suggestedTools: ["search_products", "get_product"] }
+        );
+      }
+
+      const feature = await db.productFeature.create({
+        data: { productId, name: trimmedName, value: trimmedValue },
+        select: { productFeatureId: true, productId: true, name: true, value: true, createdAt: true },
+      });
+
+      return this.toFeatureResult(feature);
+    } catch (err: unknown) {
+      if (err instanceof EntityNotFoundError) throw err;
+      throw ProductService.handleTransactionError(err, "add_product_feature", "search_products", "product");
     }
-
-    const feature = await db.productFeature.create({
-      data: { productId, name: trimmedName, value: trimmedValue },
-      select: { productFeatureId: true, productId: true, name: true, value: true, createdAt: true },
-    });
-
-    return this.toFeatureResult(feature);
   }
 
   // ─── Add Product Price ────────────────────────────────────────
@@ -288,37 +267,42 @@ export class ProductService {
 
     const db: TenantScopedClient = this.prisma.tenantScoped(trimmedTenantId);
 
-    const product = await db.product.findUnique({ where: { productId, tenantId: trimmedTenantId } });
-    if (!product) {
-      throw new EntityNotFoundError(
-        `Product '${productId}' not found in tenant '${trimmedTenantId}'.`,
-        { suggestedTools: ["search_products", "get_product"] }
-      );
+    try {
+      const product = await db.product.findUnique({ where: { productId, tenantId: trimmedTenantId } });
+      if (!product) {
+        throw new EntityNotFoundError(
+          `Product '${productId}' not found in tenant '${trimmedTenantId}'.`,
+          { suggestedTools: ["search_products", "get_product"] }
+        );
+      }
+
+      const parsedFromDate = fromDate ? new Date(fromDate) : new Date();
+      if (isNaN(parsedFromDate.getTime())) {
+        throw new InvalidTypeValueError("fromDate must be a valid ISO 8601 date.", { suggestedTools: ["add_product_price"] });
+      }
+
+      const parsedThruDate = thruDate ? new Date(thruDate) : null;
+      if (parsedThruDate && isNaN(parsedThruDate.getTime())) {
+        throw new InvalidTypeValueError("thruDate must be a valid ISO 8601 date.", { suggestedTools: ["add_product_price"] });
+      }
+
+      const price = await db.productPrice.create({
+        data: {
+          productId,
+          priceType: priceType.toUpperCase(),
+          amount,
+          currencyCode,
+          fromDate: parsedFromDate,
+          thruDate: parsedThruDate,
+        },
+        select: { productPriceId: true, productId: true, priceType: true, amount: true, currencyCode: true, fromDate: true, thruDate: true, createdAt: true },
+      });
+
+      return this.toPriceResult(price);
+    } catch (err: unknown) {
+      if (err instanceof EntityNotFoundError) throw err;
+      throw ProductService.handleTransactionError(err, "add_product_price", "search_products", "product");
     }
-
-    const parsedFromDate = fromDate ? new Date(fromDate) : new Date();
-    if (isNaN(parsedFromDate.getTime())) {
-      throw new InvalidTypeValueError("fromDate must be a valid ISO 8601 date.", { suggestedTools: ["add_product_price"] });
-    }
-
-    const parsedThruDate = thruDate ? new Date(thruDate) : null;
-    if (parsedThruDate && isNaN(parsedThruDate.getTime())) {
-      throw new InvalidTypeValueError("thruDate must be a valid ISO 8601 date.", { suggestedTools: ["add_product_price"] });
-    }
-
-    const price = await db.productPrice.create({
-      data: {
-        productId,
-        priceType: priceType.toUpperCase(),
-        amount,
-        currencyCode,
-        fromDate: parsedFromDate,
-        thruDate: parsedThruDate,
-      },
-      select: { productPriceId: true, productId: true, priceType: true, amount: true, currencyCode: true, fromDate: true, thruDate: true, createdAt: true },
-    });
-
-    return this.toPriceResult(price);
   }
 
   // ─── Helpers ──────────────────────────────────────────────────
