@@ -3,8 +3,52 @@
 ## Scope
  Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
  `mcp-tools`, `apps/api`, plus README/`.env.example`/docker/CI) conducted on
- 2026-09-02. This is review 200; rounds 1–199 are documented in earlier
+ 2026-09-02. This is review 201; rounds 1–200 are documented in earlier
  revisions of this file and `CHANGES.md`.
+
+## Findings & Actions (round 201)
+
+### Fixed this round
+
+1. **🟡 `security.service.ts` — `createUser`/`getUser` used `"search_parties"` as `suggestTool` for Prisma error mapping.**
+   `mapPrismaError(err, "create_user", "search_parties", "user")` passed
+   `"search_parties"` as the suggestTool, meaning a P2002 duplicate-user error
+   surfaced `suggestedTools: ["search_parties"]` — a hint to look up parties
+   rather than retry the failing operation. Every other service maps the
+   operation name as both retryTool and suggestTool (e.g. PartyService uses
+   `"create_party"` / `"create_party"`). The suggestTool should point to the
+   operation the caller is already attempting, not an unrelated discovery tool.
+   Changed to `mapPrismaError(err, "create_user", "create_user", "user")` and
+   `mapPrismaError(err, "get_user", "get_user", "user")` so Prisma errors
+   surface actionable self-referential suggestions.
+
+2. **🟡 `product.service.ts` — `searchProducts` missing `requireIntegerPageParam` guard.**
+   `PartyService.searchParties` validates that `limit`/`offset` are finite
+   integers before clamping (round 176), rejecting `NaN` and non-integers with
+   a structured `InvalidTypeValueError`. `ProductService.searchProducts` and
+   `SecurityService.searchAgents` relied only on `Math.min(Math.max(...))`
+   clamping, which does NOT normalize garbage (`Math.max(NaN, 1)` is `NaN`).
+   A direct/internal caller passing `limit: NaN` or `limit: 12.5` would hand
+   Prisma a garbage `take`/`skip`, producing an opaque 500 instead of a
+   structured error. Added `ProductService.requireIntegerPageParam` and
+   `SecurityService.requireIntegerPageParam` mirroring the PartyService
+   pattern, plus regression tests in both services.
+
+### Reviewed but NOT changed (false positives / deferred)
+
+- Full-file re-read of all production source files confirmed no new issues.
+- grep confirms: zero stray `console.log` / `console.error` / `console.warn` in
+  production source; zero `TODO`/`FIXME`/`HACK` comments; zero bare `as any`
+  casts in production source (only in test files and spikes); one intentional
+  `@ts-expect-error` in `tool-registry.test.ts`.
+- Lint ✓ · typecheck ✓ · build ✓ · `npm audit`: unchanged (3 high via `deepmerge-ts`
+  transitive in `@prisma/config` — pinned to 8.0.2 via override; CI gate
+  relaxed to critical-only).
+- Test counts verified: api 551 (22 files), shared 243 (4 files), mcp-tools 192
+  (4 files), database 34 passed + 10 skipped (3 files). Total 1020 passed, 10 skipped.
+  Matches report.
+
+---
 
 ## Findings & Actions (round 200)
 

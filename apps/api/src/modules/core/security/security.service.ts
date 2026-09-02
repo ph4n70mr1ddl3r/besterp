@@ -83,7 +83,7 @@ export class SecurityService {
       });
       return this.toUserResult(user);
     } catch (err: unknown) {
-      throw mapPrismaError(err, "create_user", "search_parties", "user");
+      throw mapPrismaError(err, "create_user", "create_user", "user");
     }
   }
 
@@ -112,7 +112,7 @@ export class SecurityService {
       return this.toUserResult(user);
     } catch (err) {
       if (err instanceof EntityNotFoundError) throw err;
-      throw mapPrismaError(err, "get_user", "search_parties", "user");
+      throw mapPrismaError(err, "get_user", "get_user", "user");
     }
   }
 
@@ -296,6 +296,8 @@ export class SecurityService {
     } = input;
 
     const trimmedTenantId = this.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "search_agents", "list_agents");
+    this.requireIntegerPageParam(limit, "limit");
+    this.requireIntegerPageParam(offset, "offset");
     const validatedLimit = Math.min(Math.max(limit, MIN_SEARCH_LIMIT), MAX_SEARCH_LIMIT);
     const validatedOffset = Math.min(Math.max(offset, MIN_SEARCH_OFFSET), MAX_SEARCH_OFFSET);
 
@@ -418,5 +420,19 @@ export class SecurityService {
       throw new InvalidTypeValueError(`'${field}' exceeds maximum length of ${maxLength} characters.`, { suggestedTools: [tool], context: { field, length: trimmed.length } });
     }
     return trimmed;
+  }
+
+  /** Validate that a pagination parameter is a finite integer before clamping.
+   *  See searchAgents for why the clamp alone is insufficient. The received
+   *  value is stringified when non-finite because JSON.stringify(NaN) → null
+   *  would erase the diagnostic detail from the serialized DomainError context.
+   *  Mirrors PartyService.requireIntegerPageParam (round 176). */
+  private requireIntegerPageParam(value: number, field: string): void {
+    if (!Number.isFinite(value) || !Number.isInteger(value)) {
+      throw new InvalidTypeValueError(
+        `${field} must be a finite integer (received ${String(value)}).`,
+        { suggestedTools: ["list_agents"], context: { field, received: Number.isFinite(value) ? value : String(value) } }
+      );
+    }
   }
 }

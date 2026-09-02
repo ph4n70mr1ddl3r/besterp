@@ -131,6 +131,8 @@ export class ProductService {
     const { tenantId, name, productType, limit = DEFAULT_SEARCH_LIMIT, offset = MIN_SEARCH_OFFSET } = input;
 
     const trimmedTenantId = this.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "search", "search_products");
+    ProductService.requireIntegerPageParam(limit, "limit");
+    ProductService.requireIntegerPageParam(offset, "offset");
     const validatedLimit = Math.min(Math.max(limit, MIN_SEARCH_LIMIT), MAX_SEARCH_LIMIT);
     const validatedOffset = Math.min(Math.max(offset, MIN_SEARCH_OFFSET), MAX_SEARCH_OFFSET);
 
@@ -417,5 +419,19 @@ export class ProductService {
       thruDate: p.thruDate?.toISOString() ?? null,
       createdAt: p.createdAt.toISOString(),
     };
+  }
+
+  /** Validate that a pagination parameter is a finite integer before clamping.
+   *  See searchProducts for why the clamp alone is insufficient. The received
+   *  value is stringified when non-finite because JSON.stringify(NaN) → null
+   *  would erase the diagnostic detail from the serialized DomainError context.
+   *  Mirrors PartyService.requireIntegerPageParam (round 176). */
+  private static requireIntegerPageParam(value: number, field: string): void {
+    if (!Number.isFinite(value) || !Number.isInteger(value)) {
+      throw new InvalidTypeValueError(
+        `${field} must be a finite integer (received ${String(value)}).`,
+        { suggestedTools: ["search_products"], context: { field, received: Number.isFinite(value) ? value : String(value) } }
+      );
+    }
   }
 }

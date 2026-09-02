@@ -331,5 +331,23 @@ describe("SecurityService", () => {
       // Verify sequential: count should have been called before findMany
       expect(countFn).toHaveBeenCalledBefore(findManyFn);
     });
+
+    it("rejects NaN limit with InvalidTypeValueError", async () => {
+      await expect(
+        service.searchAgents({ tenantId: "t1", limit: NaN, offset: 0 })
+      ).rejects.toThrow(InvalidTypeValueError);
+    });
+
+    it("rejects non-integer limit with InvalidTypeValueError", async () => {
+      await expect(
+        service.searchAgents({ tenantId: "t1", limit: 12.5, offset: 0 })
+      ).rejects.toThrow(InvalidTypeValueError);
+    });
+
+    it("rejects Infinity offset with InvalidTypeValueError", async () => {
+      await expect(
+        service.searchAgents({ tenantId: "t1", limit: 10, offset: Infinity })
+      ).rejects.toThrow(InvalidTypeValueError);
+    });
   });
 });

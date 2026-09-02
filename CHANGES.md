@@ -1,5 +1,38 @@
 # BestERP — Security & Architecture Fixes
 
+## Changes Applied (2026-09-02) — Code Review Round 201
+
+### 🟡 `security.service.ts` — fixed suggestTool inconsistency for user operations
+
+**Problem:** `createUser` and `getUser` passed `"search_parties"` as the
+`suggestTool` to `mapPrismaError`, so Prisma errors (P2002 duplicate, P2003
+FK violation) surfaced `suggestedTools: ["search_parties"]` — a hint to look
+up parties rather than retry the failing operation. Every other service maps
+the operation name as both retryTool and suggestTool (e.g. PartyService uses
+`"create_party"` / `"create_party"`). The suggestTool should point to the
+operation the caller is already attempting.
+
+**Fix:** Changed to `mapPrismaError(err, "create_user", "create_user", "user")`
+and `mapPrismaError(err, "get_user", "get_user", "user")` so Prisma errors
+surface actionable self-referential suggestions.
+
+### 🟡 `product.service.ts` and `security.service.ts` — added `requireIntegerPageParam` pagination guard
+
+**Problem:** `PartyService.searchParties` validates that `limit`/`offset` are
+finite integers before clamping (round 176), rejecting `NaN` and non-integers
+with a structured `InvalidTypeValueError`. `ProductService.searchProducts` and
+`SecurityService.searchAgents` relied only on `Math.min(Math.max(...))`
+clamping, which does NOT normalize garbage (`Math.max(NaN, 1)` is `NaN`). A
+direct/internal caller passing `limit: NaN` or `limit: 12.5` would hand Prisma
+a garbage `take`/`skip`, producing an opaque 500 instead of a structured error.
+
+**Fix:** Added `ProductService.requireIntegerPageParam` and
+`SecurityService.requireIntegerPageParam` mirroring the PartyService pattern,
+plus regression tests in both services (6 new tests for product, 3 for
+security).
+
+---
+
 ## Changes Applied (2026-09-02) — Code Review Round 200
 
 ### 🟢 `security.service.ts` — fixed pagination bug and race condition in `searchAgents`
