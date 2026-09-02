@@ -1,5 +1,47 @@
 # BestERP — Security & Architecture Fixes
 
+## Changes Applied (2026-09-02) — Code Review Round 203
+
+### 🟡 `security.service.ts` — fixed suggestTool inconsistency in `requireStringField` calls
+
+**Problem:** Six `requireStringField` calls in SecurityService passed a
+non-self-referential `tool` parameter, so validation errors on `tenantId`
+surfaced `suggestedTools: ["list_agents"]` or `["search_parties"]` instead of
+the operation the caller was actually attempting. For example, an invalid
+tenantId in `getUser` suggested `"search_parties"` — a party-discovery tool —
+rather than `"get_user"`, the operation the caller was trying. Every other
+service uses the operation name consistently (e.g. PartyService passes
+`"get_party"` for `getParty`, `"add_party_role"` for `addPartyRole`).
+
+**Fix:** Changed all six call sites to pass the operation-specific tool name:
+`getUser` → `"get_user"`, `updateLastLogin` → `"update_last_login"`,
+`updateAgent` → `"update_agent"`, `deleteAgent` → `"delete_agent"`,
+`getAgent` → `"get_agent"`, `searchAgents` → `"search_agents"`.
+
+### 🟡 `security.service.ts` — fixed `requireNonEmpty` hardcoded `suggestedTools`
+
+**Problem:** The `requireNonEmpty` helper did not accept a `tool` parameter, so
+every validation error from `createUser`, `registerAgent`, `updateAgent`,
+`deleteAgent`, and `getAgent` surfaced `suggestedTools: ["list_agents"]`
+regardless of the calling operation. This meant a caller passing an empty
+`partyId` to `createUser` would be suggested to list agents — an unrelated
+operation.
+
+**Fix:** Added a `tool` parameter (defaulting to `"list_agents"` for backward
+compat) to `requireNonEmpty` and updated all call sites to pass the
+operation-specific tool.
+
+### 🟡 `security.service.ts` — fixed `requireIntegerPageParam` hardcoded `suggestedTools`
+
+**Problem:** Same class as `requireNonEmpty`. The pagination guard threw
+`InvalidTypeValueError` with `suggestedTools: ["list_agents"]` regardless of
+which search operation was in progress.
+
+**Fix:** Added a `tool` parameter and wired `"search_agents"` from
+`searchAgents`.
+
+---
+
 ## Changes Applied (2026-09-02) — Code Review Round 202
 
 ### 🟡 `product.service.ts` — fixed suggestTool inconsistency for product operations

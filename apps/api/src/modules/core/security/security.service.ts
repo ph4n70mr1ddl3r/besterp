@@ -43,8 +43,8 @@ export class SecurityService {
     const { tenantId, partyId, passwordHash } = input;
 
     const trimmedTenantId = this.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "create_user", "create_user");
-    const validatedPartyId = this.requireNonEmpty(partyId, "partyId", MAX_USER_ID_LENGTH);
-    this.requireNonEmpty(passwordHash, "passwordHash", 72);
+    const validatedPartyId = this.requireNonEmpty(partyId, "partyId", MAX_USER_ID_LENGTH, "create_user");
+    this.requireNonEmpty(passwordHash, "passwordHash", 72, "create_user");
 
     // Verify the party exists in this tenant before linking
     const party = await this.prisma.tenantScoped(trimmedTenantId).party.findUnique({
@@ -88,8 +88,8 @@ export class SecurityService {
   }
 
   async getUser(tenantId: string, partyId: string): Promise<UserResult> {
-    const trimmedTenantId = this.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "get_user", "search_parties");
-    const validatedPartyId = this.requireNonEmpty(partyId, "partyId", MAX_USER_ID_LENGTH);
+    const trimmedTenantId = this.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "get_user", "get_user");
+    const validatedPartyId = this.requireNonEmpty(partyId, "partyId", MAX_USER_ID_LENGTH, "get_user");
     const db = this.prisma.tenantScoped(trimmedTenantId);
     try {
       const user = await db.user.findUnique({
@@ -117,8 +117,8 @@ export class SecurityService {
   }
 
   async updateLastLogin(tenantId: string, partyId: string): Promise<void> {
-    const trimmedTenantId = this.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "update_last_login", "get_user");
-    const validatedPartyId = this.requireNonEmpty(partyId, "partyId", MAX_USER_ID_LENGTH);
+    const trimmedTenantId = this.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "update_last_login", "update_last_login");
+    const validatedPartyId = this.requireNonEmpty(partyId, "partyId", MAX_USER_ID_LENGTH, "update_last_login");
     try {
       await this.prisma.tenantScoped(trimmedTenantId).user.update({
         where: { tenantId_partyId: { tenantId: trimmedTenantId, partyId: validatedPartyId } },
@@ -147,11 +147,11 @@ export class SecurityService {
       version,
     } = input;
 
-    const validatedAgentId = this.requireNonEmpty(agentId, "agentId", MAX_AGENT_ID_LENGTH);
-    const validatedTenantId = this.requireNonEmpty(tenantId, "tenantId", MAX_TENANT_ID_LENGTH);
-    this.requireNonEmpty(displayName, "displayName", MAX_PARTY_NAME_LENGTH);
-    this.requireNonEmpty(description, "description", 1000);
-    this.requireNonEmpty(version, "version", 64);
+    const validatedAgentId = this.requireNonEmpty(agentId, "agentId", MAX_AGENT_ID_LENGTH, "register_agent");
+    const validatedTenantId = this.requireNonEmpty(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "register_agent");
+    this.requireNonEmpty(displayName, "displayName", MAX_PARTY_NAME_LENGTH, "register_agent");
+    this.requireNonEmpty(description, "description", 1000, "register_agent");
+    this.requireNonEmpty(version, "version", 64, "register_agent");
     this.validateAgentArrays(capabilities, allowedEntityTypes);
     this.validateAgentLimits(validatedAgentId, maxToolCallsPerConversation, rateLimitPerMinute);
 
@@ -221,8 +221,8 @@ export class SecurityService {
   async updateAgent(input: UpdateAgentInput): Promise<AgentResult> {
     const { agentId, tenantId, ...updates } = input;
 
-    const trimmedTenantId = this.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "update_agent", "list_agents");
-    const validatedAgentId = this.requireNonEmpty(agentId, "agentId", MAX_AGENT_ID_LENGTH);
+    const trimmedTenantId = this.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "update_agent", "update_agent");
+    const validatedAgentId = this.requireNonEmpty(agentId, "agentId", MAX_AGENT_ID_LENGTH, "update_agent");
 
     const updateData: Record<string, unknown> = {};
     if (updates.displayName !== undefined) updateData.displayName = updates.displayName;
@@ -259,8 +259,8 @@ export class SecurityService {
   }
 
   async deleteAgent(tenantId: string, agentId: string): Promise<{ success: boolean }> {
-    const trimmedTenantId = this.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "delete_agent", "list_agents");
-    const validatedAgentId = this.requireNonEmpty(agentId, "agentId", MAX_AGENT_ID_LENGTH);
+    const trimmedTenantId = this.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "delete_agent", "delete_agent");
+    const validatedAgentId = this.requireNonEmpty(agentId, "agentId", MAX_AGENT_ID_LENGTH, "delete_agent");
     try {
       await this.prisma.admin.agentRegistry.delete({
         where: { agentId: validatedAgentId, tenantId: trimmedTenantId },
@@ -272,8 +272,8 @@ export class SecurityService {
   }
 
   async getAgent(tenantId: string, agentId: string): Promise<AgentResult> {
-    const trimmedTenantId = this.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "get_agent", "list_agents");
-    const validatedAgentId = this.requireNonEmpty(agentId, "agentId", MAX_AGENT_ID_LENGTH);
+    const trimmedTenantId = this.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "get_agent", "get_agent");
+    const validatedAgentId = this.requireNonEmpty(agentId, "agentId", MAX_AGENT_ID_LENGTH, "get_agent");
     const agent = await this.prisma.admin.agentRegistry.findUnique({
       where: { agentId: validatedAgentId, tenantId: trimmedTenantId },
     });
@@ -295,9 +295,9 @@ export class SecurityService {
       offset = MIN_SEARCH_OFFSET,
     } = input;
 
-    const trimmedTenantId = this.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "search_agents", "list_agents");
-    this.requireIntegerPageParam(limit, "limit");
-    this.requireIntegerPageParam(offset, "offset");
+    const trimmedTenantId = this.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "search_agents", "search_agents");
+    this.requireIntegerPageParam(limit, "limit", "search_agents");
+    this.requireIntegerPageParam(offset, "offset", "search_agents");
     const validatedLimit = Math.min(Math.max(limit, MIN_SEARCH_LIMIT), MAX_SEARCH_LIMIT);
     const validatedOffset = Math.min(Math.max(offset, MIN_SEARCH_OFFSET), MAX_SEARCH_OFFSET);
 
@@ -385,24 +385,24 @@ export class SecurityService {
     };
   }
 
-  private requireNonEmpty(value: string, field: string, maxLength: number): string {
+  private requireNonEmpty(value: string, field: string, maxLength: number, tool: string = "list_agents"): string {
     if (typeof value !== "string") {
       throw new InvalidTypeValueError(
         `'${field}' must be a string.`,
-        { suggestedTools: ["list_agents"] }
+        { suggestedTools: [tool] }
       );
     }
     const trimmed = value.trim();
     if (trimmed.length === 0) {
       throw new InvalidTypeValueError(
         `'${field}' must not be empty or whitespace-only.`,
-        { suggestedTools: ["list_agents"] }
+        { suggestedTools: [tool] }
       );
     }
     if (trimmed.length > maxLength) {
       throw new InvalidTypeValueError(
         `'${field}' exceeds maximum length of ${maxLength} characters (got ${trimmed.length}).`,
-        { suggestedTools: ["list_agents"] }
+        { suggestedTools: [tool] }
       );
     }
     return trimmed;
@@ -427,11 +427,11 @@ export class SecurityService {
    *  value is stringified when non-finite because JSON.stringify(NaN) → null
    *  would erase the diagnostic detail from the serialized DomainError context.
    *  Mirrors PartyService.requireIntegerPageParam (round 176). */
-  private requireIntegerPageParam(value: number, field: string): void {
+  private requireIntegerPageParam(value: number, field: string, tool: string = "list_agents"): void {
     if (!Number.isFinite(value) || !Number.isInteger(value)) {
       throw new InvalidTypeValueError(
         `${field} must be a finite integer (received ${String(value)}).`,
-        { suggestedTools: ["list_agents"], context: { field, received: Number.isFinite(value) ? value : String(value) } }
+        { suggestedTools: [tool], context: { field, received: Number.isFinite(value) ? value : String(value) } }
       );
     }
   }

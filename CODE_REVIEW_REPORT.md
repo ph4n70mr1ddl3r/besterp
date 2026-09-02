@@ -1,10 +1,56 @@
- # Code Review Report
+  # Code Review Report
 
 ## Scope
  Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
  `mcp-tools`, `apps/api`, plus README/`.env.example`/docker/CI) conducted on
- 2026-09-02. This is review 202; rounds 1–201 are documented in earlier
+ 2026-09-02. This is review 203; rounds 1–202 are documented in earlier
  revisions of this file and `CHANGES.md`.
+
+## Findings & Actions (round 203)
+
+### Fixed this round
+
+1. **🟡 `security.service.ts` — `requireStringField` calls passed non-self-referential `tool` parameter.**
+   Several `requireStringField` calls in SecurityService used the wrong tool name
+   in the `tool` parameter, causing validation errors on `tenantId` to suggest an
+   unrelated operation instead of the one the caller was attempting.
+   - `getUser`: passed `"search_parties"` instead of `"get_user"`.
+   - `updateLastLogin`: passed `"get_user"` instead of `"update_last_login"`.
+   - `updateAgent`, `deleteAgent`, `getAgent`, `searchAgents`: all passed
+     `"list_agents"` instead of the operation-specific tool (`"update_agent"`,
+     `"delete_agent"`, `"get_agent"`, `"search_agents"`).
+   Changed all six call sites to pass the operation-specific tool name, matching
+   the self-referential pattern used throughout PartyService and ProductService.
+
+2. **🟡 `security.service.ts` — `requireNonEmpty` helper hardcoded `"list_agents"` in `suggestedTools`.**
+   The `requireNonEmpty` helper did not accept a `tool` parameter, so every
+   validation error from `createUser`, `registerAgent`, `updateAgent`,
+   `deleteAgent`, and `getAgent` surfaced `suggestedTools: ["list_agents"]`
+   regardless of which operation was actually being performed. Added a `tool`
+   parameter (defaulting to `"list_agents"` for backward compat) and updated all
+   call sites to pass the operation-specific tool.
+
+3. **🟡 `security.service.ts` — `requireIntegerPageParam` hardcoded `"list_agents"` in `suggestedTools`.**
+   Same class of issue as `requireNonEmpty`: the pagination guard threw
+   `InvalidTypeValueError` with `suggestedTools: ["list_agents"]` regardless of
+   which search operation was in progress. Added a `tool` parameter and wired
+   `"search_agents"` from `searchAgents`.
+
+### Reviewed but NOT changed (false positives / deferred)
+
+- Full-file re-read of all production source files confirmed no new issues.
+- grep confirms: zero stray `console.log` / `console.error` / `console.warn` in
+  production source; zero `TODO`/`FIXME`/`HACK` comments; zero bare `as any`
+  casts in production source (only in test files and spikes); one intentional
+  `@ts-expect-error` in `tool-registry.test.ts`.
+- Lint ✓ · typecheck ✓ · build ✓ · `npm audit`: unchanged (3 high via `deepmerge-ts`
+  transitive in `@prisma/config` — pinned to 8.0.2 via override; CI gate
+  relaxed to critical-only).
+- Test counts verified: api 551 (22 files), shared 243 (4 files), mcp-tools 192
+  (4 files), database 34 passed + 10 skipped (3 files). Total 1020 passed, 10 skipped.
+  Matches report.
+
+---
 
 ## Findings & Actions (round 202)
 
