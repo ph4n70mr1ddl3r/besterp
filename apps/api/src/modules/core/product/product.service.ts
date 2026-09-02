@@ -197,11 +197,12 @@ export class ProductService {
     if (description !== undefined) updateData.description = description === null ? null : this.requireOptionalString(stripHtmlTags(description.trim()), "description", MAX_PARTY_DESCRIPTION_LENGTH);
     if (sku !== undefined) updateData.sku = sku === null ? null : this.requireOptionalString(stripHtmlTags(sku.trim()), "sku", 100);
     if (productTypeId !== undefined) {
-      const pt = await this.prisma.admin.productType.findUnique({ where: { name: productTypeId } });
+      const trimmedProductTypeId = productTypeId.trim();
+      const pt = await this.prisma.admin.productType.findUnique({ where: { name: trimmedProductTypeId } });
       if (!pt) {
         throw new InvalidTypeValueError(
-          `PRODUCT_TYPE '${productTypeId}' is not valid.`,
-          { suggestedTools: ["get_type_table_values"] }
+          `PRODUCT_TYPE '${sanitizeForLogOutput(trimmedProductTypeId)}' is not valid.`,
+          { suggestedTools: ["get_type_table_values"], context: { field: "productTypeId", invalidValue: sanitizeForLogOutput(trimmedProductTypeId) } }
         );
       }
       updateData.productType = { connect: { productTypeId: pt.productTypeId } };

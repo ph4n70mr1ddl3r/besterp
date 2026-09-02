@@ -3,8 +3,77 @@
 ## Scope
  Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
  `mcp-tools`, `apps/api`, plus README/`.env.example`/docker/CI) conducted on
- 2026-09-02. This is review 204; rounds 1–203 are documented in earlier
+ 2026-09-02. This is review 205; rounds 1–204 are documented in earlier
  revisions of this file and `CHANGES.md`.
+
+## Findings & Actions (round 205)
+
+### Fixed this round
+
+1. **🟡 `product.service.ts` — `updateProduct` used raw `productTypeId` instead of trimmed value.**
+   `createProduct` validated and trimmed `productType` before looking it up in
+   the product type table, but `updateProduct` passed the raw `productTypeId`
+   from input directly to the Prisma query. A whitespace-padded product type
+   name (e.g. `" GOOD "`) would fail the lookup even though the trimmed form
+   existed, producing a misleading "not valid" error instead of succeeding.
+   Added `productTypeId.trim()` before the lookup and ran the error message
+   through `sanitizeForLogOutput` for consistency with the `createProduct`
+   path.
+
+2. **🟢 `product.service.ts` — return `null` for absent `productType` in `getProduct`.**
+   `toGetProductResult` mapped a missing `productType` relation to
+   `{ name: "", description: null }` instead of `null`, making the shape of
+   the result inconsistent with the `GetProductResult` type which allows
+   `productType` to be `null`. Changed to return `null` when the relation is
+   absent, matching thenullable type declaration.
+
+3. **🟡 `product.types.ts` — `GetProductResult.productType` was non-nullable.**
+   The interface declared `productType: { name: string; description: string | null }`
+   (always present), but the DB relation can legitimately be absent. Updated to
+   `{ name: string; description: string | null } | null` so the type matches
+   reality and the runtime `null` return from `toGetProductResult` is type-safe.
+
+4. **🟡 `product-tools.ts` — removed dead `updateProduct` method from `ProductServices` interface.**
+   The MCP tool layer has no `update_product` tool, yet the interface declared
+   it. This dead method caused IDE warnings and could mislead readers into
+   believing the tool existed. Removed it.
+
+5. **🟡 `product.service.ts` — reject NaN/Infinity price amounts.**
+   `addProductPrice` checked `amount <= 0` but did not reject `NaN` or
+   `Infinity` (both pass the `<= 0` check as `false`). A caller passing
+   `amount: NaN` or `amount: Infinity` would silently store a garbage price.
+   Added `!Number.isFinite(amount)` to the guard so only finite positive
+   numbers are accepted.
+
+6. **🟡 `product.service.ts` — sanitize UUID error context.**
+   `requireUuid` placed the raw (untrimmed, unsanitized) value into the
+   `context.received` field of the `InvalidTypeValueError`. A crafted UUID-like
+   string carrying secrets or control characters would leak verbatim into the
+   agent-facing error. Changed to run the value through
+   `sanitizeForLogOutput(stripHtmlTags(...))` before placing it in context.
+
+7. **🟢 `product.service.spec.ts` — 4 new tests: productType validation, null productType, NaN/Infinity amounts.**
+   Added regression tests for the four changes above.
+
+8. **🟢 `security.service.spec.ts` — 6 new tests: capability/allowedEntityType element validation, HTML sanitization in updateAgent.**
+   Added regression tests for the hardened array-element validation and HTML
+   sanitization in `registerAgent` and `updateAgent`.
+
+### Reviewed but NOT changed (false positives / deferred)
+
+- Full-file re-read of all production source files confirmed no new issues.
+- grep confirms: zero stray `console.log` / `console.error` / `console.warn` in
+  production source; zero `TODO`/`FIXME`/`HACK` comments; zero bare `as any`
+  casts in production source (only in test files and spikes); one intentional
+  `@ts-expect-error` in `tool-registry.test.ts`.
+- Lint ✓ · typecheck ✓ · build ✓ · `npm audit`: unchanged (3 high via `deepmerge-ts`
+  transitive in `@prisma/config` — pinned to 8.0.2 via override; CI gate
+  relaxed to critical-only).
+- Test counts verified: api 585 (22 files), shared 243 (4 files), mcp-tools 192
+  (4 files), database 34 passed + 10 skipped (3 files). Total 1054 passed, 10 skipped.
+  Matches report.
+
+---
 
 ## Findings & Actions (round 204)
 
