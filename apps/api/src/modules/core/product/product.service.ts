@@ -98,7 +98,7 @@ export class ProductService {
       this.logger.log(`Created product: ${sanitizeForLogOutput(trimmedName)} (${product.productId})`);
       return this.toProductResult(product);
     } catch (err: unknown) {
-      throw mapPrismaError(err, "create_product", "search_products", "product");
+      throw mapPrismaError(err, "create_product", "create_product", "product");
     }
   }
 
@@ -219,7 +219,7 @@ export class ProductService {
       });
       return this.toProductResult(product);
     } catch (err: unknown) {
-      throw mapPrismaError(err, "update_product", "search_products", "product");
+      throw mapPrismaError(err, "update_product", "update_product", "product");
     }
   }
 
@@ -252,7 +252,7 @@ export class ProductService {
       return this.toFeatureResult(feature);
     } catch (err: unknown) {
       if (err instanceof EntityNotFoundError) throw err;
-      throw mapPrismaError(err, "add_product_feature", "search_products", "product");
+      throw mapPrismaError(err, "add_product_feature", "add_product_feature", "product");
     }
   }
 
@@ -304,7 +304,7 @@ export class ProductService {
       return this.toPriceResult(price);
     } catch (err: unknown) {
       if (err instanceof EntityNotFoundError) throw err;
-      throw mapPrismaError(err, "add_product_price", "search_products", "product");
+      throw mapPrismaError(err, "add_product_price", "add_product_price", "product");
     }
   }
 

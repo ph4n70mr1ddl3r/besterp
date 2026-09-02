@@ -174,7 +174,7 @@ export class SecurityService {
       });
       return this.toAgentResult(agent);
     } catch (err: unknown) {
-      throw mapPrismaError(err, "register_agent", "list_agents", "agent");
+      throw mapPrismaError(err, "register_agent", "register_agent", "agent");
     }
   }
 
@@ -254,7 +254,7 @@ export class SecurityService {
       });
       return this.toAgentResult(agent);
     } catch (err: unknown) {
-      throw mapPrismaError(err, "update_agent", "list_agents", "agent");
+      throw mapPrismaError(err, "update_agent", "update_agent", "agent");
     }
   }
 
@@ -267,7 +267,7 @@ export class SecurityService {
       });
       return { success: true };
     } catch (err: unknown) {
-      throw mapPrismaError(err, "delete_agent", "list_agents", "agent");
+      throw mapPrismaError(err, "delete_agent", "delete_agent", "agent");
     }
   }
 
@@ -321,7 +321,7 @@ export class SecurityService {
         take: validatedLimit,
       });
     } catch (err) {
-      throw mapPrismaError(err, "search_agents", "list_agents", "agent");
+      throw mapPrismaError(err, "search_agents", "search_agents", "agent");
     }
 
     return {

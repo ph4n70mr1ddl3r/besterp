@@ -1,5 +1,39 @@
 # BestERP — Security & Architecture Fixes
 
+## Changes Applied (2026-09-02) — Code Review Round 202
+
+### 🟡 `product.service.ts` — fixed suggestTool inconsistency for product operations
+
+**Problem:** `createProduct`, `updateProduct`, `addProductFeature`, and
+`addProductPrice` passed `"search_products"` as the `suggestTool` to
+`mapPrismaError`, so Prisma errors (P2002 duplicate, P2003 FK violation, etc.)
+surfaced `suggestedTools: ["search_products"]` — a hint to search products
+rather than retry the failing operation. Every other service maps the operation
+name as both retryTool and suggestTool (e.g. PartyService uses
+`"create_party"` / `"create_party"`). The suggestTool should point to the
+operation the caller is already attempting.
+
+**Fix:** Changed all four call sites to self-referential suggestTools:
+`mapPrismaError(err, "create_product", "create_product", "product")`,
+`mapPrismaError(err, "update_product", "update_product", "product")`,
+`mapPrismaError(err, "add_product_feature", "add_product_feature", "product")`,
+`mapPrismaError(err, "add_product_price", "add_product_price", "product")`.
+
+### 🟡 `security.service.ts` — fixed suggestTool inconsistency for agent operations
+
+**Problem:** `registerAgent`, `updateAgent`, `deleteAgent`, and `searchAgents`
+passed `"list_agents"` as the `suggestTool` to `mapPrismaError`, so Prisma
+errors during agent operations surfaced `suggestedTools: ["list_agents"]` — a
+hint to list agents rather than retry the failing operation.
+
+**Fix:** Changed all four call sites to self-referential suggestTools:
+`mapPrismaError(err, "register_agent", "register_agent", "agent")`,
+`mapPrismaError(err, "update_agent", "update_agent", "agent")`,
+`mapPrismaError(err, "delete_agent", "delete_agent", "agent")`,
+`mapPrismaError(err, "search_agents", "search_agents", "agent")`.
+
+---
+
 ## Changes Applied (2026-09-02) — Code Review Round 201
 
 ### 🟡 `security.service.ts` — fixed suggestTool inconsistency for user operations
