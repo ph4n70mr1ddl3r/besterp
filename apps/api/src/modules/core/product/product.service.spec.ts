@@ -55,6 +55,18 @@ describe("ProductService", () => {
       ).rejects.toThrow(InvalidTypeValueError);
     });
 
+    it("validates productType is non-empty string", async () => {
+      await expect(
+        service.createProduct({ tenantId: "t1", productType: "", name: "Widget" })
+      ).rejects.toThrow(InvalidTypeValueError);
+    });
+
+    it("validates productType length", async () => {
+      await expect(
+        service.createProduct({ tenantId: "t1", productType: "A".repeat(101), name: "Widget" })
+      ).rejects.toThrow(InvalidTypeValueError);
+    });
+
     it("validates productType exists", async () => {
       prisma.admin.productType.findUnique.mockResolvedValue(null);
       await expect(
@@ -115,6 +127,22 @@ describe("ProductService", () => {
       expect(mockClient.product.findUnique).toHaveBeenCalledWith(
         expect.objectContaining({ where: expect.objectContaining({ productId: "12345678-1234-1234-1234-123456789abc" }) })
       );
+    });
+
+    it("returns null productType when product has no type", async () => {
+      const mockClient = {
+        product: {
+          findUnique: vi.fn().mockResolvedValue({
+            productId: "p1", productTypeId: "pt-1", tenantId: "t1",
+            name: "Widget", description: null, sku: null, version: 1,
+            createdAt: new Date(), updatedAt: new Date(),
+            productType: null, features: [], prices: [], category: null,
+          }),
+        },
+      };
+      prisma.tenantScoped.mockReturnValue(mockClient);
+      const result = await service.getProduct("t1", "12345678-1234-1234-1234-123456789abc");
+      expect(result.productType).toBeNull();
     });
   });
 
@@ -290,6 +318,24 @@ describe("ProductService", () => {
       await expect(
         service.addProductPrice({ tenantId: "t1", productId: "12345678-1234-1234-1234-123456789abc", priceType: "LIST", amount: 10, fromDate: "not-a-date" })
       ).rejects.toThrow("Invalid ISO date string");
+    });
+
+    it("rejects NaN amount with InvalidTypeValueError", async () => {
+      prisma.tenantScoped.mockReturnValue({
+        product: { findUnique: vi.fn().mockResolvedValue({ productId: "p1" }) },
+      });
+      await expect(
+        service.addProductPrice({ tenantId: "t1", productId: "12345678-1234-1234-1234-123456789abc", priceType: "LIST", amount: NaN })
+      ).rejects.toThrow(InvalidTypeValueError);
+    });
+
+    it("rejects Infinity amount with InvalidTypeValueError", async () => {
+      prisma.tenantScoped.mockReturnValue({
+        product: { findUnique: vi.fn().mockResolvedValue({ productId: "p1" }) },
+      });
+      await expect(
+        service.addProductPrice({ tenantId: "t1", productId: "12345678-1234-1234-1234-123456789abc", priceType: "LIST", amount: Infinity })
+      ).rejects.toThrow(InvalidTypeValueError);
     });
   });
 });

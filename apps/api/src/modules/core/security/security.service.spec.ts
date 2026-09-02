@@ -203,6 +203,33 @@ describe("SecurityService", () => {
         })
       ).rejects.toThrow(DuplicateEntityError);
     });
+
+    it("rejects non-string capability elements", async () => {
+      await expect(
+        service.registerAgent({
+          agentId: "a1", tenantId: "t1", displayName: "Agent",
+          description: "Desc", capabilities: [1 as unknown as string], version: "1.0.0",
+        })
+      ).rejects.toThrow(InvalidTypeValueError);
+    });
+
+    it("rejects whitespace-only capability elements", async () => {
+      await expect(
+        service.registerAgent({
+          agentId: "a1", tenantId: "t1", displayName: "Agent",
+          description: "Desc", capabilities: ["  "], version: "1.0.0",
+        })
+      ).rejects.toThrow(InvalidTypeValueError);
+    });
+
+    it("rejects non-string allowedEntityType elements", async () => {
+      await expect(
+        service.registerAgent({
+          agentId: "a1", tenantId: "t1", displayName: "Agent",
+          description: "Desc", capabilities: ["read"], allowedEntityTypes: [null as unknown as string], version: "1.0.0",
+        })
+      ).rejects.toThrow(InvalidTypeValueError);
+    });
   });
 
   describe("updateAgent", () => {
@@ -233,6 +260,57 @@ describe("SecurityService", () => {
       await expect(
         service.updateAgent({ agentId: "a1", tenantId: "t1", displayName: "Updated" })
       ).rejects.toThrow(EntityNotFoundError);
+    });
+
+    it("sanitizes HTML in displayName", async () => {
+      prisma.admin.agentRegistry.update.mockResolvedValue({
+        agentId: "a1", tenantId: "t1", displayName: "Agent", description: "Desc",
+        capabilities: [], maxToolCallsPerConversation: 100,
+        maxConcurrentConversations: 5, maxTransactionAmount: 0,
+        allowedEntityTypes: [], rateLimitPerMinute: 30, version: "1.0.0",
+        isActive: true, createdAt: new Date(),
+      });
+
+      await service.updateAgent({ agentId: "a1", tenantId: "t1", displayName: "<script>x</script>Agent" });
+      expect(prisma.admin.agentRegistry.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ displayName: "Agent" }),
+        })
+      );
+    });
+
+    it("sanitizes HTML in description", async () => {
+      prisma.admin.agentRegistry.update.mockResolvedValue({
+        agentId: "a1", tenantId: "t1", displayName: "Agent", description: "Desc",
+        capabilities: [], maxToolCallsPerConversation: 100,
+        maxConcurrentConversations: 5, maxTransactionAmount: 0,
+        allowedEntityTypes: [], rateLimitPerMinute: 30, version: "1.0.0",
+        isActive: true, createdAt: new Date(),
+      });
+
+      await service.updateAgent({ agentId: "a1", tenantId: "t1", description: "<b>desc</b>" });
+      expect(prisma.admin.agentRegistry.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ description: "desc" }),
+        })
+      );
+    });
+
+    it("sanitizes HTML in version", async () => {
+      prisma.admin.agentRegistry.update.mockResolvedValue({
+        agentId: "a1", tenantId: "t1", displayName: "Agent", description: "Desc",
+        capabilities: [], maxToolCallsPerConversation: 100,
+        maxConcurrentConversations: 5, maxTransactionAmount: 0,
+        allowedEntityTypes: [], rateLimitPerMinute: 30, version: "1.0.0",
+        isActive: true, createdAt: new Date(),
+      });
+
+      await service.updateAgent({ agentId: "a1", tenantId: "t1", version: "<b>v1.0.0</b>" });
+      expect(prisma.admin.agentRegistry.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ version: "v1.0.0" }),
+        })
+      );
     });
   });
 

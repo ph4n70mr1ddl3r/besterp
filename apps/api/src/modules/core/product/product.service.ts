@@ -16,6 +16,7 @@ import {
   parseISODateTimeAsUTC,
   MAX_PARTY_NAME_LENGTH,
   MAX_PARTY_DESCRIPTION_LENGTH,
+  MAX_ROLE_TYPE_LENGTH,
   MAX_SEARCH_LIMIT,
   MIN_SEARCH_LIMIT,
   MIN_SEARCH_OFFSET,
@@ -62,13 +63,14 @@ export class ProductService {
     const trimmedName = this.requireNonEmptyString(name.trim(), "name", MAX_PARTY_NAME_LENGTH);
     const trimmedDescription = description !== undefined && description !== null ? this.requireOptionalString(stripHtmlTags(description.trim()), "description", MAX_PARTY_DESCRIPTION_LENGTH) : null;
     const trimmedSku = sku !== undefined && sku !== null ? this.requireOptionalString(stripHtmlTags(sku.trim()), "sku", 100) : null;
+    const trimmedProductType = this.requireStringField(productType, "productType", MAX_ROLE_TYPE_LENGTH, "create", "create_product");
 
     // Validate product type exists
-    const productTypeRecord = await this.prisma.admin.productType.findUnique({ where: { name: productType } });
+    const productTypeRecord = await this.prisma.admin.productType.findUnique({ where: { name: trimmedProductType } });
     if (!productTypeRecord) {
       throw new InvalidTypeValueError(
-        `PRODUCT_TYPE '${productType}' is not valid. Use 'get_type_table_values' to see available product types.`,
-        { suggestedTools: ["get_type_table_values"], context: { field: "productType", invalidValue: productType } }
+        `PRODUCT_TYPE '${sanitizeForLogOutput(trimmedProductType)}' is not valid. Use 'get_type_table_values' to see available product types.`,
+        { suggestedTools: ["get_type_table_values"], context: { field: "productType", invalidValue: sanitizeForLogOutput(trimmedProductType) } }
       );
     }
 
@@ -145,7 +147,7 @@ export class ProductService {
       where.name = { contains: trimmedName, mode: "insensitive" as const };
     }
 
-    const trimmedProductType = this.requireNonEmptyFilter(productType, "productType", 100, ["search_products"]);
+    const trimmedProductType = this.requireNonEmptyFilter(productType, "productType", MAX_ROLE_TYPE_LENGTH, ["search_products"]);
     if (trimmedProductType) {
       where.productType = { name: { equals: trimmedProductType, mode: "insensitive" as const } };
     }
@@ -264,8 +266,8 @@ export class ProductService {
     const trimmedTenantId = this.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "add price", "add_product_price");
     const productId = this.requireUuid(rawProductId, "productId");
 
-    if (amount <= 0) {
-      throw new InvalidTypeValueError("Price amount must be greater than zero.", { suggestedTools: ["add_product_price"] });
+    if (amount <= 0 || !Number.isFinite(amount)) {
+      throw new InvalidTypeValueError("Price amount must be a finite number greater than zero.", { suggestedTools: ["add_product_price"] });
     }
 
     const db: TenantScopedClient = this.prisma.tenantScoped(trimmedTenantId);
@@ -345,7 +347,8 @@ export class ProductService {
   private requireUuid(value: string, field: string): string {
     const trimmed = value.trim();
     if (!UUID_REGEX.test(trimmed)) {
-      throw new InvalidTypeValueError(`'${field}' must be a valid UUID.`, { context: { field, received: trimmed } });
+      const safeValue = sanitizeForLogOutput(stripHtmlTags(trimmed));
+      throw new InvalidTypeValueError(`'${field}' must be a valid UUID.`, { context: { field, received: safeValue } });
     }
     return trimmed;
   }
@@ -385,7 +388,7 @@ export class ProductService {
   }): GetProductResult {
     return {
       ...this.toProductResult(p),
-      productType: p.productType ?? { name: "", description: null },
+      productType: p.productType ?? null,
       features: p.features.map((f) => ({ name: f.name, value: f.value })),
       prices: p.prices.map((pr) => ({
         priceType: pr.priceType,

@@ -27,7 +27,7 @@ export interface ProductResult {
 // ─── Get Product ─────────────────────────────────────────────────
 
 export interface GetProductResult extends ProductResult {
-  productType: { name: string; description: string | null };
+  productType: { name: string; description: string | null } | null;
   features: Array<{ name: string; value: string }>;
   prices: Array<{ priceType: string; amount: number; currencyCode: string; fromDate: string; thruDate: string | null }>;
   category: { productCategoryId: string; name: string } | null;

@@ -38,7 +38,6 @@ interface ProductServices {
     createProduct(input: CreateProductInput): Promise<ProductResult>;
     getProduct(tenantId: string, productId: string): Promise<GetProductResult>;
     searchProducts(input: SearchProductsInput): Promise<SearchProductsResult>;
-    updateProduct(input: { tenantId: string; productId: string; name?: string; description?: string | null; sku?: string | null; productTypeId?: string }): Promise<ProductResult>;
     addProductFeature(input: AddProductFeatureInput): Promise<ProductFeatureResult>;
     addProductPrice(input: AddProductPriceInput): Promise<ProductPriceResult>;
   };
