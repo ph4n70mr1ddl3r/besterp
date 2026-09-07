@@ -12,16 +12,15 @@ import {
   ToolContext,
   RiskLevel,
 } from "../schema/tool-definition.js";
-import { sanitizeForLogOutput, redactSensitiveFieldValues, validateTenantIdEnhancedForAuth, MAX_USER_ID_LENGTH, MAX_AGENT_ID_LENGTH, MAX_CONVERSATION_ID_LENGTH, isSensitiveFieldName } from "@besterp/shared";
+import { sanitizeForLogOutput, redactSensitiveFieldValues, validateTenantIdEnhancedForAuth, MAX_USER_ID_LENGTH, MAX_AGENT_ID_LENGTH, MAX_CONVERSATION_ID_LENGTH, isSensitiveFieldName, OPTIONAL_ID_PATTERN } from "@besterp/shared";
 
 /** Permissive pattern for optional identity fields (userId, agentId, conversationId).
  *  More lenient than TENANT_ID_PATTERN to accommodate real-world identifiers
  *  (e.g. john.doe, user+role) while still rejecting control characters and
  *  zero-width/bidi sequences (JS \s does NOT cover these) that could confuse
  *  downstream sanitization or make two visually-identical IDs hash to
- *  different idempotency composite keys. */
-// eslint-disable-next-line no-control-regex
-const OPTIONAL_ID_PATTERN = /^[^\s\x00-\x1f\x7f-\x9f\u00ad\u061c\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufeff]{1,200}$/;
+ *  different idempotency composite keys. Defined in @besterp/shared for reuse
+ *  by auth boundaries (JwtStrategy) and the MCP tool registry. */
 
 const VALID_RISK_LEVELS: readonly RiskLevel[] = ["none", "low", "medium", "high", "critical"];
 

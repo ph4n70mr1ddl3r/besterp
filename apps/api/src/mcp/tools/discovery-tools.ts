@@ -28,6 +28,7 @@ const TYPE_TABLE_MAP = {
   PARTY_TYPE: { delegateKey: "partyType", idField: "partyTypeId" },
   ROLE_TYPE: { delegateKey: "roleType", idField: "roleTypeId" },
   CONTACT_MECHANISM_TYPE: { delegateKey: "contactMechanismType", idField: "contactMechanismTypeId" },
+  PRODUCT_TYPE: { delegateKey: "productType", idField: "productTypeId" },
 } as const;
 
 type TypeName = keyof typeof TYPE_TABLE_MAP;

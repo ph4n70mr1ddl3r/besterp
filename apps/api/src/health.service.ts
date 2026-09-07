@@ -296,13 +296,20 @@ export class HealthService implements OnModuleInit, OnModuleDestroy {
     // closed gate that stops a misconfigured deploy from starting, so
     // reporting an accurate "disconnected" here cannot mask startup failure
     // and keeps the anonymous health endpoints resilient.
-    if (!process.env.REDIS_PORT && !isDev()) {
-      this.warnOnce(
-        `REDIS_PORT is required in non-development environments when REDIS_HOST is set. ` +
-        `Skipping the Redis health check and reporting disconnected — set REDIS_PORT explicitly ` +
-        `to avoid connecting to the wrong Redis instance.`
-      );
-      return "disconnected";
+    if (!process.env.REDIS_PORT) {
+      if (isDev()) {
+        this.warnOnce(
+          `REDIS_PORT is not set — defaulting to ${DEFAULT_REDIS_PORT}. ` +
+          `If REDIS_HOST is set, this may connect to the wrong Redis instance. Set REDIS_PORT explicitly.`
+        );
+      } else {
+        this.warnOnce(
+          `REDIS_PORT is required in non-development environments when REDIS_HOST is set. ` +
+          `Skipping the Redis health check and reporting disconnected — set REDIS_PORT explicitly ` +
+          `to avoid connecting to the wrong Redis instance.`
+        );
+        return "disconnected";
+      }
     }
 
     // Treat unset AND empty/whitespace-only REDIS_PORT as "not configured",

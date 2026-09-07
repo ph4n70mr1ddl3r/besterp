@@ -40,6 +40,7 @@ export {
   normalizeISODateTimeToUTC,
   parseISODateTimeAsUTC,
   validateOptionalString,
+  OPTIONAL_ID_PATTERN,
 } from "./validation.js";
 
 export {
@@ -77,6 +78,7 @@ export {
   MAX_CONVERSATION_ID_LENGTH,
   MAX_ROLE_LENGTH,
   MAX_TENANT_ID_LENGTH,
+  MAX_PASSWORD_HASH_LENGTH,
   DEFAULT_SEARCH_LIMIT,
   MAX_SEARCH_LIMIT,
   MIN_SEARCH_LIMIT,

@@ -6,6 +6,22 @@
 import { InvalidTypeValueError } from "./errors.js";
 
 /**
+ * Permissive identity pattern for user IDs and agent IDs.
+ *
+ * More permissive than TENANT_ID_PATTERN (which is strict: alphanum + hyphen + underscore)
+ * because user IDs and agent IDs may contain dots, plus signs, and other characters
+ * valid in real systems (e.g. "john.doe", "user+admin"). Rejects whitespace, control
+ * characters, and zero-width/bidi sequences that could confuse downstream sanitization
+ * or make two visually-identical IDs hash to different idempotency composite keys.
+ *
+ * Used by:
+ * - JwtStrategy.validate() for userId/agentId pattern checks
+ * - ToolRegistry.validateContextIdentity() (originally defined there; now centralized)
+ */
+// eslint-disable-next-line no-control-regex
+export const OPTIONAL_ID_PATTERN: RegExp = /^[^\s\x00-\x1f\x7f-\x9f\u00ad\u061c\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufeff]{1,200}$/;
+
+/**
  * Trim and validate an optional string field, throwing on non-string /
  * whitespace-only / over-length input. Returns undefined for null/undefined.
  *

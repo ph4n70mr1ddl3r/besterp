@@ -8,7 +8,7 @@ export interface CreateProductInput {
   name: string;
   description?: string | null;
   sku?: string | null;
-  categoryIds?: string[];
+  categoryId?: string | null;
   features?: Array<{ name: string; value: string }>;
 }
 

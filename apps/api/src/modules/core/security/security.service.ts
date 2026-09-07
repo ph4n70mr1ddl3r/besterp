@@ -12,6 +12,7 @@ import {
   MAX_AGENT_ID_LENGTH,
   MAX_PARTY_NAME_LENGTH,
   MAX_TENANT_ID_LENGTH,
+  MAX_PASSWORD_HASH_LENGTH,
   sanitizeForLogOutput,
   stripHtmlTags,
   computeHasMore,
@@ -45,7 +46,7 @@ export class SecurityService {
 
     const trimmedTenantId = this.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "create_user");
     const validatedPartyId = this.requireNonEmpty(partyId, "partyId", MAX_USER_ID_LENGTH, "create_user");
-    this.requireNonEmpty(passwordHash, "passwordHash", 72, "create_user");
+    this.requireNonEmpty(passwordHash, "passwordHash", MAX_PASSWORD_HASH_LENGTH, "create_user");
 
     // Verify the party exists in this tenant before linking
     const party = await this.prisma.tenantScoped(trimmedTenantId).party.findUnique({

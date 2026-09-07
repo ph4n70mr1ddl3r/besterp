@@ -86,8 +86,8 @@ export class ProductService {
           sku: trimmedSku,
         };
 
-        if (input.categoryIds && input.categoryIds.length > 0) {
-          data.category = { connect: { productCategoryId: input.categoryIds[0] } };
+        if (input.categoryId) {
+          data.category = { connect: { productCategoryId: input.categoryId } };
         }
 
         if (features && features.length > 0) {

@@ -16,7 +16,7 @@ import { Injectable, Logger, UnauthorizedException } from "@nestjs/common";
 import { PassportStrategy } from "@nestjs/passport";
 import { ExtractJwt, Strategy } from "passport-jwt";
 import { randomBytes } from "node:crypto";
-import { MAX_USER_ID_LENGTH, MAX_AGENT_ID_LENGTH, MAX_ROLE_LENGTH, MAX_TENANT_ID_LENGTH, isProd, validateTenantIdEnhancedForAuth, sanitizeForLogOutput, TENANT_ID_PATTERN } from "@besterp/shared";
+import { MAX_USER_ID_LENGTH, MAX_AGENT_ID_LENGTH, MAX_ROLE_LENGTH, MAX_TENANT_ID_LENGTH, isProd, validateTenantIdEnhancedForAuth, sanitizeForLogOutput, TENANT_ID_PATTERN, OPTIONAL_ID_PATTERN } from "@besterp/shared";
 
 export interface JwtPayload {
   sub: string;      // user ID
@@ -98,10 +98,14 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     // at the earliest possible gate with a 401. TenantGuard and ToolRegistry
     // also validate the pattern, but failing at the strategy keeps the auth
     // boundary compact and ensures the error surfaces as 401 everywhere.
-    if (!TENANT_ID_PATTERN.test(userId)) {
+    // OPTIONAL_ID_PATTERN is intentionally more permissive than TENANT_ID_PATTERN:
+    // user IDs and agent IDs may contain dots, plus signs, and other characters
+    // valid in real systems (e.g. "john.doe", "user+admin") while tenant IDs are
+    // constrained to alphanum+hyphen+underscore for RLS context safety.
+    if (!OPTIONAL_ID_PATTERN.test(userId)) {
       throw new UnauthorizedException(
         "Invalid token: user ID contains invalid characters. " +
-          "User IDs may only contain alphanumeric characters, hyphens, and underscores.",
+          "User IDs may only contain printable non-whitespace characters.",
       );
     }
     const tenantId = this.validateRequiredField(payload.tenantId, "tenantId", MAX_TENANT_ID_LENGTH);

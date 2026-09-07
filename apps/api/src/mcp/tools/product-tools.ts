@@ -15,6 +15,8 @@ import {
   stripHtmlTags,
   MAX_PARTY_NAME_LENGTH,
   MAX_PARTY_DESCRIPTION_LENGTH,
+  MAX_DATE_STRING_LENGTH,
+  isValidISODate,
   DEFAULT_SEARCH_LIMIT,
   MIN_SEARCH_LIMIT,
   MAX_SEARCH_LIMIT,
@@ -77,11 +79,23 @@ function optionalFilteredString(max: number) {
   return z.string()
     .optional()
     .transform((s) => {
-      if (s === undefined) return undefined;
-      const trimmed = stripHtmlTags(s.trim());
-      return trimmed.length === 0 ? undefined : trimmed;
+      if (s === undefined || s === null) return undefined;
+      const trimmed = s.trim();
+      return trimmed.length === 0 ? undefined : stripHtmlTags(trimmed);
     })
     .pipe(z.string().max(max).optional());
+}
+
+/** Optional ISO 8601 date: trims, validates format, enforces max length. */
+function optionalIsoDate(max: number = MAX_DATE_STRING_LENGTH) {
+  return z.string()
+    .optional()
+    .transform(s => s?.trim() || undefined)
+    .pipe(z.string().max(max).optional())
+    .refine(
+      v => v === undefined || isValidISODate(v),
+      "Invalid date format — must be ISO 8601"
+    );
 }
 
 function optionalSearchFilterString(max: number) {
@@ -113,7 +127,7 @@ const createProductSchema = z.strictObject({
   name: sanitizedString(1, MAX_PARTY_NAME_LENGTH).describe("Product name (1-500 characters)"),
   description: optionalFilteredString(MAX_PARTY_DESCRIPTION_LENGTH).describe("Optional product description"),
   sku: optionalFilteredString(100).describe("Optional stock-keeping unit (must be unique within tenant)"),
-  categoryIds: z.array(z.string().uuid()).optional().describe("Optional category IDs to associate with this product"),
+  categoryId: z.string().uuid().optional().describe("Optional category ID to associate with this product"),
   features: z.array(z.strictObject({
     name: sanitizedString(1, 100).describe("Feature name (e.g., 'color', 'size')"),
     value: sanitizedString(1, 500).describe("Feature value"),
@@ -155,7 +169,7 @@ For idempotent writes, pass an idempotencyKey along with the tool arguments.`,
       name: input.name,
       description: input.description ?? null,
       sku: input.sku ?? null,
-      categoryIds: input.categoryIds,
+      categoryId: input.categoryId,
       features: input.features,
     });
     return {
@@ -300,8 +314,8 @@ const addProductPriceSchema = z.strictObject({
     .pipe(z.string().length(3))
     .default("USD")
     .describe("ISO 4217 currency code (default: USD)"),
-  fromDate: z.string().optional().describe("Start date (ISO 8601, default: now)"),
-  thruDate: z.string().optional().describe("End date (ISO 8601, null = no expiry)"),
+  fromDate: optionalIsoDate().describe("Start date (ISO 8601, default: now)"),
+  thruDate: optionalIsoDate().describe("End date (ISO 8601, null = no expiry)"),
 });
 
 type AddProductPriceInput_z = z.infer<typeof addProductPriceSchema>;
