@@ -107,8 +107,9 @@ describe("SecurityService", () => {
       };
       prisma.tenantScoped.mockReturnValue(mockTenantClient);
 
-      await expect(service.getUser("t1", "p1"))
-        .rejects.toThrow(EntityNotFoundError);
+      const err = await service.getUser("t1", "p1").catch((e) => e);
+      expect(err).toBeInstanceOf(EntityNotFoundError);
+      expect(err.suggestedTools).toEqual(["get_user", "search_parties"]);
     });
 
     it("maps DB errors via handleTransactionError", async () => {
@@ -403,8 +404,9 @@ describe("SecurityService", () => {
     it("returns EntityNotFoundError when agent not found", async () => {
       prisma.admin.agentRegistry.findUnique.mockResolvedValue(null);
 
-      await expect(service.getAgent("t1", "a1"))
-        .rejects.toThrow(EntityNotFoundError);
+      const err = await service.getAgent("t1", "a1").catch((e) => e);
+      expect(err).toBeInstanceOf(EntityNotFoundError);
+      expect(err.suggestedTools).toEqual(["describe_agent", "list_agents"]);
     });
   });
 

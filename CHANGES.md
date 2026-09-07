@@ -1,5 +1,24 @@
 # BestERP — Security & Architecture Fixes
 
+## Changes Applied (2026-09-07) — Code Review Round 209
+
+### 🟡 `security.service.ts` — fixed EntityNotFoundError suggestedTools for `getAgent` and `getUser`
+
+**Problem:** Two EntityNotFoundError paths in SecurityService surfaced unhelpful
+suggestedTools. `getAgent` not-found suggested `["list_agents", "register_agent"]`
+— `register_agent` creates a new agent and does not help the caller find an
+existing one. `getUser` not-found suggested only `["search_parties"]`, omitting
+the self-referential `get_user` tool that the caller was already attempting.
+
+**Fix:** `getAgent` now suggests `["describe_agent", "list_agents"]` (self-referential
+first, then discovery). `getUser` now suggests `["get_user", "search_parties"]`
+(self-referential first, then cross-entity fallback). Both match the
+`[self, discovery]` pattern established by PartyService and enforced in rounds
+201–202 for all Prisma error-mapping paths. Two regression tests added to
+`security.service.spec.ts` asserting the exact suggestedTools arrays.
+
+---
+
 ## Changes Applied (2026-09-07) — Code Review Round 208
 
 ### 🟡 `security.service.ts` — reduced `updateAgent` complexity from 21 to 12

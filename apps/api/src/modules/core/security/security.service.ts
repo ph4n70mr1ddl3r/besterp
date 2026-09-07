@@ -108,7 +108,7 @@ export class SecurityService {
       if (!user) {
         throw new EntityNotFoundError(
           `No user record found for party '${sanitizeForLogOutput(validatedPartyId)}' in tenant '${sanitizeForLogOutput(trimmedTenantId)}'.`,
-          { suggestedTools: ["search_parties"] }
+          { suggestedTools: ["get_user", "search_parties"] }
         );
       }
       return this.toUserResult(user);
@@ -330,7 +330,7 @@ export class SecurityService {
     if (!agent) {
       throw new EntityNotFoundError(
         `Agent '${sanitizeForLogOutput(validatedAgentId)}' not found in tenant '${sanitizeForLogOutput(trimmedTenantId)}'.`,
-        { suggestedTools: ["list_agents", "register_agent"] }
+        { suggestedTools: ["describe_agent", "list_agents"] }
       );
     }
     return this.toAgentResult(agent);

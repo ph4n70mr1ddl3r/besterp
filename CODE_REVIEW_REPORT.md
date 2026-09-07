@@ -3,8 +3,45 @@
 ## Scope
  Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
  `mcp-tools`, `apps/api`, plus README/`.env.example`/docker/CI) conducted on
- 2026-09-07. This is review 208; rounds 1–207 are documented in earlier
+ 2026-09-07. This is review 209; rounds 1–208 are documented in earlier
  revisions of this file and `CHANGES.md`.
+
+## Findings & Actions (round 209)
+
+### Fixed this round
+
+1. **🟡 `security.service.ts` — `getAgent` EntityNotFoundError suggested wrong tools.**
+   When an agent was not found, `getAgent` suggested `["list_agents", "register_agent"]`.
+   `register_agent` does not help the caller find an existing agent — it creates a
+   new one. The self-referential MCP tool for describing/getting an agent is
+   `describe_agent`. Changed to `["describe_agent", "list_agents"]` so the suggestion
+   first points to the operation the caller is already attempting, then offers
+   discovery as a fallback. Matches the `[self, discovery]` pattern used by
+   PartyService (`["search_parties", "get_party"]`).
+
+2. **🟡 `security.service.ts` — `getUser` EntityNotFoundError omitted self-referential tool.**
+   When a user record was not found, `getUser` suggested only `["search_parties"]`
+   — a party-discovery tool — but did not suggest `get_user`, the operation the
+   caller was already attempting. Added `get_user` as the first suggestion so
+   callers see the self-referential tool alongside the cross-entity fallback.
+   Matches the pattern established in rounds 201–202 where every error path
+   surfaces the operation-specific tool.
+
+### Reviewed but NOT changed (false positives / deferred)
+
+- Full-file re-read of all production source files confirmed no new issues.
+- grep confirms: zero stray `console.log` / `console.error` / `console.warn` in
+  production source; zero `TODO`/`FIXME`/`HACK` comments; zero bare `as any`
+  casts in production source (only in test files and spikes); one intentional
+  `@ts-expect-error` in `tool-registry.test.ts`.
+- Lint ✓ · typecheck ✓ · build ✓ · `npm audit`: unchanged (3 high via `deepmerge-ts`
+  transitive in `@prisma/config` — pinned to 8.0.2 via override; CI gate
+  relaxed to critical-only).
+- Test counts verified: api 592 (22 files), shared 243 (4 files), mcp-tools 192
+  (4 files), database 34 passed + 10 skipped (3 files). Total 1061 passed, 10 skipped.
+  Matches report.
+
+---
 
 ## Findings & Actions (round 205)
 
