@@ -312,6 +312,46 @@ describe("SecurityService", () => {
         })
       );
     });
+
+    it("rejects non-string capability elements on update", async () => {
+      await expect(
+        service.updateAgent({
+          agentId: "a1", tenantId: "t1", capabilities: [1 as unknown as string],
+        })
+      ).rejects.toThrow(InvalidTypeValueError);
+    });
+
+    it("rejects whitespace-only capability elements on update", async () => {
+      await expect(
+        service.updateAgent({
+          agentId: "a1", tenantId: "t1", capabilities: ["  "],
+        })
+      ).rejects.toThrow(InvalidTypeValueError);
+    });
+
+    it("rejects non-string allowedEntityType elements on update", async () => {
+      await expect(
+        service.updateAgent({
+          agentId: "a1", tenantId: "t1", allowedEntityTypes: [null as unknown as string],
+        })
+      ).rejects.toThrow(InvalidTypeValueError);
+    });
+
+    it("rejects out-of-range maxToolCallsPerConversation on update", async () => {
+      await expect(
+        service.updateAgent({
+          agentId: "a1", tenantId: "t1", maxToolCallsPerConversation: 0,
+        })
+      ).rejects.toThrow(InvalidTypeValueError);
+    });
+
+    it("rejects out-of-range rateLimitPerMinute on update", async () => {
+      await expect(
+        service.updateAgent({
+          agentId: "a1", tenantId: "t1", rateLimitPerMinute: 2000,
+        })
+      ).rejects.toThrow(InvalidTypeValueError);
+    });
   });
 
   describe("deleteAgent", () => {

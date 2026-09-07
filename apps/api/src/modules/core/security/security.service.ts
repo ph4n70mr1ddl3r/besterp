@@ -240,6 +240,30 @@ export class SecurityService {
     const trimmedTenantId = this.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "update_agent");
     const validatedAgentId = this.requireNonEmpty(agentId, "agentId", MAX_AGENT_ID_LENGTH, "update_agent");
 
+    // Validate array fields when provided — mirrors registerAgent so the
+    // service layer remains the last line of defense for direct/internal
+    // callers that bypass the Zod boundary (round 206).
+    if (updates.capabilities !== undefined || updates.allowedEntityTypes !== undefined) {
+      this.validateAgentArrays(
+        updates.capabilities ?? [],
+        updates.allowedEntityTypes ?? [],
+      );
+    }
+    // Validate numeric limits when provided — mirrors registerAgent so the
+    // service layer rejects out-of-range values before they reach the DB
+    // (round 206). maxConcurrentConversations and maxTransactionAmount are
+    // not checked by validateAgentLimits but the Zod schemas enforce them
+    // at the boundary; skip them here to avoid duplicating constraints
+    // that would create a harder maintenance surface than a single
+    // authoritative check in validateAgentLimits.
+    if (updates.maxToolCallsPerConversation !== undefined || updates.rateLimitPerMinute !== undefined) {
+      this.validateAgentLimits(
+        validatedAgentId,
+        updates.maxToolCallsPerConversation ?? 0,
+        updates.rateLimitPerMinute ?? 0,
+      );
+    }
+
     const updateData: Record<string, unknown> = {};
     if (updates.displayName !== undefined) updateData.displayName = stripHtmlTags(this.requireNonEmpty(updates.displayName, "displayName", MAX_PARTY_NAME_LENGTH, "update_agent"));
     if (updates.description !== undefined) updateData.description = stripHtmlTags(this.requireNonEmpty(updates.description, "description", 1000, "update_agent"));
