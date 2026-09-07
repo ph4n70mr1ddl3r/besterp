@@ -267,7 +267,7 @@ export class ProductService {
     const trimmedTenantId = this.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "add price", "add_product_price");
     const productId = this.requireUuid(rawProductId, "productId");
 
-    if (amount <= 0 || !Number.isFinite(amount)) {
+    if (!Number.isFinite(amount) || amount <= 0) {
       throw new InvalidTypeValueError("Price amount must be a finite number greater than zero.", { suggestedTools: ["add_product_price"] });
     }
 

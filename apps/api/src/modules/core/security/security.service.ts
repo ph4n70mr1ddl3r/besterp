@@ -265,21 +265,7 @@ export class SecurityService {
       );
     }
 
-    const updateData: Record<string, unknown> = {};
-    if (updates.displayName !== undefined) updateData.displayName = stripHtmlTags(this.requireNonEmpty(updates.displayName, "displayName", MAX_PARTY_NAME_LENGTH, "update_agent"));
-    if (updates.description !== undefined) updateData.description = stripHtmlTags(this.requireNonEmpty(updates.description, "description", 1000, "update_agent"));
-    if (updates.capabilities !== undefined) updateData.capabilities = updates.capabilities;
-    if (updates.maxToolCallsPerConversation !== undefined)
-      updateData.maxToolCallsPerConversation = updates.maxToolCallsPerConversation;
-    if (updates.maxConcurrentConversations !== undefined)
-      updateData.maxConcurrentConversations = updates.maxConcurrentConversations;
-    if (updates.maxTransactionAmount !== undefined)
-      updateData.maxTransactionAmount = updates.maxTransactionAmount;
-    if (updates.allowedEntityTypes !== undefined) updateData.allowedEntityTypes = updates.allowedEntityTypes;
-    if (updates.rateLimitPerMinute !== undefined)
-      updateData.rateLimitPerMinute = updates.rateLimitPerMinute;
-    if (updates.version !== undefined) updateData.version = stripHtmlTags(this.requireNonEmpty(updates.version, "version", 64, "update_agent"));
-    if (updates.isActive !== undefined) updateData.isActive = updates.isActive;
+    const updateData = this.buildUpdateData(updates);
 
     if (Object.keys(updateData).length === 0) {
       throw new InvalidTypeValueError("No update fields provided.", {
@@ -297,6 +283,28 @@ export class SecurityService {
     } catch (err: unknown) {
       throw mapPrismaError(err, "update_agent", "update_agent", "agent");
     }
+  }
+
+  /** Build the Prisma updateData object from partial UpdateAgentInput.
+   *  Extracted from updateAgent to keep its complexity under the lint cap
+   *  (round 208). Each branch validates and sanitizes one optional field. */
+  private buildUpdateData(updates: Partial<UpdateAgentInput>): Record<string, unknown> {
+    const updateData: Record<string, unknown> = {};
+    if (updates.displayName !== undefined) updateData.displayName = stripHtmlTags(this.requireNonEmpty(updates.displayName, "displayName", MAX_PARTY_NAME_LENGTH, "update_agent"));
+    if (updates.description !== undefined) updateData.description = stripHtmlTags(this.requireNonEmpty(updates.description, "description", 1000, "update_agent"));
+    if (updates.capabilities !== undefined) updateData.capabilities = updates.capabilities;
+    if (updates.maxToolCallsPerConversation !== undefined)
+      updateData.maxToolCallsPerConversation = updates.maxToolCallsPerConversation;
+    if (updates.maxConcurrentConversations !== undefined)
+      updateData.maxConcurrentConversations = updates.maxConcurrentConversations;
+    if (updates.maxTransactionAmount !== undefined)
+      updateData.maxTransactionAmount = updates.maxTransactionAmount;
+    if (updates.allowedEntityTypes !== undefined) updateData.allowedEntityTypes = updates.allowedEntityTypes;
+    if (updates.rateLimitPerMinute !== undefined)
+      updateData.rateLimitPerMinute = updates.rateLimitPerMinute;
+    if (updates.version !== undefined) updateData.version = stripHtmlTags(this.requireNonEmpty(updates.version, "version", 64, "update_agent"));
+    if (updates.isActive !== undefined) updateData.isActive = updates.isActive;
+    return updateData;
   }
 
   async deleteAgent(tenantId: string, agentId: string): Promise<{ success: boolean }> {

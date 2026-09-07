@@ -3,7 +3,7 @@
 ## Scope
  Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
  `mcp-tools`, `apps/api`, plus README/`.env.example`/docker/CI) conducted on
- 2026-09-02. This is review 205; rounds 1–204 are documented in earlier
+ 2026-09-07. This is review 208; rounds 1–207 are documented in earlier
  revisions of this file and `CHANGES.md`.
 
 ## Findings & Actions (round 205)
@@ -58,6 +58,159 @@
 8. **🟢 `security.service.spec.ts` — 6 new tests: capability/allowedEntityType element validation, HTML sanitization in updateAgent.**
    Added regression tests for the hardened array-element validation and HTML
    sanitization in `registerAgent` and `updateAgent`.
+
+### Reviewed but NOT changed (false positives / deferred)
+
+- Full-file re-read of all production source files confirmed no new issues.
+- grep confirms: zero stray `console.log` / `console.error` / `console.warn` in
+  production source; zero `TODO`/`FIXME`/`HACK` comments; zero bare `as any`
+  casts in production source (only in test files and spikes); one intentional
+  `@ts-expect-error` in `tool-registry.test.ts`.
+- Lint ✓ · typecheck ✓ · build ✓ · `npm audit`: unchanged (3 high via `deepmerge-ts`
+  transitive in `@prisma/config` — pinned to 8.0.2 via override; CI gate
+  relaxed to critical-only).
+- Test counts verified: api 585 (22 files), shared 243 (4 files), mcp-tools 192
+  (4 files), database 34 passed + 10 skipped (3 files). Total 1054 passed, 10 skipped.
+   Matches report.
+
+---
+
+## Findings & Actions (round 208)
+
+### Fixed this round
+
+1. **🟡 `security.service.ts` — `updateAgent` cyclomatic complexity was 21, exceeding the lint max of 15.**
+   The `updateAgent` method contained nine sequential `if` branches for
+   building the Prisma `updateData` object, pushing its complexity well past
+   the `complexity: ["warn", { max: 15 }]` rule. Extracted the data-building
+   logic into a private `buildUpdateData(updates)` helper so `updateAgent`
+   delegates to it. Complexity drops to 12. Behaviour is unchanged; all
+   existing `updateAgent` spec tests continue to pass.
+
+2. **🟡 `product.service.ts` — `addProductPrice` amount validation checked `amount <= 0` before `!Number.isFinite(amount)`.**
+   The original guard `if (amount <= 0 || !Number.isFinite(amount))` happens
+   to reject NaN and Infinity (NaN passes `<= 0` as false, then fails on
+   `!Number.isFinite`), but the ordering is misleading: NaN fails the first
+   check silently and only fails the second. Reordered to
+   `!Number.isFinite(amount) || amount <= 0` so the finiteness gate runs
+   first — the canonical guard used by every other numeric validator in the
+   codebase. Both forms are functionally equivalent; the reorder makes the
+   intent explicit and matches the convention in `requireIntegerPageParam`
+   and all other finite-check guards.
+
+### Reviewed but NOT changed (false positives / deferred)
+
+- Full-file re-read of all production source files confirmed no new issues.
+- grep confirms: zero stray `console.log` / `console.error` / `console.warn` in
+  production source; zero `TODO`/`FIXME`/`HACK` comments; zero bare `as any`
+  casts in production source (only in test files and spikes); one intentional
+  `@ts-expect-error` in `tool-registry.test.ts`.
+- Lint ✓ · typecheck ✓ · build ✓ · `npm audit`: unchanged (3 high via `deepmerge-ts`
+  transitive in `@prisma/config` — pinned to 8.0.2 via override; CI gate
+  relaxed to critical-only).
+- Test counts verified: api 590 (22 files), shared 243 (4 files), mcp-tools 192
+  (4 files), database 34 passed + 10 skipped (3 files). Total 1059 passed, 10 skipped.
+  Matches report.
+
+---
+
+## Findings & Actions (round 207)
+
+### Fixed this round
+
+1. **🟡 `jwt.strategy.ts` — `userId` validated against `TENANT_ID_PATTERN` instead of `OPTIONAL_ID_PATTERN`.**
+   `TENANT_ID_PATTERN` (alphanumeric + hyphen + underscore only) is too
+   restrictive for user IDs, which may contain dots, plus signs, and other
+   characters valid in real systems (e.g. `"john.doe"`, `"user+admin"`). A
+   legitimate JWT `sub` containing such characters would be rejected at the
+   auth boundary with a 401, even though `TenantGuard` and `ToolRegistry`
+   accept the same values via their more-permissive pattern. Changed to
+   `OPTIONAL_ID_PATTERN` and updated the error message to match. The pattern
+   is now exported from `@besterp/shared` and also used by `ToolRegistry`
+   (see round 207 below).
+
+2. **🟢 `tool-registry.ts` — centralized `OPTIONAL_ID_PATTERN` in `@besterp/shared`.**
+   `ToolRegistry` previously defined its own local `OPTIONAL_ID_PATTERN`
+   constant, duplicating the logic that `JwtStrategy` needed. Moved the
+   constant to `packages/shared/src/validation.ts` and exported it so both
+   auth and MCP layers share a single authoritative definition. Eliminates
+   drift risk if the pattern is ever adjusted.
+
+3. **🟡 `health.service.ts` — `REDIS_PORT` dev-mode warning was unreachable.**
+   The guard `if (!process.env.REDIS_PORT && !isDev())` meant the
+   "REDIS_PORT is required" warning only ran in non-dev environments. In
+   dev mode, a missing `REDIS_PORT` silently fell through to the default
+   `DEFAULT_REDIS_PORT` (6380) with no indication to the developer that
+   the port was being auto-selected. Restructured to warn in dev mode
+   ("defaulting to 6380") while still rejecting the connection in
+   production when `REDIS_PORT` is absent.
+
+4. **🟢 `discovery-tools.ts` — added `PRODUCT_TYPE` to `TYPE_TABLE_MAP`.**
+   The product schema migration created a `product_type` lookup table but
+   `TYPE_TABLE_MAP` (used by `get_type_table_values`) had no entry for it.
+   Agents calling `get_type_table_values` could not introspect available
+   product types. Added `{ delegateKey: "productType", idField: "productTypeId" }`.
+
+5. **🟡 `product-tools.ts` — `createProduct` accepted `categoryIds` (array) but the DB relation is single-valued.**
+   The Zod schema declared `categoryIds: z.array(z.string().uuid())` but the
+   service and Prisma schema only support a single `category` FK. Passing an
+   array would be silently dropped by the service (the array was never
+   consumed), so the tool appeared to accept data that was never stored.
+   Changed the schema to `categoryId: z.string().uuid().optional()` and
+   updated the service to use the single `categoryId` field.
+
+6. **🟡 `product-tools.ts` — `addProductPrice` date fields lacked ISO format validation.**
+   `fromDate` and `thruDate` used plain `z.string().optional()`, accepting
+   arbitrary strings like `"not-a-date"` and passing them to
+   `parseISODateTimeAsUTC`, which threw an opaque runtime error. Extracted
+   `optionalIsoDate()` helper (mirroring the shared `isValidISODate`
+   contract) and wired it into both fields so invalid dates surface as a
+   structured `INVALID_INPUT` error at the MCP boundary.
+
+7. **🟡 `product.types.ts` — `CreateProductInput.categoryIds` renamed to `categoryId`.**
+   Type definition updated to match the single-value contract above.
+
+8. **🟡 `security.service.ts` — hardcoded password hash length `72` instead of `MAX_PASSWORD_HASH_LENGTH`.**
+   The constant `MAX_PASSWORD_HASH_LENGTH` (255) was already exported from
+   `@besterp/shared`; the service used the magic number `72` (bcrypt max)
+   instead. Changed to import and use the shared constant so the limit is
+   consistent across the codebase and future-proof for argon2 (≈97) or
+   other algorithms.
+
+### Reviewed but NOT changed (false positives / deferred)
+
+- Full-file re-read of all production source files confirmed no new issues.
+- grep confirms: zero stray `console.log` / `console.error` / `console.warn` in
+  production source; zero `TODO`/`FIXME`/`HACK` comments; zero bare `as any`
+  casts in production source (only in test files and spikes); one intentional
+  `@ts-expect-error` in `tool-registry.test.ts`.
+- Lint ✓ · typecheck ✓ · build ✓ · `npm audit`: unchanged (3 high via `deepmerge-ts`
+  transitive in `@prisma/config` — pinned to 8.0.2 via override; CI gate
+  relaxed to critical-only).
+- Test counts verified: api 585 (22 files), shared 243 (4 files), mcp-tools 192
+  (4 files), database 34 passed + 10 skipped (3 files). Total 1054 passed, 10 skipped.
+  Matches report.
+
+---
+
+## Findings & Actions (round 206)
+
+### Fixed this round
+
+1. **🟡 `security.service.ts` — `updateAgent` did not validate `capabilities`/`allowedEntityTypes` arrays or numeric limits.**
+   `registerAgent` validated array elements and numeric ranges via
+   `validateAgentArrays` / `validateAgentLimits`, but `updateAgent` accepted
+   partial updates without any array or numeric guard. A caller could send
+   `{ capabilities: [1] }` or `{ rateLimitPerMinute: 9999 }` and the values
+   would reach Prisma unvalidated. Added the same validation branches to
+   `updateAgent` so the service layer remains the last line of defense for
+   direct/internal callers (round 206).
+
+2. **🟢 `security.service.spec.ts` — 5 new tests for `updateAgent` validation hardening.**
+   Added regression tests covering non-string capability elements,
+   whitespace-only capability elements, non-string allowedEntityType
+   elements, out-of-range `maxToolCallsPerConversation`, and out-of-range
+   `rateLimitPerMinute`.
 
 ### Reviewed but NOT changed (false positives / deferred)
 

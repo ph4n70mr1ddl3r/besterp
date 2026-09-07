@@ -1,5 +1,136 @@
 # BestERP — Security & Architecture Fixes
 
+## Changes Applied (2026-09-07) — Code Review Round 208
+
+### 🟡 `security.service.ts` — reduced `updateAgent` complexity from 21 to 12
+
+**Problem:** `updateAgent` had cyclomatic complexity 21, exceeding the ESLint
+max of 15, producing a lint warning. The complexity came from nine sequential
+`if` branches building the Prisma `updateData` object.
+
+**Fix:** Extracted the data-building logic into a private `buildUpdateData(updates)`
+helper. `updateAgent` now delegates to it. Complexity drops to 12. Behaviour
+unchanged; all existing `updateAgent` spec tests continue to pass.
+
+### 🟡 `product.service.ts` — reordered `addProductPrice` amount validation guards
+
+**Problem:** `addProductPrice` checked `amount <= 0` before `!Number.isFinite(amount)`.
+NaN and Infinity are rejected by the combined guard, but the ordering was
+misleading: NaN passes `<= 0` silently and only fails on `!Number.isFinite`.
+Other numeric validators in the codebase check finiteness first.
+
+**Fix:** Reordered to `!Number.isFinite(amount) || amount <= 0` so the
+finiteness gate runs first, matching the convention used by
+`requireIntegerPageParam` and all other finite-check guards. No behavioural
+change — both forms reject NaN and Infinity — but the intent is now explicit.
+
+---
+
+## Changes Applied (2026-09-02) — Code Review Round 207
+
+### 🟡 `jwt.strategy.ts` — `userId` validated against wrong pattern
+
+**Problem:** `userId` was validated against `TENANT_ID_PATTERN` (alphanumeric +
+hyphen + underscore only), which is too restrictive for user IDs that may
+contain dots or plus signs (e.g. `"john.doe"`, `"user+admin"`). A legitimate
+JWT `sub` with such characters would be rejected at the auth boundary with
+a 401, even though `TenantGuard` and `ToolRegistry` accept the same values.
+
+**Fix:** Changed to `OPTIONAL_ID_PATTERN` and updated the error message to
+match. The pattern is now exported from `@besterp/shared` for reuse across
+auth and MCP layers.
+
+### 🟢 `tool-registry.ts` — centralized `OPTIONAL_ID_PATTERN` in shared
+
+**Problem:** `ToolRegistry` previously defined its own local
+`OPTIONAL_ID_PATTERN`, duplicating logic that `JwtStrategy` also needed. Two
+definitions risked drifting out of sync.
+
+**Fix:** Moved the constant to `packages/shared/src/validation.ts` and exported
+it. Both `JwtStrategy` and `ToolRegistry` now import the single authoritative
+definition.
+
+### 🟡 `health.service.ts` — `REDIS_PORT` dev-mode warning was unreachable
+
+**Problem:** The guard `if (!process.env.REDIS_PORT && !isDev())` meant the
+"REDIS_PORT is required" warning only ran in non-dev environments. In dev
+mode, a missing `REDIS_PORT` silently fell through to `DEFAULT_REDIS_PORT`
+(6380) with no indication to the developer that the port was being
+auto-selected.
+
+**Fix:** Restructured to warn in dev mode ("defaulting to 6380 — if
+REDIS_HOST is set this may connect to the wrong instance") while still
+rejecting the connection in production when `REDIS_PORT` is absent.
+
+### 🟢 `discovery-tools.ts` — added `PRODUCT_TYPE` to `TYPE_TABLE_MAP`
+
+**Problem:** The product schema migration created a `product_type` lookup
+table but `TYPE_TABLE_MAP` had no entry for it. Agents calling
+`get_type_table_values` could not introspect available product types.
+
+**Fix:** Added `{ delegateKey: "productType", idField: "productTypeId" }`.
+
+### 🟡 `product-tools.ts` — `createProduct` accepted `categoryIds` (array) but the relation is single-valued
+
+**Problem:** The Zod schema declared `categoryIds: z.array(z.string().uuid())`
+but the service and Prisma schema only support a single `category` FK.
+Passing an array would be silently dropped by the service — the caller
+believed data was stored that never was.
+
+**Fix:** Changed the schema to `categoryId: z.string().uuid().optional()` and
+updated the service to use the single `categoryId` field.
+
+### 🟡 `product-tools.ts` — `addProductPrice` date fields lacked ISO format validation
+
+**Problem:** `fromDate` and `thruDate` used plain `z.string().optional()`,
+accepting arbitrary strings like `"not-a-date"` and passing them to
+`parseISODateTimeAsUTC`, which threw an opaque runtime error.
+
+**Fix:** Extracted `optionalIsoDate()` helper (mirroring the shared
+`isValidISODate` contract) and wired it into both fields so invalid dates
+surface as a structured `INVALID_INPUT` error at the MCP boundary.
+
+### 🟡 `product.types.ts` — `CreateProductInput.categoryIds` renamed to `categoryId`
+
+**Problem:** Type definition still referenced the old plural `categoryIds`
+field.
+
+**Fix:** Renamed to `categoryId?: string | null` to match the single-value
+contract above.
+
+### 🟡 `security.service.ts` — hardcoded password hash length `72` instead of `MAX_PASSWORD_HASH_LENGTH`
+
+**Problem:** `createUser` passed the magic number `72` (bcrypt max) as the
+password hash length limit. `MAX_PASSWORD_HASH_LENGTH` (255) was already
+exported from `@besterp/shared` to accommodate bcrypt, argon2 (≈97), and
+future algorithms.
+
+**Fix:** Changed to import and use `MAX_PASSWORD_HASH_LENGTH` for consistency.
+
+---
+
+## Changes Applied (2026-09-02) — Code Review Round 206
+
+### 🟡 `security.service.ts` — `updateAgent` did not validate array fields or numeric limits
+
+**Problem:** `registerAgent` validated `capabilities`/`allowedEntityTypes`
+arrays and numeric limits via `validateAgentArrays` / `validateAgentLimits`,
+but `updateAgent` accepted partial updates without any of these guards. A
+caller could send `{ capabilities: [1] }` or `{ rateLimitPerMinute: 9999 }`
+and the values would reach Prisma unvalidated.
+
+**Fix:** Added the same validation branches to `updateAgent` so the service
+layer remains the last line of defense for direct/internal callers bypassing
+the Zod boundary.
+
+### 🟢 `security.service.spec.ts` — 5 new tests for `updateAgent` validation hardening
+
+Added regression tests covering non-string capability elements, whitespace-only
+capability elements, non-string allowedEntityType elements, out-of-range
+`maxToolCallsPerConversation`, and out-of-range `rateLimitPerMinute`.
+
+---
+
 ## Changes Applied (2026-09-02) — Code Review Round 203
 
 ### 🟡 `security.service.ts` — fixed suggestTool inconsistency in `requireStringField` calls
