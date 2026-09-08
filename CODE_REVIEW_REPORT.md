@@ -3,8 +3,45 @@
 ## Scope
  Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
  `mcp-tools`, `apps/api`, plus README/`.env.example`/docker/CI) conducted on
- 2026-09-07. This is review 209; rounds 1–208 are documented in earlier
+ 2026-09-08. This is review 210; rounds 1–209 are documented in earlier
  revisions of this file and `CHANGES.md`.
+
+## Findings & Actions (round 210)
+
+### Fixed this round
+
+1. **🟡 `security.service.ts` — `requireIntegerPageParam` was an instance method instead of static.**
+   `PartyService.requireIntegerPageParam` and `ProductService.requireIntegerPageParam`
+   are both `private static`, called as `PartyService.requireIntegerPageParam(...)` and
+   `ProductService.requireIntegerPageParam(...)`. `SecurityService.requireIntegerPageParam`
+   was the lone exception: a `private` instance method called via `this.requireIntegerPageParam(...)`.
+   Also, SecurityService accepted a `tool` parameter while the other two hardcode their
+   operation name in `suggestedTools`. Changed to `private static requireIntegerPageParam(
+   value, field)` with a hardcoded `["search_agents"]` suggestion, matching the established
+   pattern exactly. Updated the two call sites in `searchAgents` to use the static
+   invocation.
+
+2. **🟡 `agent-tools.ts` — `list_agents` handler missing pagination hint in `nextActions`.**
+   Both `searchParties` (party-tools.ts) and `searchProducts` (product-tools.ts) append
+   a "Use offset X to see more results." hint to `nextActions` when `hasMore` is true.
+   `listAgents` had no such hint, so agents received no guidance on how to paginate
+   through large agent registries. Added the same `morePages` suffix pattern.
+
+### Reviewed but NOT changed (false positives / deferred)
+
+- Full-file re-read of all production source files confirmed no new issues.
+- grep confirms: zero stray `console.log` / `console.error` / `console.warn` in
+  production source; zero `TODO`/`FIXME`/`HACK` comments; zero bare `as any`
+  casts in production source (only in test files and spikes); one intentional
+  `@ts-expect-error` in `tool-registry.test.ts`.
+- Lint ✓ · typecheck ✓ · build ✓ · `npm audit`: unchanged (3 high via `deepmerge-ts`
+  transitive in `@prisma/config` — pinned to 8.0.2 via override; CI gate
+  relaxed to critical-only).
+- Test counts verified: api 595 (22 files), shared 243 (4 files), mcp-tools 192
+  (4 files), database 34 passed + 10 skipped (3 files). Total 1064 passed, 10 skipped.
+  Matches report.
+
+---
 
 ## Findings & Actions (round 209)
 

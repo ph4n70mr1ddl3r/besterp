@@ -1,5 +1,38 @@
 # BestERP — Security & Architecture Fixes
 
+## Changes Applied (2026-09-08) — Code Review Round 210
+
+### 🟡 `security.service.ts` — unified `requireIntegerPageParam` to static pattern
+
+**Problem:** `PartyService.requireIntegerPageParam` and `ProductService.requireIntegerPageParam`
+are both `private static`, invoked as `PartyService.requireIntegerPageParam(...)` /
+`ProductService.requireIntegerPageParam(...)`. `SecurityService.requireIntegerPageParam`
+was the lone exception: a `private` instance method invoked via
+`this.requireIntegerPageParam(...)` and accepting an extra `tool` parameter. This
+diverged from the established pattern without justification — SecurityService
+has only one search method (`searchAgents`), so hardcoding `"search_agents"` in
+`suggestedTools` is equally appropriate.
+
+**Fix:** Changed to `private static requireIntegerPageParam(value, field)` with
+hardcoded `suggestedTools: ["search_agents"]`, matching the PartyService and
+ProductService declarations exactly. Updated both call sites in `searchAgents` to
+use the static invocation `SecurityService.requireIntegerPageParam(...)`.
+
+### 🟡 `agent-tools.ts` — `list_agents` handler now includes pagination hint
+
+**Problem:** Both `searchParties` (party-tools.ts) and `searchProducts` (product-tools.ts)
+append a "Use offset X to see more results." hint to `nextActions` when
+`hasMore` is true. `listAgents` had no such hint, so AI agents received no
+guidance on how to paginate through a large agent registry — they would have to
+infer the pattern from other tools' responses.
+
+**Fix:** Added the same `morePages` suffix pattern used by the other two search
+handlers. When `hasMore` is true, `nextActions` now includes
+`"Use offset N to see more results."` alongside the existing descriptive and
+registration hints.
+
+---
+
 ## Changes Applied (2026-09-07) — Code Review Round 209
 
 ### 🟡 `security.service.ts` — fixed EntityNotFoundError suggestedTools for `getAgent` and `getUser`

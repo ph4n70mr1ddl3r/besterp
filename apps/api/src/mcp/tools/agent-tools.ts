@@ -185,10 +185,14 @@ agent configuration before using them in tool calls.`,
       limit: input.limit,
       offset: input.offset,
     });
+    const morePages = result.hasMore
+      ? ` Use offset ${result.offset + result.limit} to see more results.`
+      : "";
     return {
       success: true,
       data: result,
       nextActions: [
+        `Found ${result.total} ${result.total === 1 ? "agent" : "agents"}.${morePages}`,
         "Use 'describe_agent' with an agentId to see full details.",
         "Use 'register_agent' to create a new agent.",
       ],

@@ -203,6 +203,29 @@ describe("Agent MCP Tools", () => {
         expect.objectContaining({ isActive: true })
       );
     });
+
+    it("should include pagination hint when hasMore is true", async () => {
+      mockSecurityService.searchAgents.mockResolvedValue({
+        items: [],
+        total: 100,
+        limit: 50,
+        offset: 0,
+        hasMore: true,
+      });
+      const result = await registry.execute("list_agents", {}, createContext({ securityService: mockSecurityService }));
+
+      expect(result.success).toBe(true);
+      const paginationHint = result.nextActions?.find((a: string) => a.includes("offset"));
+      expect(paginationHint).toBeDefined();
+      expect(paginationHint).toContain("offset 50");
+    });
+
+    it("should not include pagination hint when hasMore is false", async () => {
+      const result = await registry.execute("list_agents", {}, createContext({ securityService: mockSecurityService }));
+
+      const paginationHint = result.nextActions?.find((a: string) => a.includes("offset"));
+      expect(paginationHint).toBeUndefined();
+    });
   });
 
   describe("describe_agent", () => {
