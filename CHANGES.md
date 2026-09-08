@@ -1,5 +1,33 @@
 # BestERP — Security & Architecture Fixes
 
+## Changes Applied (2026-09-08) — Code Review Round 214
+
+### 🟡 `security.service.ts` — `updateAgent` empty-update check now suggests `update_agent`
+
+**Problem:** When `updateAgent` received no updatable fields, it threw
+`InvalidTypeValueError("No update fields provided.", { suggestedTools: ["search_agents"] })`.
+The caller is already attempting to update an agent — suggesting a search
+operation provides no recovery guidance.
+
+**Fix:** Changed `suggestedTools` from `["search_agents"]` to `["update_agent"]`,
+matching the self-referential pattern used by `ProductService.updateProduct`
+(which suggests `["update_product"]` for the same condition).
+
+### 🟡 `security.service.ts` — `requireNonEmpty` now includes `context` in error throws
+
+**Problem:** `SecurityService.requireNonEmpty` threw `InvalidTypeValueError` with
+only `suggestedTools` but no `context` object, while `requireStringField` (same
+file) and all helpers in `ProductService` included `context`. A missing
+`context` field meant the structured error carried no machine-readable
+diagnostic detail for non-string input, length overflows, or emptiness failures.
+
+**Fix:** Added `context` to all three error paths in `requireNonEmpty`:
+`{ field, received: typeof value }` for the type check, `{ field }` for the
+emptiness check, and `{ field, length: trimmed.length }` for the max-length
+check.
+
+---
+
 ## Changes Applied (2026-09-08) — Code Review Round 213
 
 ### 🟡 `product.service.ts` — `requireNonEmptyString`/`requireOptionalString` now include `suggestedTools`

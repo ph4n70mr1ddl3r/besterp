@@ -269,7 +269,7 @@ export class SecurityService {
 
     if (Object.keys(updateData).length === 0) {
       throw new InvalidTypeValueError("No update fields provided.", {
-        suggestedTools: ["search_agents"],
+        suggestedTools: ["update_agent"],
       });
     }
 
@@ -439,20 +439,20 @@ export class SecurityService {
     if (typeof value !== "string") {
       throw new InvalidTypeValueError(
         `'${field}' must be a string.`,
-        { suggestedTools: [tool] }
+        { suggestedTools: [tool], context: { field, received: typeof value } }
       );
     }
     const trimmed = value.trim();
     if (trimmed.length === 0) {
       throw new InvalidTypeValueError(
         `'${field}' must not be empty or whitespace-only.`,
-        { suggestedTools: [tool] }
+        { suggestedTools: [tool], context: { field } }
       );
     }
     if (trimmed.length > maxLength) {
       throw new InvalidTypeValueError(
         `'${field}' exceeds maximum length of ${maxLength} characters (got ${trimmed.length}).`,
-        { suggestedTools: [tool] }
+        { suggestedTools: [tool], context: { field, length: trimmed.length } }
       );
     }
     return trimmed;

@@ -1,10 +1,52 @@
-   # Code Review Report
+    # Code Review Report
 
 ## Scope
  Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
  `mcp-tools`, `apps/api`, plus README/`.env.example`/docker/CI) conducted on
-  2026-09-08. This is review 213; rounds 1–212 are documented in earlier
+  2026-09-08. This is review 214; rounds 1–213 are documented in earlier
   revisions of this file and `CHANGES.md`.
+
+## Findings & Actions (round 214)
+
+### Fixed this round
+
+1. **🟡 `security.service.ts` — `updateAgent` empty-update check suggested `search_agents` instead of `update_agent`.**
+   When `updateAgent` received no updatable fields, it threw
+   `InvalidTypeValueError("No update fields provided.", { suggestedTools: ["search_agents"] })`.
+   The caller is already attempting to update an agent — suggesting a search
+   operation provides no recovery guidance. Changed to `["update_agent"]` so
+   the agent sees the self-referential tool it is already using, consistent
+   with `ProductService.updateProduct` which suggests `["update_product"]` for
+   the same condition.
+
+2. **🟡 `security.service.ts` — `requireNonEmpty` omitted `context` in error throws.**
+   `SecurityService.requireNonEmpty` threw `InvalidTypeValueError` with only
+   `suggestedTools` but no `context` object, while `requireStringField` (same
+   file) and all helpers in `ProductService` included `context` (e.g. `{ field,
+   received: typeof value }`). A missing `context` field meant the structured
+   error carried no machine-readable diagnostic detail for non-string input,
+   length overflows, or emptiness failures — breaking consistency with the
+   error-shape contract used by every other validator in the service and the
+   other two domain services. Added `context` to all three error paths in
+   `requireNonEmpty`: `{ field, received: typeof value }` for the type check,
+   `{ field }` for the emptiness check, and `{ field, length: trimmed.length }`
+   for the max-length check.
+
+### Reviewed but NOT changed (false positives / deferred)
+
+- Full-file re-read of all production source files confirmed no new issues.
+- grep confirms: zero stray `console.log` / `console.error` / `console.warn` in
+  production source; zero `TODO`/`FIXME`/`HACK` comments; zero bare `as any`
+  casts in production source (only in test files and spikes); one intentional
+  `@ts-expect-error` in `tool-registry.test.ts`.
+- Lint ✓ · typecheck ✓ · build ✓ · `npm audit`: unchanged (3 high via `deepmerge-ts`
+  transitive in `@prisma/config` — pinned to 8.0.2 via override; CI gate
+  relaxed to critical-only).
+- Test counts verified: api 595 (22 files), shared 243 (4 files), mcp-tools 192
+  (4 files), database 34 passed + 10 skipped (3 files). Total 1064 passed, 10 skipped.
+  Matches report.
+
+---
 
 ## Findings & Actions (round 213)
 
