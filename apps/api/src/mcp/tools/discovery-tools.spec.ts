@@ -25,6 +25,9 @@ function createMockPrisma() {
   const contactMechanismTypeRows = [
     { contactMechanismTypeId: "cm-1", name: "EMAIL_ADDRESS", description: "Email contact", aiPromptHint: null },
   ];
+  const productTypeRows = [
+    { productTypeId: "pt-good", name: "GOOD", description: "A physical good", aiPromptHint: "Use for goods" },
+  ];
   const entityDescriptorRows = [
     { entityName: "party", description: "A person or organization", aiPromptHint: "Use for any party", keyFields: { partyId: "UUID" } },
     { entityName: "order", description: "A sales or purchase order", aiPromptHint: null, keyFields: null },
@@ -39,6 +42,9 @@ function createMockPrisma() {
     },
     contactMechanismType: {
       findMany: vi.fn().mockResolvedValue(contactMechanismTypeRows),
+    },
+    productType: {
+      findMany: vi.fn().mockResolvedValue(productTypeRows),
     },
     entityDescriptor: {
       findFirst: vi.fn().mockImplementation(({ where }: { where: { entityName: string } }) => {
@@ -173,6 +179,21 @@ describe("Discovery MCP Tools", () => {
       const data = result.data as { typeName: string; values: unknown[]; totalAvailable: number };
       expect(data.typeName).toBe("CONTACT_MECHANISM_TYPE");
       expect(data.values.length).toBe(1);
+    });
+
+    it("should return PRODUCT_TYPE values", async () => {
+      const result = await registry.execute(
+        "get_type_table_values",
+        { typeName: "PRODUCT_TYPE" },
+        mockContext,
+      );
+
+      expect(result.success).toBe(true);
+      const data = result.data as { typeName: string; values: Array<{ name: string; description: string | null }>; totalAvailable: number };
+      expect(data.typeName).toBe("PRODUCT_TYPE");
+      expect(data.values.length).toBe(1);
+      expect(data.values[0]!.name).toBe("GOOD");
+      expect(data.values[0]!.description).toBe("A physical good");
     });
 
     it("should strip HTML from description and aiPromptHint", async () => {

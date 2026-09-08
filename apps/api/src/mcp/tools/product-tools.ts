@@ -127,7 +127,7 @@ const createProductSchema = z.strictObject({
   name: sanitizedString(1, MAX_PARTY_NAME_LENGTH).describe("Product name (1-500 characters)"),
   description: optionalFilteredString(MAX_PARTY_DESCRIPTION_LENGTH).describe("Optional product description"),
   sku: optionalFilteredString(100).describe("Optional stock-keeping unit (must be unique within tenant)"),
-  categoryId: z.string().uuid().optional().describe("Optional category ID to associate with this product"),
+  categoryId: uuidParam("Optional category ID to associate with this product").optional(),
   features: z.array(z.strictObject({
     name: sanitizedString(1, 100).describe("Feature name (e.g., 'color', 'size')"),
     value: sanitizedString(1, 500).describe("Feature value"),

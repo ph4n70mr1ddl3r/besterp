@@ -153,7 +153,7 @@ Use this before creating entities to know valid types, roles, and classification
 Type tables are the ERP's vocabulary — they define what classifications are available.`,
 
     inputSchema: z.strictObject({
-      typeName: z.enum(["PARTY_TYPE", "ROLE_TYPE", "CONTACT_MECHANISM_TYPE"])
+      typeName: z.enum(["PARTY_TYPE", "ROLE_TYPE", "CONTACT_MECHANISM_TYPE", "PRODUCT_TYPE"])
         .describe("The type table to query"),
     }),
 
