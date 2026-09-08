@@ -1,5 +1,37 @@
 # BestERP — Security & Architecture Fixes
 
+## Changes Applied (2026-09-08) — Code Review Round 211
+
+### 🟡 `product.service.ts` — unified validation helpers to static pattern
+
+**Problem:** `PartyService.requireStringField`, `PartyService.requireUuid`,
+`PartyService.requireNonEmptyFilter`, `PartyService.requireNonEmptyString`, and
+`PartyService.requireOptionalString` are all `private static`, invoked as
+`PartyService.requireStringField(...)` etc. `ProductService` had the same
+helpers as `private` instance methods invoked via `this.requireStringField(...)`.
+This diverged from the established pattern without justification — static
+methods are stateless and can be called without an instance, making the intent
+clearer and consistent with PartyService.
+
+**Fix:** Changed all five helpers to `private static` in ProductService and
+updated all 21 call sites in `createProduct`, `getProduct`, `searchProducts`,
+`updateProduct`, `addProductFeature`, and `addProductPrice` to use the static
+invocation `ProductService.requireStringField(...)`, etc.
+
+### 🟡 `security.service.ts` — unified `requireNonEmpty` and `requireStringField` to static pattern
+
+**Problem:** `PartyService.requireStringField` and `PartyService.requireNonEmptyFilter`
+are `private static`; `SecurityService` had equivalent helpers (`requireNonEmpty`,
+`requireStringField`) as `private` instance methods invoked via `this.requireNonEmpty(...)`.
+This diverged from the established pattern.
+
+**Fix:** Changed both to `private static` in SecurityService and updated all 22
+call sites across `createUser`, `getUser`, `updateLastLogin`, `registerAgent`,
+`updateAgent`, `deleteAgent`, `getAgent`, and `searchAgents` to use the static
+invocation `SecurityService.requireNonEmpty(...)` / `SecurityService.requireStringField(...)`.
+
+---
+
 ## Changes Applied (2026-09-08) — Code Review Round 210
 
 ### 🟡 `security.service.ts` — unified `requireIntegerPageParam` to static pattern

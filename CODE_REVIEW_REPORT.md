@@ -1,10 +1,51 @@
-  # Code Review Report
+   # Code Review Report
 
 ## Scope
  Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
  `mcp-tools`, `apps/api`, plus README/`.env.example`/docker/CI) conducted on
- 2026-09-08. This is review 210; rounds 1–209 are documented in earlier
+ 2026-09-08. This is review 211; rounds 1–210 are documented in earlier
  revisions of this file and `CHANGES.md`.
+
+## Findings & Actions (round 211)
+
+### Fixed this round
+
+1. **🟡 `product.service.ts` — validation helpers were instance methods instead of static.**
+   `PartyService.requireStringField`, `PartyService.requireUuid`,
+   `PartyService.requireNonEmptyFilter`, `PartyService.requireNonEmptyString`,
+   and `PartyService.requireOptionalString` are all `private static`, called as
+   `PartyService.requireStringField(...)` etc. `ProductService` had the same
+   helpers as `private` instance methods called via `this.requireStringField(...)`.
+   Changed all five to `private static` and updated all 21 call sites in
+   `createProduct`, `getProduct`, `searchProducts`, `updateProduct`,
+   `addProductFeature`, and `addProductPrice` to use the static invocation
+   `ProductService.requireStringField(...)`, matching the established pattern.
+
+2. **🟡 `security.service.ts` — `requireNonEmpty` and `requireStringField` were instance methods instead of static.**
+   `PartyService.requireStringField` and `PartyService.requireNonEmptyFilter`
+   are `private static`; `SecurityService` had equivalent helpers
+   (`requireNonEmpty`, `requireStringField`) as `private` instance methods.
+   Changed both to `private static` and updated all 22 call sites across
+   `createUser`, `getUser`, `updateLastLogin`, `registerAgent`, `updateAgent`,
+   `deleteAgent`, `getAgent`, and `searchAgents` to use the static invocation
+   `SecurityService.requireNonEmpty(...)` / `SecurityService.requireStringField(...)`,
+   matching the established pattern.
+
+### Reviewed but NOT changed (false positives / deferred)
+
+- Full-file re-read of all production source files confirmed no new issues.
+- grep confirms: zero stray `console.log` / `console.error` / `console.warn` in
+  production source; zero `TODO`/`FIXME`/`HACK` comments; zero bare `as any`
+  casts in production source (only in test files and spikes); one intentional
+  `@ts-expect-error` in `tool-registry.test.ts`.
+- Lint ✓ · typecheck ✓ · build ✓ · `npm audit`: unchanged (3 high via `deepmerge-ts`
+  transitive in `@prisma/config` — pinned to 8.0.2 via override; CI gate
+  relaxed to critical-only).
+- Test counts verified: api 595 (22 files), shared 243 (4 files), mcp-tools 192
+  (4 files), database 34 passed + 10 skipped (3 files). Total 1064 passed, 10 skipped.
+  Matches report.
+
+---
 
 ## Findings & Actions (round 210)
 

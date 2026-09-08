@@ -59,11 +59,11 @@ export class ProductService {
   async createProduct(input: CreateProductInput): Promise<ProductResult> {
     const { tenantId, productType, name, description, sku, features } = input;
 
-    const trimmedTenantId = this.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "create_product");
-    const trimmedName = this.requireNonEmptyString(name.trim(), "name", MAX_PARTY_NAME_LENGTH);
-    const trimmedDescription = description !== undefined && description !== null ? this.requireOptionalString(stripHtmlTags(description.trim()), "description", MAX_PARTY_DESCRIPTION_LENGTH) : null;
-    const trimmedSku = sku !== undefined && sku !== null ? this.requireOptionalString(stripHtmlTags(sku.trim()), "sku", 100) : null;
-    const trimmedProductType = this.requireStringField(productType, "productType", MAX_ROLE_TYPE_LENGTH, "create_product");
+    const trimmedTenantId = ProductService.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "create_product");
+    const trimmedName = ProductService.requireNonEmptyString(name.trim(), "name", MAX_PARTY_NAME_LENGTH);
+    const trimmedDescription = description !== undefined && description !== null ? ProductService.requireOptionalString(stripHtmlTags(description.trim()), "description", MAX_PARTY_DESCRIPTION_LENGTH) : null;
+    const trimmedSku = sku !== undefined && sku !== null ? ProductService.requireOptionalString(stripHtmlTags(sku.trim()), "sku", 100) : null;
+    const trimmedProductType = ProductService.requireStringField(productType, "productType", MAX_ROLE_TYPE_LENGTH, "create_product");
 
     // Validate product type exists
     const productTypeRecord = await this.prisma.admin.productType.findUnique({ where: { name: trimmedProductType } });
@@ -107,8 +107,8 @@ export class ProductService {
   // ─── Get Product ──────────────────────────────────────────────
 
   async getProduct(tenantId: string, productId: string): Promise<GetProductResult> {
-    const trimmedTenantId = this.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "get_product");
-    productId = this.requireUuid(productId, "productId");
+    const trimmedTenantId = ProductService.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "get_product");
+    productId = ProductService.requireUuid(productId, "productId");
 
     const db: TenantScopedClient = this.prisma.tenantScoped(trimmedTenantId);
 
@@ -132,7 +132,7 @@ export class ProductService {
   async searchProducts(input: SearchProductsInput): Promise<SearchProductsResult> {
     const { tenantId, name, productType, limit = DEFAULT_SEARCH_LIMIT, offset = MIN_SEARCH_OFFSET } = input;
 
-    const trimmedTenantId = this.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "search_products");
+    const trimmedTenantId = ProductService.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "search_products");
     ProductService.requireIntegerPageParam(limit, "limit");
     ProductService.requireIntegerPageParam(offset, "offset");
     const validatedLimit = Math.min(Math.max(limit, MIN_SEARCH_LIMIT), MAX_SEARCH_LIMIT);
@@ -142,12 +142,12 @@ export class ProductService {
 
     const where: Prisma.ProductWhereInput = { tenantId: trimmedTenantId };
 
-    const trimmedName = this.requireNonEmptyFilter(name, "name", MAX_PARTY_NAME_LENGTH, ["search_products"]);
+    const trimmedName = ProductService.requireNonEmptyFilter(name, "name", MAX_PARTY_NAME_LENGTH, ["search_products"]);
     if (trimmedName) {
       where.name = { contains: trimmedName, mode: "insensitive" as const };
     }
 
-    const trimmedProductType = this.requireNonEmptyFilter(productType, "productType", MAX_ROLE_TYPE_LENGTH, ["search_products"]);
+    const trimmedProductType = ProductService.requireNonEmptyFilter(productType, "productType", MAX_ROLE_TYPE_LENGTH, ["search_products"]);
     if (trimmedProductType) {
       where.productType = { name: { equals: trimmedProductType, mode: "insensitive" as const } };
     }
@@ -189,13 +189,13 @@ export class ProductService {
   async updateProduct(input: UpdateProductInput): Promise<ProductResult> {
     const { tenantId, productId: rawProductId, name, description, sku, productTypeId } = input;
 
-    const trimmedTenantId = this.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "update_product");
-    const productId = this.requireUuid(rawProductId, "productId");
+    const trimmedTenantId = ProductService.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "update_product");
+    const productId = ProductService.requireUuid(rawProductId, "productId");
 
     const updateData: Prisma.ProductUpdateInput = {};
-    if (name !== undefined) updateData.name = this.requireNonEmptyString(name.trim(), "name", MAX_PARTY_NAME_LENGTH);
-    if (description !== undefined) updateData.description = description === null ? null : this.requireOptionalString(stripHtmlTags(description.trim()), "description", MAX_PARTY_DESCRIPTION_LENGTH);
-    if (sku !== undefined) updateData.sku = sku === null ? null : this.requireOptionalString(stripHtmlTags(sku.trim()), "sku", 100);
+    if (name !== undefined) updateData.name = ProductService.requireNonEmptyString(name.trim(), "name", MAX_PARTY_NAME_LENGTH);
+    if (description !== undefined) updateData.description = description === null ? null : ProductService.requireOptionalString(stripHtmlTags(description.trim()), "description", MAX_PARTY_DESCRIPTION_LENGTH);
+    if (sku !== undefined) updateData.sku = sku === null ? null : ProductService.requireOptionalString(stripHtmlTags(sku.trim()), "sku", 100);
     if (productTypeId !== undefined) {
       const trimmedProductTypeId = productTypeId.trim();
       const pt = await this.prisma.admin.productType.findUnique({ where: { name: trimmedProductTypeId } });
@@ -231,10 +231,10 @@ export class ProductService {
   async addProductFeature(input: AddProductFeatureInput): Promise<ProductFeatureResult> {
     const { tenantId, productId: rawProductId, name, value } = input;
 
-    const trimmedTenantId = this.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "add_product_feature");
-    const productId = this.requireUuid(rawProductId, "productId");
-    const trimmedName = this.requireNonEmptyString(name.trim(), "featureName", 100);
-    const trimmedValue = this.requireNonEmptyString(value.trim(), "featureValue", 500);
+    const trimmedTenantId = ProductService.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "add_product_feature");
+    const productId = ProductService.requireUuid(rawProductId, "productId");
+    const trimmedName = ProductService.requireNonEmptyString(name.trim(), "featureName", 100);
+    const trimmedValue = ProductService.requireNonEmptyString(value.trim(), "featureValue", 500);
 
     const db: TenantScopedClient = this.prisma.tenantScoped(trimmedTenantId);
 
@@ -264,8 +264,8 @@ export class ProductService {
   async addProductPrice(input: AddProductPriceInput): Promise<ProductPriceResult> {
     const { tenantId, productId: rawProductId, priceType, amount, currencyCode = "USD", fromDate, thruDate } = input;
 
-    const trimmedTenantId = this.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "add_product_price");
-    const productId = this.requireUuid(rawProductId, "productId");
+    const trimmedTenantId = ProductService.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "add_product_price");
+    const productId = ProductService.requireUuid(rawProductId, "productId");
 
     if (!Number.isFinite(amount) || amount <= 0) {
       throw new InvalidTypeValueError("Price amount must be a finite number greater than zero.", { suggestedTools: ["add_product_price"] });
@@ -313,7 +313,7 @@ export class ProductService {
 
   // ─── Helpers ──────────────────────────────────────────────────
 
-  private requireStringField(value: unknown, field: string, maxLength: number, tool: string): string {
+  private static requireStringField(value: unknown, field: string, maxLength: number, tool: string): string {
     if (typeof value !== "string") {
       throw new InvalidTypeValueError(`'${field}' must be a string.`, { suggestedTools: [tool], context: { field, received: typeof value } });
     }
@@ -327,7 +327,7 @@ export class ProductService {
     return trimmed;
   }
 
-  private requireNonEmptyString(value: string, field: string, maxLength: number): string {
+  private static requireNonEmptyString(value: string, field: string, maxLength: number): string {
     if (value.length === 0) {
       throw new InvalidTypeValueError(`'${field}' must not be empty.`, { context: { field } });
     }
@@ -337,7 +337,7 @@ export class ProductService {
     return stripHtmlTags(value);
   }
 
-  private requireOptionalString(value: string, field: string, maxLength: number): string | null {
+  private static requireOptionalString(value: string, field: string, maxLength: number): string | null {
     if (value.length === 0) return null;
     if (value.length > maxLength) {
       throw new InvalidTypeValueError(`'${field}' exceeds maximum length of ${maxLength} characters.`, { context: { field, length: value.length } });
@@ -345,7 +345,7 @@ export class ProductService {
     return stripHtmlTags(value);
   }
 
-  private requireUuid(value: string, field: string): string {
+  private static requireUuid(value: string, field: string): string {
     const trimmed = value.trim();
     if (!UUID_REGEX.test(trimmed)) {
       const safeValue = sanitizeForLogOutput(stripHtmlTags(trimmed));
@@ -354,7 +354,7 @@ export class ProductService {
     return trimmed;
   }
 
-  private requireNonEmptyFilter(value: string | undefined | null, field: string, maxLength: number, tools: string[]): string | undefined {
+  private static requireNonEmptyFilter(value: string | undefined | null, field: string, maxLength: number, tools: string[]): string | undefined {
     if (value === undefined || value === null) return undefined;
     const trimmed = value.trim();
     if (trimmed.length === 0) {

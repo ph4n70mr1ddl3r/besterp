@@ -44,9 +44,9 @@ export class SecurityService {
   async createUser(input: CreateUserInput): Promise<UserResult> {
     const { tenantId, partyId, passwordHash } = input;
 
-    const trimmedTenantId = this.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "create_user");
-    const validatedPartyId = this.requireNonEmpty(partyId, "partyId", MAX_USER_ID_LENGTH, "create_user");
-    this.requireNonEmpty(passwordHash, "passwordHash", MAX_PASSWORD_HASH_LENGTH, "create_user");
+    const trimmedTenantId = SecurityService.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "create_user");
+    const validatedPartyId = SecurityService.requireNonEmpty(partyId, "partyId", MAX_USER_ID_LENGTH, "create_user");
+    SecurityService.requireNonEmpty(passwordHash, "passwordHash", MAX_PASSWORD_HASH_LENGTH, "create_user");
 
     // Verify the party exists in this tenant before linking
     const party = await this.prisma.tenantScoped(trimmedTenantId).party.findUnique({
@@ -90,8 +90,8 @@ export class SecurityService {
   }
 
   async getUser(tenantId: string, partyId: string): Promise<UserResult> {
-    const trimmedTenantId = this.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "get_user");
-    const validatedPartyId = this.requireNonEmpty(partyId, "partyId", MAX_USER_ID_LENGTH, "get_user");
+    const trimmedTenantId = SecurityService.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "get_user");
+    const validatedPartyId = SecurityService.requireNonEmpty(partyId, "partyId", MAX_USER_ID_LENGTH, "get_user");
     const db = this.prisma.tenantScoped(trimmedTenantId);
     try {
       const user = await db.user.findUnique({
@@ -119,8 +119,8 @@ export class SecurityService {
   }
 
   async updateLastLogin(tenantId: string, partyId: string): Promise<void> {
-    const trimmedTenantId = this.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "update_last_login");
-    const validatedPartyId = this.requireNonEmpty(partyId, "partyId", MAX_USER_ID_LENGTH, "update_last_login");
+    const trimmedTenantId = SecurityService.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "update_last_login");
+    const validatedPartyId = SecurityService.requireNonEmpty(partyId, "partyId", MAX_USER_ID_LENGTH, "update_last_login");
     try {
       await this.prisma.tenantScoped(trimmedTenantId).user.update({
         where: { tenantId_partyId: { tenantId: trimmedTenantId, partyId: validatedPartyId } },
@@ -149,11 +149,11 @@ export class SecurityService {
       version,
     } = input;
 
-    const validatedAgentId = this.requireNonEmpty(agentId, "agentId", MAX_AGENT_ID_LENGTH, "register_agent");
-    const validatedTenantId = this.requireNonEmpty(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "register_agent");
-    const trimmedDisplayName = this.requireNonEmpty(displayName, "displayName", MAX_PARTY_NAME_LENGTH, "register_agent");
-    const trimmedDescription = this.requireNonEmpty(description, "description", 1000, "register_agent");
-    const trimmedVersion = this.requireNonEmpty(version, "version", 64, "register_agent");
+    const validatedAgentId = SecurityService.requireNonEmpty(agentId, "agentId", MAX_AGENT_ID_LENGTH, "register_agent");
+    const validatedTenantId = SecurityService.requireNonEmpty(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "register_agent");
+    const trimmedDisplayName = SecurityService.requireNonEmpty(displayName, "displayName", MAX_PARTY_NAME_LENGTH, "register_agent");
+    const trimmedDescription = SecurityService.requireNonEmpty(description, "description", 1000, "register_agent");
+    const trimmedVersion = SecurityService.requireNonEmpty(version, "version", 64, "register_agent");
     this.validateAgentArrays(capabilities, allowedEntityTypes);
     this.validateAgentLimits(validatedAgentId, maxToolCallsPerConversation, rateLimitPerMinute);
 
@@ -238,8 +238,8 @@ export class SecurityService {
   async updateAgent(input: UpdateAgentInput): Promise<AgentResult> {
     const { agentId, tenantId, ...updates } = input;
 
-    const trimmedTenantId = this.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "update_agent");
-    const validatedAgentId = this.requireNonEmpty(agentId, "agentId", MAX_AGENT_ID_LENGTH, "update_agent");
+    const trimmedTenantId = SecurityService.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "update_agent");
+    const validatedAgentId = SecurityService.requireNonEmpty(agentId, "agentId", MAX_AGENT_ID_LENGTH, "update_agent");
 
     // Validate array fields when provided — mirrors registerAgent so the
     // service layer remains the last line of defense for direct/internal
@@ -290,8 +290,8 @@ export class SecurityService {
    *  (round 208). Each branch validates and sanitizes one optional field. */
   private buildUpdateData(updates: Partial<UpdateAgentInput>): Record<string, unknown> {
     const updateData: Record<string, unknown> = {};
-    if (updates.displayName !== undefined) updateData.displayName = stripHtmlTags(this.requireNonEmpty(updates.displayName, "displayName", MAX_PARTY_NAME_LENGTH, "update_agent"));
-    if (updates.description !== undefined) updateData.description = stripHtmlTags(this.requireNonEmpty(updates.description, "description", 1000, "update_agent"));
+    if (updates.displayName !== undefined) updateData.displayName = stripHtmlTags(SecurityService.requireNonEmpty(updates.displayName, "displayName", MAX_PARTY_NAME_LENGTH, "update_agent"));
+    if (updates.description !== undefined) updateData.description = stripHtmlTags(SecurityService.requireNonEmpty(updates.description, "description", 1000, "update_agent"));
     if (updates.capabilities !== undefined) updateData.capabilities = updates.capabilities;
     if (updates.maxToolCallsPerConversation !== undefined)
       updateData.maxToolCallsPerConversation = updates.maxToolCallsPerConversation;
@@ -302,14 +302,14 @@ export class SecurityService {
     if (updates.allowedEntityTypes !== undefined) updateData.allowedEntityTypes = updates.allowedEntityTypes;
     if (updates.rateLimitPerMinute !== undefined)
       updateData.rateLimitPerMinute = updates.rateLimitPerMinute;
-    if (updates.version !== undefined) updateData.version = stripHtmlTags(this.requireNonEmpty(updates.version, "version", 64, "update_agent"));
+    if (updates.version !== undefined) updateData.version = stripHtmlTags(SecurityService.requireNonEmpty(updates.version, "version", 64, "update_agent"));
     if (updates.isActive !== undefined) updateData.isActive = updates.isActive;
     return updateData;
   }
 
   async deleteAgent(tenantId: string, agentId: string): Promise<{ success: boolean }> {
-    const trimmedTenantId = this.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "delete_agent");
-    const validatedAgentId = this.requireNonEmpty(agentId, "agentId", MAX_AGENT_ID_LENGTH, "delete_agent");
+    const trimmedTenantId = SecurityService.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "delete_agent");
+    const validatedAgentId = SecurityService.requireNonEmpty(agentId, "agentId", MAX_AGENT_ID_LENGTH, "delete_agent");
     try {
       await this.prisma.admin.agentRegistry.delete({
         where: { agentId: validatedAgentId, tenantId: trimmedTenantId },
@@ -322,8 +322,8 @@ export class SecurityService {
   }
 
   async getAgent(tenantId: string, agentId: string): Promise<AgentResult> {
-    const trimmedTenantId = this.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "get_agent");
-    const validatedAgentId = this.requireNonEmpty(agentId, "agentId", MAX_AGENT_ID_LENGTH, "get_agent");
+    const trimmedTenantId = SecurityService.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "get_agent");
+    const validatedAgentId = SecurityService.requireNonEmpty(agentId, "agentId", MAX_AGENT_ID_LENGTH, "get_agent");
     const agent = await this.prisma.admin.agentRegistry.findUnique({
       where: { agentId: validatedAgentId, tenantId: trimmedTenantId },
     });
@@ -345,7 +345,7 @@ export class SecurityService {
       offset = MIN_SEARCH_OFFSET,
     } = input;
 
-    const trimmedTenantId = this.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "search_agents");
+    const trimmedTenantId = SecurityService.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "search_agents");
     SecurityService.requireIntegerPageParam(limit, "limit");
     SecurityService.requireIntegerPageParam(offset, "offset");
     const validatedLimit = Math.min(Math.max(limit, MIN_SEARCH_LIMIT), MAX_SEARCH_LIMIT);
@@ -435,7 +435,7 @@ export class SecurityService {
     };
   }
 
-  private requireNonEmpty(value: string, field: string, maxLength: number, tool: string = "list_agents"): string {
+  private static requireNonEmpty(value: string, field: string, maxLength: number, tool: string = "list_agents"): string {
     if (typeof value !== "string") {
       throw new InvalidTypeValueError(
         `'${field}' must be a string.`,
@@ -458,7 +458,7 @@ export class SecurityService {
     return trimmed;
   }
 
-  private requireStringField(value: unknown, field: string, maxLength: number, tool: string): string {
+  private static requireStringField(value: unknown, field: string, maxLength: number, tool: string): string {
     if (typeof value !== "string") {
       throw new InvalidTypeValueError(`'${field}' must be a string.`, { suggestedTools: [tool], context: { field, received: typeof value } });
     }
