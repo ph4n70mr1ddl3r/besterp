@@ -80,8 +80,8 @@ function optionalFilteredString(max: number) {
     .optional()
     .transform((s) => {
       if (s === undefined || s === null) return undefined;
-      const trimmed = s.trim();
-      return trimmed.length === 0 ? undefined : stripHtmlTags(trimmed);
+      const trimmed = stripHtmlTags(s.trim());
+      return trimmed.length === 0 ? undefined : trimmed;
     })
     .pipe(z.string().max(max).optional());
 }

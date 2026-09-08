@@ -13,7 +13,7 @@ import { Request } from "express";
 import type { JwtValidatedUser } from "./jwt.strategy.js";
 import { IS_PUBLIC_KEY } from "./public.decorator.js";
 import { isPublicAllowedForHandler } from "./public-scope.js";
-import { validateTenantIdEnhancedForAuth, MAX_USER_ID_LENGTH, MAX_AGENT_ID_LENGTH, TENANT_ID_PATTERN } from "@besterp/shared";
+import { validateTenantIdEnhancedForAuth, MAX_USER_ID_LENGTH, MAX_AGENT_ID_LENGTH, TENANT_ID_PATTERN, OPTIONAL_ID_PATTERN } from "@besterp/shared";
 
 @Injectable()
 export class TenantGuard implements CanActivate {
@@ -93,16 +93,15 @@ export class TenantGuard implements CanActivate {
         "TenantGuard: userId exceeds maximum allowed length."
       );
     }
-    // userId/agentId use TENANT_ID_PATTERN (alphanumeric + hyphens + underscores)
-    // because all identifiers in BestERP are generated as ULID-style strings
-    // (26-char sortable IDs using [0-9A-HJKMNP-TV-Z] plus optional hyphens).
-    // The pattern is deliberately permissive enough to accept any valid ULID
-    // while rejecting control characters and whitespace that could be used
-    // for log injection. UUIDs (with hyphens) also match this pattern.
-    if (!TENANT_ID_PATTERN.test(userId)) {
+    // userId uses OPTIONAL_ID_PATTERN (alphanumeric + dots/plus/etc.) to match
+    // JwtStrategy.validate() which accepts the same permissive pattern (round 207).
+    // A stricter TENANT_ID_PATTERN here would reject valid tokens carrying real-world
+    // identifiers like "john.doe" or "user+admin". agentId continues to use
+    // TENANT_ID_PATTERN because it is generated as a ULID-style string.
+    if (!OPTIONAL_ID_PATTERN.test(userId)) {
       throw new UnauthorizedException(
         "TenantGuard: userId contains invalid characters. " +
-          "User IDs may only contain alphanumeric characters, hyphens, and underscores."
+          "User IDs may only contain printable non-whitespace characters."
       );
     }
     return userId;

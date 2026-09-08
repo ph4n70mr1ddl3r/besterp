@@ -349,7 +349,7 @@ export class ProductService {
     const trimmed = value.trim();
     if (!UUID_REGEX.test(trimmed)) {
       const safeValue = sanitizeForLogOutput(stripHtmlTags(trimmed));
-      throw new InvalidTypeValueError(`'${field}' must be a valid UUID.`, { context: { field, received: safeValue } });
+      throw new InvalidTypeValueError(`'${field}' must be a valid UUID.`, { suggestedTools: ["search_products", "get_product"], context: { field, received: safeValue } });
     }
     return trimmed;
   }
