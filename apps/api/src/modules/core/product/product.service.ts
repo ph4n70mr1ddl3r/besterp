@@ -59,11 +59,11 @@ export class ProductService {
   async createProduct(input: CreateProductInput): Promise<ProductResult> {
     const { tenantId, productType, name, description, sku, features } = input;
 
-    const trimmedTenantId = this.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "create", "create_product");
+    const trimmedTenantId = this.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "create_product");
     const trimmedName = this.requireNonEmptyString(name.trim(), "name", MAX_PARTY_NAME_LENGTH);
     const trimmedDescription = description !== undefined && description !== null ? this.requireOptionalString(stripHtmlTags(description.trim()), "description", MAX_PARTY_DESCRIPTION_LENGTH) : null;
     const trimmedSku = sku !== undefined && sku !== null ? this.requireOptionalString(stripHtmlTags(sku.trim()), "sku", 100) : null;
-    const trimmedProductType = this.requireStringField(productType, "productType", MAX_ROLE_TYPE_LENGTH, "create", "create_product");
+    const trimmedProductType = this.requireStringField(productType, "productType", MAX_ROLE_TYPE_LENGTH, "create_product");
 
     // Validate product type exists
     const productTypeRecord = await this.prisma.admin.productType.findUnique({ where: { name: trimmedProductType } });
@@ -107,7 +107,7 @@ export class ProductService {
   // ─── Get Product ──────────────────────────────────────────────
 
   async getProduct(tenantId: string, productId: string): Promise<GetProductResult> {
-    const trimmedTenantId = this.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "get", "get_product");
+    const trimmedTenantId = this.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "get_product");
     productId = this.requireUuid(productId, "productId");
 
     const db: TenantScopedClient = this.prisma.tenantScoped(trimmedTenantId);
@@ -132,7 +132,7 @@ export class ProductService {
   async searchProducts(input: SearchProductsInput): Promise<SearchProductsResult> {
     const { tenantId, name, productType, limit = DEFAULT_SEARCH_LIMIT, offset = MIN_SEARCH_OFFSET } = input;
 
-    const trimmedTenantId = this.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "search", "search_products");
+    const trimmedTenantId = this.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "search_products");
     ProductService.requireIntegerPageParam(limit, "limit");
     ProductService.requireIntegerPageParam(offset, "offset");
     const validatedLimit = Math.min(Math.max(limit, MIN_SEARCH_LIMIT), MAX_SEARCH_LIMIT);
@@ -189,7 +189,7 @@ export class ProductService {
   async updateProduct(input: UpdateProductInput): Promise<ProductResult> {
     const { tenantId, productId: rawProductId, name, description, sku, productTypeId } = input;
 
-    const trimmedTenantId = this.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "update", "update_product");
+    const trimmedTenantId = this.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "update_product");
     const productId = this.requireUuid(rawProductId, "productId");
 
     const updateData: Prisma.ProductUpdateInput = {};
@@ -231,7 +231,7 @@ export class ProductService {
   async addProductFeature(input: AddProductFeatureInput): Promise<ProductFeatureResult> {
     const { tenantId, productId: rawProductId, name, value } = input;
 
-    const trimmedTenantId = this.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "add feature", "add_product_feature");
+    const trimmedTenantId = this.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "add_product_feature");
     const productId = this.requireUuid(rawProductId, "productId");
     const trimmedName = this.requireNonEmptyString(name.trim(), "featureName", 100);
     const trimmedValue = this.requireNonEmptyString(value.trim(), "featureValue", 500);
@@ -264,7 +264,7 @@ export class ProductService {
   async addProductPrice(input: AddProductPriceInput): Promise<ProductPriceResult> {
     const { tenantId, productId: rawProductId, priceType, amount, currencyCode = "USD", fromDate, thruDate } = input;
 
-    const trimmedTenantId = this.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "add price", "add_product_price");
+    const trimmedTenantId = this.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "add_product_price");
     const productId = this.requireUuid(rawProductId, "productId");
 
     if (!Number.isFinite(amount) || amount <= 0) {
@@ -313,7 +313,7 @@ export class ProductService {
 
   // ─── Helpers ──────────────────────────────────────────────────
 
-  private requireStringField(value: unknown, field: string, maxLength: number, _action: string, tool: string): string {
+  private requireStringField(value: unknown, field: string, maxLength: number, tool: string): string {
     if (typeof value !== "string") {
       throw new InvalidTypeValueError(`'${field}' must be a string.`, { suggestedTools: [tool], context: { field, received: typeof value } });
     }
@@ -393,7 +393,7 @@ export class ProductService {
       features: p.features.map((f) => ({ name: f.name, value: f.value })),
       prices: p.prices.map((pr) => ({
         priceType: pr.priceType,
-        amount: typeof pr.amount === "number" ? pr.amount : parseFloat(String(pr.amount)) || 0,
+        amount: typeof pr.amount === "number" ? pr.amount : (() => { throw new InvalidTypeValueError(`Internal data error: product price amount has unexpected type '${typeof pr.amount}'.`); })(),
         currencyCode: pr.currencyCode,
         fromDate: pr.fromDate.toISOString(),
         thruDate: pr.thruDate?.toISOString() ?? null,
@@ -417,7 +417,7 @@ export class ProductService {
       productPriceId: p.productPriceId,
       productId: p.productId,
       priceType: p.priceType,
-      amount: typeof p.amount === "number" ? p.amount : parseFloat(String(p.amount)) || 0,
+      amount: typeof p.amount === "number" ? p.amount : (() => { throw new InvalidTypeValueError(`Internal data error: product price amount has unexpected type '${typeof p.amount}'.`); })(),
       currencyCode: p.currencyCode,
       fromDate: p.fromDate.toISOString(),
       thruDate: p.thruDate?.toISOString() ?? null,

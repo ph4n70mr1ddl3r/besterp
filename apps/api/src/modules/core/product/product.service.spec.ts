@@ -337,5 +337,33 @@ describe("ProductService", () => {
         service.addProductPrice({ tenantId: "t1", productId: "12345678-1234-1234-1234-123456789abc", priceType: "LIST", amount: Infinity })
       ).rejects.toThrow(InvalidTypeValueError);
     });
+
+    it("throws InvalidTypeValueError when price amount has unexpected DB type", async () => {
+      // Regression (round 210): the toPriceResult/toGetProductResult helpers used
+      // `parseFloat(String(pr.amount)) || 0` which silently masked data corruption
+      // by returning 0 for any invalid amount type. Now they throw instead.
+      prisma.tenantScoped.mockReturnValue({
+        product: {
+          findUnique: vi.fn().mockResolvedValue({
+            productId: "p1",
+            productTypeId: "pt1",
+            tenantId: "t1",
+            name: "Widget",
+            description: null,
+            sku: null,
+            version: 1,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+            productType: null,
+            features: [],
+            prices: [{ priceType: "LIST", amount: "corrupted", currencyCode: "USD", fromDate: new Date(), thruDate: null }],
+            category: null,
+          }),
+        },
+      });
+      await expect(
+        service.getProduct("t1", "12345678-1234-1234-1234-123456789abc")
+      ).rejects.toThrow(InvalidTypeValueError);
+    });
   });
 });

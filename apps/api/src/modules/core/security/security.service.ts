@@ -128,7 +128,7 @@ export class SecurityService {
       });
     } catch {
       // Non-fatal — login tracking failure should not block authentication.
-      this.logger.debug(`Could not update lastLoginAt for party ${validatedPartyId}`);
+      this.logger.debug(`Could not update lastLoginAt for party ${sanitizeForLogOutput(validatedPartyId)}`);
     }
   }
 

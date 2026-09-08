@@ -208,6 +208,29 @@ describe("Product MCP Tools", () => {
         expect.objectContaining({ limit: 10, offset: 5, tenantId: TEST_TENANT })
       );
     });
+
+    it("should include pagination hint when hasMore is true", async () => {
+      mockProductService.searchProducts.mockResolvedValue({
+        items: [],
+        total: 100,
+        limit: 50,
+        offset: 0,
+        hasMore: true,
+      });
+      const result = await registry.execute("search_products", {}, createContext({ productService: mockProductService }));
+
+      expect(result.success).toBe(true);
+      const paginationHint = result.nextActions?.find((a: string) => a.includes("offset"));
+      expect(paginationHint).toBeDefined();
+      expect(paginationHint).toContain("offset 50");
+    });
+
+    it("should not include pagination hint when hasMore is false", async () => {
+      const result = await registry.execute("search_products", {}, createContext({ productService: mockProductService }));
+
+      const paginationHint = result.nextActions?.find((a: string) => a.includes("offset"));
+      expect(paginationHint).toBeUndefined();
+    });
   });
 
   describe("add_product_feature", () => {

@@ -251,6 +251,7 @@ Returns a paginated list of products matching the criteria.`,
       data: result,
       nextActions: [
         `Found ${result.total} ${result.total === 1 ? "product" : "products"}.`,
+        ...(result.hasMore ? [` Use offset ${result.offset + result.limit} to see more results.`] : []),
         "Use 'get_product' with a specific productId to see full details.",
       ],
     };

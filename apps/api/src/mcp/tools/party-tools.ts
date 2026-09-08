@@ -193,7 +193,7 @@ function optionalFilteredString(max: number) {
   return z.string()
     .optional()
     .transform(s => {
-      if (s === undefined) return undefined;
+      if (s === undefined || s === null) return undefined;
       const trimmed = stripHtmlTags(s.trim());
       return trimmed.length === 0 ? undefined : trimmed;
     })
