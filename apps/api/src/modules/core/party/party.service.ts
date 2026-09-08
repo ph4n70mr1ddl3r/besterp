@@ -565,7 +565,7 @@ export class PartyService {
 
     const db: TenantScopedClient = this.prisma.tenantScoped(trimmedTenantId);
 
-    const trimmedRoleType = this.validateAddPartyRoleInput(roleType);
+    const trimmedRoleType = PartyService.validateAddPartyRoleInput(roleType);
     const roleFromDate = this.parseFromDate(fromDate);
 
     // Use admin client for global reference data — role_type is a shared
@@ -631,7 +631,7 @@ export class PartyService {
     };
   }
 
-  private validateAddPartyRoleInput(roleType: string): string {
+  private static validateAddPartyRoleInput(roleType: string): string {
     if (typeof roleType !== "string") {
       throw new InvalidTypeValueError(
         "roleType must be a non-empty string.",

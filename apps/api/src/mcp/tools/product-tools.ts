@@ -246,12 +246,14 @@ Returns a paginated list of products matching the criteria.`,
       ...input,
       tenantId: context.tenantId,
     });
+    const morePages = result.hasMore
+      ? ` Use offset ${result.offset + result.limit} to see more results.`
+      : "";
     return {
       success: true,
       data: result,
       nextActions: [
-        `Found ${result.total} ${result.total === 1 ? "product" : "products"}.`,
-        ...(result.hasMore ? [` Use offset ${result.offset + result.limit} to see more results.`] : []),
+        `Found ${result.total} ${result.total === 1 ? "product" : "products"}.${morePages}`,
         "Use 'get_product' with a specific productId to see full details.",
       ],
     };
