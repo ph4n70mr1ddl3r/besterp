@@ -3,8 +3,43 @@
 ## Scope
  Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
  `mcp-tools`, `apps/api`, plus README/`.env.example`/docker/CI) conducted on
- 2026-09-08. This is review 211; rounds 1–210 are documented in earlier
- revisions of this file and `CHANGES.md`.
+  2026-09-08. This is review 213; rounds 1–212 are documented in earlier
+  revisions of this file and `CHANGES.md`.
+
+## Findings & Actions (round 213)
+
+### Fixed this round
+
+1. **🟡 `product.service.ts` — `requireNonEmptyString`/`requireOptionalString` lacked `suggestedTools`.**
+   `ProductService.requireStringField` and `ProductService.requireNonEmptyFilter` included
+   `suggestedTools` in their error context, but the two string helpers (`requireNonEmptyString`,
+   `requireOptionalString`) omitted it entirely. A validation error from these helpers surfaced
+   no tool hint, breaking consistency with every other validator in the service.
+   Added a `tool: string` parameter to both helpers and included `suggestedTools: [tool]` in
+   all error paths. Updated all 7 call sites across `createProduct`, `updateProduct`, and
+   `addProductFeature` to pass the operation-specific tool name.
+
+2. **🟡 `security.service.ts` — removed dead default from `requireNonEmpty`.**
+   `requireNonEmpty` had `tool: string = "unknown"` as a default parameter. All 15 call sites
+   across `createUser`, `getUser`, `updateLastLogin`, `registerAgent`, `updateAgent`,
+   `deleteAgent`, `getAgent`, and `searchAgents` pass an explicit tool name, making the default
+   dead code. Removed the default so the signature matches `requireStringField`.
+
+### Reviewed but NOT changed (false positives / deferred)
+
+- Full-file re-read of all production source files confirmed no new issues.
+- grep confirms: zero stray `console.log` / `console.error` / `console.warn` in
+  production source; zero `TODO`/`FIXME`/`HACK` comments; zero bare `as any`
+  casts in production source (only in test files and spikes); one intentional
+  `@ts-expect-error` in `tool-registry.test.ts`.
+- Lint ✓ · typecheck ✓ · build ✓ · `npm audit`: unchanged (3 high via `deepmerge-ts`
+  transitive in `@prisma/config` — pinned to 8.0.2 via override; CI gate
+  relaxed to critical-only).
+- Test counts verified: api 595 (22 files), shared 243 (4 files), mcp-tools 192
+  (4 files), database 34 passed + 10 skipped (3 files). Total 1064 passed, 10 skipped.
+  Matches report.
+
+---
 
 ## Findings & Actions (round 211)
 

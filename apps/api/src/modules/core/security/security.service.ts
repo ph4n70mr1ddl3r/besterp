@@ -435,7 +435,7 @@ export class SecurityService {
     };
   }
 
-  private static requireNonEmpty(value: string, field: string, maxLength: number, tool: string = "unknown"): string {
+  private static requireNonEmpty(value: string, field: string, maxLength: number, tool: string): string {
     if (typeof value !== "string") {
       throw new InvalidTypeValueError(
         `'${field}' must be a string.`,

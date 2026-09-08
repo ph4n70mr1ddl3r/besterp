@@ -60,9 +60,9 @@ export class ProductService {
     const { tenantId, productType, name, description, sku, features } = input;
 
     const trimmedTenantId = ProductService.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "create_product");
-    const trimmedName = ProductService.requireNonEmptyString(name.trim(), "name", MAX_PARTY_NAME_LENGTH);
-    const trimmedDescription = description !== undefined && description !== null ? ProductService.requireOptionalString(stripHtmlTags(description.trim()), "description", MAX_PARTY_DESCRIPTION_LENGTH) : null;
-    const trimmedSku = sku !== undefined && sku !== null ? ProductService.requireOptionalString(stripHtmlTags(sku.trim()), "sku", 100) : null;
+    const trimmedName = ProductService.requireNonEmptyString(name.trim(), "name", MAX_PARTY_NAME_LENGTH, "create_product");
+    const trimmedDescription = description !== undefined && description !== null ? ProductService.requireOptionalString(stripHtmlTags(description.trim()), "description", MAX_PARTY_DESCRIPTION_LENGTH, "create_product") : null;
+    const trimmedSku = sku !== undefined && sku !== null ? ProductService.requireOptionalString(stripHtmlTags(sku.trim()), "sku", 100, "create_product") : null;
     const trimmedProductType = ProductService.requireStringField(productType, "productType", MAX_ROLE_TYPE_LENGTH, "create_product");
 
     // Validate product type exists
@@ -193,9 +193,9 @@ export class ProductService {
     const productId = ProductService.requireUuid(rawProductId, "productId");
 
     const updateData: Prisma.ProductUpdateInput = {};
-    if (name !== undefined) updateData.name = ProductService.requireNonEmptyString(name.trim(), "name", MAX_PARTY_NAME_LENGTH);
-    if (description !== undefined) updateData.description = description === null ? null : ProductService.requireOptionalString(stripHtmlTags(description.trim()), "description", MAX_PARTY_DESCRIPTION_LENGTH);
-    if (sku !== undefined) updateData.sku = sku === null ? null : ProductService.requireOptionalString(stripHtmlTags(sku.trim()), "sku", 100);
+    if (name !== undefined) updateData.name = ProductService.requireNonEmptyString(name.trim(), "name", MAX_PARTY_NAME_LENGTH, "update_product");
+    if (description !== undefined) updateData.description = description === null ? null : ProductService.requireOptionalString(stripHtmlTags(description.trim()), "description", MAX_PARTY_DESCRIPTION_LENGTH, "update_product");
+    if (sku !== undefined) updateData.sku = sku === null ? null : ProductService.requireOptionalString(stripHtmlTags(sku.trim()), "sku", 100, "update_product");
     if (productTypeId !== undefined) {
       const trimmedProductTypeId = productTypeId.trim();
       const pt = await this.prisma.admin.productType.findUnique({ where: { name: trimmedProductTypeId } });
@@ -233,8 +233,8 @@ export class ProductService {
 
     const trimmedTenantId = ProductService.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "add_product_feature");
     const productId = ProductService.requireUuid(rawProductId, "productId");
-    const trimmedName = ProductService.requireNonEmptyString(name.trim(), "featureName", 100);
-    const trimmedValue = ProductService.requireNonEmptyString(value.trim(), "featureValue", 500);
+    const trimmedName = ProductService.requireNonEmptyString(name.trim(), "featureName", 100, "add_product_feature");
+    const trimmedValue = ProductService.requireNonEmptyString(value.trim(), "featureValue", 500, "add_product_feature");
 
     const db: TenantScopedClient = this.prisma.tenantScoped(trimmedTenantId);
 
@@ -327,20 +327,20 @@ export class ProductService {
     return trimmed;
   }
 
-  private static requireNonEmptyString(value: string, field: string, maxLength: number): string {
+  private static requireNonEmptyString(value: string, field: string, maxLength: number, tool: string): string {
     if (value.length === 0) {
-      throw new InvalidTypeValueError(`'${field}' must not be empty.`, { context: { field } });
+      throw new InvalidTypeValueError(`'${field}' must not be empty.`, { suggestedTools: [tool], context: { field } });
     }
     if (value.length > maxLength) {
-      throw new InvalidTypeValueError(`'${field}' exceeds maximum length of ${maxLength} characters.`, { context: { field, length: value.length } });
+      throw new InvalidTypeValueError(`'${field}' exceeds maximum length of ${maxLength} characters.`, { suggestedTools: [tool], context: { field, length: value.length } });
     }
     return stripHtmlTags(value);
   }
 
-  private static requireOptionalString(value: string, field: string, maxLength: number): string | null {
+  private static requireOptionalString(value: string, field: string, maxLength: number, tool: string): string | null {
     if (value.length === 0) return null;
     if (value.length > maxLength) {
-      throw new InvalidTypeValueError(`'${field}' exceeds maximum length of ${maxLength} characters.`, { context: { field, length: value.length } });
+      throw new InvalidTypeValueError(`'${field}' exceeds maximum length of ${maxLength} characters.`, { suggestedTools: [tool], context: { field, length: value.length } });
     }
     return stripHtmlTags(value);
   }

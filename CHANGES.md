@@ -1,5 +1,36 @@
 # BestERP — Security & Architecture Fixes
 
+## Changes Applied (2026-09-08) — Code Review Round 213
+
+### 🟡 `product.service.ts` — `requireNonEmptyString`/`requireOptionalString` now include `suggestedTools`
+
+**Problem:** `ProductService.requireStringField` and `ProductService.requireNonEmptyFilter`
+included `suggestedTools` in their error context, but the two string helpers
+(`requireNonEmptyString`, `requireOptionalString`) omitted it. A validation
+error from either helper surfaced no tool hint, while every other validator in
+the service did. This was a consistency gap: callers could not infer which
+operation was failing from the error alone.
+
+**Fix:** Added a `tool: string` parameter to both helpers and included
+`suggestedTools: [tool]` in all three error paths (empty check and length check
+for `requireNonEmptyString`; length check for `requireOptionalString`). Updated
+all 7 call sites across `createProduct`, `updateProduct`, and
+`addProductFeature` to pass the operation-specific tool name.
+
+### 🟡 `security.service.ts` — removed dead default from `requireNonEmpty`
+
+**Problem:** `requireNonEmpty` had `tool: string = "unknown"` as a default
+parameter. All 15 call sites across `createUser`, `getUser`,
+`updateLastLogin`, `registerAgent`, `updateAgent`, `deleteAgent`, `getAgent`,
+and `searchAgents` pass an explicit tool name, so the default was dead code.
+Using `"unknown"` as a fallback was also misleading — it would suggest a tool
+named `"unknown"` if ever hit.
+
+**Fix:** Removed the default value so the parameter is required. The signature
+now matches `requireStringField` (also required, no default).
+
+---
+
 ## Changes Applied (2026-09-08) — Code Review Round 211
 
 ### 🟡 `product.service.ts` — unified validation helpers to static pattern
