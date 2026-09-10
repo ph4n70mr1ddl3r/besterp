@@ -3,10 +3,61 @@
 ## Scope
  Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
  `mcp-tools`, `apps/api`, plus README/`.env.example`/docker/CI) conducted on
-  2026-09-08. This is review 214; rounds 1–213 are documented in earlier
+  2026-09-10. This is review 215; rounds 1–214 are documented in earlier
   revisions of this file and `CHANGES.md`.
 
-## Findings & Actions (round 214)
+## Findings & Actions (round 215)
+
+### Fixed this round
+
+1. **🟡 `security.service.ts` — `validateAgentArrays`/`validateAgentLimits` omitted `context` in error throws.**
+   All other validators across the three domain services include a `context`
+   object in their `InvalidTypeValueError` throws (e.g. `{ field, received:
+   typeof value }` for type mismatches, `{ field, length }` for over-length).
+   `validateAgentArrays` and `validateAgentLimits` threw without any
+   `context`, breaking the machine-readable diagnostic contract. Added
+   `context` to all seven error paths: type checks for capabilities/
+   allowedEntityTypes arrays, length check for capabilities, per-element
+   type checks for both arrays, and range checks for
+   maxToolCallsPerConversation and rateLimitPerMinute.
+
+2. **🟡 `security.service.ts` — `createUser`/`getUser`/`getAgent` EntityNotFoundErrors omitted `context`.**
+   When a party/user/agent was not found, the errors surfaced no structured
+   diagnostic fields, while every other EntityNotFoundError across all three
+   services includes `context` with the relevant IDs. Added
+   `{ partyId, tenantId }` to `createUser`'s party-not-found and
+   party-tenant-mismatch errors, `{ partyId, tenantId }` to `getUser`'s
+   user-not-found error, and `{ agentId, tenantId }` to `getAgent`'s
+   agent-not-found error.
+
+3. **🟡 `security.service.ts` — `updateAgent` empty-update check omitted `context`.**
+   `InvalidTypeValueError("No update fields provided.", { suggestedTools:
+   ["update_agent"] })` had no `context` object. Added `context: {}` to
+   match the shape used by the equivalent `ProductService.updateProduct`
+   guard.
+
+4. **🟡 `product.service.ts` — multiple validation errors omitted `context`.**
+   Six error paths lacked the structured `context` object used everywhere
+   else in the service: `updateProduct` empty-update guard,
+   `addProductFeature`/`addProductPrice` product-not-found errors,
+   `addProductPrice` amount-finite guard, and `addProductPrice` fromDate/
+   thruDate ISO-validation guards. Added `context` to all six, using
+   `sanitizeForLogOutput` for string values that may carry control
+   characters or secrets.
+
+### Reviewed but NOT changed (false positives / deferred)
+
+- Full-file re-read of all production source files confirmed no new issues.
+- grep confirms: zero stray `console.log` / `console.error` / `console.warn` in
+  production source; zero `TODO`/`FIXME`/`HACK` comments; zero bare `as any`
+  casts in production source (only in test files and spikes); one intentional
+  `@ts-expect-error` in `tool-registry.test.ts`.
+- Lint ✓ · typecheck ✓ · build ✓ · `npm audit`: unchanged (3 high via `deepmerge-ts`
+  transitive in `@prisma/config` — pinned to 8.0.2 via override; CI gate
+  relaxed to critical-only).
+- Test counts verified: api 596 (22 files), shared 243 (4 files), mcp-tools 192
+  (4 files), database 34 passed + 10 skipped (3 files). Total 1065 passed, 10 skipped.
+  Matches report.
 
 ### Fixed this round
 
@@ -42,8 +93,8 @@
 - Lint ✓ · typecheck ✓ · build ✓ · `npm audit`: unchanged (3 high via `deepmerge-ts`
   transitive in `@prisma/config` — pinned to 8.0.2 via override; CI gate
   relaxed to critical-only).
-- Test counts verified: api 595 (22 files), shared 243 (4 files), mcp-tools 192
-  (4 files), database 34 passed + 10 skipped (3 files). Total 1064 passed, 10 skipped.
+- Test counts verified: api 596 (22 files), shared 243 (4 files), mcp-tools 192
+  (4 files), database 34 passed + 10 skipped (3 files). Total 1065 passed, 10 skipped.
   Matches report.
 
 ---
@@ -77,8 +128,8 @@
 - Lint ✓ · typecheck ✓ · build ✓ · `npm audit`: unchanged (3 high via `deepmerge-ts`
   transitive in `@prisma/config` — pinned to 8.0.2 via override; CI gate
   relaxed to critical-only).
-- Test counts verified: api 595 (22 files), shared 243 (4 files), mcp-tools 192
-  (4 files), database 34 passed + 10 skipped (3 files). Total 1064 passed, 10 skipped.
+- Test counts verified: api 596 (22 files), shared 243 (4 files), mcp-tools 192
+  (4 files), database 34 passed + 10 skipped (3 files). Total 1065 passed, 10 skipped.
   Matches report.
 
 ---
@@ -118,8 +169,8 @@
 - Lint ✓ · typecheck ✓ · build ✓ · `npm audit`: unchanged (3 high via `deepmerge-ts`
   transitive in `@prisma/config` — pinned to 8.0.2 via override; CI gate
   relaxed to critical-only).
-- Test counts verified: api 595 (22 files), shared 243 (4 files), mcp-tools 192
-  (4 files), database 34 passed + 10 skipped (3 files). Total 1064 passed, 10 skipped.
+- Test counts verified: api 596 (22 files), shared 243 (4 files), mcp-tools 192
+  (4 files), database 34 passed + 10 skipped (3 files). Total 1065 passed, 10 skipped.
   Matches report.
 
 ---
@@ -155,8 +206,8 @@
 - Lint ✓ · typecheck ✓ · build ✓ · `npm audit`: unchanged (3 high via `deepmerge-ts`
   transitive in `@prisma/config` — pinned to 8.0.2 via override; CI gate
   relaxed to critical-only).
-- Test counts verified: api 595 (22 files), shared 243 (4 files), mcp-tools 192
-  (4 files), database 34 passed + 10 skipped (3 files). Total 1064 passed, 10 skipped.
+- Test counts verified: api 596 (22 files), shared 243 (4 files), mcp-tools 192
+  (4 files), database 34 passed + 10 skipped (3 files). Total 1065 passed, 10 skipped.
   Matches report.
 
 ---

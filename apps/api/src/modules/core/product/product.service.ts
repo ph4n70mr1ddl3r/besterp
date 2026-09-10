@@ -211,7 +211,7 @@ export class ProductService {
     const db: TenantScopedClient = this.prisma.tenantScoped(trimmedTenantId);
 
     if (Object.keys(updateData).length === 0) {
-      throw new InvalidTypeValueError("No update fields provided.", { suggestedTools: ["update_product"] });
+      throw new InvalidTypeValueError("No update fields provided.", { suggestedTools: ["update_product"], context: {} });
     }
 
     try {
@@ -243,7 +243,7 @@ export class ProductService {
       if (!product) {
         throw new EntityNotFoundError(
           `Product '${productId}' not found in tenant '${trimmedTenantId}'.`,
-          { suggestedTools: ["search_products", "get_product"] }
+          { suggestedTools: ["search_products", "get_product"], context: { productId, tenantId: trimmedTenantId } }
         );
       }
 
@@ -268,7 +268,7 @@ export class ProductService {
     const productId = ProductService.requireUuid(rawProductId, "productId");
 
     if (!Number.isFinite(amount) || amount <= 0) {
-      throw new InvalidTypeValueError("Price amount must be a finite number greater than zero.", { suggestedTools: ["add_product_price"] });
+      throw new InvalidTypeValueError("Price amount must be a finite number greater than zero.", { suggestedTools: ["add_product_price"], context: { field: "amount", received: amount } });
     }
 
     const db: TenantScopedClient = this.prisma.tenantScoped(trimmedTenantId);
@@ -278,18 +278,18 @@ export class ProductService {
       if (!product) {
         throw new EntityNotFoundError(
           `Product '${productId}' not found in tenant '${trimmedTenantId}'.`,
-          { suggestedTools: ["search_products", "get_product"] }
+          { suggestedTools: ["search_products", "get_product"], context: { productId, tenantId: trimmedTenantId } }
         );
       }
 
       const parsedFromDate = fromDate ? parseISODateTimeAsUTC(fromDate) : new Date();
       if (isNaN(parsedFromDate.getTime())) {
-        throw new InvalidTypeValueError("fromDate must be a valid ISO 8601 date.", { suggestedTools: ["add_product_price"] });
+        throw new InvalidTypeValueError("fromDate must be a valid ISO 8601 date.", { suggestedTools: ["add_product_price"], context: { field: "fromDate", invalidValue: sanitizeForLogOutput(fromDate ?? "") } });
       }
 
       const parsedThruDate = thruDate ? parseISODateTimeAsUTC(thruDate) : null;
       if (parsedThruDate && isNaN(parsedThruDate.getTime())) {
-        throw new InvalidTypeValueError("thruDate must be a valid ISO 8601 date.", { suggestedTools: ["add_product_price"] });
+        throw new InvalidTypeValueError("thruDate must be a valid ISO 8601 date.", { suggestedTools: ["add_product_price"], context: { field: "thruDate", invalidValue: sanitizeForLogOutput(thruDate ?? "") } });
       }
 
       const price = await db.productPrice.create({

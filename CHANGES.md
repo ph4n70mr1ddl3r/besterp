@@ -1,5 +1,53 @@
 # BestERP — Security & Architecture Fixes
 
+## Changes Applied (2026-09-10) — Code Review Round 215
+
+### 🟡 `security.service.ts` — `validateAgentArrays`/`validateAgentLimits` now include `context`
+
+**Problem:** All other validators across the three domain services include a
+`context` object in their `InvalidTypeValueError` throws (e.g. `{ field,
+received: typeof value }` for type mismatches, `{ field, length }` for
+over-length). `validateAgentArrays` and `validateAgentLimits` threw without
+any `context`, breaking the machine-readable diagnostic contract.
+
+**Fix:** Added `context` to all seven error paths: type checks for
+capabilities/allowedEntityTypes arrays (`{ field, received: typeof value }`),
+length check for capabilities (`{ field, length }`), per-element type checks
+for both arrays (`{ field, received: typeof item }`), and range checks for
+maxToolCallsPerConversation and rateLimitPerMinute (`{ field, value }`).
+
+### 🟡 `security.service.ts` — `createUser`/`getUser`/`getAgent` EntityNotFoundErrors now include `context`
+
+**Problem:** When a party/user/agent was not found, the errors surfaced no
+structured diagnostic fields, while every other EntityNotFoundError across
+all three services includes `context` with the relevant IDs.
+
+**Fix:** Added `{ partyId, tenantId }` to `createUser`'s party-not-found and
+party-tenant-mismatch errors, `{ partyId, tenantId }` to `getUser`'s
+user-not-found error, and `{ agentId, tenantId }` to `getAgent`'s
+agent-not-found error.
+
+### 🟡 `security.service.ts` — `updateAgent` empty-update check now includes `context`
+
+**Problem:** `InvalidTypeValueError("No update fields provided.", {
+suggestedTools: ["update_agent"] })` had no `context` object.
+
+**Fix:** Added `context: {}` to match the shape used by the equivalent
+`ProductService.updateProduct` guard.
+
+### 🟡 `product.service.ts` — multiple validation errors now include `context`
+
+**Problem:** Six error paths lacked the structured `context` object used
+everywhere else in the service: `updateProduct` empty-update guard,
+`addProductFeature`/`addProductPrice` product-not-found errors,
+`addProductPrice` amount-finite guard, and `addProductPrice` fromDate/
+thruDate ISO-validation guards.
+
+**Fix:** Added `context` to all six, using `sanitizeForLogOutput` for string
+values that may carry control characters or secrets.
+
+---
+
 ## Changes Applied (2026-09-08) — Code Review Round 214
 
 ### 🟡 `security.service.ts` — `updateAgent` empty-update check now suggests `update_agent`

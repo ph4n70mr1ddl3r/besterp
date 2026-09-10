@@ -56,13 +56,13 @@ export class SecurityService {
     if (!party) {
       throw new EntityNotFoundError(
         `Party '${sanitizeForLogOutput(validatedPartyId)}' not found in tenant '${sanitizeForLogOutput(trimmedTenantId)}'.`,
-        { suggestedTools: ["search_parties", "get_party"] }
+        { suggestedTools: ["search_parties", "get_party"], context: { partyId: validatedPartyId, tenantId: trimmedTenantId } }
       );
     }
     if (party.tenantId !== trimmedTenantId) {
       throw new InvalidTypeValueError(
         `Party '${sanitizeForLogOutput(validatedPartyId)}' does not belong to tenant '${sanitizeForLogOutput(trimmedTenantId)}'.`,
-        { suggestedTools: ["search_parties"] }
+        { suggestedTools: ["search_parties"], context: { partyId: validatedPartyId, tenantId: trimmedTenantId } }
       );
     }
 
@@ -108,7 +108,7 @@ export class SecurityService {
       if (!user) {
         throw new EntityNotFoundError(
           `No user record found for party '${sanitizeForLogOutput(validatedPartyId)}' in tenant '${sanitizeForLogOutput(trimmedTenantId)}'.`,
-          { suggestedTools: ["get_user", "search_parties"] }
+          { suggestedTools: ["get_user", "search_parties"], context: { partyId: validatedPartyId, tenantId: trimmedTenantId } }
         );
       }
       return this.toUserResult(user);
@@ -188,29 +188,34 @@ export class SecurityService {
     if (!Array.isArray(capabilities)) {
       throw new InvalidTypeValueError("capabilities must be a string array.", {
         suggestedTools: ["register_agent"],
+        context: { field: "capabilities", received: typeof capabilities },
       });
     }
     if (capabilities.length > 50) {
       throw new InvalidTypeValueError("capabilities must have at most 50 entries.", {
         suggestedTools: ["register_agent"],
+        context: { field: "capabilities", length: (capabilities as unknown[]).length },
       });
     }
     for (const item of capabilities) {
       if (typeof item !== "string" || !item.trim()) {
         throw new InvalidTypeValueError("Each capability must be a non-empty string.", {
           suggestedTools: ["register_agent"],
+          context: { field: "capabilities", received: typeof item },
         });
       }
     }
     if (!Array.isArray(allowedEntityTypes)) {
       throw new InvalidTypeValueError("allowedEntityTypes must be a string array.", {
         suggestedTools: ["register_agent"],
+        context: { field: "allowedEntityTypes", received: typeof allowedEntityTypes },
       });
     }
     for (const item of allowedEntityTypes) {
       if (typeof item !== "string" || !item.trim()) {
         throw new InvalidTypeValueError("Each allowedEntityType must be a non-empty string.", {
           suggestedTools: ["register_agent"],
+          context: { field: "allowedEntityTypes", received: typeof item },
         });
       }
     }
@@ -224,13 +229,13 @@ export class SecurityService {
     if (maxToolCallsPerConversation < 1 || maxToolCallsPerConversation > 10000) {
       throw new InvalidTypeValueError(
         `maxToolCallsPerConversation must be between 1 and 10000, got ${maxToolCallsPerConversation}.`,
-        { suggestedTools: ["register_agent"] }
+        { suggestedTools: ["register_agent"], context: { field: "maxToolCallsPerConversation", value: maxToolCallsPerConversation } }
       );
     }
     if (rateLimitPerMinute < 1 || rateLimitPerMinute > 1000) {
       throw new InvalidTypeValueError(
         `rateLimitPerMinute must be between 1 and 1000, got ${rateLimitPerMinute}.`,
-        { suggestedTools: ["register_agent"] }
+        { suggestedTools: ["register_agent"], context: { field: "rateLimitPerMinute", value: rateLimitPerMinute } }
       );
     }
   }
@@ -270,6 +275,7 @@ export class SecurityService {
     if (Object.keys(updateData).length === 0) {
       throw new InvalidTypeValueError("No update fields provided.", {
         suggestedTools: ["update_agent"],
+        context: {},
       });
     }
 
@@ -330,7 +336,7 @@ export class SecurityService {
     if (!agent) {
       throw new EntityNotFoundError(
         `Agent '${sanitizeForLogOutput(validatedAgentId)}' not found in tenant '${sanitizeForLogOutput(trimmedTenantId)}'.`,
-        { suggestedTools: ["describe_agent", "list_agents"] }
+        { suggestedTools: ["describe_agent", "list_agents"], context: { agentId: validatedAgentId, tenantId: trimmedTenantId } }
       );
     }
     return this.toAgentResult(agent);
