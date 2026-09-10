@@ -1,5 +1,5 @@
 import { Injectable, Logger, OnModuleInit } from "@nestjs/common";
-import { InvalidTypeValueError, MAX_USER_ID_LENGTH, MAX_IDEMPOTENCY_KEY_LENGTH, SAFE_IDEMPOTENCY_KEY, MAX_AGENT_ID_LENGTH, MAX_CONVERSATION_ID_LENGTH, MAX_REASONING_LENGTH, stripHtmlTags, sanitizeForLogOutput, TENANT_ID_PATTERN, validateTenantIdEnhancedForAuth, validateOptionalString } from "@besterp/shared";
+import { InvalidTypeValueError, MAX_USER_ID_LENGTH, MAX_IDEMPOTENCY_KEY_LENGTH, SAFE_IDEMPOTENCY_KEY, MAX_AGENT_ID_LENGTH, MAX_CONVERSATION_ID_LENGTH, MAX_REASONING_LENGTH, stripHtmlTags, sanitizeForLogOutput, OPTIONAL_ID_PATTERN, validateTenantIdEnhancedForAuth, validateOptionalString } from "@besterp/shared";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { PartyService } from "../modules/core/party/party.service.js";
 import { SecurityService } from "../modules/core/security/security.service.js";
@@ -109,10 +109,10 @@ export class McpService implements OnModuleInit {
         { context: { field: "userId", length: rawUserId.length, maxLength: MAX_USER_ID_LENGTH } }
       );
     }
-    if (!TENANT_ID_PATTERN.test(rawUserId)) {
+    if (!OPTIONAL_ID_PATTERN.test(rawUserId)) {
       throw new InvalidTypeValueError(
         "userId contains invalid characters. " +
-          "User IDs may only contain alphanumeric characters, hyphens, and underscores.",
+          "User IDs may only contain non-whitespace printable characters.",
         { context: { field: "userId" } }
       );
     }
@@ -121,6 +121,8 @@ export class McpService implements OnModuleInit {
     // on the same value. Sanitization happens at the output surfaces
     // (audit-log, idempotency) so the durable sinks never store a raw secret
     // while the identity fields remain usable for correlation and auditing.
+    // OPTIONAL_ID_PATTERN is intentionally consistent with JwtAuthGuard and
+    // TenantGuard, both of which use the same pattern for userId.
     return rawUserId;
   }
 

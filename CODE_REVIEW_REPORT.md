@@ -1,10 +1,54 @@
-     # Code Review Report
+      # Code Review Report
 
 ## Scope
-  Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
-  `mcp-tools`, `apps/api`, plus README/`.env.example`/docker/CI) conducted on
-  2026-09-10. This is review 219; rounds 1–218 are documented in earlier
-  revisions of this file and `CHANGES.md`.
+   Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
+   `mcp-tools`, `apps/api`, plus README/`.env.example`/docker/CI) conducted on
+   2026-09-10. This is review 220; rounds 1–219 are documented in earlier
+   revisions of this file and `CHANGES.md`.
+
+## Findings & Actions (round 220)
+
+### Fixed this round
+
+1. **🟡 `mcp.service.ts` — `validateUserId` used `TENANT_ID_PATTERN` instead of `OPTIONAL_ID_PATTERN`.**
+    `McpService.validateUserId` (line 112) validated userId against `TENANT_ID_PATTERN`
+    (`/^[a-zA-Z0-9_-]+$/`), while `JwtAuthGuard` (line 105) and `TenantGuard` (line 101) both
+    use `OPTIONAL_ID_PATTERN` (`/^[^\s\x00-\x1f\x7f-\x9f...]{1,200}$/`) for the same field.
+    A JWT carrying `userId: "john.doe"` or `userId: "user+role"` would pass auth and TenantGuard
+    but fail at the MCP boundary, producing inconsistent behaviour across construction vs.
+    execution paths. The comment on lines 149–155 of `mcp.service.ts` already argued for
+    using `OPTIONAL_ID_PATTERN` but the code had diverged. Changed the check to
+    `OPTIONAL_ID_PATTERN` and updated the error message to match the new pattern's
+    character allowance. Updated `mcp.module.spec.ts`: replaced two rejection test cases
+    (`user@evil`, `user<42>api`) with ones that actually fail `OPTIONAL_ID_PATTERN`
+    (`user\nname`, `user\tname`), and added two acceptance tests confirming `john.doe`
+    and `user+role` are now accepted. Updated inline comments to reflect the fix.
+
+2. **🟡 `product.service.ts` — `requireUuid` hardcoded `suggestedTools` across all call sites.**
+    `ProductService.requireUuid` (line 353) always returned `suggestedTools:
+    ["search_products", "get_product"]` regardless of which operation was calling it.
+    When invoked from `createProduct`, `updateProduct`, `addProductFeature`, or
+    `addProductPrice`, suggesting search/get tools was semantically wrong — the caller
+    should suggest the tool currently being attempted. Added a `suggestedTools: string[]`
+    parameter to `requireUuid` and updated all four call sites to pass self-referential
+    tool names (`["get_product"]`, `["update_product"]`, `["add_product_feature"]`,
+    `["add_product_price"]`).
+
+### Reviewed but NOT changed (false positives / deferred)
+
+- Full-file re-read of all production source files confirmed no new issues.
+- grep confirms: zero stray `console.log` / `console.error` / `console.warn` in
+  production source; zero `TODO`/`FIXME`/`HACK` comments; zero bare `as any`
+  casts in production source (only in test files and spikes); one intentional
+  `@ts-expect-error` in `tool-registry.test.ts`.
+- Lint ✓ · typecheck ✓ · build ✓ · `npm audit`: unchanged (3 high via `deepmerge-ts`
+  transitive in `@prisma/config` — pinned to 8.0.2 via override; CI gate
+  relaxed to critical-only).
+- Test counts verified: api 599 (22 files), shared 243 (4 files), mcp-tools 192
+  (4 files), database 34 passed + 10 skipped (3 files). Total 1068 passed, 10 skipped.
+  Matches report.
+
+---
 
 ## Findings & Actions (round 219)
 

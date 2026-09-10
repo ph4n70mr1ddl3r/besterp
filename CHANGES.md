@@ -1,5 +1,33 @@
 # BestERP — Security & Architecture Fixes
 
+## Changes Applied (2026-09-10) — Code Review Round 220
+
+### 🟡 `mcp.service.ts` — `validateUserId` now uses `OPTIONAL_ID_PATTERN`
+
+**Problem:** `McpService.validateUserId` validated userId against `TENANT_ID_PATTERN`
+(`/^[a-zA-Z0-9_-]+$/`), while `JwtAuthGuard` (line 105) and `TenantGuard` (line 101)
+both use `OPTIONAL_ID_PATTERN` (`/^[^\s\x00-\x1f\x7f-\x9f...]{1,200}$/`) for the same
+field. A JWT carrying `userId: "john.doe"` or `userId: "user+role"` would pass auth
+and TenantGuard but fail at the MCP boundary, producing inconsistent behaviour across
+construction vs. execution paths.
+
+**Fix:** Changed the check to `OPTIONAL_ID_PATTERN` and updated the error message to
+match the new pattern's character allowance. Updated `mcp.module.spec.ts`: replaced
+two rejection test cases with ones that actually fail `OPTIONAL_ID_PATTERN`, and added
+two acceptance tests confirming `john.doe` and `user+role` are now accepted.
+
+### 🟡 `product.service.ts` — `requireUuid` now accepts self-referential `suggestedTools`
+
+**Problem:** `ProductService.requireUuid` always returned `suggestedTools:
+["search_products", "get_product"]` regardless of which operation was calling it.
+When invoked from `updateProduct`, `addProductFeature`, or `addProductPrice`,
+suggesting search/get tools was semantically wrong.
+
+**Fix:** Added a `suggestedTools: string[]` parameter to `requireUuid` and updated
+all four call sites to pass self-referential tool names.
+
+---
+
 ## Changes Applied (2026-09-10) — Code Review Round 218
 
 ### Clean review — no new findings

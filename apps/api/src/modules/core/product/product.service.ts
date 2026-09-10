@@ -108,7 +108,7 @@ export class ProductService {
 
   async getProduct(tenantId: string, productId: string): Promise<GetProductResult> {
     const trimmedTenantId = ProductService.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "get_product");
-    productId = ProductService.requireUuid(productId, "productId");
+    productId = ProductService.requireUuid(productId, "productId", ["get_product"]);
 
     const db: TenantScopedClient = this.prisma.tenantScoped(trimmedTenantId);
 
@@ -195,7 +195,7 @@ export class ProductService {
     const { tenantId, productId: rawProductId, name, description, sku, productTypeId } = input;
 
     const trimmedTenantId = ProductService.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "update_product");
-    const productId = ProductService.requireUuid(rawProductId, "productId");
+    const productId = ProductService.requireUuid(rawProductId, "productId", ["update_product"]);
 
     const updateData: Prisma.ProductUpdateInput = {};
     if (name !== undefined) updateData.name = ProductService.requireNonEmptyString(name.trim(), "name", MAX_PARTY_NAME_LENGTH, "update_product");
@@ -237,7 +237,7 @@ export class ProductService {
     const { tenantId, productId: rawProductId, name, value } = input;
 
     const trimmedTenantId = ProductService.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "add_product_feature");
-    const productId = ProductService.requireUuid(rawProductId, "productId");
+    const productId = ProductService.requireUuid(rawProductId, "productId", ["add_product_feature"]);
     const trimmedName = ProductService.requireNonEmptyString(name.trim(), "featureName", 100, "add_product_feature");
     const trimmedValue = ProductService.requireNonEmptyString(value.trim(), "featureValue", 500, "add_product_feature");
 
@@ -270,7 +270,7 @@ export class ProductService {
     const { tenantId, productId: rawProductId, priceType, amount, currencyCode = "USD", fromDate, thruDate } = input;
 
     const trimmedTenantId = ProductService.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "add_product_price");
-    const productId = ProductService.requireUuid(rawProductId, "productId");
+    const productId = ProductService.requireUuid(rawProductId, "productId", ["add_product_price"]);
 
     if (!Number.isFinite(amount) || amount <= 0) {
       throw new InvalidTypeValueError("Price amount must be a finite number greater than zero.", { suggestedTools: ["add_product_price"], context: { field: "amount", received: amount } });
@@ -350,11 +350,11 @@ export class ProductService {
     return stripHtmlTags(value);
   }
 
-  private static requireUuid(value: string, field: string): string {
+  private static requireUuid(value: string, field: string, suggestedTools: string[]): string {
     const trimmed = value.trim();
     if (!UUID_REGEX.test(trimmed)) {
       const safeValue = sanitizeForLogOutput(stripHtmlTags(trimmed));
-      throw new InvalidTypeValueError(`'${field}' must be a valid UUID.`, { suggestedTools: ["search_products", "get_product"], context: { field, received: safeValue } });
+      throw new InvalidTypeValueError(`'${field}' must be a valid UUID.`, { suggestedTools, context: { field, received: safeValue } });
     }
     return trimmed;
   }

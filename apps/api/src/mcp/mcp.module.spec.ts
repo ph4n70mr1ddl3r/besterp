@@ -183,7 +183,7 @@ describe("McpService", () => {
       expect(() =>
         mcpService.buildContext({
           tenantId: "tenant-1",
-          userId: "user@evil",
+          userId: "user\nname",
         })
       ).toThrow(InvalidTypeValueError);
     });
@@ -210,13 +210,13 @@ describe("McpService", () => {
       // gate pass through verbatim, and sanitization runs at the durable sinks
       // (audit-log, idempotency) so identity fields remain usable for
       // correlation while any secret-shaped content is still scrubbed before
-      // persistence. Pattern validation for agentId/conversationId is
-      // delegated to ToolRegistry (OPTIONAL_ID_PATTERN); userId retains its
-      // TENANT_ID_PATTERN check because TenantGuard also enforces that pattern.
+      // Pattern validation for userId uses OPTIONAL_ID_PATTERN, consistent with
+      // JwtAuthGuard and TenantGuard. This allows real-world identifiers like
+      // "john.doe" or "user+role" that TENANT_ID_PATTERN would reject.
       // There is NO HTML-stripping step for identity fields: a value
-      // containing control characters is REJECTED by the length-cap alone
-      // (control chars count toward length), while printable ASCII passes
-      // through verbatim for the registry to evaluate.
+      // containing control characters is REJECTED by the pattern check
+      // (control chars are excluded by OPTIONAL_ID_PATTERN), while printable
+      // ASCII passes through verbatim for the registry to evaluate.
       const ctx = mcpService.buildContext({
         tenantId: "tenant-1",
         userId: "us-sk_live_realsecret123",
@@ -274,15 +274,30 @@ describe("McpService", () => {
     });
 
     it("should reject userId with invalid characters before sanitization", () => {
-      // Pattern check runs BEFORE sanitization, so a userId containing < >
-      // (which stripHtmlTags would remove) is rejected outright rather than
-      // being silently accepted after sanitization rewrites the value.
+      // Pattern check runs BEFORE sanitization, so a userId containing
+      // control characters is rejected outright rather than being silently
+      // accepted after sanitization rewrites the value.
       expect(() =>
         mcpService.buildContext({
           tenantId: "tenant-1",
-          userId: "user<42>api",
+          userId: "user\tname",
         })
       ).toThrow("userId contains invalid characters");
+    });
+
+    it("should accept real-world userId formats like dots and plus signs", () => {
+      // OPTIONAL_ID_PATTERN matches JwtAuthGuard and TenantGuard, allowing
+      // identifiers like "john.doe" or "user+role" that TENANT_ID_PATTERN would reject.
+      const ctx = mcpService.buildContext({
+        tenantId: "tenant-1",
+        userId: "john.doe",
+      });
+      expect(ctx.userId).toBe("john.doe");
+      const ctx2 = mcpService.buildContext({
+        tenantId: "tenant-1",
+        userId: "user+role",
+      });
+      expect(ctx2.userId).toBe("user+role");
     });
 
     it("should preserve ULID identity IDs (must not mangle them into [REDACTED_TOKEN])", () => {
