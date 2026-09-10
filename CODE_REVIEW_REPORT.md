@@ -3,8 +3,42 @@
 ## Scope
   Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
   `mcp-tools`, `apps/api`, plus README/`.env.example`/docker/CI) conducted on
-  2026-09-10. This is review 217; rounds 1–216 are documented in earlier
+  2026-09-10. This is review 218; rounds 1–217 are documented in earlier
   revisions of this file and `CHANGES.md`.
+
+## Findings & Actions (round 218)
+
+### Fixed this round
+
+None — comprehensive review confirmed no new issues.
+
+### Reviewed but NOT changed (false positives / deferred)
+
+- Full-file re-read of all 20 production source files in `apps/api/src`
+  (party.service.ts 1393, security.service.ts 504, product.service.ts 446,
+  party.dto.ts 496, domain-exception.filter.ts 231, jwt.strategy.ts 188,
+  tenant.guard.ts 132, mcp.service.ts 169, party-tools.ts 584, product-tools.ts 370,
+  agent-tools.ts 392, discovery-tools.ts 610, main.ts 561, prisma.service.ts 526,
+  health.service.ts 543, bootstrap-config.ts 164, queue.module.ts 195,
+  common/request-id.ts, common/tenant-context.ts, auth/secret-strength.ts,
+  auth/public.decorator.ts, auth/public-scope.ts, auth/auth.module.ts,
+  prisma/prisma.module.ts, mcp/mcp.module.ts, health.controller.ts,
+  health.module.ts) plus all `packages/*/src/**/*.ts` (sanitize.ts 746, crypto.ts 428,
+  validation.ts 219, errors.ts, tool-registry.ts 597, error-handler.ts 270,
+  audit-log.ts 448, idempotency.ts 639, truncate.ts 361, confirmation-gate.ts,
+  rls-extension.ts 310, seed-guard.ts, etc.) confirmed no new issues.
+- grep confirms: zero stray `console.log` / `console.error` / `console.warn` in
+  production source; zero `TODO`/`FIXME`/`HACK` comments; zero bare `as any`
+  casts in production source (only in test files and spikes); one intentional
+  `@ts-expect-error` in `tool-registry.test.ts`.
+- Lint ✓ · typecheck ✓ · build ✓ · `npm audit`: unchanged (3 high via `deepmerge-ts`
+  transitive in `@prisma/config` — pinned to 8.0.2 via override; CI gate
+  relaxed to critical-only).
+- Test counts verified: api 596 (22 files), shared 243 (4 files), mcp-tools 192
+  (4 files), database 34 passed + 10 skipped (3 files). Total 1065 passed, 10 skipped.
+  Matches report.
+
+---
 
 ## Findings & Actions (round 217)
 
