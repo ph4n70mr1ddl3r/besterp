@@ -204,14 +204,14 @@ export class PartyService {
     if (trimmedName.length === 0) {
       throw new InvalidTypeValueError("Party name cannot be empty", { suggestedTools: ["create_party"], context: { field: "name", received: name } });
     }
-    PartyService.requireMaxLength(trimmedName, "Party name", MAX_PARTY_NAME_LENGTH);
+    PartyService.requireMaxLength(trimmedName, "Party name", MAX_PARTY_NAME_LENGTH, "create_party");
 
     const trimmedDescription = description?.trim() ?? null;
     if (trimmedDescription !== null && trimmedDescription.length === 0) {
       throw new InvalidTypeValueError("Description cannot be whitespace-only.", { suggestedTools: ["create_party"], context: { field: "description" } });
     }
     if (trimmedDescription !== null) {
-      PartyService.requireMaxLength(trimmedDescription, "Description", MAX_PARTY_DESCRIPTION_LENGTH);
+      PartyService.requireMaxLength(trimmedDescription, "Description", MAX_PARTY_DESCRIPTION_LENGTH, "create_party");
     }
     return { trimmedName, trimmedDescription };
   }
@@ -248,7 +248,7 @@ export class PartyService {
     if (!trimmedFirstName) {
       throw new MissingSubtypeDataError("firstName is required for person data", { suggestedTools: ["create_party"], context: { field: "firstName" } });
     }
-    PartyService.requireMaxLength(trimmedFirstName, "First name", MAX_PERSON_NAME_LENGTH);
+    PartyService.requireMaxLength(trimmedFirstName, "First name", MAX_PERSON_NAME_LENGTH, "create_party");
     if (typeof personData.lastName !== "string") {
       throw new InvalidTypeValueError(
         "lastName must be a string.",
@@ -259,15 +259,15 @@ export class PartyService {
     if (!trimmedLastName) {
       throw new MissingSubtypeDataError("lastName is required for person data", { suggestedTools: ["create_party"], context: { field: "lastName" } });
     }
-    PartyService.requireMaxLength(trimmedLastName, "Last name", MAX_PERSON_NAME_LENGTH);
+    PartyService.requireMaxLength(trimmedLastName, "Last name", MAX_PERSON_NAME_LENGTH, "create_party");
     if (typeof personData.gender === "string") {
-      PartyService.requireMaxLength(personData.gender.trim(), "Gender", MAX_GENDER_LENGTH);
+      PartyService.requireMaxLength(personData.gender.trim(), "Gender", MAX_GENDER_LENGTH, "create_party");
     }
     if (typeof personData.middleName === "string") {
-      PartyService.requireMaxLength(personData.middleName.trim(), "Middle name", MAX_MIDDLE_NAME_LENGTH);
+      PartyService.requireMaxLength(personData.middleName.trim(), "Middle name", MAX_MIDDLE_NAME_LENGTH, "create_party");
     }
     if (personData.birthDate != null) {
-      PartyService.requireValidDate(personData.birthDate, "birthDate");
+      PartyService.requireValidDate(personData.birthDate, "birthDate", ["create_party"]);
     }
   }
 
@@ -284,12 +284,12 @@ export class PartyService {
     if (!trimmedLegalName) {
       throw new MissingSubtypeDataError("legalName is required for organization data", { suggestedTools: ["create_party"], context: { field: "legalName" } });
     }
-    PartyService.requireMaxLength(trimmedLegalName, "Legal name", MAX_LEGAL_NAME_LENGTH);
+    PartyService.requireMaxLength(trimmedLegalName, "Legal name", MAX_LEGAL_NAME_LENGTH, "create_party");
     if (orgData.registrationDate != null) {
-      PartyService.requireValidDate(orgData.registrationDate, "registrationDate");
+      PartyService.requireValidDate(orgData.registrationDate, "registrationDate", ["create_party"]);
     }
     if (typeof orgData.taxId === "string") {
-      PartyService.requireMaxLength(orgData.taxId.trim(), "Tax ID", MAX_TAX_ID_LENGTH);
+      PartyService.requireMaxLength(orgData.taxId.trim(), "Tax ID", MAX_TAX_ID_LENGTH, "create_party");
     }
   }
 
@@ -1216,7 +1216,7 @@ export class PartyService {
    *  prevent). */
   private static requireNonEmptyFilter(
     value: string | undefined | null,
-    fieldName: string,
+    field: string,
     maxLength: number,
     suggestedTools: string[],
   ): string | undefined {
@@ -1224,14 +1224,14 @@ export class PartyService {
     const trimmed = value.trim();
     if (trimmed.length === 0) {
       throw new InvalidTypeValueError(
-        `${fieldName} filter cannot be whitespace-only.`,
-        { suggestedTools, context: { field: fieldName } }
+        `Filter '${field}' cannot be whitespace-only.`,
+        { suggestedTools, context: { field } }
       );
     }
     if (trimmed.length > maxLength) {
       throw new InvalidTypeValueError(
-        `${fieldName} filter is too long (${trimmed.length} characters, max ${maxLength}).`,
-        { suggestedTools, context: { field: fieldName, length: trimmed.length, maxLength } }
+        `Filter '${field}' exceeds maximum length of ${maxLength} characters.`,
+        { suggestedTools, context: { field, length: trimmed.length } }
       );
     }
     return trimmed;
@@ -1273,12 +1273,12 @@ export class PartyService {
     value: string,
     field: string,
     maxLength: number,
-    tool = "create_party",
+    tool: string,
   ): void {
     if (value.length > maxLength) {
       throw new InvalidTypeValueError(
-        `${field} is too long (${value.length} characters, max ${maxLength})`,
-        { suggestedTools: [tool], context: { field, length: value.length, maxLength } }
+        `'${field}' exceeds maximum length of ${maxLength} characters.`,
+        { suggestedTools: [tool], context: { field, length: value.length } }
       );
     }
   }
@@ -1309,7 +1309,7 @@ export class PartyService {
    *  Also enforces a 30-char max length (matching the Zod schema's
    *  .max(30) on birthDate/registrationDate) so an oversized
    *  string that bypasses Zod still gets caught here. */
-  private static requireValidDate(value: string, field: string, suggestedTools: string[] = ["create_party"]): void {
+  private static requireValidDate(value: string, field: string, suggestedTools: string[]): void {
     if (typeof value !== "string") {
       throw new InvalidTypeValueError(
         `${field} must be a non-empty ISO 8601 date string.`,
@@ -1329,8 +1329,8 @@ export class PartyService {
     // mirror that here for any call path that bypasses Zod (e.g., REST).
     if (trimmed.length > MAX_DATE_STRING_LENGTH) {
       throw new InvalidTypeValueError(
-        `${field} is too long (${trimmed.length} characters, max ${MAX_DATE_STRING_LENGTH}).`,
-        { suggestedTools, context: { field, length: trimmed.length, maxLength: MAX_DATE_STRING_LENGTH } }
+        `'${field}' exceeds maximum length of ${MAX_DATE_STRING_LENGTH} characters.`,
+        { suggestedTools, context: { field, length: trimmed.length } }
       );
     }
     // Validate the TRIMMED value so a date with surrounding whitespace

@@ -1,10 +1,70 @@
     # Code Review Report
 
 ## Scope
- Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
- `mcp-tools`, `apps/api`, plus README/`.env.example`/docker/CI) conducted on
- 2026-09-10. This is review 216; rounds 1–215 are documented in earlier
- revisions of this file and `CHANGES.md`.
+  Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
+  `mcp-tools`, `apps/api`, plus README/`.env.example`/docker/CI) conducted on
+  2026-09-10. This is review 217; rounds 1–216 are documented in earlier
+  revisions of this file and `CHANGES.md`.
+
+## Findings & Actions (round 217)
+
+### Fixed this round
+
+1. **🟡 `party.service.ts` — `requireMaxLength` had a dead default `tool` param and divergent error message.**
+   `PartyService.requireMaxLength` accepted `(value, field, maxLength, tool = "create_party")`
+   — five parameters with a dead default (all call sites either passed an explicit fourth
+   argument or relied on the default). The error message format
+   `` `${field} is too long (${value.length} characters, max ${maxLength})` `` diverged from
+   the standard used by `requireStringField`, `ProductService.requireMaxLength`-equivalent,
+   and `SecurityService.requireNonEmpty`: `"'${field}' exceeds maximum length of ${maxLength}
+   characters."`. Also, the context object included `maxLength` which is redundant with the
+   message. Aligned the signature to the required-4-param form
+   `(value, field, maxLength, tool)` and updated the message and context to match the
+   established pattern. Updated all 8 call sites that relied on the default to pass
+   `"create_party"` explicitly.
+
+2. **🟡 `party.service.ts` — `requireValidDate` had a dead default `suggestedTools` param.**
+   `PartyService.requireValidDate` accepted
+   `(value, field, suggestedTools: string[] = ["create_party"])` — the default was dead
+   code since both call sites in `validatePersonData` and `validateOrganizationData`
+   omits it entirely. Updated both call sites to pass `["create_party"]` explicitly and
+   made the parameter required, matching the pattern of `requireMaxLength` and all other
+   validators. Also aligned the "too long" error message to the standard format
+   `"'${field}' exceeds maximum length of ${maxLength} characters."` and dropped the
+   redundant `maxLength` from context.
+
+3. **🟡 `party.service.ts` — `requireNonEmptyFilter` used `fieldName` param name and divergent message.**
+   `PartyService.requireNonEmptyFilter` accepted `(value, fieldName, maxLength, suggestedTools)`
+   while `ProductService.requireNonEmptyFilter` uses `(value, field, maxLength, tools)`.
+   Renamed `fieldName` to `field` for consistency. Also aligned the "too long" error
+   message from `` `${fieldName} filter is too long (...)` `` to
+   `` `Filter '${field}' exceeds maximum length of ${maxLength} characters.` ``, matching
+   `ProductService.requireNonEmptyFilter`. Dropped the redundant `maxLength` from context.
+
+4. **🟡 `security.service.ts` — `requireNonEmpty` error message included redundant `(got N)`.**
+   `SecurityService.requireNonEmpty` threw
+   `` `'${field}' exceeds maximum length of ${maxLength} characters (got ${trimmed.length}).` ``
+   while `SecurityService.requireStringField` (same file) and all equivalents in
+   `PartyService` and `ProductService` use
+   `` `'${field}' exceeds maximum length of ${maxLength} characters.` ``. The `(got N)`
+   suffix was inconsistent and redundant (length is already in `context`). Removed it
+   to match the standard format.
+
+### Reviewed but NOT changed (false positives / deferred)
+
+- Full-file re-read of all production source files confirmed no new issues.
+- grep confirms: zero stray `console.log` / `console.error` / `console.warn` in
+  production source; zero `TODO`/`FIXME`/`HACK` comments; zero bare `as any`
+  casts in production source (only in test files and spikes); one intentional
+  `@ts-expect-error` in `tool-registry.test.ts`.
+- Lint ✓ · typecheck ✓ · build ✓ · `npm audit`: unchanged (3 high via `deepmerge-ts`
+  transitive in `@prisma/config` — pinned to 8.0.2 via override; CI gate
+  relaxed to critical-only).
+- Test counts verified: api 596 (22 files), shared 243 (4 files), mcp-tools 192
+  (4 files), database 34 passed + 10 skipped (3 files). Total 1065 passed, 10 skipped.
+  Matches report.
+
+---
 
 ## Findings & Actions (round 216)
 

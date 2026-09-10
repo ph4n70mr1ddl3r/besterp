@@ -467,7 +467,7 @@ export class SecurityService {
     }
     if (trimmed.length > maxLength) {
       throw new InvalidTypeValueError(
-        `'${field}' exceeds maximum length of ${maxLength} characters (got ${trimmed.length}).`,
+        `'${field}' exceeds maximum length of ${maxLength} characters.`,
         { suggestedTools: [tool], context: { field, length: trimmed.length } }
       );
     }

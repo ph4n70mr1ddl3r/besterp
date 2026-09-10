@@ -1,5 +1,57 @@
 # BestERP — Security & Architecture Fixes
 
+## Changes Applied (2026-09-10) — Code Review Round 217
+
+### 🟡 `party.service.ts` — `requireMaxLength` aligned to standard signature and message format
+
+**Problem:** `PartyService.requireMaxLength` accepted `(value, field, maxLength, tool = "create_party")`
+— five parameters with a dead default `tool` (all explicit callers passed a fourth arg; the
+8 implicit callers relied on `"create_party"`). The error message
+`` `${field} is too long (${value.length} characters, max ${maxLength})` `` diverged from the
+standard `"'${field}' exceeds maximum length of ${maxLength} characters."` used by
+`requireStringField`, `ProductService` validators, and `SecurityService.requireNonEmpty`.
+The context also included redundant `maxLength`.
+
+**Fix:** Made `tool` a required 4th parameter. Aligned the message to the standard format
+and dropped `maxLength` from context. Updated all 8 call sites that relied on the default
+to pass `"create_party"` explicitly.
+
+### 🟡 `party.service.ts` — `requireValidDate` dead default removed, message aligned
+
+**Problem:** `PartyService.requireValidDate` accepted
+`(value, field, suggestedTools: string[] = ["create_party"])`. Both call sites in
+`validatePersonData` and `validateOrganizationData` omitted the third argument, relying
+on the dead default. The "too long" error message used the non-standard format
+`` `${field} is too long (${trimmed.length} characters, max ${MAX_DATE_STRING_LENGTH}).` ``.
+
+**Fix:** Made `suggestedTools` a required parameter. Updated both call sites to pass
+`["create_party"]` explicitly. Aligned the "too long" message to the standard format
+and dropped redundant `maxLength` from context.
+
+### 🟡 `party.service.ts` — `requireNonEmptyFilter` param name and message aligned
+
+**Problem:** `PartyService.requireNonEmptyFilter` used `fieldName` as the parameter name
+while `ProductService.requireNonEmptyFilter` uses `field`. The "too long" message also
+used the non-standard format `` `${fieldName} filter is too long (...)` `` instead of
+`` `Filter '${field}' exceeds maximum length of ${maxLength} characters.` ``.
+
+**Fix:** Renamed `fieldName` to `field` for cross-service consistency. Aligned the error
+message to match `ProductService.requireNonEmptyFilter`. Dropped redundant `maxLength`
+from context.
+
+### 🟡 `security.service.ts` — `requireNonEmpty` message aligned with `requireStringField`
+
+**Problem:** `SecurityService.requireNonEmpty` threw
+`` `'${field}' exceeds maximum length of ${maxLength} characters (got ${trimmed.length}).` ``
+while `SecurityService.requireStringField` (same file) and all equivalents in
+`PartyService` and `ProductService` use
+`` `'${field}' exceeds maximum length of ${maxLength} characters.` ``. The `(got N)`
+suffix was inconsistent and redundant (length is already in `context`).
+
+**Fix:** Removed the `(got ${trimmed.length})` suffix to match the standard format.
+
+---
+
 ## Changes Applied (2026-09-10) — Code Review Round 216
 
 ### 🟡 `product.service.ts` — `getProduct` Prisma query lacked error mapping
