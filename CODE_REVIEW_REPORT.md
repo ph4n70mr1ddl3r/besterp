@@ -3,8 +3,79 @@
 ## Scope
  Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
  `mcp-tools`, `apps/api`, plus README/`.env.example`/docker/CI) conducted on
-  2026-09-10. This is review 215; rounds 1–214 are documented in earlier
-  revisions of this file and `CHANGES.md`.
+ 2026-09-10. This is review 216; rounds 1–215 are documented in earlier
+ revisions of this file and `CHANGES.md`.
+
+## Findings & Actions (round 216)
+
+### Fixed this round
+
+1. **🟡 `product.service.ts` — `getProduct` Prisma query lacked error mapping.**
+   `getProduct` issued a `db.product.findUnique()` without a surrounding
+   `try/catch`, so any Prisma infrastructure error (connection failure, timeout,
+   etc.) propagated as a raw `Error` instead of being mapped to a structured
+   `DomainError` subclass via `mapPrismaError`. `PartyService.getParty` already
+   wrapped its query correctly (lines 426–433); `ProductService` and
+   `SecurityService.getAgent` were the lone exceptions. Wrapped the `findUnique`
+   in a `try/catch` that calls `mapPrismaError` with self-referential retry/
+   suggest tools (`"get_product"`), matching the established pattern.
+
+2. **🟡 `security.service.ts` — `getAgent` Prisma query lacked error mapping.**
+   Same root cause: `getAgent` issued `this.prisma.admin.agentRegistry.findUnique()`
+   without a surrounding `try/catch`, letting raw Prisma errors escape as opaque
+   500s. Wrapped in a `try/catch` calling `mapPrismaError` with self-referential
+   tools (`"get_agent"`), matching the `PartyService.getParty` pattern.
+
+3. **🟡 `security.service.ts` — `createUser` party lookup lacked error mapping.**
+   The party existence check in `createUser` ran outside a `try/catch` while the
+   subsequent `user.create` was correctly wrapped. A Prisma error on the party
+   lookup would escape as a raw `Error`. Wrapped the lookup in a `try/catch`
+   calling `mapPrismaError` with tools (`"create_user"`), matching the `user.create`
+   wrapper below it.
+
+4. **🟡 `product.service.ts` — `to*Result` helpers were instance methods instead of static.**
+   `toProductResult`, `toGetProductResult`, `toFeatureResult`, and `toPriceResult`
+   were `private` instance methods called as `this.toXxx(...)`. All four are
+   stateless (no `this` access) and diverged from the `private static` pattern
+   used by `PartyService.toPartyResult` / `PartyService.toPersonResult` /
+   `PartyService.toOrgResult` and by all validation helpers in every service.
+   Changed all four to `private static` and updated all call sites to use the
+   class-name invocation pattern (`ProductService.toXxx(...)`).
+
+5. **🟡 `security.service.ts` — `toUserResult`/`toAgentResult` were instance methods instead of static.**
+   Same inconsistency: `toUserResult` and `toAgentResult` were `private` instance
+   methods. Both are stateless and diverged from the `PartyService` static
+   convention. Changed both to `private static` and updated all call sites to use
+   `SecurityService.toXxx(...)`.
+
+6. **🟡 `party.service.ts` — `requireStringField` had a divergent 5-param signature with dead default.**
+   `PartyService.requireStringField` accepted `(value, field, maxLength,
+   parentType, tool = "search_parties")` — five parameters including an unused
+   `parentType` and a dead default for `tool` (all 11 call sites pass an explicit
+   fifth argument). The error messages also differed in format. The broad
+   `value: string | undefined | null` type meant non-string inputs silently
+   trimmed to `""` and failed the emptiness check rather than failing the type
+   check early, producing a misleading error. Aligned the signature to the 4-param
+   form used by `ProductService` and `SecurityService`: `(value: unknown, field:
+   string, maxLength: number, tool: string)`. Updated all 11 call sites to drop
+   the `parentType` argument. Error messages and `context` shape now match the
+   other two services exactly.
+
+### Reviewed but NOT changed (false positives / deferred)
+
+- Full-file re-read of all production source files confirmed no new issues.
+- grep confirms: zero stray `console.log` / `console.error` / `console.warn` in
+  production source; zero `TODO`/`FIXME`/`HACK` comments; zero bare `as any`
+  casts in production source (only in test files and spikes); one intentional
+  `@ts-expect-error` in `tool-registry.test.ts`.
+- Lint ✓ · typecheck ✓ · build ✓ · `npm audit`: unchanged (3 high via `deepmerge-ts`
+  transitive in `@prisma/config` — pinned to 8.0.2 via override; CI gate
+  relaxed to critical-only).
+- Test counts verified: api 596 (22 files), shared 243 (4 files), mcp-tools 192
+  (4 files), database 34 passed + 10 skipped (3 files). Total 1065 passed, 10 skipped.
+  Matches report.
+
+---
 
 ## Findings & Actions (round 215)
 

@@ -122,7 +122,7 @@ export class PartyService {
     const { tenantId, partyType, name, description, person: personData, organization: orgData } = input;
 
     // Validate tenantId format — defense-in-depth for MCP callers that bypass DTO/Zod
-    const trimmedTenantId = PartyService.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "create", "create_party");
+    const trimmedTenantId = PartyService.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "create_party");
 
     // Trim partyType FIRST so validation uses canonical value.
     // Boundary layers (REST @IsEnum, MCP z.enum) reject whitespace-padded
@@ -410,7 +410,7 @@ export class PartyService {
 
   async getParty(tenantId: string, partyId: string): Promise<PartyResult> {
     // Validate tenantId format — defense-in-depth for MCP callers that bypass DTO/Zod
-    const trimmedTenantId = PartyService.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "get", "get_party");
+    const trimmedTenantId = PartyService.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "get_party");
 
     // Validate partyId format — MCP tools don't go through the REST controller's
     // requireUuid(), so we need defense-in-depth at the service layer.
@@ -453,7 +453,7 @@ export class PartyService {
     const offset = input.offset ?? MIN_SEARCH_OFFSET;
 
     // Validate tenantId format — defense-in-depth for MCP callers that bypass DTO/Zod
-    const trimmedTenantId = PartyService.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "search", "search_parties");
+    const trimmedTenantId = PartyService.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "search_parties");
 
     // Validate pagination parameters — finite/integer check BEFORE clamping.
     // Both boundary layers reject NaN/non-integers (REST @IsInt/@Min/@Max,
@@ -557,7 +557,7 @@ export class PartyService {
     const { tenantId, partyId: rawPartyId, roleType, fromDate } = input;
 
     // Validate tenantId format — defense-in-depth for MCP callers that bypass DTO/Zod
-    const trimmedTenantId = PartyService.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "add role", "add_party_role");
+    const trimmedTenantId = PartyService.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "add_party_role");
 
     // requireUuid returns the trimmed value so a whitespace-padded UUID is
     // used consistently in the queries below (see the doc comment).
@@ -781,7 +781,7 @@ export class PartyService {
     const { tenantId, partyId: rawPartyId, contactMechanismType, postalAddress, telecomNumber, emailAddress } = input;
 
     // Validate tenantId format — defense-in-depth for MCP callers that bypass DTO/Zod
-    const trimmedTenantId = PartyService.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "add contact", "add_contact_mechanism");
+    const trimmedTenantId = PartyService.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "add_contact_mechanism");
 
     const partyId = PartyService.requireUuid(rawPartyId, "partyId");
 
@@ -808,7 +808,7 @@ export class PartyService {
   }
 
   private validateContactMechanismType(type: string): string {
-    return PartyService.requireStringField(type, "contactMechanismType", MAX_CONTACT_MECHANISM_TYPE_LENGTH, "contact mechanism type", "get_type_table_values");
+    return PartyService.requireStringField(type, "contactMechanismType", MAX_CONTACT_MECHANISM_TYPE_LENGTH, "get_type_table_values");
   }
 
   /** Reject cross-subtype contact data instead of silently discarding it.
@@ -869,8 +869,8 @@ export class PartyService {
     if (!postalAddress) {
       throw new MissingSubtypeDataError("postalAddress is required when contactMechanismType is POSTAL_ADDRESS.", { suggestedTools: ["add_contact_mechanism"], context: { contactMechanismType: "POSTAL_ADDRESS", missingField: "postalAddress" } });
     }
-    PartyService.requireStringField(postalAddress.addressLine1, "addressLine1", MAX_ADDRESS_LINE_LENGTH, "postal address", "add_contact_mechanism");
-    PartyService.requireStringField(postalAddress.city, "city", MAX_CITY_LENGTH, "postal address", "add_contact_mechanism");
+    PartyService.requireStringField(postalAddress.addressLine1, "addressLine1", MAX_ADDRESS_LINE_LENGTH, "add_contact_mechanism");
+    PartyService.requireStringField(postalAddress.city, "city", MAX_CITY_LENGTH, "add_contact_mechanism");
     if (typeof postalAddress.country !== "string") {
       throw new InvalidTypeValueError(
         "country must be a string.",
@@ -948,8 +948,8 @@ export class PartyService {
     if (!telecomNumber) {
       throw new MissingSubtypeDataError("telecomNumber is required when contactMechanismType is TELECOM_NUMBER.", { suggestedTools: ["add_contact_mechanism"], context: { contactMechanismType: "TELECOM_NUMBER", missingField: "telecomNumber" } });
     }
-    PartyService.requireStringField(telecomNumber.areaCode, "areaCode", MAX_AREA_CODE_LENGTH, "telecom number", "add_contact_mechanism");
-    PartyService.requireStringField(telecomNumber.lineNumber, "lineNumber", MAX_LINE_NUMBER_LENGTH, "telecom number", "add_contact_mechanism");
+    PartyService.requireStringField(telecomNumber.areaCode, "areaCode", MAX_AREA_CODE_LENGTH, "add_contact_mechanism");
+    PartyService.requireStringField(telecomNumber.lineNumber, "lineNumber", MAX_LINE_NUMBER_LENGTH, "add_contact_mechanism");
     if (telecomNumber.countryCode) {
       // Strip HTML BEFORE the length/regex checks so validation agrees with
       // (a) validateEmailSubtype's strip-then-validate pattern below, (b) the
@@ -984,7 +984,7 @@ export class PartyService {
     if (!emailAddress) {
       throw new MissingSubtypeDataError("emailAddress is required when contactMechanismType is EMAIL_ADDRESS.", { suggestedTools: ["add_contact_mechanism"], context: { contactMechanismType: "EMAIL_ADDRESS", missingField: "emailAddress" } });
     }
-    PartyService.requireStringField(emailAddress.email, "email", MAX_EMAIL_LENGTH, "email address", "add_contact_mechanism");
+    PartyService.requireStringField(emailAddress.email, "email", MAX_EMAIL_LENGTH, "add_contact_mechanism");
     // Strip HTML tags for consistency with the MCP path and every other
     // field this service sanitizes. The service is the last line of
     // defense for direct/internal callers that bypass the REST DTO's
@@ -1239,25 +1239,16 @@ export class PartyService {
 
   /** Validate a required string field: must be non-empty and within maxLength.
    *  Trims before both checks for defense-in-depth. */
-  private static requireStringField(
-    value: string | undefined | null,
-    field: string,
-    maxLength: number,
-    parentType: string,
-    tool = "search_parties",
-  ): string {
-    const trimmed = value?.trim() ?? "";
+  private static requireStringField(value: unknown, field: string, maxLength: number, tool: string): string {
+    if (typeof value !== "string") {
+      throw new InvalidTypeValueError(`'${field}' must be a string.`, { suggestedTools: [tool], context: { field, received: typeof value } });
+    }
+    const trimmed = value.trim();
     if (trimmed.length === 0) {
-      throw new InvalidTypeValueError(
-        `${field} is required for ${parentType}`,
-        { suggestedTools: [tool], context: { parentType, field } }
-      );
+      throw new InvalidTypeValueError(`'${field}' must not be empty.`, { suggestedTools: [tool], context: { field } });
     }
     if (trimmed.length > maxLength) {
-      throw new InvalidTypeValueError(
-        `${field} is too long (${trimmed.length} characters, max ${maxLength})`,
-        { suggestedTools: [tool], context: { field, length: trimmed.length, maxLength } }
-      );
+      throw new InvalidTypeValueError(`'${field}' exceeds maximum length of ${maxLength} characters.`, { suggestedTools: [tool], context: { field, length: trimmed.length } });
     }
     return trimmed;
   }

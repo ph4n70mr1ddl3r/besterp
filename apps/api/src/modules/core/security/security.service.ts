@@ -49,10 +49,15 @@ export class SecurityService {
     SecurityService.requireNonEmpty(passwordHash, "passwordHash", MAX_PASSWORD_HASH_LENGTH, "create_user");
 
     // Verify the party exists in this tenant before linking
-    const party = await this.prisma.tenantScoped(trimmedTenantId).party.findUnique({
-      where: { partyId: validatedPartyId },
-      select: { tenantId: true },
-    });
+    let party;
+    try {
+      party = await this.prisma.tenantScoped(trimmedTenantId).party.findUnique({
+        where: { partyId: validatedPartyId },
+        select: { tenantId: true },
+      });
+    } catch (err) {
+      throw mapPrismaError(err, "create_user", "create_user", "user");
+    }
     if (!party) {
       throw new EntityNotFoundError(
         `Party '${sanitizeForLogOutput(validatedPartyId)}' not found in tenant '${sanitizeForLogOutput(trimmedTenantId)}'.`,
@@ -83,7 +88,7 @@ export class SecurityService {
           updatedAt: true,
         },
       });
-      return this.toUserResult(user);
+      return SecurityService.toUserResult(user);
     } catch (err: unknown) {
       throw mapPrismaError(err, "create_user", "create_user", "user");
     }
@@ -111,7 +116,7 @@ export class SecurityService {
           { suggestedTools: ["get_user", "search_parties"], context: { partyId: validatedPartyId, tenantId: trimmedTenantId } }
         );
       }
-      return this.toUserResult(user);
+      return SecurityService.toUserResult(user);
     } catch (err) {
       if (err instanceof EntityNotFoundError) throw err;
       throw mapPrismaError(err, "get_user", "get_user", "user");
@@ -175,7 +180,7 @@ export class SecurityService {
         },
       });
       this.logger.log(`Registered agent: ${sanitizeForLogOutput(trimmedDisplayName)} (${validatedAgentId})`);
-      return this.toAgentResult(agent);
+      return SecurityService.toAgentResult(agent);
     } catch (err: unknown) {
       throw mapPrismaError(err, "register_agent", "register_agent", "agent");
     }
@@ -285,7 +290,7 @@ export class SecurityService {
         data: updateData,
       });
       this.logger.log(`Updated agent: ${sanitizeForLogOutput(validatedAgentId)}`);
-      return this.toAgentResult(agent);
+      return SecurityService.toAgentResult(agent);
     } catch (err: unknown) {
       throw mapPrismaError(err, "update_agent", "update_agent", "agent");
     }
@@ -330,16 +335,21 @@ export class SecurityService {
   async getAgent(tenantId: string, agentId: string): Promise<AgentResult> {
     const trimmedTenantId = SecurityService.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "get_agent");
     const validatedAgentId = SecurityService.requireNonEmpty(agentId, "agentId", MAX_AGENT_ID_LENGTH, "get_agent");
-    const agent = await this.prisma.admin.agentRegistry.findUnique({
-      where: { agentId: validatedAgentId, tenantId: trimmedTenantId },
-    });
+    let agent;
+    try {
+      agent = await this.prisma.admin.agentRegistry.findUnique({
+        where: { agentId: validatedAgentId, tenantId: trimmedTenantId },
+      });
+    } catch (err) {
+      throw mapPrismaError(err, "get_agent", "get_agent", "agent");
+    }
     if (!agent) {
       throw new EntityNotFoundError(
         `Agent '${sanitizeForLogOutput(validatedAgentId)}' not found in tenant '${sanitizeForLogOutput(trimmedTenantId)}'.`,
         { suggestedTools: ["describe_agent", "list_agents"], context: { agentId: validatedAgentId, tenantId: trimmedTenantId } }
       );
     }
-    return this.toAgentResult(agent);
+    return SecurityService.toAgentResult(agent);
   }
 
   async searchAgents(input: SearchAgentsInput): Promise<SearchAgentsResult> {
@@ -381,7 +391,7 @@ export class SecurityService {
     }
 
     return {
-      items: items.map((a) => this.toAgentResult(a)),
+      items: items.map((a) => SecurityService.toAgentResult(a)),
       total,
       limit: validatedLimit,
       offset: validatedOffset,
@@ -391,7 +401,7 @@ export class SecurityService {
 
   // ─── Helpers ───────────────────────────────────────────────────
 
-  private toUserResult(u: {
+  private static toUserResult(u: {
     userId: string;
     partyId: string;
     tenantId: string;
@@ -409,7 +419,7 @@ export class SecurityService {
     };
   }
 
-  private toAgentResult(a: {
+  private static toAgentResult(a: {
     agentId: string;
     tenantId: string;
     displayName: string;

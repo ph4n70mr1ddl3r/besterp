@@ -98,7 +98,7 @@ export class ProductService {
       }, { timeout: TX_TIMEOUT_MS });
 
       this.logger.log(`Created product: ${sanitizeForLogOutput(trimmedName)} (${product.productId})`);
-      return this.toProductResult(product);
+      return ProductService.toProductResult(product);
     } catch (err: unknown) {
       throw mapPrismaError(err, "create_product", "create_product", "product");
     }
@@ -112,10 +112,15 @@ export class ProductService {
 
     const db: TenantScopedClient = this.prisma.tenantScoped(trimmedTenantId);
 
-    const product = await db.product.findUnique({
-      where: { productId, tenantId: trimmedTenantId },
-      include: ProductService.PRODUCT_INCLUDE,
-    });
+    let product;
+    try {
+      product = await db.product.findUnique({
+        where: { productId, tenantId: trimmedTenantId },
+        include: ProductService.PRODUCT_INCLUDE,
+      });
+    } catch (err) {
+      throw mapPrismaError(err, "get_product", "get_product", "product");
+    }
 
     if (!product) {
       throw new EntityNotFoundError(
@@ -124,7 +129,7 @@ export class ProductService {
       );
     }
 
-    return this.toGetProductResult(product);
+    return ProductService.toGetProductResult(product);
   }
 
   // ─── Search Products ──────────────────────────────────────────
@@ -176,7 +181,7 @@ export class ProductService {
     }
 
     return {
-      items: items.map((p) => this.toProductResult(p)),
+      items: items.map((p) => ProductService.toProductResult(p)),
       total,
       limit: validatedLimit,
       offset: validatedOffset,
@@ -220,7 +225,7 @@ export class ProductService {
         data: updateData,
         select: { productId: true, productTypeId: true, tenantId: true, name: true, description: true, sku: true, version: true, createdAt: true, updatedAt: true },
       });
-      return this.toProductResult(product);
+      return ProductService.toProductResult(product);
     } catch (err: unknown) {
       throw mapPrismaError(err, "update_product", "update_product", "product");
     }
@@ -252,7 +257,7 @@ export class ProductService {
         select: { productFeatureId: true, productId: true, name: true, value: true, createdAt: true },
       });
 
-      return this.toFeatureResult(feature);
+      return ProductService.toFeatureResult(feature);
     } catch (err: unknown) {
       if (err instanceof EntityNotFoundError) throw err;
       throw mapPrismaError(err, "add_product_feature", "add_product_feature", "product");
@@ -304,7 +309,7 @@ export class ProductService {
         select: { productPriceId: true, productId: true, priceType: true, amount: true, currencyCode: true, fromDate: true, thruDate: true, createdAt: true },
       });
 
-      return this.toPriceResult(price);
+      return ProductService.toPriceResult(price);
     } catch (err: unknown) {
       if (err instanceof EntityNotFoundError) throw err;
       throw mapPrismaError(err, "add_product_price", "add_product_price", "product");
@@ -366,7 +371,7 @@ export class ProductService {
     return trimmed;
   }
 
-  private toProductResult(p: { productId: string; productTypeId: string; tenantId: string; name: string; description: string | null; sku: string | null; version: number; createdAt: Date; updatedAt: Date }): ProductResult {
+  private static toProductResult(p: { productId: string; productTypeId: string; tenantId: string; name: string; description: string | null; sku: string | null; version: number; createdAt: Date; updatedAt: Date }): ProductResult {
     return {
       productId: p.productId,
       productTypeId: p.productTypeId,
@@ -380,7 +385,7 @@ export class ProductService {
     };
   }
 
-  private toGetProductResult(p: {
+  private static toGetProductResult(p: {
     productId: string; productTypeId: string; tenantId: string; name: string; description: string | null; sku: string | null; version: number; createdAt: Date; updatedAt: Date;
     productType: { name: string; description: string | null } | null;
     features: Array<{ name: string; value: string }>;
@@ -388,7 +393,7 @@ export class ProductService {
     category: { productCategoryId: string; name: string } | null;
   }): GetProductResult {
     return {
-      ...this.toProductResult(p),
+      ...ProductService.toProductResult(p),
       productType: p.productType ?? null,
       features: p.features.map((f) => ({ name: f.name, value: f.value })),
       prices: p.prices.map((pr) => ({
@@ -402,7 +407,7 @@ export class ProductService {
     };
   }
 
-  private toFeatureResult(f: { productFeatureId: string; productId: string; name: string; value: string; createdAt: Date }): ProductFeatureResult {
+  private static toFeatureResult(f: { productFeatureId: string; productId: string; name: string; value: string; createdAt: Date }): ProductFeatureResult {
     return {
       productFeatureId: f.productFeatureId,
       productId: f.productId,
@@ -412,7 +417,7 @@ export class ProductService {
     };
   }
 
-  private toPriceResult(p: { productPriceId: string; productId: string; priceType: string; amount: unknown; currencyCode: string; fromDate: Date; thruDate: Date | null; createdAt: Date }): ProductPriceResult {
+  private static toPriceResult(p: { productPriceId: string; productId: string; priceType: string; amount: unknown; currencyCode: string; fromDate: Date; thruDate: Date | null; createdAt: Date }): ProductPriceResult {
     return {
       productPriceId: p.productPriceId,
       productId: p.productId,

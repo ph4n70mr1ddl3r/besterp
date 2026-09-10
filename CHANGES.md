@@ -1,5 +1,79 @@
 # BestERP — Security & Architecture Fixes
 
+## Changes Applied (2026-09-10) — Code Review Round 216
+
+### 🟡 `product.service.ts` — `getProduct` Prisma query lacked error mapping
+
+**Problem:** `getProduct` issued a `db.product.findUnique()` without a surrounding
+`try/catch`, so any Prisma infrastructure error (connection failure, timeout, etc.)
+propagated as a raw `Error` instead of being mapped to a structured `DomainError`
+subclass via `mapPrismaError`. `PartyService.getParty` already wrapped its query
+correctly (line 426–433); `ProductService` and `SecurityService.getAgent` were the
+lone exceptions.
+
+**Fix:** Wrapped the `findUnique` in a `try/catch` that calls `mapPrismaError` with
+self-referential retry/suggest tools (`"get_product"`), matching the established
+pattern in `PartyService.getParty`.
+
+### 🟡 `security.service.ts` — `getAgent` Prisma query lacked error mapping
+
+**Problem:** Same root cause as above — `getAgent` issued
+`this.prisma.admin.agentRegistry.findUnique()` without a surrounding
+`try/catch`, letting raw Prisma errors escape as opaque 500s.
+
+**Fix:** Wrapped the `findUnique` in a `try/catch` calling `mapPrismaError` with
+self-referential tools (`"get_agent"`), matching the `PartyService.getParty`
+pattern.
+
+### 🟡 `security.service.ts` — `createUser` party lookup lacked error mapping
+
+**Problem:** The party existence check in `createUser` (`this.prisma.tenantScoped(…
+).party.findUnique()`) ran outside a `try/catch`, while the subsequent
+`user.create` was correctly wrapped. A Prisma error on the party lookup would
+escape as a raw `Error`.
+
+**Fix:** Wrapped the party lookup in a `try/catch` calling `mapPrismaError` with
+tools (`"create_user"`), matching the `user.create` wrapper below it.
+
+### 🟡 `product.service.ts` — `to*Result` helpers were instance methods instead of static
+
+**Problem:** `toProductResult`, `toGetProductResult`, `toFeatureResult`, and
+`toPriceResult` were `private` instance methods called as `this.toXxx(...)`. All
+four are stateless (no `this` access) and should match the `private static`
+pattern used by `PartyService.toPartyResult` / `PartyService.toPersonResult` /
+`PartyService.toOrgResult` and by all validation helpers in every service.
+
+**Fix:** Changed all four to `private static` and updated all call sites to use
+the class-name invocation pattern (`ProductService.toXxx(...)`).
+
+### 🟡 `security.service.ts` — `toUserResult`/`toAgentResult` were instance methods instead of static
+
+**Problem:** Same inconsistency as above — `toUserResult` and `toAgentResult` were
+`private` instance methods. Both are stateless and diverged from the
+`PartyService` static convention.
+
+**Fix:** Changed both to `private static` and updated all call sites to use
+`SecurityService.toXxx(...)`.
+
+### 🟡 `party.service.ts` — `requireStringField` had a divergent 5-param signature with dead default
+
+**Problem:** `PartyService.requireStringField` accepted `(value, field, maxLength,
+parentType, tool = "search_parties")` — five parameters including an unused
+`parentType` and a dead default for `tool` (all 11 call sites pass an explicit
+fifth argument). The error messages also differed in format:
+`"${field} is required for ${parentType}"` vs the other services'
+`'${field}' must not be empty.`. The broad `value: string | undefined | null`
+type also meant non-string inputs (e.g. numbers) silently trimmed to `""` and
+failed the emptiness check rather than failing the type check early, producing
+a misleading error.
+
+**Fix:** Aligned the signature to the 4-param form used by `ProductService` and
+`SecurityService`: `(value: unknown, field: string, maxLength: number, tool:
+string)`. Updated all 11 call sites to drop the `parentType` argument. Error
+messages and `context` shape now match the other two services exactly.
+
+---
+
 ## Changes Applied (2026-09-10) — Code Review Round 215
 
 ### 🟡 `security.service.ts` — `validateAgentArrays`/`validateAgentLimits` now include `context`
