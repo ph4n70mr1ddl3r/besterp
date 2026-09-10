@@ -1367,6 +1367,42 @@ describe("PartyService", () => {
       await expect(partyService.addPartyRole(input)).rejects.toThrow(InvalidTypeValueError);
     });
 
+    it("should suggest add_party_role when roleType is non-string", async () => {
+      const input = {
+        tenantId: "tenant-1",
+        partyId: "12345678-1234-1234-1234-123456789abc",
+        roleType: 123 as unknown as string,
+      };
+
+      try {
+        await partyService.addPartyRole(input);
+        expect.fail("expected InvalidTypeValueError to be thrown");
+      } catch (err) {
+        expect(err).toBeInstanceOf(InvalidTypeValueError);
+        const domainErr = err as InvalidTypeValueError;
+        expect(domainErr.suggestedTools).toContain("add_party_role");
+        expect(domainErr.suggestedTools).not.toContain("get_type_table_values");
+      }
+    });
+
+    it("should suggest add_party_role when roleType is empty", async () => {
+      const input = {
+        tenantId: "tenant-1",
+        partyId: "12345678-1234-1234-1234-123456789abc",
+        roleType: "",
+      };
+
+      try {
+        await partyService.addPartyRole(input);
+        expect.fail("expected InvalidTypeValueError to be thrown");
+      } catch (err) {
+        expect(err).toBeInstanceOf(InvalidTypeValueError);
+        const domainErr = err as InvalidTypeValueError;
+        expect(domainErr.suggestedTools).toContain("add_party_role");
+        expect(domainErr.suggestedTools).not.toContain("get_type_table_values");
+      }
+    });
+
     it("should trim roleType before lookup", async () => {
       mockAdminTypes();
       const input = {

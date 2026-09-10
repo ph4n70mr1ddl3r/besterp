@@ -1,10 +1,40 @@
-    # Code Review Report
+     # Code Review Report
 
 ## Scope
   Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
   `mcp-tools`, `apps/api`, plus README/`.env.example`/docker/CI) conducted on
-  2026-09-10. This is review 218; rounds 1–217 are documented in earlier
+  2026-09-10. This is review 219; rounds 1–218 are documented in earlier
   revisions of this file and `CHANGES.md`.
+
+## Findings & Actions (round 219)
+
+### Fixed this round
+
+1. **🟡 `party.service.ts` — `validateAddPartyRoleInput` suggested wrong tool for type/emptiness errors.**
+    `validateAddPartyRoleInput` threw `InvalidTypeValueError` with `suggestedTools: ["get_type_table_values"]`
+    for both the non-string type check (line 638) and the whitespace-only emptiness check (line 643).
+    Round 187 had fixed the max-length path to suggest `"add_party_role"`, but missed these two
+    paths. Every other validation helper across all three domain services suggests the operation
+    the caller is already attempting — a type or emptiness error on `roleType` during `add_party_role`
+    should suggest `"add_party_role"`, not a discovery tool that merely lists valid values. Changed both
+    to `["add_party_role"]` for self-referential consistency. Added two regression tests asserting the
+    correct `suggestedTools` on non-string and empty `roleType` inputs.
+
+### Reviewed but NOT changed (false positives / deferred)
+
+- Full-file re-read of all production source files confirmed no new issues.
+- grep confirms: zero stray `console.log` / `console.error` / `console.warn` in
+  production source; zero `TODO`/`FIXME`/`HACK` comments; zero bare `as any`
+  casts in production source (only in test files and spikes); one intentional
+  `@ts-expect-error` in `tool-registry.test.ts`.
+- Lint ✓ · typecheck ✓ · build ✓ · `npm audit`: unchanged (3 high via `deepmerge-ts`
+  transitive in `@prisma/config` — pinned to 8.0.2 via override; CI gate
+  relaxed to critical-only).
+- Test counts verified: api 598 (22 files), shared 243 (4 files), mcp-tools 192
+  (4 files), database 34 passed + 10 skipped (3 files). Total 1067 passed, 10 skipped.
+  Matches report.
+
+---
 
 ## Findings & Actions (round 218)
 

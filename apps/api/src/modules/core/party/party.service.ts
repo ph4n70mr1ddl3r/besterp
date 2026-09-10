@@ -635,12 +635,12 @@ export class PartyService {
     if (typeof roleType !== "string") {
       throw new InvalidTypeValueError(
         "roleType must be a non-empty string.",
-        { suggestedTools: ["get_type_table_values"], context: { field: "roleType", received: typeof roleType } }
+        { suggestedTools: ["add_party_role"], context: { field: "roleType", received: typeof roleType } }
       );
     }
     const trimmed = roleType.trim();
     if (!trimmed) {
-      throw new InvalidTypeValueError("roleType cannot be empty", { suggestedTools: ["get_type_table_values"], context: { field: "roleType", received: roleType } });
+      throw new InvalidTypeValueError("roleType cannot be empty", { suggestedTools: ["add_party_role"], context: { field: "roleType", received: roleType } });
     }
     PartyService.requireMaxLength(trimmed, "Role type", MAX_ROLE_TYPE_LENGTH, "add_party_role");
     return trimmed;
