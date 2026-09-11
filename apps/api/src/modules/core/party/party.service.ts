@@ -414,7 +414,7 @@ export class PartyService {
 
     // Validate partyId format — MCP tools don't go through the REST controller's
     // requireUuid(), so we need defense-in-depth at the service layer.
-    partyId = PartyService.requireUuid(partyId, "partyId");
+    partyId = PartyService.requireUuid(partyId, "partyId", ["get_party"]);
 
     const db: TenantScopedClient = this.prisma.tenantScoped(trimmedTenantId);
 
@@ -434,10 +434,10 @@ export class PartyService {
 
     if (!party) {
       throw new EntityNotFoundError(
-        `Party '${partyId}' not found.`,
+        `Party '${partyId}' not found in tenant '${trimmedTenantId}'.`,
         {
           suggestedTools: ["search_parties", "get_party"],
-          context: { partyId },
+          context: { partyId, tenantId: trimmedTenantId },
         }
       );
     }
@@ -561,7 +561,7 @@ export class PartyService {
 
     // requireUuid returns the trimmed value so a whitespace-padded UUID is
     // used consistently in the queries below (see the doc comment).
-    const partyId = PartyService.requireUuid(rawPartyId, "partyId");
+    const partyId = PartyService.requireUuid(rawPartyId, "partyId", ["add_party_role"]);
 
     const db: TenantScopedClient = this.prisma.tenantScoped(trimmedTenantId);
 
@@ -685,7 +685,7 @@ export class PartyService {
       return await db.$transaction(async (tx) => {
         const party = await tx.party.findUnique({ where: { partyId, tenantId } });
         if (!party) {
-          throw new EntityNotFoundError(`Party '${partyId}' not found.`, { suggestedTools: ["search_parties", "get_party"], context: { partyId } });
+          throw new EntityNotFoundError(`Party '${partyId}' not found in tenant '${tenantId}'.`, { suggestedTools: ["search_parties", "get_party"], context: { partyId, tenantId } });
         }
 
         // Use INSERT ... ON CONFLICT to atomically check for duplicates and
@@ -783,7 +783,7 @@ export class PartyService {
     // Validate tenantId format — defense-in-depth for MCP callers that bypass DTO/Zod
     const trimmedTenantId = PartyService.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "add_contact_mechanism");
 
-    const partyId = PartyService.requireUuid(rawPartyId, "partyId");
+    const partyId = PartyService.requireUuid(rawPartyId, "partyId", ["add_contact_mechanism"]);
 
     const db: TenantScopedClient = this.prisma.tenantScoped(trimmedTenantId);
 
@@ -1118,7 +1118,7 @@ export class PartyService {
       return await db.$transaction(async (tx: Prisma.TransactionClient) => {
         const existingParty = await tx.party.findUnique({ where: { partyId, tenantId } });
         if (!existingParty) {
-          throw new EntityNotFoundError(`Party '${partyId}' not found.`, { suggestedTools: ["search_parties", "get_party"], context: { partyId } });
+          throw new EntityNotFoundError(`Party '${partyId}' not found in tenant '${tenantId}'.`, { suggestedTools: ["search_parties", "get_party"], context: { partyId, tenantId } });
         }
 
         if (normalizedEmail) {
@@ -1287,14 +1287,16 @@ export class PartyService {
    *  an opaque Prisma P2023 error for malformed IDs from MCP tool callers.
    *  Trims first to stay consistent with every other service-layer validator
    *  (requireStringField, requireValidDate, parseFromDate all trim before
-   *  checking). A UUID padded with whitespace is valid once trimmed. */
-  private static requireUuid(value: string, field: string): string {
+   *  checking). A UUID padded with whitespace is valid once trimmed.
+   *  suggestedTools defaults to ["search_parties", "get_party"] for
+   *  backward compatibility with callers that omit it. */
+  private static requireUuid(value: string, field: string, suggestedTools: string[] = ["search_parties", "get_party"]): string {
     const trimmed = value.trim();
     if (!UUID_REGEX.test(trimmed)) {
       const safeValue = sanitizeForLogOutput(stripHtmlTags(trimmed));
       throw new InvalidTypeValueError(
         `Invalid '${field}': must be a valid UUID.`,
-        { suggestedTools: ["search_parties", "get_party"], context: { field, received: safeValue } }
+        { suggestedTools, context: { field, received: safeValue } }
       );
     }
     return trimmed;
