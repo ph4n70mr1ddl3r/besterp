@@ -2,11 +2,65 @@
 
 ## Scope
    Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
-   `mcp-tools`, `apps/api`, plus README/`.env.example`/docker/CI) conducted on
-   2026-09-10. This is review 220; rounds 1–219 are documented in earlier
-   revisions of this file and `CHANGES.md`.
+    `mcp-tools`, `apps/api`, plus README/`.env.example`/docker/CI) conducted on
+    2026-09-11. This is review 224; rounds 1–223 are documented in earlier
+    revisions of this file and `CHANGES.md`.
 
-## Findings & Actions (round 220)
+## Findings & Actions (round 224)
+
+### Fixed this round
+
+1. **🟡 `security.service.ts` — `validateAgentArrays`/`validateAgentLimits` hardcoded `suggestedTools: ["register_agent"]`.**
+    Both helpers were called from `registerAgent` (where `["register_agent"]` was correct)
+    and `updateAgent` (where it was wrong — a validation error during update should suggest
+    `"update_agent"`, not `["register_agent"]`). Added a `tool: string` parameter to both
+    helpers and updated all call sites: `registerAgent` passes `"register_agent"`,
+    `updateAgent` passes `"update_agent"`. Also promoted both from `private` instance
+    methods to `private static` to match the pattern used by all other validation helpers
+    across the three domain services.
+
+2. **🟡 `security.service.ts` — duplicate `requireNonEmpty` helper with contradictory type signature.**
+    `requireNonEmpty` declared its first param as `string` but immediately checked
+    `typeof value !== "string"` (dead code at the TS level). Its error message
+    `"must not be empty or whitespace-only"` also diverged from the standard
+    `"must not be empty"` used by `requireStringField` and all equivalents in
+    `PartyService` and `ProductService`. Removed `requireNonEmpty` entirely and
+    replaced all 15 call sites with `requireStringField`, which has the correct
+    `unknown` param type and consistent message format.
+
+3. **🟢 `security.service.spec.ts` — 2 new regression tests for updateAgent suggestedTools.**
+    Added tests asserting that `InvalidTypeValueError` thrown from `updateAgent`
+    during capability validation and limit validation carry `suggestedTools:
+    ["update_agent"]`, not `["register_agent"]`.
+
+4. **🟢 `README.md` — removed inaccurate architecture claims.**
+    The Architecture section claimed an "event-driven architecture for domain events"
+    and a "repository pattern for data access abstraction" — neither exists in the
+    codebase. Replaced with accurate descriptions: "Direct Prisma service calls with
+    RLS-scoped clients" and "No repository abstraction — domain services own their
+    data access". Also fixed the project structure tree to reflect actual module
+    nesting instead of implying spec files live flat under `src/`.
+
+5. **🟢 `.env.example` — removed unused MinIO variables.**
+    `MINIO_ROOT_USER` and `MINIO_ROOT_PASSWORD` were documented but grep confirmed
+    zero references to `minio`, `MINIO`, `s3`, or `S3` across all production source
+    files. Removed them.
+
+### Reviewed but NOT changed (false positives / deferred)
+
+- Full-file re-read of all production source files confirmed no new issues.
+- grep confirms: zero stray `console.log` / `console.error` / `console.warn` in
+  production source; zero `TODO`/`FIXME`/`HACK` comments; zero bare `as any`
+  casts in production source (only in test files and spikes); one intentional
+  `@ts-expect-error` in `tool-registry.test.ts`.
+- Lint ✓ · typecheck ✓ · build ✓ · `npm audit`: unchanged (3 high via `deepmerge-ts`
+  transitive in `@prisma/config` — pinned to 8.0.2 via override; CI gate
+  relaxed to critical-only).
+- Test counts verified: api 601 (22 files), shared 243 (4 files), mcp-tools 192
+  (4 files), database 34 passed + 10 skipped (3 files). Total 1070 passed, 10 skipped.
+  Matches report.
+
+---
 
 ### Fixed this round
 
