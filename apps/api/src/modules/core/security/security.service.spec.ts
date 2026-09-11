@@ -353,6 +353,22 @@ describe("SecurityService", () => {
         })
       ).rejects.toThrow(InvalidTypeValueError);
     });
+
+    it("suggests update_agent for invalid capability type on update", async () => {
+      const err = await service.updateAgent({
+        agentId: "a1", tenantId: "t1", capabilities: [1 as unknown as string],
+      }).catch((e) => e);
+      expect(err).toBeInstanceOf(InvalidTypeValueError);
+      expect(err.suggestedTools).toEqual(["update_agent"]);
+    });
+
+    it("suggests update_agent for out-of-range maxToolCallsPerConversation on update", async () => {
+      const err = await service.updateAgent({
+        agentId: "a1", tenantId: "t1", maxToolCallsPerConversation: 0,
+      }).catch((e) => e);
+      expect(err).toBeInstanceOf(InvalidTypeValueError);
+      expect(err.suggestedTools).toEqual(["update_agent"]);
+    });
   });
 
   describe("deleteAgent", () => {

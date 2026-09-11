@@ -17,12 +17,12 @@ A modern, AI-powered ERP system with multi-tenant architecture, built with NestJ
 besterp/
 ├── apps/api/                 # NestJS API application
 │   ├── src/
-│   │   ├── modules/core/party/  # Party domain module
+│   │   ├── modules/            # Domain modules (party, product, security)
 │   │   ├── mcp/tools/           # MCP tool definitions
 │   │   ├── auth/               # Authentication & authorization
 │   │   ├── prisma/             # Database service
 │   │   ├── common/             # Shared utilities
-│   │   └── *.spec.ts           # Unit/integration tests (17 files)
+│   │   └── *.spec.ts           # Unit/integration tests
 ├── packages/
 │   ├── shared/                # Shared utilities (errors, crypto, validation)
 │   ├── database/             # Database utilities & RLS extension
@@ -114,8 +114,8 @@ npm run db:seed
 ### Domain-Driven Design
 - **Clean separation** of business logic and infrastructure
 - **Rich domain models** with proper encapsulation
-- **Event-driven architecture** for domain events
-- **Repository pattern** for data access abstraction
+- **Direct Prisma service calls** with RLS-scoped clients
+- **No repository abstraction** — domain services own their data access
 
 ## Security Features
 

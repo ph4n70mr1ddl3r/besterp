@@ -45,8 +45,8 @@ export class SecurityService {
     const { tenantId, partyId, passwordHash } = input;
 
     const trimmedTenantId = SecurityService.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "create_user");
-    const validatedPartyId = SecurityService.requireNonEmpty(partyId, "partyId", MAX_USER_ID_LENGTH, "create_user");
-    SecurityService.requireNonEmpty(passwordHash, "passwordHash", MAX_PASSWORD_HASH_LENGTH, "create_user");
+    const validatedPartyId = SecurityService.requireStringField(partyId, "partyId", MAX_USER_ID_LENGTH, "create_user");
+    SecurityService.requireStringField(passwordHash, "passwordHash", MAX_PASSWORD_HASH_LENGTH, "create_user");
 
     // Verify the party exists in this tenant before linking
     let party;
@@ -96,7 +96,7 @@ export class SecurityService {
 
   async getUser(tenantId: string, partyId: string): Promise<UserResult> {
     const trimmedTenantId = SecurityService.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "get_user");
-    const validatedPartyId = SecurityService.requireNonEmpty(partyId, "partyId", MAX_USER_ID_LENGTH, "get_user");
+    const validatedPartyId = SecurityService.requireStringField(partyId, "partyId", MAX_USER_ID_LENGTH, "get_user");
     const db = this.prisma.tenantScoped(trimmedTenantId);
     try {
       const user = await db.user.findUnique({
@@ -125,7 +125,7 @@ export class SecurityService {
 
   async updateLastLogin(tenantId: string, partyId: string): Promise<void> {
     const trimmedTenantId = SecurityService.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "update_last_login");
-    const validatedPartyId = SecurityService.requireNonEmpty(partyId, "partyId", MAX_USER_ID_LENGTH, "update_last_login");
+    const validatedPartyId = SecurityService.requireStringField(partyId, "partyId", MAX_USER_ID_LENGTH, "update_last_login");
     try {
       await this.prisma.tenantScoped(trimmedTenantId).user.update({
         where: { tenantId_partyId: { tenantId: trimmedTenantId, partyId: validatedPartyId } },
@@ -154,13 +154,13 @@ export class SecurityService {
       version,
     } = input;
 
-    const validatedAgentId = SecurityService.requireNonEmpty(agentId, "agentId", MAX_AGENT_ID_LENGTH, "register_agent");
-    const validatedTenantId = SecurityService.requireNonEmpty(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "register_agent");
-    const trimmedDisplayName = SecurityService.requireNonEmpty(displayName, "displayName", MAX_PARTY_NAME_LENGTH, "register_agent");
-    const trimmedDescription = SecurityService.requireNonEmpty(description, "description", 1000, "register_agent");
-    const trimmedVersion = SecurityService.requireNonEmpty(version, "version", 64, "register_agent");
-    this.validateAgentArrays(capabilities, allowedEntityTypes);
-    this.validateAgentLimits(validatedAgentId, maxToolCallsPerConversation, rateLimitPerMinute);
+    const validatedAgentId = SecurityService.requireStringField(agentId, "agentId", MAX_AGENT_ID_LENGTH, "register_agent");
+    const validatedTenantId = SecurityService.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "register_agent");
+    const trimmedDisplayName = SecurityService.requireStringField(displayName, "displayName", MAX_PARTY_NAME_LENGTH, "register_agent");
+    const trimmedDescription = SecurityService.requireStringField(description, "description", 1000, "register_agent");
+    const trimmedVersion = SecurityService.requireStringField(version, "version", 64, "register_agent");
+    SecurityService.validateAgentArrays(capabilities, allowedEntityTypes, "register_agent");
+    SecurityService.validateAgentLimits(validatedAgentId, maxToolCallsPerConversation, rateLimitPerMinute, "register_agent");
 
     try {
       const agent = await this.prisma.admin.agentRegistry.create({
@@ -186,61 +186,63 @@ export class SecurityService {
     }
   }
 
-  private validateAgentArrays(
+  private static validateAgentArrays(
     capabilities: unknown,
     allowedEntityTypes: unknown,
+    tool: string,
   ): void {
     if (!Array.isArray(capabilities)) {
       throw new InvalidTypeValueError("capabilities must be a string array.", {
-        suggestedTools: ["register_agent"],
+        suggestedTools: [tool],
         context: { field: "capabilities", received: typeof capabilities },
       });
     }
     if (capabilities.length > 50) {
       throw new InvalidTypeValueError("capabilities must have at most 50 entries.", {
-        suggestedTools: ["register_agent"],
+        suggestedTools: [tool],
         context: { field: "capabilities", length: (capabilities as unknown[]).length },
       });
     }
     for (const item of capabilities) {
       if (typeof item !== "string" || !item.trim()) {
         throw new InvalidTypeValueError("Each capability must be a non-empty string.", {
-          suggestedTools: ["register_agent"],
+          suggestedTools: [tool],
           context: { field: "capabilities", received: typeof item },
         });
       }
     }
     if (!Array.isArray(allowedEntityTypes)) {
       throw new InvalidTypeValueError("allowedEntityTypes must be a string array.", {
-        suggestedTools: ["register_agent"],
+        suggestedTools: [tool],
         context: { field: "allowedEntityTypes", received: typeof allowedEntityTypes },
       });
     }
     for (const item of allowedEntityTypes) {
       if (typeof item !== "string" || !item.trim()) {
         throw new InvalidTypeValueError("Each allowedEntityType must be a non-empty string.", {
-          suggestedTools: ["register_agent"],
+          suggestedTools: [tool],
           context: { field: "allowedEntityTypes", received: typeof item },
         });
       }
     }
   }
 
-  private validateAgentLimits(
+  private static validateAgentLimits(
     _agentId: string,
     maxToolCallsPerConversation: number,
     rateLimitPerMinute: number,
+    tool: string,
   ): void {
     if (maxToolCallsPerConversation < 1 || maxToolCallsPerConversation > 10000) {
       throw new InvalidTypeValueError(
         `maxToolCallsPerConversation must be between 1 and 10000, got ${maxToolCallsPerConversation}.`,
-        { suggestedTools: ["register_agent"], context: { field: "maxToolCallsPerConversation", value: maxToolCallsPerConversation } }
+        { suggestedTools: [tool], context: { field: "maxToolCallsPerConversation", value: maxToolCallsPerConversation } }
       );
     }
     if (rateLimitPerMinute < 1 || rateLimitPerMinute > 1000) {
       throw new InvalidTypeValueError(
         `rateLimitPerMinute must be between 1 and 1000, got ${rateLimitPerMinute}.`,
-        { suggestedTools: ["register_agent"], context: { field: "rateLimitPerMinute", value: rateLimitPerMinute } }
+        { suggestedTools: [tool], context: { field: "rateLimitPerMinute", value: rateLimitPerMinute } }
       );
     }
   }
@@ -249,15 +251,16 @@ export class SecurityService {
     const { agentId, tenantId, ...updates } = input;
 
     const trimmedTenantId = SecurityService.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "update_agent");
-    const validatedAgentId = SecurityService.requireNonEmpty(agentId, "agentId", MAX_AGENT_ID_LENGTH, "update_agent");
+    const validatedAgentId = SecurityService.requireStringField(agentId, "agentId", MAX_AGENT_ID_LENGTH, "update_agent");
 
     // Validate array fields when provided — mirrors registerAgent so the
     // service layer remains the last line of defense for direct/internal
     // callers that bypass the Zod boundary (round 206).
     if (updates.capabilities !== undefined || updates.allowedEntityTypes !== undefined) {
-      this.validateAgentArrays(
+      SecurityService.validateAgentArrays(
         updates.capabilities ?? [],
         updates.allowedEntityTypes ?? [],
+        "update_agent",
       );
     }
     // Validate numeric limits when provided — mirrors registerAgent so the
@@ -268,10 +271,11 @@ export class SecurityService {
     // that would create a harder maintenance surface than a single
     // authoritative check in validateAgentLimits.
     if (updates.maxToolCallsPerConversation !== undefined || updates.rateLimitPerMinute !== undefined) {
-      this.validateAgentLimits(
+      SecurityService.validateAgentLimits(
         validatedAgentId,
         updates.maxToolCallsPerConversation ?? 0,
         updates.rateLimitPerMinute ?? 0,
+        "update_agent",
       );
     }
 
@@ -301,8 +305,8 @@ export class SecurityService {
    *  (round 208). Each branch validates and sanitizes one optional field. */
   private buildUpdateData(updates: Partial<UpdateAgentInput>): Record<string, unknown> {
     const updateData: Record<string, unknown> = {};
-    if (updates.displayName !== undefined) updateData.displayName = stripHtmlTags(SecurityService.requireNonEmpty(updates.displayName, "displayName", MAX_PARTY_NAME_LENGTH, "update_agent"));
-    if (updates.description !== undefined) updateData.description = stripHtmlTags(SecurityService.requireNonEmpty(updates.description, "description", 1000, "update_agent"));
+    if (updates.displayName !== undefined) updateData.displayName = stripHtmlTags(SecurityService.requireStringField(updates.displayName, "displayName", MAX_PARTY_NAME_LENGTH, "update_agent"));
+    if (updates.description !== undefined) updateData.description = stripHtmlTags(SecurityService.requireStringField(updates.description, "description", 1000, "update_agent"));
     if (updates.capabilities !== undefined) updateData.capabilities = updates.capabilities;
     if (updates.maxToolCallsPerConversation !== undefined)
       updateData.maxToolCallsPerConversation = updates.maxToolCallsPerConversation;
@@ -313,14 +317,14 @@ export class SecurityService {
     if (updates.allowedEntityTypes !== undefined) updateData.allowedEntityTypes = updates.allowedEntityTypes;
     if (updates.rateLimitPerMinute !== undefined)
       updateData.rateLimitPerMinute = updates.rateLimitPerMinute;
-    if (updates.version !== undefined) updateData.version = stripHtmlTags(SecurityService.requireNonEmpty(updates.version, "version", 64, "update_agent"));
+    if (updates.version !== undefined) updateData.version = stripHtmlTags(SecurityService.requireStringField(updates.version, "version", 64, "update_agent"));
     if (updates.isActive !== undefined) updateData.isActive = updates.isActive;
     return updateData;
   }
 
   async deleteAgent(tenantId: string, agentId: string): Promise<{ success: boolean }> {
     const trimmedTenantId = SecurityService.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "delete_agent");
-    const validatedAgentId = SecurityService.requireNonEmpty(agentId, "agentId", MAX_AGENT_ID_LENGTH, "delete_agent");
+    const validatedAgentId = SecurityService.requireStringField(agentId, "agentId", MAX_AGENT_ID_LENGTH, "delete_agent");
     try {
       await this.prisma.admin.agentRegistry.delete({
         where: { agentId: validatedAgentId, tenantId: trimmedTenantId },
@@ -334,7 +338,7 @@ export class SecurityService {
 
   async getAgent(tenantId: string, agentId: string): Promise<AgentResult> {
     const trimmedTenantId = SecurityService.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "get_agent");
-    const validatedAgentId = SecurityService.requireNonEmpty(agentId, "agentId", MAX_AGENT_ID_LENGTH, "get_agent");
+    const validatedAgentId = SecurityService.requireStringField(agentId, "agentId", MAX_AGENT_ID_LENGTH, "get_agent");
     let agent;
     try {
       agent = await this.prisma.admin.agentRegistry.findUnique({
@@ -449,29 +453,6 @@ export class SecurityService {
       isActive: a.isActive,
       createdAt: a.createdAt.toISOString(),
     };
-  }
-
-  private static requireNonEmpty(value: string, field: string, maxLength: number, tool: string): string {
-    if (typeof value !== "string") {
-      throw new InvalidTypeValueError(
-        `'${field}' must be a string.`,
-        { suggestedTools: [tool], context: { field, received: typeof value } }
-      );
-    }
-    const trimmed = value.trim();
-    if (trimmed.length === 0) {
-      throw new InvalidTypeValueError(
-        `'${field}' must not be empty or whitespace-only.`,
-        { suggestedTools: [tool], context: { field } }
-      );
-    }
-    if (trimmed.length > maxLength) {
-      throw new InvalidTypeValueError(
-        `'${field}' exceeds maximum length of ${maxLength} characters.`,
-        { suggestedTools: [tool], context: { field, length: trimmed.length } }
-      );
-    }
-    return trimmed;
   }
 
   private static requireStringField(value: unknown, field: string, maxLength: number, tool: string): string {
