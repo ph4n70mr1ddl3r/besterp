@@ -125,7 +125,7 @@ export class ProductService {
     if (!product) {
       throw new EntityNotFoundError(
         `Product '${productId}' not found in tenant '${trimmedTenantId}'.`,
-        { suggestedTools: ["search_products", "get_product"], context: { productId } }
+        { suggestedTools: ["search_products", "get_product"], context: { productId, tenantId: trimmedTenantId } }
       );
     }
 
@@ -398,7 +398,7 @@ export class ProductService {
       features: p.features.map((f) => ({ name: f.name, value: f.value })),
       prices: p.prices.map((pr) => ({
         priceType: pr.priceType,
-        amount: typeof pr.amount === "number" ? pr.amount : (() => { throw new InvalidTypeValueError(`Internal data error: product price amount has unexpected type '${typeof pr.amount}'.`); })(),
+        amount: ProductService.assertIsNumber(pr.amount, "product price amount"),
         currencyCode: pr.currencyCode,
         fromDate: pr.fromDate.toISOString(),
         thruDate: pr.thruDate?.toISOString() ?? null,
@@ -422,7 +422,7 @@ export class ProductService {
       productPriceId: p.productPriceId,
       productId: p.productId,
       priceType: p.priceType,
-      amount: typeof p.amount === "number" ? p.amount : (() => { throw new InvalidTypeValueError(`Internal data error: product price amount has unexpected type '${typeof p.amount}'.`); })(),
+      amount: ProductService.assertIsNumber(p.amount, "product price amount"),
       currencyCode: p.currencyCode,
       fromDate: p.fromDate.toISOString(),
       thruDate: p.thruDate?.toISOString() ?? null,
@@ -442,5 +442,21 @@ export class ProductService {
         { suggestedTools: ["search_products"], context: { field, received: Number.isFinite(value) ? value : String(value) } }
       );
     }
+  }
+
+  /**
+   * Assert that a value is a number at runtime. Extracted from toGetProductResult
+   * and toPriceResult to avoid the IIFE-throw anti-pattern that made those
+   * branches unreadable. Mirrors the belt-and-suspenders numeric-type guard
+   * already used for product amounts in addProductPrice.
+   */
+  private static assertIsNumber(value: unknown, label: string): number {
+    if (typeof value !== "number") {
+      throw new InvalidTypeValueError(
+        `Internal data error: ${label} has unexpected type '${typeof value}'.`,
+        { context: { field: label, received: typeof value } }
+      );
+    }
+    return value;
   }
 }
