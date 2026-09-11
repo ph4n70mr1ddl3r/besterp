@@ -202,7 +202,7 @@ export class PartyService {
     }
     const trimmedName = name.trim();
     if (trimmedName.length === 0) {
-      throw new InvalidTypeValueError("Party name cannot be empty", { suggestedTools: ["create_party"], context: { field: "name", received: name } });
+      throw new InvalidTypeValueError(`'name' must not be empty.`, { suggestedTools: ["create_party"], context: { field: "name", received: name } });
     }
     PartyService.requireMaxLength(trimmedName, "Party name", MAX_PARTY_NAME_LENGTH, "create_party");
 
@@ -246,7 +246,7 @@ export class PartyService {
     }
     const trimmedFirstName = personData.firstName?.trim() ?? "";
     if (!trimmedFirstName) {
-      throw new MissingSubtypeDataError("firstName is required for person data", { suggestedTools: ["create_party"], context: { field: "firstName" } });
+      throw new MissingSubtypeDataError("firstName is required for person data.", { suggestedTools: ["create_party"], context: { field: "firstName" } });
     }
     PartyService.requireMaxLength(trimmedFirstName, "First name", MAX_PERSON_NAME_LENGTH, "create_party");
     if (typeof personData.lastName !== "string") {
@@ -257,7 +257,7 @@ export class PartyService {
     }
     const trimmedLastName = personData.lastName?.trim() ?? "";
     if (!trimmedLastName) {
-      throw new MissingSubtypeDataError("lastName is required for person data", { suggestedTools: ["create_party"], context: { field: "lastName" } });
+      throw new MissingSubtypeDataError("lastName is required for person data.", { suggestedTools: ["create_party"], context: { field: "lastName" } });
     }
     PartyService.requireMaxLength(trimmedLastName, "Last name", MAX_PERSON_NAME_LENGTH, "create_party");
     if (typeof personData.gender === "string") {
@@ -282,7 +282,7 @@ export class PartyService {
     }
     const trimmedLegalName = orgData.legalName?.trim() ?? "";
     if (!trimmedLegalName) {
-      throw new MissingSubtypeDataError("legalName is required for organization data", { suggestedTools: ["create_party"], context: { field: "legalName" } });
+      throw new MissingSubtypeDataError("legalName is required for organization data.", { suggestedTools: ["create_party"], context: { field: "legalName" } });
     }
     PartyService.requireMaxLength(trimmedLegalName, "Legal name", MAX_LEGAL_NAME_LENGTH, "create_party");
     if (orgData.registrationDate != null) {
@@ -613,7 +613,7 @@ export class PartyService {
       // assertion on every downstream access.
       throw new InvalidTypeValueError(
         "Unexpected state: add_party_role transaction completed but returned no role.",
-        { suggestedTools: ["add_party_role"], context: { partyId } }
+        { suggestedTools: ["add_party_role"], context: { partyId, tenantId } }
       );
     }
     this.logger.log(`Added role '${sanitizeForLogOutput(trimmedRoleType)}' to party ${partyId} (ID: ${role.partyRoleId})`);
@@ -640,7 +640,7 @@ export class PartyService {
     }
     const trimmed = roleType.trim();
     if (!trimmed) {
-      throw new InvalidTypeValueError("roleType cannot be empty", { suggestedTools: ["add_party_role"], context: { field: "roleType", received: roleType } });
+      throw new InvalidTypeValueError(`'roleType' must not be empty.`, { suggestedTools: ["add_party_role"], context: { field: "roleType", received: roleType } });
     }
     PartyService.requireMaxLength(trimmed, "Role type", MAX_ROLE_TYPE_LENGTH, "add_party_role");
     return trimmed;
@@ -747,7 +747,7 @@ export class PartyService {
         if (!inserted) {
           throw new InvalidTypeValueError(
             "Unexpected state: ON CONFLICT DO NOTHING returned no row but also did not throw.",
-            { suggestedTools: ["add_party_role"], context: { partyId } }
+            { suggestedTools: ["add_party_role"], context: { partyId, tenantId } }
           );
         }
         const role = await tx.partyRole.findUnique({
@@ -761,7 +761,7 @@ export class PartyService {
         if (!role) {
           throw new InvalidTypeValueError(
             "Unexpected state: inserted role not found after successful ON CONFLICT DO NOTHING.",
-            { suggestedTools: ["add_party_role"], context: { partyId } }
+            { suggestedTools: ["add_party_role"], context: { partyId, tenantId } }
           );
         }
         return role;
@@ -893,7 +893,7 @@ export class PartyService {
     const normalizedCountry = stripHtmlTags(postalAddress.country.trim()).toUpperCase();
     if (normalizedCountry.length === 0) {
       throw new InvalidTypeValueError(
-        "country is required for postal address",
+        "country is required for postal address.",
         { suggestedTools: ["add_contact_mechanism"], context: { parentType: "postal address", field: "country" } }
       );
     }
