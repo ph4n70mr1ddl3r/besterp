@@ -1288,14 +1288,14 @@ export class PartyService {
    *  Trims first to stay consistent with every other service-layer validator
    *  (requireStringField, requireValidDate, parseFromDate all trim before
    *  checking). A UUID padded with whitespace is valid once trimmed.
-   *  suggestedTools defaults to ["search_parties", "get_party"] for
-   *  backward compatibility with callers that omit it. */
-  private static requireUuid(value: string, field: string, suggestedTools: string[] = ["search_parties", "get_party"]): string {
+   *  suggestedTools is required so every caller explicitly declares which
+   *  tools are relevant — no default hiding behind an omitted argument. */
+  private static requireUuid(value: string, field: string, suggestedTools: string[]): string {
     const trimmed = value.trim();
     if (!UUID_REGEX.test(trimmed)) {
       const safeValue = sanitizeForLogOutput(stripHtmlTags(trimmed));
       throw new InvalidTypeValueError(
-        `Invalid '${field}': must be a valid UUID.`,
+        `'${field}' must be a valid UUID.`,
         { suggestedTools, context: { field, received: safeValue } }
       );
     }
