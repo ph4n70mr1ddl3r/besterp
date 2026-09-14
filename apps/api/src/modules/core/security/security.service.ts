@@ -13,6 +13,7 @@ import {
   MAX_PARTY_NAME_LENGTH,
   MAX_TENANT_ID_LENGTH,
   MAX_PASSWORD_HASH_LENGTH,
+  MAX_AGENT_DESCRIPTION_LENGTH,
   sanitizeForLogOutput,
   stripHtmlTags,
   computeHasMore,
@@ -157,7 +158,7 @@ export class SecurityService {
     const validatedAgentId = SecurityService.requireStringField(agentId, "agentId", MAX_AGENT_ID_LENGTH, "register_agent");
     const validatedTenantId = SecurityService.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "register_agent");
     const trimmedDisplayName = SecurityService.requireStringField(displayName, "displayName", MAX_PARTY_NAME_LENGTH, "register_agent");
-    const trimmedDescription = SecurityService.requireStringField(description, "description", 1000, "register_agent");
+    const trimmedDescription = SecurityService.requireStringField(description, "description", MAX_AGENT_DESCRIPTION_LENGTH, "register_agent");
     const trimmedVersion = SecurityService.requireStringField(version, "version", 64, "register_agent");
     SecurityService.validateAgentArrays(capabilities, allowedEntityTypes, "register_agent");
     SecurityService.validateAgentLimits(validatedAgentId, maxToolCallsPerConversation, rateLimitPerMinute, "register_agent");
@@ -306,7 +307,7 @@ export class SecurityService {
   private buildUpdateData(updates: Partial<UpdateAgentInput>): Record<string, unknown> {
     const updateData: Record<string, unknown> = {};
     if (updates.displayName !== undefined) updateData.displayName = stripHtmlTags(SecurityService.requireStringField(updates.displayName, "displayName", MAX_PARTY_NAME_LENGTH, "update_agent"));
-    if (updates.description !== undefined) updateData.description = stripHtmlTags(SecurityService.requireStringField(updates.description, "description", 1000, "update_agent"));
+    if (updates.description !== undefined) updateData.description = stripHtmlTags(SecurityService.requireStringField(updates.description, "description", MAX_AGENT_DESCRIPTION_LENGTH, "update_agent"));
     if (updates.capabilities !== undefined) updateData.capabilities = updates.capabilities;
     if (updates.maxToolCallsPerConversation !== undefined)
       updateData.maxToolCallsPerConversation = updates.maxToolCallsPerConversation;

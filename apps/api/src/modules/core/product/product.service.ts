@@ -23,6 +23,9 @@ import {
   MAX_SEARCH_OFFSET,
   DEFAULT_SEARCH_LIMIT,
   MAX_TENANT_ID_LENGTH,
+  MAX_SKU_LENGTH,
+  MAX_FEATURE_NAME_LENGTH,
+  MAX_FEATURE_VALUE_LENGTH,
   computeHasMore,
   handleTransactionError as mapPrismaError,
 } from "@besterp/shared";
@@ -60,9 +63,18 @@ export class ProductService {
     const { tenantId, productType, name, description, sku, features } = input;
 
     const trimmedTenantId = ProductService.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "create_product");
+    if (typeof name !== "string") {
+      throw new InvalidTypeValueError("name must be a string.", { suggestedTools: ["create_product"], context: { field: "name", received: typeof name } });
+    }
     const trimmedName = ProductService.requireNonEmptyString(name.trim(), "name", MAX_PARTY_NAME_LENGTH, "create_product");
+    if (description !== undefined && description !== null && typeof description !== "string") {
+      throw new InvalidTypeValueError("description must be a string.", { suggestedTools: ["create_product"], context: { field: "description", received: typeof description } });
+    }
     const trimmedDescription = description !== undefined && description !== null ? ProductService.requireOptionalString(stripHtmlTags(description.trim()), "description", MAX_PARTY_DESCRIPTION_LENGTH, "create_product") : null;
-    const trimmedSku = sku !== undefined && sku !== null ? ProductService.requireOptionalString(stripHtmlTags(sku.trim()), "sku", 100, "create_product") : null;
+    if (sku !== undefined && sku !== null && typeof sku !== "string") {
+      throw new InvalidTypeValueError("sku must be a string.", { suggestedTools: ["create_product"], context: { field: "sku", received: typeof sku } });
+    }
+    const trimmedSku = sku !== undefined && sku !== null ? ProductService.requireOptionalString(stripHtmlTags(sku.trim()), "sku", MAX_SKU_LENGTH, "create_product") : null;
     const trimmedProductType = ProductService.requireStringField(productType, "productType", MAX_ROLE_TYPE_LENGTH, "create_product");
 
     // Validate product type exists
@@ -198,9 +210,21 @@ export class ProductService {
     const productId = ProductService.requireUuid(rawProductId, "productId", ["update_product"]);
 
     const updateData: Prisma.ProductUpdateInput = {};
+    if (name !== undefined && typeof name !== "string") {
+      throw new InvalidTypeValueError("name must be a string.", { suggestedTools: ["update_product"], context: { field: "name", received: typeof name } });
+    }
     if (name !== undefined) updateData.name = ProductService.requireNonEmptyString(name.trim(), "name", MAX_PARTY_NAME_LENGTH, "update_product");
+    if (description !== undefined && description !== null && typeof description !== "string") {
+      throw new InvalidTypeValueError("description must be a string.", { suggestedTools: ["update_product"], context: { field: "description", received: typeof description } });
+    }
     if (description !== undefined) updateData.description = description === null ? null : ProductService.requireOptionalString(stripHtmlTags(description.trim()), "description", MAX_PARTY_DESCRIPTION_LENGTH, "update_product");
-    if (sku !== undefined) updateData.sku = sku === null ? null : ProductService.requireOptionalString(stripHtmlTags(sku.trim()), "sku", 100, "update_product");
+    if (sku !== undefined && sku !== null && typeof sku !== "string") {
+      throw new InvalidTypeValueError("sku must be a string.", { suggestedTools: ["update_product"], context: { field: "sku", received: typeof sku } });
+    }
+    if (sku !== undefined) updateData.sku = sku === null ? null : ProductService.requireOptionalString(stripHtmlTags(sku.trim()), "sku", MAX_SKU_LENGTH, "update_product");
+    if (productTypeId !== undefined && typeof productTypeId !== "string") {
+      throw new InvalidTypeValueError("productTypeId must be a string.", { suggestedTools: ["update_product"], context: { field: "productTypeId", received: typeof productTypeId } });
+    }
     if (productTypeId !== undefined) {
       const trimmedProductTypeId = productTypeId.trim();
       const pt = await this.prisma.admin.productType.findUnique({ where: { name: trimmedProductTypeId } });
@@ -238,8 +262,14 @@ export class ProductService {
 
     const trimmedTenantId = ProductService.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "add_product_feature");
     const productId = ProductService.requireUuid(rawProductId, "productId", ["add_product_feature"]);
-    const trimmedName = ProductService.requireNonEmptyString(name.trim(), "featureName", 100, "add_product_feature");
-    const trimmedValue = ProductService.requireNonEmptyString(value.trim(), "featureValue", 500, "add_product_feature");
+    if (typeof name !== "string") {
+      throw new InvalidTypeValueError("name must be a string.", { suggestedTools: ["add_product_feature"], context: { field: "name", received: typeof name } });
+    }
+    const trimmedName = ProductService.requireNonEmptyString(name.trim(), "featureName", MAX_FEATURE_NAME_LENGTH, "add_product_feature");
+    if (typeof value !== "string") {
+      throw new InvalidTypeValueError("value must be a string.", { suggestedTools: ["add_product_feature"], context: { field: "value", received: typeof value } });
+    }
+    const trimmedValue = ProductService.requireNonEmptyString(value.trim(), "featureValue", MAX_FEATURE_VALUE_LENGTH, "add_product_feature");
 
     const db: TenantScopedClient = this.prisma.tenantScoped(trimmedTenantId);
 
@@ -274,6 +304,21 @@ export class ProductService {
 
     if (!Number.isFinite(amount) || amount <= 0) {
       throw new InvalidTypeValueError("Price amount must be a finite number greater than zero.", { suggestedTools: ["add_product_price"], context: { field: "amount", received: amount } });
+    }
+    if (typeof priceType !== "string") {
+      throw new InvalidTypeValueError("priceType must be a string.", { suggestedTools: ["add_product_price"], context: { field: "priceType", received: typeof priceType } });
+    }
+    if (priceType.trim().length === 0) {
+      throw new InvalidTypeValueError("'priceType' must not be empty.", { suggestedTools: ["add_product_price"], context: { field: "priceType" } });
+    }
+    if (typeof currencyCode !== "string") {
+      throw new InvalidTypeValueError("currencyCode must be a string.", { suggestedTools: ["add_product_price"], context: { field: "currencyCode", received: typeof currencyCode } });
+    }
+    if (fromDate !== undefined && fromDate !== null && typeof fromDate !== "string") {
+      throw new InvalidTypeValueError("fromDate must be a string.", { suggestedTools: ["add_product_price"], context: { field: "fromDate", received: typeof fromDate } });
+    }
+    if (thruDate !== undefined && thruDate !== null && typeof thruDate !== "string") {
+      throw new InvalidTypeValueError("thruDate must be a string.", { suggestedTools: ["add_product_price"], context: { field: "thruDate", received: typeof thruDate } });
     }
 
     const db: TenantScopedClient = this.prisma.tenantScoped(trimmedTenantId);

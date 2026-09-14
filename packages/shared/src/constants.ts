@@ -77,6 +77,18 @@ export const MAX_PASSWORD_HASH_LENGTH = 255;
 /** Maximum length for ISO 8601 date strings (e.g., "2024-06-15", "2024-06-15T00:00:00.000Z"). */
 export const MAX_DATE_STRING_LENGTH = 30;
 
+/** Maximum length for product SKUs. */
+export const MAX_SKU_LENGTH = 100;
+
+/** Maximum length for product feature names. */
+export const MAX_FEATURE_NAME_LENGTH = 100;
+
+/** Maximum length for product feature values. */
+export const MAX_FEATURE_VALUE_LENGTH = 500;
+
+/** Maximum length for agent descriptions. */
+export const MAX_AGENT_DESCRIPTION_LENGTH = 1000;
+
 // ─── Auth Limits ───────────────────────────────────────────────
 
 /** Maximum length for user IDs in JWT tokens. */
