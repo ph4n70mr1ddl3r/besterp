@@ -93,27 +93,27 @@ export class McpService implements OnModuleInit {
     if (typeof value !== "string") {
       throw new InvalidTypeValueError(
         "userId must be a string.",
-        { context: { field: "userId", receivedType: typeof value } }
+        { suggestedTools: ["list_available_tools"], context: { field: "userId", receivedType: typeof value } }
       );
     }
     const rawUserId = value.trim();
     if (rawUserId.length === 0) {
       throw new InvalidTypeValueError(
         "userId must not be empty or whitespace-only.",
-        { context: { field: "userId" } }
+        { suggestedTools: ["list_available_tools"], context: { field: "userId" } }
       );
     }
     if (rawUserId.length > MAX_USER_ID_LENGTH) {
       throw new InvalidTypeValueError(
         `userId is too long (${rawUserId.length} chars, max ${MAX_USER_ID_LENGTH}).`,
-        { context: { field: "userId", length: rawUserId.length, maxLength: MAX_USER_ID_LENGTH } }
+        { suggestedTools: ["list_available_tools"], context: { field: "userId", length: rawUserId.length, maxLength: MAX_USER_ID_LENGTH } }
       );
     }
     if (!OPTIONAL_ID_PATTERN.test(rawUserId)) {
       throw new InvalidTypeValueError(
         "userId contains invalid characters. " +
           "User IDs may only contain non-whitespace printable characters.",
-        { context: { field: "userId" } }
+        { suggestedTools: ["list_available_tools"], context: { field: "userId" } }
       );
     }
     // Return the raw trimmed userId (not sanitized) so downstream validators

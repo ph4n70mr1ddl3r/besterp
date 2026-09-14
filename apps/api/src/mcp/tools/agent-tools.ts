@@ -42,7 +42,7 @@ function getSecurityService(ctx: ToolContext) {
   if (svc === undefined || svc === null || typeof svc !== "object") {
     throw new InvalidTypeValueError(
       "SecurityService not available in ToolContext.services",
-      { context: { field: "securityService" } }
+      { suggestedTools: ["list_available_tools"], context: { field: "securityService" } }
     );
   }
   const requiredMethods: (keyof SecurityServices["securityService"])[] = [
@@ -52,7 +52,7 @@ function getSecurityService(ctx: ToolContext) {
     if (typeof (svc as SecurityServices["securityService"])[method] !== "function") {
       throw new InvalidTypeValueError(
         `SecurityService in ToolContext.services is missing required method '${method}'`,
-        { context: { field: "securityService", missingMethod: method } }
+        { suggestedTools: ["list_available_tools"], context: { field: "securityService", missingMethod: method } }
       );
     }
   }

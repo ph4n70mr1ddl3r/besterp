@@ -83,7 +83,7 @@ function getPartyService(ctx: ToolContext) {
   if (svc === undefined || svc === null || typeof svc !== "object") {
     throw new InvalidTypeValueError(
       "PartyService not available in ToolContext.services",
-      { context: { field: "partyService" } }
+      { suggestedTools: ["list_available_tools"], context: { field: "partyService" } }
     );
   }
   const requiredMethods: (keyof PartyServices["partyService"])[] = [
@@ -93,7 +93,7 @@ function getPartyService(ctx: ToolContext) {
     if (typeof (svc as PartyServices["partyService"])[method] !== "function") {
       throw new InvalidTypeValueError(
         `PartyService in ToolContext.services is missing required method '${method}'`,
-        { context: { field: "partyService", missingMethod: method } }
+        { suggestedTools: ["list_available_tools"], context: { field: "partyService", missingMethod: method } }
       );
     }
   }

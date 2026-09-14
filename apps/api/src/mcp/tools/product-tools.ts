@@ -51,7 +51,7 @@ function getProductService(ctx: ToolContext) {
   if (svc === undefined || svc === null || typeof svc !== "object") {
     throw new InvalidTypeValueError(
       "ProductService not available in ToolContext.services",
-      { context: { field: "productService" } }
+      { suggestedTools: ["list_available_tools"], context: { field: "productService" } }
     );
   }
   const requiredMethods: (keyof ProductServices["productService"])[] = [
@@ -61,7 +61,7 @@ function getProductService(ctx: ToolContext) {
     if (typeof (svc as ProductServices["productService"])[method] !== "function") {
       throw new InvalidTypeValueError(
         `ProductService in ToolContext.services is missing required method '${method}'`,
-        { context: { field: "productService", missingMethod: method } }
+        { suggestedTools: ["list_available_tools"], context: { field: "productService", missingMethod: method } }
       );
     }
   }

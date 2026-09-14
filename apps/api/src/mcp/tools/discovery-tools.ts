@@ -118,7 +118,7 @@ async function queryTypeTable(
   if (!raw || typeof raw !== "object" || typeof (raw as Record<string, unknown>).findMany !== "function") {
     throw new InvalidTypeValueError(
       `Prisma delegate '${delegateKey}' not found. Ensure the model exists in the schema.`,
-      { context: { field: "delegateKey", received: delegateKey } }
+      { suggestedTools: ["list_available_tools"], context: { field: "delegateKey", received: delegateKey } }
     );
   }
   const delegate = raw as unknown as PrismaModelDelegate;
