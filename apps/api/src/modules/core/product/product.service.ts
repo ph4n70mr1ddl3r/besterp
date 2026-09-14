@@ -204,38 +204,12 @@ export class ProductService {
   // ─── Update Product ───────────────────────────────────────────
 
   async updateProduct(input: UpdateProductInput): Promise<ProductResult> {
-    const { tenantId, productId: rawProductId, name, description, sku, productTypeId } = input;
+    const { tenantId, productId: rawProductId, ...updates } = input;
 
     const trimmedTenantId = ProductService.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "update_product");
     const productId = ProductService.requireUuid(rawProductId, "productId", ["update_product"]);
 
-    const updateData: Prisma.ProductUpdateInput = {};
-    if (name !== undefined && typeof name !== "string") {
-      throw new InvalidTypeValueError("name must be a string.", { suggestedTools: ["update_product"], context: { field: "name", received: typeof name } });
-    }
-    if (name !== undefined) updateData.name = ProductService.requireNonEmptyString(name.trim(), "name", MAX_PARTY_NAME_LENGTH, "update_product");
-    if (description !== undefined && description !== null && typeof description !== "string") {
-      throw new InvalidTypeValueError("description must be a string.", { suggestedTools: ["update_product"], context: { field: "description", received: typeof description } });
-    }
-    if (description !== undefined) updateData.description = description === null ? null : ProductService.requireOptionalString(stripHtmlTags(description.trim()), "description", MAX_PARTY_DESCRIPTION_LENGTH, "update_product");
-    if (sku !== undefined && sku !== null && typeof sku !== "string") {
-      throw new InvalidTypeValueError("sku must be a string.", { suggestedTools: ["update_product"], context: { field: "sku", received: typeof sku } });
-    }
-    if (sku !== undefined) updateData.sku = sku === null ? null : ProductService.requireOptionalString(stripHtmlTags(sku.trim()), "sku", MAX_SKU_LENGTH, "update_product");
-    if (productTypeId !== undefined && typeof productTypeId !== "string") {
-      throw new InvalidTypeValueError("productTypeId must be a string.", { suggestedTools: ["update_product"], context: { field: "productTypeId", received: typeof productTypeId } });
-    }
-    if (productTypeId !== undefined) {
-      const trimmedProductTypeId = productTypeId.trim();
-      const pt = await this.prisma.admin.productType.findUnique({ where: { name: trimmedProductTypeId } });
-      if (!pt) {
-        throw new InvalidTypeValueError(
-          `PRODUCT_TYPE '${sanitizeForLogOutput(trimmedProductTypeId)}' is not valid.`,
-          { suggestedTools: ["get_type_table_values"], context: { field: "productTypeId", invalidValue: sanitizeForLogOutput(trimmedProductTypeId) } }
-        );
-      }
-      updateData.productType = { connect: { productTypeId: pt.productTypeId } };
-    }
+    const updateData = await this.buildUpdateData(updates, "update_product");
 
     const db: TenantScopedClient = this.prisma.tenantScoped(trimmedTenantId);
 
@@ -252,6 +226,56 @@ export class ProductService {
       return ProductService.toProductResult(product);
     } catch (err: unknown) {
       throw mapPrismaError(err, "update_product", "update_product", "product");
+    }
+  }
+
+  /** Build the Prisma updateData object from partial UpdateProductInput.
+   *  Extracted from updateProduct to keep its complexity under the lint cap.
+   *  Each branch validates and sanitizes one optional field. */
+  private async buildUpdateData(updates: Partial<UpdateProductInput>, tool: string): Promise<Prisma.ProductUpdateInput> {
+    const updateData: Prisma.ProductUpdateInput = {};
+    ProductService.validateUpdateName(updates.name, updateData, tool);
+    ProductService.validateUpdateDescription(updates.description, updateData, tool);
+    ProductService.validateUpdateSku(updates.sku, updateData, tool);
+    await this.validateUpdateProductType(updates.productTypeId, updateData, tool);
+    return updateData;
+  }
+
+  private static validateUpdateName(name: string | undefined, updateData: Prisma.ProductUpdateInput, tool: string): void {
+    if (name !== undefined && typeof name !== "string") {
+      throw new InvalidTypeValueError("name must be a string.", { suggestedTools: [tool], context: { field: "name", received: typeof name } });
+    }
+    if (name !== undefined) updateData.name = ProductService.requireNonEmptyString(name.trim(), "name", MAX_PARTY_NAME_LENGTH, tool);
+  }
+
+  private static validateUpdateDescription(description: string | null | undefined, updateData: Prisma.ProductUpdateInput, tool: string): void {
+    if (description !== undefined && description !== null && typeof description !== "string") {
+      throw new InvalidTypeValueError("description must be a string.", { suggestedTools: [tool], context: { field: "description", received: typeof description } });
+    }
+    if (description !== undefined) updateData.description = description === null ? null : ProductService.requireOptionalString(stripHtmlTags(description.trim()), "description", MAX_PARTY_DESCRIPTION_LENGTH, tool);
+  }
+
+  private static validateUpdateSku(sku: string | null | undefined, updateData: Prisma.ProductUpdateInput, tool: string): void {
+    if (sku !== undefined && sku !== null && typeof sku !== "string") {
+      throw new InvalidTypeValueError("sku must be a string.", { suggestedTools: [tool], context: { field: "sku", received: typeof sku } });
+    }
+    if (sku !== undefined) updateData.sku = sku === null ? null : ProductService.requireOptionalString(stripHtmlTags(sku.trim()), "sku", MAX_SKU_LENGTH, tool);
+  }
+
+  private async validateUpdateProductType(productTypeId: string | undefined, updateData: Prisma.ProductUpdateInput, tool: string): Promise<void> {
+    if (productTypeId !== undefined && typeof productTypeId !== "string") {
+      throw new InvalidTypeValueError("productTypeId must be a string.", { suggestedTools: [tool], context: { field: "productTypeId", received: typeof productTypeId } });
+    }
+    if (productTypeId !== undefined) {
+      const trimmedProductTypeId = productTypeId.trim();
+      const pt = await this.prisma.admin.productType.findUnique({ where: { name: trimmedProductTypeId } });
+      if (!pt) {
+        throw new InvalidTypeValueError(
+          `PRODUCT_TYPE '${sanitizeForLogOutput(trimmedProductTypeId)}' is not valid.`,
+          { suggestedTools: ["get_type_table_values"], context: { field: "productTypeId", invalidValue: sanitizeForLogOutput(trimmedProductTypeId) } }
+        );
+      }
+      updateData.productType = { connect: { productTypeId: pt.productTypeId } };
     }
   }
 
@@ -301,25 +325,7 @@ export class ProductService {
 
     const trimmedTenantId = ProductService.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "add_product_price");
     const productId = ProductService.requireUuid(rawProductId, "productId", ["add_product_price"]);
-
-    if (!Number.isFinite(amount) || amount <= 0) {
-      throw new InvalidTypeValueError("Price amount must be a finite number greater than zero.", { suggestedTools: ["add_product_price"], context: { field: "amount", received: amount } });
-    }
-    if (typeof priceType !== "string") {
-      throw new InvalidTypeValueError("priceType must be a string.", { suggestedTools: ["add_product_price"], context: { field: "priceType", received: typeof priceType } });
-    }
-    if (priceType.trim().length === 0) {
-      throw new InvalidTypeValueError("'priceType' must not be empty.", { suggestedTools: ["add_product_price"], context: { field: "priceType" } });
-    }
-    if (typeof currencyCode !== "string") {
-      throw new InvalidTypeValueError("currencyCode must be a string.", { suggestedTools: ["add_product_price"], context: { field: "currencyCode", received: typeof currencyCode } });
-    }
-    if (fromDate !== undefined && fromDate !== null && typeof fromDate !== "string") {
-      throw new InvalidTypeValueError("fromDate must be a string.", { suggestedTools: ["add_product_price"], context: { field: "fromDate", received: typeof fromDate } });
-    }
-    if (thruDate !== undefined && thruDate !== null && typeof thruDate !== "string") {
-      throw new InvalidTypeValueError("thruDate must be a string.", { suggestedTools: ["add_product_price"], context: { field: "thruDate", received: typeof thruDate } });
-    }
+    const parsedDates = ProductService.parsePriceDates(priceType, amount, currencyCode, fromDate, thruDate, "add_product_price");
 
     const db: TenantScopedClient = this.prisma.tenantScoped(trimmedTenantId);
 
@@ -332,24 +338,14 @@ export class ProductService {
         );
       }
 
-      const parsedFromDate = fromDate ? parseISODateTimeAsUTC(fromDate) : new Date();
-      if (isNaN(parsedFromDate.getTime())) {
-        throw new InvalidTypeValueError("fromDate must be a valid ISO 8601 date.", { suggestedTools: ["add_product_price"], context: { field: "fromDate", invalidValue: sanitizeForLogOutput(fromDate ?? "") } });
-      }
-
-      const parsedThruDate = thruDate ? parseISODateTimeAsUTC(thruDate) : null;
-      if (parsedThruDate && isNaN(parsedThruDate.getTime())) {
-        throw new InvalidTypeValueError("thruDate must be a valid ISO 8601 date.", { suggestedTools: ["add_product_price"], context: { field: "thruDate", invalidValue: sanitizeForLogOutput(thruDate ?? "") } });
-      }
-
       const price = await db.productPrice.create({
         data: {
           productId,
-          priceType: priceType.toUpperCase(),
-          amount,
-          currencyCode,
-          fromDate: parsedFromDate,
-          thruDate: parsedThruDate,
+          priceType: parsedDates.priceType,
+          amount: parsedDates.amount,
+          currencyCode: parsedDates.currencyCode,
+          fromDate: parsedDates.fromDate,
+          thruDate: parsedDates.thruDate,
         },
         select: { productPriceId: true, productId: true, priceType: true, amount: true, currencyCode: true, fromDate: true, thruDate: true, createdAt: true },
       });
@@ -375,6 +371,50 @@ export class ProductService {
       throw new InvalidTypeValueError(`'${field}' exceeds maximum length of ${maxLength} characters.`, { suggestedTools: [tool], context: { field, length: trimmed.length } });
     }
     return trimmed;
+  }
+
+  /** Parse and validate date fields for addProductPrice.
+   *  Extracted from addProductPrice to keep its complexity under the lint cap. */
+  private static parsePriceDates(
+    priceType: string,
+    amount: number,
+    currencyCode: string,
+    fromDate: string | null | undefined,
+    thruDate: string | null | undefined,
+    tool: string,
+  ): { priceType: string; amount: number; currencyCode: string; fromDate: Date; thruDate: Date | null } {
+    ProductService.validatePriceAmount(amount, tool);
+    ProductService.validatePriceType(priceType, tool);
+    ProductService.validatePriceCurrencyCode(currencyCode, tool);
+    const parsedFromDate = fromDate ? parseISODateTimeAsUTC(fromDate) : new Date();
+    ProductService.validateParsedDate(parsedFromDate, "fromDate", fromDate, tool);
+    const parsedThruDate = thruDate ? parseISODateTimeAsUTC(thruDate) : null;
+    ProductService.validateParsedDate(parsedThruDate, "thruDate", thruDate, tool);
+    return { priceType: priceType.toUpperCase(), amount, currencyCode, fromDate: parsedFromDate, thruDate: parsedThruDate };
+  }
+
+  private static validatePriceAmount(amount: number, tool: string): void {
+    if (!Number.isFinite(amount) || amount <= 0) {
+      throw new InvalidTypeValueError("Price amount must be a finite number greater than zero.", { suggestedTools: [tool], context: { field: "amount", received: amount } });
+    }
+  }
+
+  private static validatePriceType(priceType: string, tool: string): void {
+    if (priceType.trim().length === 0) {
+      throw new InvalidTypeValueError("'priceType' must not be empty.", { suggestedTools: [tool], context: { field: "priceType" } });
+    }
+  }
+
+  private static validatePriceCurrencyCode(currencyCode: string, tool: string): void {
+    if (typeof currencyCode !== "string") {
+      throw new InvalidTypeValueError("currencyCode must be a string.", { suggestedTools: [tool], context: { field: "currencyCode", received: typeof currencyCode } });
+    }
+  }
+
+  private static validateParsedDate(date: Date | null, field: string, rawValue: unknown, tool: string): void {
+    if (date && isNaN(date.getTime())) {
+      throw new InvalidTypeValueError(`${field} must be a valid ISO 8601 date.`, { suggestedTools: [tool], context: { field, invalidValue: sanitizeForLogOutput(typeof rawValue === "string" ? rawValue : "") } });
+    }
   }
 
   private static requireNonEmptyString(value: string, field: string, maxLength: number, tool: string): string {

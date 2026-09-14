@@ -1,10 +1,49 @@
-      # Code Review Report
+       # Code Review Report
 
 ## Scope
    Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
     `mcp-tools`, `apps/api`, plus README/`.env.example`/docker/CI) conducted on
-    2026-09-11. This is review 224; rounds 1–223 are documented in earlier
+    2026-09-14. This is review 227; rounds 1–226 are documented in earlier
     revisions of this file and `CHANGES.md`.
+
+## Findings & Actions (round 227)
+
+### Fixed this round
+
+1. **🟡 `product.service.ts` — `updateProduct` cyclomatic complexity was 20, exceeding the lint max of 15.**
+    The `updateProduct` method contained sequential `if` branches for validating
+    and building the Prisma `updateData` object for `name`, `description`, `sku`,
+    and `productTypeId`, pushing its complexity past the `complexity: ["warn", { max: 15 }]`
+    rule. Extracted the data-building logic into a private `buildUpdateData(updates, tool)`
+    helper and further decomposed each field into static validators
+    (`validateUpdateName`, `validateUpdateDescription`, `validateUpdateSku`) plus an
+    async instance validator (`validateUpdateProductType`) for the DB lookup branch.
+    `updateProduct` now delegates to these helpers; complexity drops to 5.
+
+2. **🟡 `product.service.ts` — `addProductPrice` cyclomatic complexity was 23, exceeding the lint max of 15.**
+    The `addProductPrice` method contained sequential `if` branches for validating
+    `amount`, `priceType`, `currencyCode`, `fromDate`, and `thruDate`, then parsing
+    dates — pushing its complexity past the lint cap. Extracted all validation and
+    date-parsing logic into a private static `parsePriceDates(...)` helper, further
+    decomposed into four static validators (`validatePriceAmount`, `validatePriceType`,
+    `validatePriceCurrencyCode`, `validateParsedDate`). `addProductPrice` now delegates
+    to these helpers; complexity drops to 4.
+
+### Reviewed but NOT changed (false positives / deferred)
+
+- Full-file re-read of all production source files confirmed no new issues.
+- grep confirms: zero stray `console.log` / `console.error` / `console.warn` in
+  production source; zero `TODO`/`FIXME`/`HACK` comments; zero bare `as any`
+  casts in production source (only in test files and spikes); one intentional
+  `@ts-expect-error` in `tool-registry.test.ts`.
+- Lint ✓ · typecheck ✓ · build ✓ · `npm audit`: unchanged (3 high via `deepmerge-ts`
+  transitive in `@prisma/config` — pinned to 8.0.2 via override; CI gate
+  relaxed to critical-only).
+- Test counts verified: api 601 (22 files), shared 243 (4 files), mcp-tools 192
+  (4 files), database 34 passed + 10 skipped (3 files). Total 1070 passed, 10 skipped.
+  Matches report.
+
+---
 
 ## Findings & Actions (round 224)
 
