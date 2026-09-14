@@ -16,12 +16,15 @@ import {
   ToolRegistry,
   ToolDefinition,
   ToolContext,
+  sanitizedString,
+  optionalFilteredString,
+  optionalSearchFilterString,
+  optionalIsoDate,
+  uuidParam,
 } from "@besterp/mcp-tools";
 import {
-  UUID_REGEX,
   COUNTRY_CODE_REGEX,
   COUNTRY_CODE_ISO_REGEX,
-  isValidISODate,
   stripHtmlTags,
   sanitizeForLogOutput,
   InvalidTypeValueError,
@@ -166,87 +169,6 @@ const CONTACT_SUBTYPE_CONFIGS: Record<string, SubtypeFieldConfig> = {
 };
 
 // ─── Schemas ──────────────────────────────────────────────────────
-
-// Reusable Zod schema builders — eliminate repeated transform+pipe chains.
-// Each helper applies stripHtmlTags + trim + length validation in one step.
-
-/** Required string: trims, strips HTML, enforces min/max length. */
-function sanitizedString(min: number, max: number) {
-  return z.string()
-    .transform(s => stripHtmlTags(s.trim()))
-    .pipe(z.string().min(min).max(max));
-}
-
-/** Optional trimmed string that rejects whitespace-only input.
- *  Trims, strips HTML/script payloads, and normalises empty/whitespace-only input
- *  to undefined. Used for optional fields and search filters.
- *
- *  The length cap is enforced on the TRIMMED value (the `.pipe` below), not on
- *  the raw input: a value padded with whitespace to just over `max` is valid
- *  once trimmed, and the service layer (PartyService.requireMaxLength) and the
- *  required-field helper `sanitizedString` both length-check the trimmed value.
- *  A pre-transform `.max()` would reject exactly the padded-but-valid inputs
- *  the other surfaces accept — a cross-surface inconsistency. DoS resistance is
- *  unaffected: stripHtmlTags enforces its own 100 KB input cap before any
- *  length check runs. */
-function optionalFilteredString(max: number) {
-  return z.string()
-    .optional()
-    .transform(s => {
-      if (s === undefined || s === null) return undefined;
-      const trimmed = stripHtmlTags(s.trim());
-      return trimmed.length === 0 ? undefined : trimmed;
-    })
-    .pipe(z.string().max(max).optional());
-}
-
-/** Optional search filter: REJECTS whitespace-only/HTML-only input instead of
- *  silently dropping it. The service layer's requireNonEmptyFilter treats a
- *  whitespace-only filter as a probable caller mistake and refuses to widen
- *  the query to "return all" — the REST DTO enforces the same contract (the
- *  value stays defined and the service rejects it). optionalFilteredString
- *  normalised "   " to undefined here, so the same request silently returned
- *  the unfiltered listing on MCP while REST returned 422: a cross-surface
- *  divergence with data-widening consequences (round 150). */
-function optionalSearchFilterString(max: number) {
-  return z.string()
-    .optional()
-    .transform(s => (s === undefined ? undefined : stripHtmlTags(s.trim())))
-    .pipe(
-      z.string()
-        .min(1, "Filter cannot be whitespace-only — provide a real filter or omit the field")
-        .max(max)
-        .optional()
-    );
-}
-
-/** Optional ISO 8601 date: trims, validates format, enforces max length. */
-function optionalIsoDate(max: number = MAX_DATE_STRING_LENGTH) {
-  return z.string()
-    .optional()
-    .transform(s => s?.trim() || undefined)
-    .pipe(z.string().max(max).optional())
-    .refine(
-      // After the transform, `v` is either undefined (empty/whitespace input)
-      // or a non-empty string, so a length check is redundant — just validate
-      // the format. Parentheses make the precedence explicit.
-      v => v === undefined || isValidISODate(v),
-      "Invalid date format - must be ISO 8601"
-    );
-}
-
-/**
- * UUID path parameter. Centralises the repeated id schema so every tool
- * shares one definition. The 36-char max matches the canonical UUID format;
- * UUID_REGEX is the real gatekeeper and is kept aligned with
- * PartyService.requireUuid by shared.test.ts.
- */
-function uuidParam(description: string) {
-  return z.string()
-    .transform(s => s.trim())
-    .pipe(z.string().min(1).max(36).regex(UUID_REGEX, "Must be a valid UUID"))
-    .describe(description);
-}
 
 // All tool input schemas use z.strictObject: unknown keys are REJECTED
 // (INVALID_INPUT), matching the REST boundary's ValidationPipe

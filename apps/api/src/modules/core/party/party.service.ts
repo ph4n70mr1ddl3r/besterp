@@ -146,7 +146,7 @@ export class PartyService {
     this.validateOrganizationData(orgData);
 
     const { sanitizedPerson, sanitizedOrg, sanitizedName, sanitizedDescription } =
-      this.sanitizeCreatePartyInput(trimmedName, trimmedDescription, personData, orgData);
+      PartyService.sanitizeCreatePartyInput(trimmedName, trimmedDescription, personData, orgData);
 
     // Reject names and person subtype fields that are entirely consumed by
     // stripHtmlTags — the boundary layers (REST DTO sanitizeTransform,
@@ -293,7 +293,7 @@ export class PartyService {
     }
   }
 
-  private sanitizePerson(personData: CreatePartyInput["person"]): CreatePartyInput["person"] | undefined {
+  private static sanitizePerson(personData: CreatePartyInput["person"]): CreatePartyInput["person"] | undefined {
     if (!personData) return undefined;
     // Optional fields may arrive as non-strings from direct callers bypassing
     // the DTO/Zod bounds; `.trim()` on a number throws a raw TypeError that
@@ -311,7 +311,7 @@ export class PartyService {
     };
   }
 
-  private sanitizeOrganization(orgData: CreatePartyInput["organization"]): CreatePartyInput["organization"] | undefined {
+  private static sanitizeOrganization(orgData: CreatePartyInput["organization"]): CreatePartyInput["organization"] | undefined {
     if (!orgData) return undefined;
     // Guard optional non-string fields from direct callers (round 151) — see
     // the sanitizePerson comment and validateOrganizationData.
@@ -323,13 +323,13 @@ export class PartyService {
     };
   }
 
-  private sanitizeCreatePartyInput(
+  private static sanitizeCreatePartyInput(
     trimmedName: string, trimmedDescription: string | null,
     personData: CreatePartyInput["person"], orgData: CreatePartyInput["organization"],
   ): { sanitizedPerson: typeof personData; sanitizedOrg: typeof orgData; sanitizedName: string; sanitizedDescription: string | null } {
     return {
-      sanitizedPerson: this.sanitizePerson(personData),
-      sanitizedOrg: this.sanitizeOrganization(orgData),
+      sanitizedPerson: PartyService.sanitizePerson(personData),
+      sanitizedOrg: PartyService.sanitizeOrganization(orgData),
       sanitizedName: stripHtmlTags(trimmedName),
       sanitizedDescription: trimmedDescription ? (stripHtmlTags(trimmedDescription) || null) : null,
     };
@@ -566,7 +566,7 @@ export class PartyService {
     const db: TenantScopedClient = this.prisma.tenantScoped(trimmedTenantId);
 
     const trimmedRoleType = PartyService.validateAddPartyRoleInput(roleType);
-    const roleFromDate = this.parseFromDate(fromDate);
+    const roleFromDate = PartyService.parseFromDate(fromDate);
 
     // Use admin client for global reference data — role_type is a shared
     // cross-tenant lookup table, not tenant-scoped. RLS policies do not apply.
@@ -613,7 +613,7 @@ export class PartyService {
       // assertion on every downstream access.
       throw new InvalidTypeValueError(
         "Unexpected state: add_party_role transaction completed but returned no role.",
-        { suggestedTools: ["add_party_role"], context: { partyId, tenantId } }
+        { suggestedTools: ["add_party_role"], context: { partyId, tenantId: trimmedTenantId } }
       );
     }
     this.logger.log(`Added role '${sanitizeForLogOutput(trimmedRoleType)}' to party ${partyId} (ID: ${role.partyRoleId})`);
@@ -646,7 +646,7 @@ export class PartyService {
     return trimmed;
   }
 
-  private parseFromDate(fromDate: string | undefined | null): Date {
+  private static parseFromDate(fromDate: string | undefined | null): Date {
     // Trim FIRST so the length check and format validation operate on the
     // canonical value. Boundary layers (DTO/Zod) trim before this point,
     // but defense-in-depth matters — a whitespace-padded value should not be
@@ -787,8 +787,8 @@ export class PartyService {
 
     const db: TenantScopedClient = this.prisma.tenantScoped(trimmedTenantId);
 
-    const trimmedCmType = this.validateContactMechanismType(contactMechanismType);
-    const normalizedEmail = this.validateContactMechanismSubtype(trimmedCmType, postalAddress, telecomNumber, emailAddress);
+    const trimmedCmType = PartyService.validateContactMechanismType(contactMechanismType);
+    const normalizedEmail = PartyService.validateContactMechanismSubtype(trimmedCmType, postalAddress, telecomNumber, emailAddress);
 
     // Use admin client for global reference data — contact_mechanism_type is a
     // shared cross-tenant lookup table, not tenant-scoped. RLS policies do not
@@ -807,7 +807,7 @@ export class PartyService {
     return PartyService.formatContactResult(contactMechanism, partyId);
   }
 
-  private validateContactMechanismType(type: string): string {
+  private static validateContactMechanismType(type: string): string {
     return PartyService.requireStringField(type, "contactMechanismType", MAX_CONTACT_MECHANISM_TYPE_LENGTH, "get_type_table_values");
   }
 
@@ -839,7 +839,7 @@ export class PartyService {
     }
   }
 
-  private validateContactMechanismSubtype(
+  private static validateContactMechanismSubtype(
     type: string, postalAddress: AddContactMechanismInput["postalAddress"],
     telecomNumber: AddContactMechanismInput["telecomNumber"],
     emailAddress: AddContactMechanismInput["emailAddress"],
@@ -855,17 +855,17 @@ export class PartyService {
     }
     PartyService.rejectCrossSubtypeData(type, postalAddress, telecomNumber, emailAddress);
     if (type === "POSTAL_ADDRESS") {
-      this.validatePostalAddressSubtype(postalAddress);
+      PartyService.validatePostalAddressSubtype(postalAddress);
       return undefined;
     }
     if (type === "TELECOM_NUMBER") {
-      this.validateTelecomSubtype(telecomNumber);
+      PartyService.validateTelecomSubtype(telecomNumber);
       return undefined;
     }
-    return this.validateEmailSubtype(emailAddress);
+    return PartyService.validateEmailSubtype(emailAddress);
   }
 
-  private validatePostalAddressSubtype(postalAddress: AddContactMechanismInput["postalAddress"]): void {
+  private static validatePostalAddressSubtype(postalAddress: AddContactMechanismInput["postalAddress"]): void {
     if (!postalAddress) {
       throw new MissingSubtypeDataError("postalAddress is required when contactMechanismType is POSTAL_ADDRESS.", { suggestedTools: ["add_contact_mechanism"], context: { contactMechanismType: "POSTAL_ADDRESS", missingField: "postalAddress" } });
     }
@@ -944,7 +944,7 @@ export class PartyService {
     }
   }
 
-  private validateTelecomSubtype(telecomNumber: AddContactMechanismInput["telecomNumber"]): void {
+  private static validateTelecomSubtype(telecomNumber: AddContactMechanismInput["telecomNumber"]): void {
     if (!telecomNumber) {
       throw new MissingSubtypeDataError("telecomNumber is required when contactMechanismType is TELECOM_NUMBER.", { suggestedTools: ["add_contact_mechanism"], context: { contactMechanismType: "TELECOM_NUMBER", missingField: "telecomNumber" } });
     }
@@ -980,7 +980,7 @@ export class PartyService {
     }
   }
 
-  private validateEmailSubtype(emailAddress: AddContactMechanismInput["emailAddress"]): string {
+  private static validateEmailSubtype(emailAddress: AddContactMechanismInput["emailAddress"]): string {
     if (!emailAddress) {
       throw new MissingSubtypeDataError("emailAddress is required when contactMechanismType is EMAIL_ADDRESS.", { suggestedTools: ["add_contact_mechanism"], context: { contactMechanismType: "EMAIL_ADDRESS", missingField: "emailAddress" } });
     }

@@ -8,15 +8,16 @@ import {
   ToolRegistry,
   ToolDefinition,
   ToolContext,
+  sanitizedString,
+  optionalFilteredString,
+  optionalSearchFilterString,
+  optionalIsoDate,
+  uuidParam,
 } from "@besterp/mcp-tools";
 import {
   InvalidTypeValueError,
-  UUID_REGEX,
-  stripHtmlTags,
   MAX_PARTY_NAME_LENGTH,
   MAX_PARTY_DESCRIPTION_LENGTH,
-  MAX_DATE_STRING_LENGTH,
-  isValidISODate,
   DEFAULT_SEARCH_LIMIT,
   MIN_SEARCH_LIMIT,
   MAX_SEARCH_LIMIT,
@@ -65,56 +66,6 @@ function getProductService(ctx: ToolContext) {
     }
   }
   return svc as ProductServices["productService"];
-}
-
-// ─── Schema builders ─────────────────────────────────────────────
-
-function sanitizedString(min: number, max: number) {
-  return z.string()
-    .transform((s) => stripHtmlTags(s.trim()))
-    .pipe(z.string().min(min).max(max));
-}
-
-function optionalFilteredString(max: number) {
-  return z.string()
-    .optional()
-    .transform((s) => {
-      if (s === undefined || s === null) return undefined;
-      const trimmed = stripHtmlTags(s.trim());
-      return trimmed.length === 0 ? undefined : trimmed;
-    })
-    .pipe(z.string().max(max).optional());
-}
-
-/** Optional ISO 8601 date: trims, validates format, enforces max length. */
-function optionalIsoDate(max: number = MAX_DATE_STRING_LENGTH) {
-  return z.string()
-    .optional()
-    .transform(s => s?.trim() || undefined)
-    .pipe(z.string().max(max).optional())
-    .refine(
-      v => v === undefined || isValidISODate(v),
-      "Invalid date format — must be ISO 8601"
-    );
-}
-
-function optionalSearchFilterString(max: number) {
-  return z.string()
-    .optional()
-    .transform((s) => (s === undefined ? undefined : stripHtmlTags(s.trim())))
-    .pipe(
-      z.string()
-        .min(1, "Filter cannot be whitespace-only — provide a real filter or omit the field")
-        .max(max)
-        .optional()
-    );
-}
-
-function uuidParam(description: string) {
-  return z.string()
-    .transform((s) => s.trim())
-    .pipe(z.string().min(1).max(36).regex(UUID_REGEX, "Must be a valid UUID"))
-    .describe(description);
 }
 
 // ─── Tool: create_product ────────────────────────────────────────

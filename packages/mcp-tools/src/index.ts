@@ -10,6 +10,15 @@ export type {
   RegistryEntry,
 } from "./schema/tool-definition.js";
 
+// Schema builders (re-exported for tool authors)
+export {
+  sanitizedString,
+  optionalFilteredString,
+  optionalSearchFilterString,
+  optionalIsoDate,
+  uuidParam,
+} from "./schema/schema-builders.js";
+
 // Registry
 export { ToolRegistry } from "./registry/tool-registry.js";
 
