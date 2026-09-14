@@ -280,7 +280,7 @@ export class SecurityService {
       );
     }
 
-    const updateData = this.buildUpdateData(updates);
+    const updateData = SecurityService.buildUpdateData(updates);
 
     if (Object.keys(updateData).length === 0) {
       throw new InvalidTypeValueError("No update fields provided.", {
@@ -304,7 +304,7 @@ export class SecurityService {
   /** Build the Prisma updateData object from partial UpdateAgentInput.
    *  Extracted from updateAgent to keep its complexity under the lint cap
    *  (round 208). Each branch validates and sanitizes one optional field. */
-  private buildUpdateData(updates: Partial<UpdateAgentInput>): Record<string, unknown> {
+  private static buildUpdateData(updates: Partial<UpdateAgentInput>): Record<string, unknown> {
     const updateData: Record<string, unknown> = {};
     if (updates.displayName !== undefined) updateData.displayName = stripHtmlTags(SecurityService.requireStringField(updates.displayName, "displayName", MAX_PARTY_NAME_LENGTH, "update_agent"));
     if (updates.description !== undefined) updateData.description = stripHtmlTags(SecurityService.requireStringField(updates.description, "description", MAX_AGENT_DESCRIPTION_LENGTH, "update_agent"));

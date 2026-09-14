@@ -1,5 +1,30 @@
 # BestERP — Security & Architecture Fixes
 
+## Changes Applied (2026-09-14) — Code Review Round 230
+
+### 🟡 `security.service.ts` — `buildUpdateData` unified to static
+
+**Problem:** `SecurityService.buildUpdateData` was declared as a `private` instance
+method, while `ProductService.buildUpdateData` (extracted in round 227) and all other
+cross-service helper methods follow the `private static` convention. The method body
+does not reference `this`, so the instance declaration was purely a consistency
+divergence.
+
+**Fix:** Changed to `private static buildUpdateData` and updated the call site in
+`updateAgent` from `this.buildUpdateData(updates)` to `SecurityService.buildUpdateData(updates)`.
+
+### 🟡 `party.service.ts` — `toPartyResult` uses class-name invocation pattern
+
+**Problem:** `PartyService.toPartyResult` (a `private static` method) called
+`this.toPersonResult(...)` and `this.toOrgResult(...)` — functionally correct but
+inconsistent with the `ClassName.method()` pattern used by `ProductService` and
+`SecurityService` throughout the codebase.
+
+**Fix:** Changed both calls to `PartyService.toPersonResult(...)` and
+`PartyService.toOrgResult(...)`, matching the established convention.
+
+---
+
 ## Changes Applied (2026-09-10) — Code Review Round 220
 
 ### 🟡 `mcp.service.ts` — `validateUserId` now uses `OPTIONAL_ID_PATTERN`

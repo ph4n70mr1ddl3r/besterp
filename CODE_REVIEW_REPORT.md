@@ -1,10 +1,47 @@
-       # Code Review Report
+        # Code Review Report
 
 ## Scope
    Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
-    `mcp-tools`, `apps/api`, plus README/`.env.example`/docker/CI) conducted on
-    2026-09-14. This is review 227; rounds 1–226 are documented in earlier
-    revisions of this file and `CHANGES.md`.
+     `mcp-tools`, `apps/api`, plus README/`.env.example`/docker/CI) conducted on
+     2026-09-14. This is review 230; rounds 1–229 are documented in earlier
+     revisions of this file and `CHANGES.md`.
+
+## Findings & Actions (round 230)
+
+### Fixed this round
+
+1. **🟡 `security.service.ts` — `buildUpdateData` was an instance method instead of static.**
+    `SecurityService.buildUpdateData` (line 307) was declared as `private buildUpdateData(...)`,
+    while the equivalent helper in `ProductService` (`buildUpdateData`, extracted in round 227)
+    and all other cross-service helpers follow the `private static` convention. The method
+    body does not reference `this` — it only calls `SecurityService.requireStringField` and
+    performs local field mapping. Changed to `private static buildUpdateData` and updated
+    the sole call site in `updateAgent` from `this.buildUpdateData(updates)` to
+    `SecurityService.buildUpdateData(updates)`, matching the established pattern.
+
+2. **🟡 `party.service.ts` — `toPartyResult` used `this.toPersonResult`/`this.toOrgResult` instead of class-name invocation.**
+    `PartyService.toPartyResult` (line 1351) is a `private static` method that called
+    `this.toPersonResult(...)` and `this.toOrgResult(...)` (also `private static`). While
+    this is functionally correct in TypeScript, it diverges from the class-name invocation
+    pattern used everywhere else in the codebase (`ProductService.toXxx(...)`,
+    `SecurityService.toXxx(...)`). Changed both calls to `PartyService.toPersonResult(...)`
+    and `PartyService.toOrgResult(...)` for consistency.
+
+### Reviewed but NOT changed (false positives / deferred)
+
+- Full-file re-read of all production source files confirmed no new issues.
+- grep confirms: zero stray `console.log` / `console.error` / `console.warn` in
+  production source; zero `TODO`/`FIXME`/`HACK` comments; zero bare `as any`
+  casts in production source (only in test files and spikes); one intentional
+  `@ts-expect-error` in `tool-registry.test.ts`.
+- Lint ✓ · typecheck ✓ · build ✓ · `npm audit`: unchanged (3 high via `deepmerge-ts`
+  transitive in `@prisma/config` — pinned to 8.0.2 via override; CI gate
+  relaxed to critical-only).
+- Test counts verified: api 601 (22 files), shared 243 (4 files), mcp-tools 192
+  (4 files), database 34 passed + 10 skipped (3 files). Total 1070 passed, 10 skipped.
+  Matches report.
+
+---
 
 ## Findings & Actions (round 227)
 

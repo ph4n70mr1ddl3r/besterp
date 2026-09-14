@@ -1354,8 +1354,8 @@ export class PartyService {
       name: party.name,
       partyType: party.partyType.name,
       description: party.description,
-      person: party.person ? this.toPersonResult(party.person) : null,
-      organization: party.organization ? this.toOrgResult(party.organization) : null,
+      person: party.person ? PartyService.toPersonResult(party.person) : null,
+      organization: party.organization ? PartyService.toOrgResult(party.organization) : null,
       roles: party.roles.map((r) => ({
         partyRoleId: r.partyRoleId,
         roleTypeName: r.roleType.name,
