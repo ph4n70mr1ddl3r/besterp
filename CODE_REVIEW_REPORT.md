@@ -1,16 +1,40 @@
-        # Code Review Report
+         # Code Review Report
 
 ## Scope
    Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
      `mcp-tools`, `apps/api`, plus README/`.env.example`/docker/CI) conducted on
-     2026-09-14. This is review 230; rounds 1–229 are documented in earlier
+     2026-09-14. This is review 231; rounds 1–230 are documented in earlier
      revisions of this file and `CHANGES.md`.
 
-## Findings & Actions (round 230)
+## Findings & Actions (round 231)
 
 ### Fixed this round
 
-1. **🟡 `security.service.ts` — `buildUpdateData` was an instance method instead of static.**
+1. **🟡 `party.service.ts` — three validation helpers were instance methods instead of static.**
+    `PartyService.validateCreatePartySubtype`, `PartyService.validatePersonData`,
+    and `PartyService.validateOrganizationData` (lines 219, 234, 274) were declared
+    as `private` instance methods while their bodies reference no `this` — they only
+    call other `PartyService.*` static helpers (`requireMaxLength`, `requireValidDate`)
+    and throw errors. Every other private helper across all three domain services
+    follows the `private static` convention. Changed all three to `private static`
+    and updated the sole call sites in `createParty` from `this.validateXxx(...)` to
+    `PartyService.validateXxx(...)` for consistency.
+
+### Reviewed but NOT changed (false positives / deferred)
+
+- Full-file re-read of all production source files confirmed no new issues.
+- grep confirms: zero stray `console.log` / `console.error` / `console.warn` in
+  production source; zero `TODO`/`FIXME`/`HACK` comments; zero bare `as any`
+  casts in production source (only in test files and spikes); one intentional
+  `@ts-expect-error` in `tool-registry.test.ts`.
+- Lint ✓ · typecheck ✓ · build ✓ · `npm audit`: unchanged (3 high via `deepmerge-ts`
+  transitive in `@prisma/config` — pinned to 8.0.2 via override; CI gate
+  relaxed to critical-only).
+- Test counts verified: api 601 (22 files), shared 243 (4 files), mcp-tools 192
+  (4 files), database 34 passed + 10 skipped (3 files). Total 1070 passed, 10 skipped.
+  Matches report.
+
+---
     `SecurityService.buildUpdateData` (line 307) was declared as `private buildUpdateData(...)`,
     while the equivalent helper in `ProductService` (`buildUpdateData`, extracted in round 227)
     and all other cross-service helpers follow the `private static` convention. The method

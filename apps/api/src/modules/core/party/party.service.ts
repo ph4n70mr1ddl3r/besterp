@@ -141,9 +141,9 @@ export class PartyService {
     const trimmedPartyType = partyType.trim();
 
     const { trimmedName, trimmedDescription } = PartyService.validateCreatePartyFields(name, description);
-    this.validateCreatePartySubtype(trimmedPartyType, personData, orgData);
-    this.validatePersonData(personData);
-    this.validateOrganizationData(orgData);
+    PartyService.validateCreatePartySubtype(trimmedPartyType, personData, orgData);
+    PartyService.validatePersonData(personData);
+    PartyService.validateOrganizationData(orgData);
 
     const { sanitizedPerson, sanitizedOrg, sanitizedName, sanitizedDescription } =
       PartyService.sanitizeCreatePartyInput(trimmedName, trimmedDescription, personData, orgData);
@@ -216,7 +216,7 @@ export class PartyService {
     return { trimmedName, trimmedDescription };
   }
 
-  private validateCreatePartySubtype(partyType: string, personData: unknown, orgData: unknown): void {
+  private static validateCreatePartySubtype(partyType: string, personData: unknown, orgData: unknown): void {
     if (partyType === "PERSON" && personData == null) {
       throw new MissingSubtypeDataError("When partyType is PERSON, the 'person' object with firstName and lastName is required.", { suggestedTools: ["create_party"], context: { partyType, missingField: "person" } });
     }
@@ -231,7 +231,7 @@ export class PartyService {
     }
   }
 
-  private validatePersonData(personData: CreatePartyInput["person"]): void {
+  private static validatePersonData(personData: CreatePartyInput["person"]): void {
     if (!personData) return;
     // Type-check before .trim(): a direct/internal caller bypassing the DTO/Zod
     // string bounds could pass a non-string (e.g. a number), and `123?.trim()`
@@ -271,7 +271,7 @@ export class PartyService {
     }
   }
 
-  private validateOrganizationData(orgData: CreatePartyInput["organization"]): void {
+  private static validateOrganizationData(orgData: CreatePartyInput["organization"]): void {
     if (!orgData) return;
     // Type-check before .trim(): see validatePersonData (round 151).
     if (typeof orgData.legalName !== "string") {

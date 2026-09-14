@@ -1,5 +1,22 @@
 # BestERP — Security & Architecture Fixes
 
+## Changes Applied (2026-09-14) — Code Review Round 231
+
+### 🟡 `party.service.ts` — three validation helpers unified to static
+
+**Problem:** `PartyService.validateCreatePartySubtype`, `PartyService.validatePersonData`,
+and `PartyService.validateOrganizationData` were declared as `private` instance methods
+while their bodies reference no `this` — they only call other `PartyService.*` static
+helpers (`requireMaxLength`, `requireValidDate`) and throw errors. Every other private
+helper across all three domain services follows the `private static` convention, and
+the most recent round (230) had just unified the same pattern for `buildUpdateData` and
+`toPartyResult`.
+
+**Fix:** Changed all three to `private static` and updated the call sites in
+`createParty` from `this.validateXxx(...)` to `PartyService.validateXxx(...)`.
+
+---
+
 ## Changes Applied (2026-09-14) — Code Review Round 230
 
 ### 🟡 `security.service.ts` — `buildUpdateData` unified to static
