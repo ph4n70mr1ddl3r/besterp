@@ -3,8 +3,64 @@
 ## Scope
     Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
       `mcp-tools`, `apps/api`, plus README/`.env.example`/docker/CI) conducted on
-      2026-09-15. This is review 232; rounds 1–231 are documented in earlier
+      2026-09-15. This is review 236; rounds 1–235 are documented in earlier
       revisions of this file and `CHANGES.md`.
+
+## Findings & Actions (round 236)
+
+### Fixed this round
+
+1. **🟡 `validation.ts:43` — inconsistent error context key `receivedType` vs `received`.**
+    The shared `validateOptionalString` helper used `receivedType` as the context key while
+    every other service-layer validation throw across the entire codebase uses `received`.
+    This made programmatic consumers of the context object inconsistent — some read
+    `error.context.received`, others read `error.context.receivedType`. Changed to `received`
+    for consistency with the established pattern.
+
+2. **🟡 `product.service.ts:411` — hardcoded `"50"` in priceType error message.**
+    The bound-check correctly used the constant `MAX_PRICE_TYPE_LENGTH`, but the error
+    message hardcoded the literal `"50"` instead of interpolating `${MAX_PRICE_TYPE_LENGTH}`.
+    If the constant ever changes, the message will lie. Replaced with `${MAX_PRICE_TYPE_LENGTH}`.
+
+3. **🟡 `product.service.ts:106–108` — missing feature validation in `createProduct`.**
+    `createProduct` passed feature name/value pairs straight through without length or type
+    validation, while the sibling method `addProductFeature` (lines 290–297) validates both
+    with `requireNonEmptyString`. A direct or internal caller that bypasses the MCP Zod
+    boundary could inject oversized or empty feature fields into `createProduct` with no
+    service-layer guard. Added per-feature validation loop before the transaction, mirroring
+    `addProductFeature` behavior. Moved validation outside the transaction for early failure.
+
+4. **🟡 `party.service.ts:936–944` — untrimmed optional postal fields before `requireMaxLength`.**
+    Optional postal fields (`addressLine2`, `stateProvince`, `postalCode`) and telecom
+    `extension` were passed raw (untrimmed) to `requireMaxLength`, so a value like
+    `"   hello   "` (7 + 6 = 13 chars untrimmed) could fail the length check even though
+    the meaningful content is only 5 characters — inconsistent with how required fields
+    behave. Now trimmed before passing to `requireMaxLength`, matching the pattern used
+    for all required string fields in this service.
+
+### Reviewed but NOT changed (false positives / deferred)
+
+- Full-file re-read of all production source files confirmed no new issues.
+- grep confirms: zero stray `console.log` / `console.error` / `console.warn` in
+  production source; zero `TODO`/`FIXME`/`HACK` comments; zero bare `as any`
+  casts in production source (only in test files and spikes); one intentional
+  `@ts-expect-error` in `tool-registry.test.ts`.
+- Lint ✓ · typecheck ✓ · build ✓ · `npm audit`: unchanged (3 high via `deepmerge-ts`
+  transitive in `@prisma/config` — pinned to 8.0.2 via override; CI gate
+  relaxed to critical-only).
+- Test counts verified: api 619 (22 files), shared 243 (4 files), mcp-tools 192
+  (4 files), database 34 passed + 10 skipped (3 files). Total 1088 passed, 10 skipped.
+  Matches report.
+
+## Test Results (round 236)
+```
+shared:    243 passed (4 files)
+mcp-tools: 192 passed (4 files)
+database:   34 passed, 10 skipped (2 files)
+api:       619 passed (22 files)
+────────────────────────────────────
+Total:     1088 passed, 10 skipped
+```
 
 ## Findings & Actions (round 232)
 
