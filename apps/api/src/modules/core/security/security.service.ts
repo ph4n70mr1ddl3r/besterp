@@ -162,6 +162,8 @@ export class SecurityService {
     const trimmedVersion = SecurityService.requireStringField(version, "version", 64, "register_agent");
     SecurityService.validateAgentArrays(capabilities, allowedEntityTypes, "register_agent");
     SecurityService.validateAgentLimits(validatedAgentId, maxToolCallsPerConversation, rateLimitPerMinute, "register_agent");
+    SecurityService.validateMaxConcurrentConversations(maxConcurrentConversations, "register_agent");
+    SecurityService.validateMaxTransactionAmount(maxTransactionAmount, "register_agent");
 
     try {
       const agent = await this.prisma.admin.agentRegistry.create({

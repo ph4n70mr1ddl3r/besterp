@@ -231,6 +231,56 @@ describe("SecurityService", () => {
         })
       ).rejects.toThrow(InvalidTypeValueError);
     });
+
+    it("rejects out-of-range maxConcurrentConversations on register", async () => {
+      await expect(
+        service.registerAgent({
+          agentId: "a1", tenantId: "t1", displayName: "Agent",
+          description: "Desc", capabilities: ["read"], version: "1.0.0",
+          maxConcurrentConversations: 0,
+        })
+      ).rejects.toThrow(InvalidTypeValueError);
+    });
+
+    it("rejects a maxConcurrentConversations above 100 on register", async () => {
+      await expect(
+        service.registerAgent({
+          agentId: "a1", tenantId: "t1", displayName: "Agent",
+          description: "Desc", capabilities: ["read"], version: "1.0.0",
+          maxConcurrentConversations: 101,
+        })
+      ).rejects.toThrow(InvalidTypeValueError);
+    });
+
+    it("rejects a negative maxTransactionAmount on register", async () => {
+      await expect(
+        service.registerAgent({
+          agentId: "a1", tenantId: "t1", displayName: "Agent",
+          description: "Desc", capabilities: ["read"], version: "1.0.0",
+          maxTransactionAmount: -1,
+        })
+      ).rejects.toThrow(InvalidTypeValueError);
+    });
+
+    it("suggests register_agent for out-of-range maxConcurrentConversations on register", async () => {
+      const err = await service.registerAgent({
+        agentId: "a1", tenantId: "t1", displayName: "Agent",
+        description: "Desc", capabilities: ["read"], version: "1.0.0",
+        maxConcurrentConversations: 0,
+      }).catch((e) => e);
+      expect(err).toBeInstanceOf(InvalidTypeValueError);
+      expect(err.suggestedTools).toEqual(["register_agent"]);
+    });
+
+    it("suggests register_agent for negative maxTransactionAmount on register", async () => {
+      const err = await service.registerAgent({
+        agentId: "a1", tenantId: "t1", displayName: "Agent",
+        description: "Desc", capabilities: ["read"], version: "1.0.0",
+        maxTransactionAmount: -1,
+      }).catch((e) => e);
+      expect(err).toBeInstanceOf(InvalidTypeValueError);
+      expect(err.suggestedTools).toEqual(["register_agent"]);
+    });
   });
 
   describe("updateAgent", () => {

@@ -17,6 +17,7 @@ import {
   MAX_PARTY_NAME_LENGTH,
   MAX_PARTY_DESCRIPTION_LENGTH,
   MAX_PRODUCT_TYPE_LENGTH,
+  MAX_PRICE_TYPE_LENGTH,
   MAX_SEARCH_LIMIT,
   MIN_SEARCH_LIMIT,
   MIN_SEARCH_OFFSET,
@@ -406,7 +407,7 @@ export class ProductService {
     // Zod schema (product-tools.ts) enforces max 50 chars at the boundary,
     // but direct/internal callers bypass Zod — this is the last line of
     // defense so an oversized priceType cannot reach the DB (round 234).
-    if (priceType.trim().length > 50) {
+    if (priceType.trim().length > MAX_PRICE_TYPE_LENGTH) {
       throw new InvalidTypeValueError("'priceType' exceeds maximum length of 50 characters.", { suggestedTools: [tool], context: { field: "priceType", length: priceType.trim().length } });
     }
   }

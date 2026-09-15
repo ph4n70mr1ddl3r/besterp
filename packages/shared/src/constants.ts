@@ -29,6 +29,9 @@ export const MAX_ROLE_TYPE_LENGTH = 100;
 /** Maximum length for product type names. */
 export const MAX_PRODUCT_TYPE_LENGTH = 100;
 
+/** Maximum length for product price type names. */
+export const MAX_PRICE_TYPE_LENGTH = 50;
+
 /** Maximum length for contact mechanism type names. */
 export const MAX_CONTACT_MECHANISM_TYPE_LENGTH = 50;
 
