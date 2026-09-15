@@ -2797,6 +2797,53 @@ describe("PartyService", () => {
       expect(mockPrismaService.admin.contactMechanismType.findUnique).not.toHaveBeenCalled();
       expect(mockDb.$transaction).not.toHaveBeenCalled();
     });
+
+    it("trims whitespace from optional postal fields before length check", async () => {
+      // Regression (round 236): optional postal fields (addressLine2, stateProvince,
+      // postalCode) and telecom extension were passed raw (untrimmed) to requireMaxLength,
+      // so a value like " x " (5 raw chars) could fail a length cap meant for meaningful
+      // content of 1 char. Now trimmed before the length guard, matching the pattern used
+      // for all required string fields in this service.
+      mockAdminTypes();
+      const input: AddContactMechanismInput = {
+        tenantId: "tenant-1",
+        partyId: "12345678-1234-1234-1234-123456789abc",
+        contactMechanismType: "POSTAL_ADDRESS",
+        postalAddress: {
+          addressLine1: "123 Main St",
+          addressLine2: "   apt 4   ",
+          city: "Anytown",
+          stateProvince: "  CA  ",
+          postalCode: "  90210  ",
+          country: "US",
+        },
+      };
+
+      const mockDb = {
+        $transaction: vi.fn().mockImplementation(async (fn) => {
+          const tx = {
+            party: { findUnique: vi.fn().mockResolvedValue({ partyId: "12345678-1234-1234-1234-123456789abc" }) },
+            contactMechanism: {
+              findFirst: vi.fn().mockResolvedValue(null),
+              create: vi.fn().mockResolvedValue({
+                contactMechanismId: "contact-postal-1",
+                contactMechanismType: { name: "POSTAL_ADDRESS" },
+                postalAddress: { addressLine1: "123 Main St", addressLine2: "apt 4", city: "Anytown", stateProvince: "CA", postalCode: "90210", country: "US" },
+                telecomNumber: null,
+                emailAddress: null,
+              }),
+            },
+          };
+          return fn(tx);
+        }),
+      };
+      mockPrismaService.tenantScoped.mockReturnValue(mockDb);
+
+      const result = await partyService.addContactMechanism(input);
+      expect(result.postalAddress?.addressLine2).toBe("apt 4");
+      expect(result.postalAddress?.stateProvince).toBe("CA");
+      expect(result.postalAddress?.postalCode).toBe("90210");
+    });
   });
 
   describe("transaction error handling", () => {

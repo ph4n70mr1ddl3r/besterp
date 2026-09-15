@@ -87,6 +87,16 @@ export class ProductService {
       );
     }
 
+    // Validate features before transaction (early validation, round 236)
+    let validatedFeatures = undefined;
+    if (features && features.length > 0) {
+      validatedFeatures = features.map((f) => {
+        const trimmedName = ProductService.requireNonEmptyString(f.name.trim(), "featureName", MAX_FEATURE_NAME_LENGTH, "create_product");
+        const trimmedValue = ProductService.requireNonEmptyString(f.value.trim(), "featureValue", MAX_FEATURE_VALUE_LENGTH, "create_product");
+        return { name: trimmedName, value: trimmedValue };
+      });
+    }
+
     const db: TenantScopedClient = this.prisma.tenantScoped(trimmedTenantId);
 
     try {
@@ -103,8 +113,8 @@ export class ProductService {
           data.category = { connect: { productCategoryId: input.categoryId } };
         }
 
-        if (features && features.length > 0) {
-          data.features = { createMany: { data: features.map((f) => ({ name: f.name, value: f.value })) } };
+        if (validatedFeatures && validatedFeatures.length > 0) {
+          data.features = { createMany: { data: validatedFeatures } };
         }
 
         return tx.product.create({ data, select: { productId: true, productTypeId: true, tenantId: true, name: true, description: true, sku: true, version: true, createdAt: true, updatedAt: true } });
@@ -408,7 +418,7 @@ export class ProductService {
     // but direct/internal callers bypass Zod — this is the last line of
     // defense so an oversized priceType cannot reach the DB (round 234).
     if (priceType.trim().length > MAX_PRICE_TYPE_LENGTH) {
-      throw new InvalidTypeValueError("'priceType' exceeds maximum length of 50 characters.", { suggestedTools: [tool], context: { field: "priceType", length: priceType.trim().length } });
+      throw new InvalidTypeValueError(`'priceType' exceeds maximum length of ${MAX_PRICE_TYPE_LENGTH} characters.`, { suggestedTools: [tool], context: { field: "priceType", length: priceType.trim().length } });
     }
   }
 

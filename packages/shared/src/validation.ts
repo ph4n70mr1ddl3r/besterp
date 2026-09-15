@@ -40,7 +40,7 @@ export function validateOptionalString(
   if (typeof value !== "string") {
     throw new InvalidTypeValueError(
       `${fieldName} must be a string, received ${typeof value}.`,
-      { context: { field: fieldName, receivedType: typeof value } }
+      { context: { field: fieldName, received: typeof value } }
     );
   }
   const trimmed = value.trim();

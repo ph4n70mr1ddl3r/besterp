@@ -6,6 +6,8 @@ import { ProductService } from "./product.service.js";
 import {
   InvalidTypeValueError,
   EntityNotFoundError,
+  MAX_FEATURE_NAME_LENGTH,
+  MAX_FEATURE_VALUE_LENGTH,
 } from "@besterp/shared";
 
 function createMockPrisma() {
@@ -86,6 +88,62 @@ describe("ProductService", () => {
 
       await service.createProduct({ tenantId: " t1 ", productType: "GOODS", name: " Widget " });
       expect(prisma.tenantScoped).toHaveBeenCalledWith("t1");
+    });
+
+    it("rejects empty feature name in createProduct", async () => {
+      prisma.admin.productType.findUnique.mockResolvedValue({ productTypeId: "pt-1" });
+      prisma.tenantScoped.mockReturnValue({
+        $transaction: vi.fn().mockResolvedValue({
+          productId: "p1", productTypeId: "pt-1", tenantId: "t1",
+          name: "Widget", description: null, sku: null, version: 1,
+          createdAt: new Date(), updatedAt: new Date(),
+        }),
+      });
+      await expect(
+        service.createProduct({ tenantId: "t1", productType: "GOODS", name: "Widget", features: [{ name: "", value: "Red" }] })
+      ).rejects.toThrow(InvalidTypeValueError);
+    });
+
+    it("rejects empty feature value in createProduct", async () => {
+      prisma.admin.productType.findUnique.mockResolvedValue({ productTypeId: "pt-1" });
+      prisma.tenantScoped.mockReturnValue({
+        $transaction: vi.fn().mockResolvedValue({
+          productId: "p1", productTypeId: "pt-1", tenantId: "t1",
+          name: "Widget", description: null, sku: null, version: 1,
+          createdAt: new Date(), updatedAt: new Date(),
+        }),
+      });
+      await expect(
+        service.createProduct({ tenantId: "t1", productType: "GOODS", name: "Widget", features: [{ name: "Color", value: "" }] })
+      ).rejects.toThrow(InvalidTypeValueError);
+    });
+
+    it("rejects feature name exceeding max length in createProduct", async () => {
+      prisma.admin.productType.findUnique.mockResolvedValue({ productTypeId: "pt-1" });
+      prisma.tenantScoped.mockReturnValue({
+        $transaction: vi.fn().mockResolvedValue({
+          productId: "p1", productTypeId: "pt-1", tenantId: "t1",
+          name: "Widget", description: null, sku: null, version: 1,
+          createdAt: new Date(), updatedAt: new Date(),
+        }),
+      });
+      await expect(
+        service.createProduct({ tenantId: "t1", productType: "GOODS", name: "Widget", features: [{ name: "x".repeat(MAX_FEATURE_NAME_LENGTH + 1), value: "Red" }] })
+      ).rejects.toThrow(InvalidTypeValueError);
+    });
+
+    it("rejects feature value exceeding max length in createProduct", async () => {
+      prisma.admin.productType.findUnique.mockResolvedValue({ productTypeId: "pt-1" });
+      prisma.tenantScoped.mockReturnValue({
+        $transaction: vi.fn().mockResolvedValue({
+          productId: "p1", productTypeId: "pt-1", tenantId: "t1",
+          name: "Widget", description: null, sku: null, version: 1,
+          createdAt: new Date(), updatedAt: new Date(),
+        }),
+      });
+      await expect(
+        service.createProduct({ tenantId: "t1", productType: "GOODS", name: "Widget", features: [{ name: "Color", value: "x".repeat(MAX_FEATURE_VALUE_LENGTH + 1) }] })
+      ).rejects.toThrow(InvalidTypeValueError);
     });
   });
 

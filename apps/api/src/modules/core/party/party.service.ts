@@ -934,13 +934,13 @@ export class PartyService {
       );
     }
     if (typeof postalAddress.addressLine2 === "string") {
-      PartyService.requireMaxLength(postalAddress.addressLine2, "addressLine2", MAX_ADDRESS_LINE_LENGTH, "add_contact_mechanism");
+      PartyService.requireMaxLength(postalAddress.addressLine2.trim(), "addressLine2", MAX_ADDRESS_LINE_LENGTH, "add_contact_mechanism");
     }
     if (typeof postalAddress.stateProvince === "string") {
-      PartyService.requireMaxLength(postalAddress.stateProvince, "stateProvince", MAX_STATE_PROVINCE_LENGTH, "add_contact_mechanism");
+      PartyService.requireMaxLength(postalAddress.stateProvince.trim(), "stateProvince", MAX_STATE_PROVINCE_LENGTH, "add_contact_mechanism");
     }
     if (typeof postalAddress.postalCode === "string") {
-      PartyService.requireMaxLength(postalAddress.postalCode, "postalCode", MAX_POSTAL_CODE_LENGTH, "add_contact_mechanism");
+      PartyService.requireMaxLength(postalAddress.postalCode.trim(), "postalCode", MAX_POSTAL_CODE_LENGTH, "add_contact_mechanism");
     }
   }
 
@@ -976,7 +976,7 @@ export class PartyService {
       );
     }
     if (typeof telecomNumber.extension === "string") {
-      PartyService.requireMaxLength(telecomNumber.extension, "extension", MAX_EXTENSION_LENGTH, "add_contact_mechanism");
+      PartyService.requireMaxLength(telecomNumber.extension.trim(), "extension", MAX_EXTENSION_LENGTH, "add_contact_mechanism");
     }
   }
 
