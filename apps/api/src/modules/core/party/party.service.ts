@@ -894,7 +894,7 @@ export class PartyService {
     if (normalizedCountry.length === 0) {
       throw new InvalidTypeValueError(
         "country is required for postal address.",
-        { suggestedTools: ["add_contact_mechanism"], context: { parentType: "postal address", field: "country" } }
+        { suggestedTools: ["add_contact_mechanism"], context: { contactMechanismType: "POSTAL_ADDRESS", field: "country" } }
       );
     }
     PartyService.requireMaxLength(normalizedCountry, "country", MAX_COUNTRY_CODE_LENGTH, "add_contact_mechanism");
