@@ -64,15 +64,15 @@ export class ProductService {
 
     const trimmedTenantId = ProductService.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "create_product");
     if (typeof name !== "string") {
-      throw new InvalidTypeValueError("name must be a string.", { suggestedTools: ["create_product"], context: { field: "name", received: typeof name } });
+      throw new InvalidTypeValueError(`'name' must be a string.`, { suggestedTools: ["create_product"], context: { field: "name", received: typeof name } });
     }
     const trimmedName = ProductService.requireNonEmptyString(name.trim(), "name", MAX_PARTY_NAME_LENGTH, "create_product");
     if (description !== undefined && description !== null && typeof description !== "string") {
-      throw new InvalidTypeValueError("description must be a string.", { suggestedTools: ["create_product"], context: { field: "description", received: typeof description } });
+      throw new InvalidTypeValueError(`'description' must be a string.`, { suggestedTools: ["create_product"], context: { field: "description", received: typeof description } });
     }
     const trimmedDescription = description !== undefined && description !== null ? ProductService.requireOptionalString(stripHtmlTags(description.trim()), "description", MAX_PARTY_DESCRIPTION_LENGTH, "create_product") : null;
     if (sku !== undefined && sku !== null && typeof sku !== "string") {
-      throw new InvalidTypeValueError("sku must be a string.", { suggestedTools: ["create_product"], context: { field: "sku", received: typeof sku } });
+      throw new InvalidTypeValueError(`'sku' must be a string.`, { suggestedTools: ["create_product"], context: { field: "sku", received: typeof sku } });
     }
     const trimmedSku = sku !== undefined && sku !== null ? ProductService.requireOptionalString(stripHtmlTags(sku.trim()), "sku", MAX_SKU_LENGTH, "create_product") : null;
     const trimmedProductType = ProductService.requireStringField(productType, "productType", MAX_ROLE_TYPE_LENGTH, "create_product");
@@ -243,28 +243,28 @@ export class ProductService {
 
   private static validateUpdateName(name: string | undefined, updateData: Prisma.ProductUpdateInput, tool: string): void {
     if (name !== undefined && typeof name !== "string") {
-      throw new InvalidTypeValueError("name must be a string.", { suggestedTools: [tool], context: { field: "name", received: typeof name } });
+      throw new InvalidTypeValueError(`'name' must be a string.`, { suggestedTools: [tool], context: { field: "name", received: typeof name } });
     }
     if (name !== undefined) updateData.name = ProductService.requireNonEmptyString(name.trim(), "name", MAX_PARTY_NAME_LENGTH, tool);
   }
 
   private static validateUpdateDescription(description: string | null | undefined, updateData: Prisma.ProductUpdateInput, tool: string): void {
     if (description !== undefined && description !== null && typeof description !== "string") {
-      throw new InvalidTypeValueError("description must be a string.", { suggestedTools: [tool], context: { field: "description", received: typeof description } });
+      throw new InvalidTypeValueError(`'description' must be a string.`, { suggestedTools: [tool], context: { field: "description", received: typeof description } });
     }
     if (description !== undefined) updateData.description = description === null ? null : ProductService.requireOptionalString(stripHtmlTags(description.trim()), "description", MAX_PARTY_DESCRIPTION_LENGTH, tool);
   }
 
   private static validateUpdateSku(sku: string | null | undefined, updateData: Prisma.ProductUpdateInput, tool: string): void {
     if (sku !== undefined && sku !== null && typeof sku !== "string") {
-      throw new InvalidTypeValueError("sku must be a string.", { suggestedTools: [tool], context: { field: "sku", received: typeof sku } });
+      throw new InvalidTypeValueError(`'sku' must be a string.`, { suggestedTools: [tool], context: { field: "sku", received: typeof sku } });
     }
     if (sku !== undefined) updateData.sku = sku === null ? null : ProductService.requireOptionalString(stripHtmlTags(sku.trim()), "sku", MAX_SKU_LENGTH, tool);
   }
 
   private async validateUpdateProductType(productTypeId: string | undefined, updateData: Prisma.ProductUpdateInput, tool: string): Promise<void> {
     if (productTypeId !== undefined && typeof productTypeId !== "string") {
-      throw new InvalidTypeValueError("productTypeId must be a string.", { suggestedTools: [tool], context: { field: "productTypeId", received: typeof productTypeId } });
+      throw new InvalidTypeValueError(`'productTypeId' must be a string.`, { suggestedTools: [tool], context: { field: "productTypeId", received: typeof productTypeId } });
     }
     if (productTypeId !== undefined) {
       const trimmedProductTypeId = productTypeId.trim();
@@ -287,11 +287,11 @@ export class ProductService {
     const trimmedTenantId = ProductService.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "add_product_feature");
     const productId = ProductService.requireUuid(rawProductId, "productId", ["add_product_feature"]);
     if (typeof name !== "string") {
-      throw new InvalidTypeValueError("name must be a string.", { suggestedTools: ["add_product_feature"], context: { field: "name", received: typeof name } });
+      throw new InvalidTypeValueError(`'name' must be a string.`, { suggestedTools: ["add_product_feature"], context: { field: "name", received: typeof name } });
     }
     const trimmedName = ProductService.requireNonEmptyString(name.trim(), "featureName", MAX_FEATURE_NAME_LENGTH, "add_product_feature");
     if (typeof value !== "string") {
-      throw new InvalidTypeValueError("value must be a string.", { suggestedTools: ["add_product_feature"], context: { field: "value", received: typeof value } });
+      throw new InvalidTypeValueError(`'value' must be a string.`, { suggestedTools: ["add_product_feature"], context: { field: "value", received: typeof value } });
     }
     const trimmedValue = ProductService.requireNonEmptyString(value.trim(), "featureValue", MAX_FEATURE_VALUE_LENGTH, "add_product_feature");
 
@@ -407,7 +407,7 @@ export class ProductService {
 
   private static validatePriceCurrencyCode(currencyCode: string, tool: string): void {
     if (typeof currencyCode !== "string") {
-      throw new InvalidTypeValueError("currencyCode must be a string.", { suggestedTools: [tool], context: { field: "currencyCode", received: typeof currencyCode } });
+      throw new InvalidTypeValueError(`'currencyCode' must be a string.`, { suggestedTools: [tool], context: { field: "currencyCode", received: typeof currencyCode } });
     }
   }
 

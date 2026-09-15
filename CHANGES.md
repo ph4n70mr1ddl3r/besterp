@@ -1,5 +1,39 @@
 # BestERP — Security & Architecture Fixes
 
+## Changes Applied (2026-09-15) — Code Review Round 232
+
+### 🟡 `party.service.ts` — three transaction helpers unified to static
+
+**Problem:** `PartyService.createPartyTransaction`, `PartyService.addPartyRoleTransaction`,
+and `PartyService.createContactMechanismTransaction` were declared as `private` instance
+methods while their bodies reference no `this` — they only use the `db` parameter passed
+in and call other `PartyService.*` static helpers. Every other private helper across all
+three domain services follows the `private static` convention.
+**Fix:** Changed all three to `private static` and updated the call sites in
+`createParty`, `addPartyRole`, and `addContactMechanism` from `this.transactionXxx(...)`
+to `PartyService.transactionXxx(...)`.
+
+### 🟡 Error message format unified across all three domain services and MCP layer
+
+**Problem:** `PartyService`, `ProductService`, and `McpService` each had inline type-check
+throws that used an unquoted field-name format (`"name must be a string."`) while their
+`requireStringField` helpers used the quoted format
+(`'${field}' must be a string.`). This produced inconsistent error messages for the same
+semantic condition depending on whether the check went through the shared helper or an
+inline guard. Aligned all inline type checks to the quoted canonical format:
+
+- `product.service.ts`: 10 inline throws (`name`, `description`, `sku`, `productTypeId`,
+  `value`, `currencyCode`) now use `` `'field' must be a string.` ``.
+- `party.service.ts`: 9 inline throws (`name`, `firstName`, `lastName`, `legalName`,
+  `country`, `addressLine2`, `stateProvince`, `postalCode`, `extension`) now use
+  `` `'field' must be a string.` ``.
+- `mcp.service.ts`: `validateUserId` inline throw now uses
+  `` `'userId' must be a string.` ``.
+
+Updated `mcp.module.spec.ts` regex assertion to match the new quoted format.
+
+---
+
 ## Changes Applied (2026-09-14) — Code Review Round 231
 
 ### 🟡 `party.service.ts` — three validation helpers unified to static

@@ -137,7 +137,7 @@ describe("McpService", () => {
           tenantId: "tenant-1",
           userId: null as unknown as string,
         })
-      ).toThrow(/userId must be a string/);
+      ).toThrow(/'userId' must be a string/);
     });
 
     it("should reject whitespace-only userId", () => {

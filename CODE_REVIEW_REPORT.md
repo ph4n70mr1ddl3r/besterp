@@ -1,12 +1,53 @@
-         # Code Review Report
+          # Code Review Report
 
 ## Scope
-   Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
-     `mcp-tools`, `apps/api`, plus README/`.env.example`/docker/CI) conducted on
-     2026-09-14. This is review 231; rounds 1–230 are documented in earlier
-     revisions of this file and `CHANGES.md`.
+    Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
+      `mcp-tools`, `apps/api`, plus README/`.env.example`/docker/CI) conducted on
+      2026-09-15. This is review 232; rounds 1–231 are documented in earlier
+      revisions of this file and `CHANGES.md`.
 
-## Findings & Actions (round 231)
+## Findings & Actions (round 232)
+
+### Fixed this round
+
+1. **🟡 `party.service.ts` — three transaction helpers were instance methods instead of static.**
+    `PartyService.createPartyTransaction`, `PartyService.addPartyRoleTransaction`,
+    and `PartyService.createContactMechanismTransaction` (lines 338, 679, 1105) were declared
+    as `private` instance methods while their bodies reference no `this` — they only use the
+    `db` parameter passed in and call other `PartyService.*` static helpers. Every other
+    private helper across all three domain services follows the `private static` convention.
+    Changed all three to `private static` and updated the call sites in `createParty` (line
+    190), `addPartyRole` (line 591), and `addContactMechanism` (line 804) from
+    `this.transactionXxx(...)` to `PartyService.transactionXxx(...)`.
+
+2. **🟡 Error message format unified across all three domain services and MCP layer.**
+    `PartyService`, `ProductService`, and `McpService` each had inline type-check throws that
+    used an unquoted field-name format (`"name must be a string."`) while their
+    `requireStringField` helpers used the quoted format (`'${field}' must be a string.`).
+    This produced inconsistent error messages for the same semantic condition depending on
+    whether the check went through the shared helper or an inline guard.
+    - `product.service.ts`: 10 inline throws (`name`, `description`, `sku`, `productTypeId`,
+      `value`, `currencyCode`) aligned to `` `'field' must be a string.` ``.
+    - `party.service.ts`: 9 inline throws (`name`, `firstName`, `lastName`, `legalName`,
+      `country`, `addressLine2`, `stateProvince`, `postalCode`, `extension`) aligned to
+      `` `'field' must be a string.` ``.
+    - `mcp.service.ts`: `validateUserId` inline throw aligned to
+      `` `'userId' must be a string.` ``.
+    Updated `mcp.module.spec.ts` regex assertion to match the new quoted format.
+
+### Reviewed but NOT changed (false positives / deferred)
+
+- Full-file re-read of all production source files confirmed no new issues.
+- grep confirms: zero stray `console.log` / `console.error` / `console.warn` in
+  production source; zero `TODO`/`FIXME`/`HACK` comments; zero bare `as any`
+  casts in production source (only in test files and spikes); one intentional
+  `@ts-expect-error` in `tool-registry.test.ts`.
+- Lint ✓ · typecheck ✓ · build ✓ · `npm audit`: unchanged (3 high via `deepmerge-ts`
+  transitive in `@prisma/config` — pinned to 8.0.2 via override; CI gate
+  relaxed to critical-only).
+- Test counts verified: api 601 (22 files), shared 243 (4 files), mcp-tools 192
+  (4 files), database 34 passed + 10 skipped (3 files). Total 1070 passed, 10 skipped.
+  Matches report.
 
 ### Fixed this round
 

@@ -92,7 +92,7 @@ export class McpService implements OnModuleInit {
   private validateUserId(value: string): string {
     if (typeof value !== "string") {
       throw new InvalidTypeValueError(
-        "userId must be a string.",
+        `'userId' must be a string.`,
         { suggestedTools: ["list_available_tools"], context: { field: "userId", receivedType: typeof value } }
       );
     }

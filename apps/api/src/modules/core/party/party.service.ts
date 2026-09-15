@@ -187,7 +187,7 @@ export class PartyService {
       );
     }
 
-    const party = await this.createPartyTransaction(db, trimmedTenantId, partyTypeRecord, sanitizedName, sanitizedDescription, sanitizedPerson, sanitizedOrg);
+    const party = await PartyService.createPartyTransaction(db, trimmedTenantId, partyTypeRecord, sanitizedName, sanitizedDescription, sanitizedPerson, sanitizedOrg);
 
     this.logger.log(`Created ${trimmedPartyType} party: ${sanitizeForLogOutput(sanitizedName)} (${party.partyId})`);
     return PartyService.toPartyResult(party);
@@ -196,7 +196,7 @@ export class PartyService {
   private static validateCreatePartyFields(name: string, description: string | undefined | null): { trimmedName: string; trimmedDescription: string | null } {
     if (typeof name !== "string") {
       throw new InvalidTypeValueError(
-        "Party name is required and must be a string.",
+        "'name' is required and must be a string.",
         { suggestedTools: ["create_party"], context: { field: "name", received: typeof name } }
       );
     }
@@ -240,7 +240,7 @@ export class PartyService {
     // type is validated like every other field (round 151).
     if (typeof personData.firstName !== "string") {
       throw new InvalidTypeValueError(
-        "firstName must be a string.",
+        "'firstName' must be a string.",
         { suggestedTools: ["create_party"], context: { field: "firstName", received: typeof personData.firstName } }
       );
     }
@@ -251,7 +251,7 @@ export class PartyService {
     PartyService.requireMaxLength(trimmedFirstName, "First name", MAX_PERSON_NAME_LENGTH, "create_party");
     if (typeof personData.lastName !== "string") {
       throw new InvalidTypeValueError(
-        "lastName must be a string.",
+        "'lastName' must be a string.",
         { suggestedTools: ["create_party"], context: { field: "lastName", received: typeof personData.lastName } }
       );
     }
@@ -276,7 +276,7 @@ export class PartyService {
     // Type-check before .trim(): see validatePersonData (round 151).
     if (typeof orgData.legalName !== "string") {
       throw new InvalidTypeValueError(
-        "legalName must be a string.",
+        "'legalName' must be a string.",
         { suggestedTools: ["create_party"], context: { field: "legalName", received: typeof orgData.legalName } }
       );
     }
@@ -335,7 +335,7 @@ export class PartyService {
     };
   }
 
-  private async createPartyTransaction(
+  private static async createPartyTransaction(
     db: TenantScopedClient,
     tenantId: string, partyTypeRecord: { partyTypeId: string },
     name: string, description: string | null,
@@ -588,7 +588,7 @@ export class PartyService {
     let role: Prisma.PartyRoleGetPayload<{ include: { roleType: true } }> | undefined;
     for (let attempt = 1; attempt <= MAX_CONCURRENCY_RETRIES; attempt++) {
       try {
-        role = await this.addPartyRoleTransaction(db, trimmedTenantId, partyId, roleTypeRecord.roleTypeId, trimmedRoleType, roleFromDate);
+        role = await PartyService.addPartyRoleTransaction(db, trimmedTenantId, partyId, roleTypeRecord.roleTypeId, trimmedRoleType, roleFromDate);
         break;
       } catch (err) {
         if (err instanceof ConcurrencyRetryError && attempt < MAX_CONCURRENCY_RETRIES) {
@@ -676,7 +676,7 @@ export class PartyService {
     return parsed;
   }
 
-  private async addPartyRoleTransaction(
+  private static async addPartyRoleTransaction(
     db: TenantScopedClient,
     tenantId: string, partyId: string, roleTypeId: string,
     trimmedRoleType: string, roleFromDate: Date,
@@ -801,7 +801,7 @@ export class PartyService {
       );
     }
 
-    const contactMechanism = await this.createContactMechanismTransaction(db, trimmedTenantId, partyId, trimmedCmType, cmType.contactMechanismTypeId, postalAddress, telecomNumber, normalizedEmail);
+    const contactMechanism = await PartyService.createContactMechanismTransaction(db, trimmedTenantId, partyId, trimmedCmType, cmType.contactMechanismTypeId, postalAddress, telecomNumber, normalizedEmail);
 
     this.logger.log(`Added ${sanitizeForLogOutput(trimmedCmType)} to party ${partyId} (ID: ${contactMechanism.contactMechanismId})`);
     return PartyService.formatContactResult(contactMechanism, partyId);
@@ -873,7 +873,7 @@ export class PartyService {
     PartyService.requireStringField(postalAddress.city, "city", MAX_CITY_LENGTH, "add_contact_mechanism");
     if (typeof postalAddress.country !== "string") {
       throw new InvalidTypeValueError(
-        "country must be a string.",
+        "'country' must be a string.",
         { suggestedTools: ["add_contact_mechanism"], context: { field: "country", received: typeof postalAddress.country } }
       );
     }
@@ -917,19 +917,19 @@ export class PartyService {
     // with validatePersonData / validateOrganizationData (round 151).
     if (postalAddress.addressLine2 != null && typeof postalAddress.addressLine2 !== "string") {
       throw new InvalidTypeValueError(
-        "addressLine2 must be a string.",
+        "'addressLine2' must be a string.",
         { suggestedTools: ["add_contact_mechanism"], context: { field: "addressLine2", received: typeof postalAddress.addressLine2 } }
       );
     }
     if (postalAddress.stateProvince != null && typeof postalAddress.stateProvince !== "string") {
       throw new InvalidTypeValueError(
-        "stateProvince must be a string.",
+        "'stateProvince' must be a string.",
         { suggestedTools: ["add_contact_mechanism"], context: { field: "stateProvince", received: typeof postalAddress.stateProvince } }
       );
     }
     if (postalAddress.postalCode != null && typeof postalAddress.postalCode !== "string") {
       throw new InvalidTypeValueError(
-        "postalCode must be a string.",
+        "'postalCode' must be a string.",
         { suggestedTools: ["add_contact_mechanism"], context: { field: "postalCode", received: typeof postalAddress.postalCode } }
       );
     }
@@ -971,7 +971,7 @@ export class PartyService {
     // Same typeof guard rationale as the postal optional fields above (round 159).
     if (telecomNumber.extension != null && typeof telecomNumber.extension !== "string") {
       throw new InvalidTypeValueError(
-        "extension must be a string.",
+        "'extension' must be a string.",
         { suggestedTools: ["add_contact_mechanism"], context: { field: "extension", received: typeof telecomNumber.extension } }
       );
     }
@@ -1102,7 +1102,7 @@ export class PartyService {
     return sanitized;
   }
 
-  private async createContactMechanismTransaction(
+  private static async createContactMechanismTransaction(
     db: TenantScopedClient,
     tenantId: string, partyId: string, type: string,
     contactMechanismTypeId: string,
