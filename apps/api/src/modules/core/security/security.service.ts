@@ -248,6 +248,30 @@ export class SecurityService {
     }
   }
 
+  /** Validate maxConcurrentConversations: must be between 1 and 100.
+   *  Mirrors the Zod schema (agent-tools.ts) so the service layer rejects
+   *  out-of-range values for direct/internal callers that bypass Zod (round 234). */
+  private static validateMaxConcurrentConversations(value: number, tool: string): void {
+    if (value < 1 || value > 100) {
+      throw new InvalidTypeValueError(
+        `maxConcurrentConversations must be between 1 and 100, got ${value}.`,
+        { suggestedTools: [tool], context: { field: "maxConcurrentConversations", value } }
+      );
+    }
+  }
+
+  /** Validate maxTransactionAmount: must be >= 0.
+   *  Mirrors the Zod schema (agent-tools.ts) so the service layer rejects
+   *  negative values for direct/internal callers that bypass Zod (round 234). */
+  private static validateMaxTransactionAmount(value: number, tool: string): void {
+    if (value < 0) {
+      throw new InvalidTypeValueError(
+        `maxTransactionAmount must be non-negative, got ${value}.`,
+        { suggestedTools: [tool], context: { field: "maxTransactionAmount", value } }
+      );
+    }
+  }
+
   async updateAgent(input: UpdateAgentInput): Promise<AgentResult> {
     const { agentId, tenantId, ...updates } = input;
 
@@ -266,15 +290,10 @@ export class SecurityService {
     }
     // Validate numeric limits when provided — mirrors registerAgent so the
     // service layer rejects out-of-range values before they reach the DB
-    // (round 206). maxConcurrentConversations and maxTransactionAmount are
-    // not checked by validateAgentLimits but the Zod schemas enforce them
-    // at the boundary; skip them here to avoid duplicating constraints
-    // that would create a harder maintenance surface than a single
-    // authoritative check in validateAgentLimits. Pass each field
-    // individually so only the field being updated is validated — the
-    // previous `?? 0` default caused a false failure when only one of the
-    // two fields was provided (0 < 1 triggers the range check on the
-    // unchanged field).
+    // (round 206). Each field is validated independently so only the field
+    // being updated is checked — the previous `?? 0` default caused a false
+    // failure when only one of the two limit fields was provided (0 < 1
+    // triggers the range check on the unchanged field).
     if (updates.maxToolCallsPerConversation !== undefined) {
       SecurityService.validateAgentLimits(
         validatedAgentId,
@@ -290,6 +309,16 @@ export class SecurityService {
         updates.rateLimitPerMinute,
         "update_agent",
       );
+    }
+    // maxConcurrentConversations and maxTransactionAmount were previously
+    // unchecked at the service layer — the Zod boundary enforced them but
+    // direct/internal callers bypass Zod. Validate them here so the service
+    // remains the last line of defense (round 234).
+    if (updates.maxConcurrentConversations !== undefined) {
+      SecurityService.validateMaxConcurrentConversations(updates.maxConcurrentConversations, "update_agent");
+    }
+    if (updates.maxTransactionAmount !== undefined) {
+      SecurityService.validateMaxTransactionAmount(updates.maxTransactionAmount, "update_agent");
     }
 
     const updateData = SecurityService.buildUpdateData(updates);

@@ -403,6 +403,12 @@ export class ProductService {
     if (priceType.trim().length === 0) {
       throw new InvalidTypeValueError("'priceType' must not be empty.", { suggestedTools: [tool], context: { field: "priceType" } });
     }
+    // Zod schema (product-tools.ts) enforces max 50 chars at the boundary,
+    // but direct/internal callers bypass Zod — this is the last line of
+    // defense so an oversized priceType cannot reach the DB (round 234).
+    if (priceType.trim().length > 50) {
+      throw new InvalidTypeValueError("'priceType' exceeds maximum length of 50 characters.", { suggestedTools: [tool], context: { field: "priceType", length: priceType.trim().length } });
+    }
   }
 
   private static validatePriceCurrencyCode(currencyCode: string, tool: string): void {

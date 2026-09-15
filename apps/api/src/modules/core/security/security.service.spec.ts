@@ -403,6 +403,46 @@ describe("SecurityService", () => {
         })
       ).resolves.toBeDefined();
     });
+
+    it("rejects out-of-range maxConcurrentConversations on update", async () => {
+      await expect(
+        service.updateAgent({
+          agentId: "a1", tenantId: "t1", maxConcurrentConversations: 0,
+        })
+      ).rejects.toThrow(InvalidTypeValueError);
+    });
+
+    it("rejects a maxConcurrentConversations above 100 on update", async () => {
+      await expect(
+        service.updateAgent({
+          agentId: "a1", tenantId: "t1", maxConcurrentConversations: 101,
+        })
+      ).rejects.toThrow(InvalidTypeValueError);
+    });
+
+    it("rejects a negative maxTransactionAmount on update", async () => {
+      await expect(
+        service.updateAgent({
+          agentId: "a1", tenantId: "t1", maxTransactionAmount: -1,
+        })
+      ).rejects.toThrow(InvalidTypeValueError);
+    });
+
+    it("suggests update_agent for out-of-range maxConcurrentConversations on update", async () => {
+      const err = await service.updateAgent({
+        agentId: "a1", tenantId: "t1", maxConcurrentConversations: 0,
+      }).catch((e) => e);
+      expect(err).toBeInstanceOf(InvalidTypeValueError);
+      expect(err.suggestedTools).toEqual(["update_agent"]);
+    });
+
+    it("suggests update_agent for negative maxTransactionAmount on update", async () => {
+      const err = await service.updateAgent({
+        agentId: "a1", tenantId: "t1", maxTransactionAmount: -1,
+      }).catch((e) => e);
+      expect(err).toBeInstanceOf(InvalidTypeValueError);
+      expect(err.suggestedTools).toEqual(["update_agent"]);
+    });
   });
 
   describe("deleteAgent", () => {

@@ -329,6 +329,17 @@ describe("ProductService", () => {
       ).rejects.toThrow(InvalidTypeValueError);
     });
 
+    it("rejects an overly long priceType with InvalidTypeValueError", async () => {
+      prisma.tenantScoped.mockReturnValue({
+        product: { findUnique: vi.fn().mockResolvedValue({ productId: "p1" }) },
+      });
+      // Zod schema (product-tools.ts) caps priceType at 50 chars, but direct
+      // callers bypass Zod — this is the service-layer last line of defense.
+      await expect(
+        service.addProductPrice({ tenantId: "t1", productId: "12345678-1234-1234-1234-123456789abc", priceType: "A".repeat(51), amount: 10 })
+      ).rejects.toThrow(InvalidTypeValueError);
+    });
+
     it("rejects Infinity amount with InvalidTypeValueError", async () => {
       prisma.tenantScoped.mockReturnValue({
         product: { findUnique: vi.fn().mockResolvedValue({ productId: "p1" }) },
