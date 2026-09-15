@@ -230,17 +230,17 @@ export class SecurityService {
 
   private static validateAgentLimits(
     _agentId: string,
-    maxToolCallsPerConversation: number,
-    rateLimitPerMinute: number,
+    maxToolCallsPerConversation: number | undefined,
+    rateLimitPerMinute: number | undefined,
     tool: string,
   ): void {
-    if (maxToolCallsPerConversation < 1 || maxToolCallsPerConversation > 10000) {
+    if (maxToolCallsPerConversation !== undefined && (maxToolCallsPerConversation < 1 || maxToolCallsPerConversation > 10000)) {
       throw new InvalidTypeValueError(
         `maxToolCallsPerConversation must be between 1 and 10000, got ${maxToolCallsPerConversation}.`,
         { suggestedTools: [tool], context: { field: "maxToolCallsPerConversation", value: maxToolCallsPerConversation } }
       );
     }
-    if (rateLimitPerMinute < 1 || rateLimitPerMinute > 1000) {
+    if (rateLimitPerMinute !== undefined && (rateLimitPerMinute < 1 || rateLimitPerMinute > 1000)) {
       throw new InvalidTypeValueError(
         `rateLimitPerMinute must be between 1 and 1000, got ${rateLimitPerMinute}.`,
         { suggestedTools: [tool], context: { field: "rateLimitPerMinute", value: rateLimitPerMinute } }
@@ -270,12 +270,24 @@ export class SecurityService {
     // not checked by validateAgentLimits but the Zod schemas enforce them
     // at the boundary; skip them here to avoid duplicating constraints
     // that would create a harder maintenance surface than a single
-    // authoritative check in validateAgentLimits.
-    if (updates.maxToolCallsPerConversation !== undefined || updates.rateLimitPerMinute !== undefined) {
+    // authoritative check in validateAgentLimits. Pass each field
+    // individually so only the field being updated is validated — the
+    // previous `?? 0` default caused a false failure when only one of the
+    // two fields was provided (0 < 1 triggers the range check on the
+    // unchanged field).
+    if (updates.maxToolCallsPerConversation !== undefined) {
       SecurityService.validateAgentLimits(
         validatedAgentId,
-        updates.maxToolCallsPerConversation ?? 0,
-        updates.rateLimitPerMinute ?? 0,
+        updates.maxToolCallsPerConversation,
+        updates.rateLimitPerMinute,
+        "update_agent",
+      );
+    }
+    if (updates.rateLimitPerMinute !== undefined) {
+      SecurityService.validateAgentLimits(
+        validatedAgentId,
+        updates.maxToolCallsPerConversation,
+        updates.rateLimitPerMinute,
         "update_agent",
       );
     }

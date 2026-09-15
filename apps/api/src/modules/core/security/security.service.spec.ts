@@ -369,6 +369,40 @@ describe("SecurityService", () => {
       expect(err).toBeInstanceOf(InvalidTypeValueError);
       expect(err.suggestedTools).toEqual(["update_agent"]);
     });
+
+    it("allows updating maxToolCallsPerConversation without touching rateLimitPerMinute", async () => {
+      prisma.admin.agentRegistry.update.mockResolvedValue({
+        agentId: "a1", tenantId: "t1", displayName: "Agent", description: "Desc",
+        capabilities: ["read"], maxToolCallsPerConversation: 50,
+        maxConcurrentConversations: 5, maxTransactionAmount: 0,
+        allowedEntityTypes: [], rateLimitPerMinute: 30, version: "1.0.0",
+        isActive: true, createdAt: new Date(),
+      });
+
+      // Previously the ?? 0 default on the unprovided field caused a false
+      // range failure (0 < 1). This test verifies the fix.
+      await expect(
+        service.updateAgent({
+          agentId: "a1", tenantId: "t1", maxToolCallsPerConversation: 50,
+        })
+      ).resolves.toBeDefined();
+    });
+
+    it("allows updating rateLimitPerMinute without touching maxToolCallsPerConversation", async () => {
+      prisma.admin.agentRegistry.update.mockResolvedValue({
+        agentId: "a1", tenantId: "t1", displayName: "Agent", description: "Desc",
+        capabilities: ["read"], maxToolCallsPerConversation: 100,
+        maxConcurrentConversations: 5, maxTransactionAmount: 0,
+        allowedEntityTypes: [], rateLimitPerMinute: 60, version: "1.0.0",
+        isActive: true, createdAt: new Date(),
+      });
+
+      await expect(
+        service.updateAgent({
+          agentId: "a1", tenantId: "t1", rateLimitPerMinute: 60,
+        })
+      ).resolves.toBeDefined();
+    });
   });
 
   describe("deleteAgent", () => {

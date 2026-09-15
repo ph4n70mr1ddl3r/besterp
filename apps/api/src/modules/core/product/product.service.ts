@@ -16,7 +16,7 @@ import {
   parseISODateTimeAsUTC,
   MAX_PARTY_NAME_LENGTH,
   MAX_PARTY_DESCRIPTION_LENGTH,
-  MAX_ROLE_TYPE_LENGTH,
+  MAX_PRODUCT_TYPE_LENGTH,
   MAX_SEARCH_LIMIT,
   MIN_SEARCH_LIMIT,
   MIN_SEARCH_OFFSET,
@@ -75,7 +75,7 @@ export class ProductService {
       throw new InvalidTypeValueError(`'sku' must be a string.`, { suggestedTools: ["create_product"], context: { field: "sku", received: typeof sku } });
     }
     const trimmedSku = sku !== undefined && sku !== null ? ProductService.requireOptionalString(stripHtmlTags(sku.trim()), "sku", MAX_SKU_LENGTH, "create_product") : null;
-    const trimmedProductType = ProductService.requireStringField(productType, "productType", MAX_ROLE_TYPE_LENGTH, "create_product");
+    const trimmedProductType = ProductService.requireStringField(productType, "productType", MAX_PRODUCT_TYPE_LENGTH, "create_product");
 
     // Validate product type exists
     const productTypeRecord = await this.prisma.admin.productType.findUnique({ where: { name: trimmedProductType } });
@@ -164,7 +164,7 @@ export class ProductService {
       where.name = { contains: trimmedName, mode: "insensitive" as const };
     }
 
-    const trimmedProductType = ProductService.requireNonEmptyFilter(productType, "productType", MAX_ROLE_TYPE_LENGTH, ["search_products"]);
+    const trimmedProductType = ProductService.requireNonEmptyFilter(productType, "productType", MAX_PRODUCT_TYPE_LENGTH, ["search_products"]);
     if (trimmedProductType) {
       where.productType = { name: { equals: trimmedProductType, mode: "insensitive" as const } };
     }
@@ -390,7 +390,7 @@ export class ProductService {
     ProductService.validateParsedDate(parsedFromDate, "fromDate", fromDate, tool);
     const parsedThruDate = thruDate ? parseISODateTimeAsUTC(thruDate) : null;
     ProductService.validateParsedDate(parsedThruDate, "thruDate", thruDate, tool);
-    return { priceType: priceType.toUpperCase(), amount, currencyCode, fromDate: parsedFromDate, thruDate: parsedThruDate };
+    return { priceType: priceType.toUpperCase(), amount, currencyCode: currencyCode.toUpperCase(), fromDate: parsedFromDate, thruDate: parsedThruDate };
   }
 
   private static validatePriceAmount(amount: number, tool: string): void {
