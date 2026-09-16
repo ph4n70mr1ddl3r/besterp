@@ -232,7 +232,8 @@ export class ProductService {
     const trimmedTenantId = ProductService.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "update_product");
     const productId = ProductService.requireUuid(rawProductId, "productId", ["update_product"]);
 
-    const updateData = await this.buildUpdateData(updates, "update_product");
+    const updateData = await ProductService.buildUpdateData(updates, "update_product");
+    await this.validateUpdateProductType(updates.productTypeId, updateData, "update_product");
 
     const db: TenantScopedClient = this.prisma.tenantScoped(trimmedTenantId);
 
@@ -255,13 +256,31 @@ export class ProductService {
   /** Build the Prisma updateData object from partial UpdateProductInput.
    *  Extracted from updateProduct to keep its complexity under the lint cap.
    *  Each branch validates and sanitizes one optional field. */
-  private async buildUpdateData(updates: Partial<UpdateProductInput>, tool: string): Promise<Prisma.ProductUpdateInput> {
+  private static async buildUpdateData(updates: Partial<UpdateProductInput>, tool: string): Promise<Prisma.ProductUpdateInput> {
     const updateData: Prisma.ProductUpdateInput = {};
     ProductService.validateUpdateName(updates.name, updateData, tool);
     ProductService.validateUpdateDescription(updates.description, updateData, tool);
     ProductService.validateUpdateSku(updates.sku, updateData, tool);
-    await this.validateUpdateProductType(updates.productTypeId, updateData, tool);
     return updateData;
+  }
+
+  private validateUpdateProductType(productTypeId: string | undefined, updateData: Prisma.ProductUpdateInput, tool: string): Promise<void> {
+    if (productTypeId !== undefined && typeof productTypeId !== "string") {
+      throw new InvalidTypeValueError(`'productTypeId' must be a string.`, { suggestedTools: [tool], context: { field: "productTypeId", received: typeof productTypeId } });
+    }
+    if (productTypeId !== undefined) {
+      const trimmedProductTypeId = productTypeId.trim();
+      return this.prisma.admin.productType.findUnique({ where: { name: trimmedProductTypeId } }).then((pt) => {
+        if (!pt) {
+          throw new InvalidTypeValueError(
+            `PRODUCT_TYPE '${sanitizeForLogOutput(trimmedProductTypeId)}' is not valid.`,
+            { suggestedTools: ["get_type_table_values"], context: { field: "productTypeId", invalidValue: sanitizeForLogOutput(trimmedProductTypeId) } }
+          );
+        }
+        updateData.productType = { connect: { productTypeId: pt.productTypeId } };
+      });
+    }
+    return Promise.resolve();
   }
 
   private static validateUpdateName(name: string | undefined, updateData: Prisma.ProductUpdateInput, tool: string): void {
@@ -283,23 +302,6 @@ export class ProductService {
       throw new InvalidTypeValueError(`'sku' must be a string.`, { suggestedTools: [tool], context: { field: "sku", received: typeof sku } });
     }
     if (sku !== undefined) updateData.sku = sku === null ? null : ProductService.requireOptionalString(stripHtmlTags(sku.trim()), "sku", MAX_SKU_LENGTH, tool);
-  }
-
-  private async validateUpdateProductType(productTypeId: string | undefined, updateData: Prisma.ProductUpdateInput, tool: string): Promise<void> {
-    if (productTypeId !== undefined && typeof productTypeId !== "string") {
-      throw new InvalidTypeValueError(`'productTypeId' must be a string.`, { suggestedTools: [tool], context: { field: "productTypeId", received: typeof productTypeId } });
-    }
-    if (productTypeId !== undefined) {
-      const trimmedProductTypeId = productTypeId.trim();
-      const pt = await this.prisma.admin.productType.findUnique({ where: { name: trimmedProductTypeId } });
-      if (!pt) {
-        throw new InvalidTypeValueError(
-          `PRODUCT_TYPE '${sanitizeForLogOutput(trimmedProductTypeId)}' is not valid.`,
-          { suggestedTools: ["get_type_table_values"], context: { field: "productTypeId", invalidValue: sanitizeForLogOutput(trimmedProductTypeId) } }
-        );
-      }
-      updateData.productType = { connect: { productTypeId: pt.productTypeId } };
-    }
   }
 
   // ─── Add Product Feature ──────────────────────────────────────
