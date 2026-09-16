@@ -515,7 +515,7 @@ export class SecurityService {
   private static requireIntegerPageParam(value: number, field: string): void {
     if (!Number.isFinite(value) || !Number.isInteger(value)) {
       throw new InvalidTypeValueError(
-        `${field} must be a finite integer (received ${String(value)}).`,
+        `'${field}' must be a finite integer (received ${String(value)}).`,
         { suggestedTools: ["search_agents"], context: { field, received: Number.isFinite(value) ? value : String(value) } }
       );
     }

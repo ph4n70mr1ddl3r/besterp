@@ -208,7 +208,7 @@ export class PartyService {
 
     const trimmedDescription = description?.trim() ?? null;
     if (trimmedDescription !== null && trimmedDescription.length === 0) {
-      throw new InvalidTypeValueError("Description cannot be whitespace-only.", { suggestedTools: ["create_party"], context: { field: "description" } });
+      throw new InvalidTypeValueError("'description' cannot be whitespace-only.", { suggestedTools: ["create_party"], context: { field: "description" } });
     }
     if (trimmedDescription !== null) {
       PartyService.requireMaxLength(trimmedDescription, "Description", MAX_PARTY_DESCRIPTION_LENGTH, "create_party");
@@ -1260,7 +1260,7 @@ export class PartyService {
   private static requireIntegerPageParam(value: number, field: string): void {
     if (!Number.isFinite(value) || !Number.isInteger(value)) {
       throw new InvalidTypeValueError(
-        `${field} must be a finite integer (received ${String(value)}).`,
+        `'${field}' must be a finite integer (received ${String(value)}).`,
         { suggestedTools: ["search_parties"], context: { field, received: Number.isFinite(value) ? value : String(value) } }
       );
     }
@@ -1314,14 +1314,14 @@ export class PartyService {
   private static requireValidDate(value: string, field: string, suggestedTools: string[]): void {
     if (typeof value !== "string") {
       throw new InvalidTypeValueError(
-        `${field} must be a non-empty ISO 8601 date string.`,
+        `'${field}' must be a non-empty ISO 8601 date string.`,
         { suggestedTools, context: { field, received: value, type: typeof value } }
       );
     }
     const trimmed = value.trim();
     if (trimmed.length === 0) {
       throw new InvalidTypeValueError(
-        `${field} must be a non-empty ISO 8601 date string.`,
+        `'${field}' must be a non-empty ISO 8601 date string.`,
         { suggestedTools, context: { field, received: value } }
       );
     }
@@ -1342,7 +1342,7 @@ export class PartyService {
     // caller sees exactly what they sent.
     if (!isValidISODate(trimmed)) {
       throw new InvalidTypeValueError(
-        `${field} is not a valid ISO 8601 date. Received: ${sanitizeForLogOutput(value)}.`,
+        `'${field}' is not a valid ISO 8601 date. Received: ${sanitizeForLogOutput(value)}.`,
         { suggestedTools, context: { field, invalidValue: value } }
       );
     }

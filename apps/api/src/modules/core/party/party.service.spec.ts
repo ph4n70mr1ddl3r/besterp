@@ -1318,7 +1318,7 @@ describe("PartyService", () => {
 
       // Should throw before any DB call
       await expect(partyService.addPartyRole(input)).rejects.toThrow(InvalidTypeValueError);
-      await expect(partyService.addPartyRole(input)).rejects.toThrow("fromDate is not a valid ISO 8601 date");
+      await expect(partyService.addPartyRole(input)).rejects.toThrow("'fromDate' is not a valid ISO 8601 date");
     });
 
     it("should reject fromDate that Date accepts but is not ISO 8601", async () => {
@@ -1333,7 +1333,7 @@ describe("PartyService", () => {
       };
 
       await expect(partyService.addPartyRole(input)).rejects.toThrow(InvalidTypeValueError);
-      await expect(partyService.addPartyRole(input)).rejects.toThrow("fromDate is not a valid ISO 8601 date");
+      await expect(partyService.addPartyRole(input)).rejects.toThrow("'fromDate' is not a valid ISO 8601 date");
     });
 
     it("should throw InvalidTypeValueError for invalid partyId format", async () => {
@@ -1564,16 +1564,16 @@ describe("PartyService", () => {
       // opaque 500 INTERNAL_ERROR instead of the structured InvalidTypeValueError.
       await expect(
         partyService.searchParties({ tenantId: "tenant-1", limit: Number.NaN })
-      ).rejects.toThrow(/limit must be a finite integer/);
+      ).rejects.toThrow(/'limit' must be a finite integer/);
       await expect(
         partyService.searchParties({ tenantId: "tenant-1", offset: Number.NaN })
-      ).rejects.toThrow(/offset must be a finite integer/);
+      ).rejects.toThrow(/'offset' must be a finite integer/);
       await expect(
         partyService.searchParties({ tenantId: "tenant-1", limit: 12.5 })
-      ).rejects.toThrow(/limit must be a finite integer/);
+      ).rejects.toThrow(/'limit' must be a finite integer/);
       await expect(
         partyService.searchParties({ tenantId: "tenant-1", offset: Infinity })
-      ).rejects.toThrow(/offset must be a finite integer/);
+      ).rejects.toThrow(/'offset' must be a finite integer/);
     });
   });
 
