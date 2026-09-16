@@ -1,5 +1,53 @@
 # BestERP — Security & Architecture Fixes
 
+## Changes Applied (2026-09-16) — Code Review Round 240
+
+### 🟡 `security.service.ts` — three inline error messages aligned to quoted canonical format
+
+**Problem:** `validateAgentArrays` threw `"capabilities must have at most 50 entries."`,
+`"Each capability must be a non-empty string."`, and `"Each allowedEntityType must be
+a non-empty string."` while every other validation throw across all three domain
+services uses the quoted canonical format `` `'field' must be …` ``.
+
+**Fix:** Aligned all three to the canonical format:
+- `"'capabilities' must have at most ${MAX_CAPABILITIES_LENGTH} entries."`
+- `"'capability' must be a non-empty string."`
+- `"'allowedEntityType' must be a non-empty string."`
+Also replaced the hardcoded literal `50` with the new exported constant
+`MAX_CAPABILITIES_LENGTH = 50` (added to `packages/shared/src/constants.ts`) so the
+cap cannot silently diverge from the Zod schema bound in `agent-tools.ts`.
+
+---
+
+### 🟡 `mcp.service.ts` — three inline type-check messages aligned to canonical format
+
+**Problem:** `validateUserId` threw `"userId must not be empty or whitespace-only."`,
+`` userId is too long (${rawUserId.length} chars, max ${MAX_USER_ID_LENGTH}). ``,
+and `"userId contains invalid characters. …"` — none quoted the field name,
+and the over-length message used a divergent format
+(`${field} is too long (${n} chars, max ${m}).`) instead of the established
+pattern `` `'${field}' exceeds maximum length of ${maxLength} characters.` ``.
+
+**Fix:** Aligned all three to the canonical quoted format:
+- `"'userId' must not be empty or whitespace-only."`
+- `"'userId' exceeds maximum length of ${MAX_USER_ID_LENGTH} characters."`
+- `"'userId' contains invalid characters. User IDs may only contain non-whitespace printable characters."`
+Updated `mcp.module.spec.ts` regex assertions to match the new quoted format.
+
+---
+
+### 🟡 `product.service.ts` — two inline error messages aligned to quoted canonical format
+
+**Problem:** `validatePriceAmount` threw `"Price amount must be a finite number greater than zero."`
+while the canonical format quotes the field. `validateParsedDate` threw
+`` ${field} must be a valid ISO 8601 date. `` without quoting the field name.
+
+**Fix:**
+- `validatePriceAmount` → `"'amount' must be a finite number greater than zero."`
+- `validateParsedDate` → `` `'${field}' must be a valid ISO 8601 date.` ``
+
+---
+
 ## Changes Applied (2026-09-16) — Code Review Round 239
 
 ### 🟡 `security.service.ts` — hardcoded `64` for version length replaced with exported constant

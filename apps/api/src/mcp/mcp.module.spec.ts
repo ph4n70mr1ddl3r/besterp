@@ -121,7 +121,7 @@ describe("McpService", () => {
           tenantId: "tenant-1",
           userId: "",
         })
-      ).toThrow("userId must not be empty or whitespace-only");
+      ).toThrow("'userId' must not be empty or whitespace-only");
     });
 
     it("should reject null userId", () => {
@@ -152,7 +152,7 @@ describe("McpService", () => {
           tenantId: "tenant-1",
           userId: "   ",
         })
-      ).toThrow("userId must not be empty or whitespace-only");
+      ).toThrow("'userId' must not be empty or whitespace-only");
     });
 
     it("should reject overly long userId", () => {
@@ -167,7 +167,7 @@ describe("McpService", () => {
           tenantId: "tenant-1",
           userId: "x".repeat(201),
         })
-      ).toThrow("userId is too long");
+      ).toThrow("'userId' exceeds maximum length of");
     });
 
     it("should reject userId with invalid characters (security guard)", () => {
@@ -282,7 +282,7 @@ describe("McpService", () => {
           tenantId: "tenant-1",
           userId: "user\tname",
         })
-      ).toThrow("userId contains invalid characters");
+      ).toThrow("'userId' contains invalid characters");
     });
 
     it("should accept real-world userId formats like dots and plus signs", () => {

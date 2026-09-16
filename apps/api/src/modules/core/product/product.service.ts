@@ -420,7 +420,7 @@ export class ProductService {
 
   private static validatePriceAmount(amount: number, tool: string): void {
     if (!Number.isFinite(amount) || amount <= 0) {
-      throw new InvalidTypeValueError("Price amount must be a finite number greater than zero.", { suggestedTools: [tool], context: { field: "amount", received: amount } });
+      throw new InvalidTypeValueError(`'amount' must be a finite number greater than zero.`, { suggestedTools: [tool], context: { field: "amount", received: amount } });
     }
   }
 
@@ -444,7 +444,7 @@ export class ProductService {
 
   private static validateParsedDate(date: Date | null, field: string, rawValue: unknown, tool: string): void {
     if (date && isNaN(date.getTime())) {
-      throw new InvalidTypeValueError(`${field} must be a valid ISO 8601 date.`, { suggestedTools: [tool], context: { field, invalidValue: sanitizeForLogOutput(typeof rawValue === "string" ? rawValue : "") } });
+      throw new InvalidTypeValueError(`'${field}' must be a valid ISO 8601 date.`, { suggestedTools: [tool], context: { field, invalidValue: sanitizeForLogOutput(typeof rawValue === "string" ? rawValue : "") } });
     }
   }
 

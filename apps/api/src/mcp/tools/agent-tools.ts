@@ -14,6 +14,8 @@ import {
   stripHtmlTags,
   MAX_AGENT_ID_LENGTH,
   MAX_PARTY_NAME_LENGTH,
+  MAX_CAPABILITIES_LENGTH,
+  MAX_CAPABILITY_STRING_LENGTH,
   DEFAULT_SEARCH_LIMIT,
   MIN_SEARCH_LIMIT,
   MAX_SEARCH_LIMIT,
@@ -80,9 +82,9 @@ const registerAgentSchema = z.strictObject({
     .transform((s) => stripHtmlTags(s.trim()))
     .pipe(z.string().min(1).max(1000))
     .describe("AI-readable description of this agent's purpose and capabilities"),
-  capabilities: z.array(z.string().min(1).max(100))
+  capabilities: z.array(z.string().min(1).max(MAX_CAPABILITY_STRING_LENGTH))
     .min(1)
-    .max(50)
+    .max(MAX_CAPABILITIES_LENGTH)
     .describe("List of tool names this agent is allowed to call (e.g., ['create_party', 'search_parties'])"),
   version: z.string()
     .transform((s) => s.trim())
@@ -245,7 +247,7 @@ const updateAgentSchema = z.strictObject({
     .pipe(z.string().min(1).max(1000))
     .optional()
     .describe("New description"),
-  capabilities: z.array(z.string().min(1).max(100)).optional()
+  capabilities: z.array(z.string().min(1).max(MAX_CAPABILITY_STRING_LENGTH)).optional()
     .describe("Updated capability list"),
   version: z.string()
     .transform((s) => s.trim())

@@ -99,19 +99,19 @@ export class McpService implements OnModuleInit {
     const rawUserId = value.trim();
     if (rawUserId.length === 0) {
       throw new InvalidTypeValueError(
-        "userId must not be empty or whitespace-only.",
+        "'userId' must not be empty or whitespace-only.",
         { suggestedTools: ["list_available_tools"], context: { field: "userId" } }
       );
     }
     if (rawUserId.length > MAX_USER_ID_LENGTH) {
       throw new InvalidTypeValueError(
-        `userId is too long (${rawUserId.length} chars, max ${MAX_USER_ID_LENGTH}).`,
+        `'userId' exceeds maximum length of ${MAX_USER_ID_LENGTH} characters.`,
         { suggestedTools: ["list_available_tools"], context: { field: "userId", length: rawUserId.length, maxLength: MAX_USER_ID_LENGTH } }
       );
     }
     if (!OPTIONAL_ID_PATTERN.test(rawUserId)) {
       throw new InvalidTypeValueError(
-        "userId contains invalid characters. " +
+        `'userId' contains invalid characters. ` +
           "User IDs may only contain non-whitespace printable characters.",
         { suggestedTools: ["list_available_tools"], context: { field: "userId" } }
       );

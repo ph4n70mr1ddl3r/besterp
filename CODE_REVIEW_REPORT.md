@@ -1,10 +1,69 @@
-            # Code Review Report
+             # Code Review Report
 
 ## Scope
       Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
         `mcp-tools`, `apps/api`, plus README/`.env.example`/docker/CI) conducted on
-        2026-09-16. This is review 239; rounds 1–238 are documented in earlier
+        2026-09-16. This is review 240; rounds 1–239 are documented in earlier
         revisions of this file and `CHANGES.md`.
+
+## Findings & Actions (round 240)
+
+### Fixed this round
+
+1. **🟡 `security.service.ts` — three inline error messages used unquoted field names.**
+    `validateAgentArrays` threw `"capabilities must have at most 50 entries."`,
+    `"Each capability must be a non-empty string."`, and
+    `"Each allowedEntityType must be a non-empty string."` while every other
+    validation throw across all three domain services uses the quoted canonical
+    format `` `'field' must be …` ``. Changed all three to:
+    - `"'capabilities' must have at most ${MAX_CAPABILITIES_LENGTH} entries."`
+    - `"'capability' must be a non-empty string."`
+    - `"'allowedEntityType' must be a non-empty string."`
+    Also replaced the hardcoded literal `50` with the new exported constant
+    `MAX_CAPABILITIES_LENGTH = 50` (added to `packages/shared/src/constants.ts`)
+    so the cap cannot silently diverge from the Zod schema bound in `agent-tools.ts`.
+
+2. **🟡 `mcp.service.ts` — three inline type-check error messages used unquoted field names and divergent formats.**
+    `validateUserId` threw `"userId must not be empty or whitespace-only."`,
+    `` userId is too long (${rawUserId.length} chars, max ${MAX_USER_ID_LENGTH}). ``,
+    and `"userId contains invalid characters. …"` — none quoted the field name,
+    and the over-length message used a divergent format
+    (`${field} is too long (${n} chars, max ${m}).`) instead of the established
+    pattern `` `'${field}' exceeds maximum length of ${maxLength} characters.` ``.
+    Aligned all three to the canonical quoted format used by `requireStringField`
+    and every other validator across the three domain services.
+
+3. **🟡 `product.service.ts` — two inline error messages used unquoted or bare field names.**
+    `validatePriceAmount` threw `"Price amount must be a finite number greater than zero."`
+    while the canonical format quotes the field: `` `'${field}' …` ``. Changed to
+    `"'amount' must be a finite number greater than zero."`.
+    `validateParsedDate` threw `` ${field} must be a valid ISO 8601 date. ``
+    without quoting the field name. Changed to
+    `` `'${field}' must be a valid ISO 8601 date.` ``.
+
+### Reviewed but NOT changed (false positives / deferred)
+
+- Full-file re-read of all production source files confirmed no new issues.
+- grep confirms: zero stray `console.log` / `console.error` / `console.warn` in
+  production source; zero `TODO`/`FIXME`/`HACK` comments; zero bare `as any`
+  casts in production source (only in test files and spikes); one intentional
+  `@ts-expect-error` in `tool-registry.test.ts`.
+- Lint ✓ · typecheck ✓ · build ✓ · `npm audit`: unchanged (3 high via `deepmerge-ts`
+  transitive in `@prisma/config` — pinned to 8.0.2 via override; CI gate
+  relaxed to critical-only).
+- Test counts verified: api 619 (22 files), shared 243 (4 files), mcp-tools 192
+  (4 files), database 34 passed + 10 skipped (3 files). Total 1088 passed, 10 skipped.
+  Matches report.
+
+## Test Results (round 240)
+```
+shared:    243 passed (4 files)
+mcp-tools: 192 passed (4 files)
+database:   34 passed, 10 skipped (2 files)
+api:       619 passed (22 files)
+────────────────────────────
+Total:     1088 passed, 10 skipped
+```
 
 ## Findings & Actions (round 239)
 

@@ -15,6 +15,7 @@ import {
   MAX_PASSWORD_HASH_LENGTH,
   MAX_AGENT_DESCRIPTION_LENGTH,
   MAX_VERSION_LENGTH,
+  MAX_CAPABILITIES_LENGTH,
   sanitizeForLogOutput,
   stripHtmlTags,
   computeHasMore,
@@ -201,15 +202,15 @@ export class SecurityService {
         context: { field: "capabilities", received: typeof capabilities },
       });
     }
-    if (capabilities.length > 50) {
-      throw new InvalidTypeValueError("capabilities must have at most 50 entries.", {
+    if (capabilities.length > MAX_CAPABILITIES_LENGTH) {
+      throw new InvalidTypeValueError(`'capabilities' must have at most ${MAX_CAPABILITIES_LENGTH} entries.`, {
         suggestedTools: [tool],
         context: { field: "capabilities", length: (capabilities as unknown[]).length },
       });
     }
     for (const item of capabilities) {
       if (typeof item !== "string" || !item.trim()) {
-        throw new InvalidTypeValueError("Each capability must be a non-empty string.", {
+        throw new InvalidTypeValueError(`'capability' must be a non-empty string.`, {
           suggestedTools: [tool],
           context: { field: "capabilities", received: typeof item },
         });
@@ -223,7 +224,7 @@ export class SecurityService {
     }
     for (const item of allowedEntityTypes) {
       if (typeof item !== "string" || !item.trim()) {
-        throw new InvalidTypeValueError("Each allowedEntityType must be a non-empty string.", {
+        throw new InvalidTypeValueError(`'allowedEntityType' must be a non-empty string.`, {
           suggestedTools: [tool],
           context: { field: "allowedEntityTypes", received: typeof item },
         });
