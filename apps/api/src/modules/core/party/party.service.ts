@@ -134,7 +134,7 @@ export class PartyService {
     // callers that bypass boundary validation, but defense-in-depth matters.
     if (typeof partyType !== "string" || !partyType.trim()) {
       throw new InvalidTypeValueError(
-        "Party type is required and must be a non-empty string.",
+        "'partyType' must be a string.",
         { suggestedTools: ["create_party"], context: { field: "partyType", received: typeof partyType } }
       );
     }
@@ -196,7 +196,7 @@ export class PartyService {
   private static validateCreatePartyFields(name: string, description: string | undefined | null): { trimmedName: string; trimmedDescription: string | null } {
     if (typeof name !== "string") {
       throw new InvalidTypeValueError(
-        "'name' is required and must be a string.",
+        "'name' must be a string.",
         { suggestedTools: ["create_party"], context: { field: "name", received: typeof name } }
       );
     }

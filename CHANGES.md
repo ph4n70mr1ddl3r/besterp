@@ -1,12 +1,48 @@
 # BestERP — Security & Architecture Fixes
 
-## Changes Applied (2026-09-16) — Code Review Round 238
+## Changes Applied (2026-09-16) — Code Review Round 239
 
-### 🟡 `product.service.ts` — `buildUpdateData` unified to static
+### 🟡 `security.service.ts` — hardcoded `64` for version length replaced with exported constant
 
-**Problem:** `ProductService.buildUpdateData` was declared as `private async` instance method while its body references no `this` — it only calls `ProductService.*` static helpers (`validateUpdateName`, `validateUpdateDescription`, `validateUpdateSku`). Every other cross-service helper (`SecurityService.buildUpdateData`, `PartyService.toPartyResult`, etc.) follows the `private static` convention. Changed to `private static buildUpdateData` and updated the call site from `this.buildUpdateData(...)` to `ProductService.buildUpdateData(...)`.
+**Problem:** `createUser` (line 162) and `updateAgent` (line 364) passed the magic number
+`64` as the `maxLength` argument to `requireStringField` for the `version` field.
+`MAX_AGENT_DESCRIPTION_LENGTH` (1000) was already imported from `@besterp/shared` for
+agent descriptions, but no constant existed for version string length. Passing a literal
+means the length cap would silently diverge if the constant were ever updated elsewhere
+without updating both call sites.
 
-**Note:** `validateUpdateProductType` still uses `this.prisma.admin.productType.findUnique()` and must remain an instance method. `updateProduct` now calls `buildUpdateData` (static) first for string validation, then delegates to `validateUpdateProductType` (instance) for the DB lookup — keeping both paths under the lint complexity cap.
+**Fix:** Added `MAX_VERSION_LENGTH = 64` to `packages/shared/src/constants.ts` and
+exported it from `index.ts`. Updated both call sites in `SecurityService` to use the
+constant instead of the literal, matching the pattern used by all other field-length
+validations across the three domain services.
+
+---
+
+### 🟡 `party.service.ts` — two inline type-check error messages aligned to canonical format
+
+**Problem:** The inline guard for `partyType` in `createParty` used
+`"Party type is required and must be a non-empty string."` (unquoted field name) while
+the inline guard in `validateCreatePartyFields` used
+`"'name' is required and must be a string."` (quoted but with redundant "is required").
+Every other inline type-check throw across all three domain services uses the canonical
+quoted short form `` `'field' must be a string.` ``.
+
+**Fix:** Aligned both to the canonical format:
+- `partyType` check → `` `'partyType' must be a string.` ``
+- `name` check → `` `'name' must be a string.` ``
+
+---
+
+### 🟡 `security.service.ts` — two inline array-type-check error messages aligned to canonical format
+
+**Problem:** `validateAgentArrays` threw `"capabilities must be a string array."` and
+`"allowedEntityTypes must be a string array."` without quoting the field name, while
+the established convention (visible in all `requireStringField` throws and ProductService
+equivalents) quotes the field name: `` `'field' must be a string array.` ``.
+
+**Fix:** Changed both to:
+- `` `'capabilities' must be a string array.` ``
+- `` `'allowedEntityTypes' must be a string array.` ``
 
 ---
 

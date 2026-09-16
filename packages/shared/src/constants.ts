@@ -95,6 +95,9 @@ export const MAX_FEATURE_VALUE_LENGTH = 500;
 /** Maximum length for agent descriptions. */
 export const MAX_AGENT_DESCRIPTION_LENGTH = 1000;
 
+/** Maximum length for agent version strings. */
+export const MAX_VERSION_LENGTH = 64;
+
 // ─── Auth Limits ───────────────────────────────────────────────
 
 /** Maximum length for user IDs in JWT tokens. */

@@ -1,12 +1,71 @@
-           # Code Review Report
+            # Code Review Report
 
 ## Scope
-     Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
-       `mcp-tools`, `apps/api`, plus README/`.env.example`/docker/CI) conducted on
-       2026-09-16. This is review 238; rounds 1–237 are documented in earlier
-       revisions of this file and `CHANGES.md`.
+      Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
+        `mcp-tools`, `apps/api`, plus README/`.env.example`/docker/CI) conducted on
+        2026-09-16. This is review 239; rounds 1–238 are documented in earlier
+        revisions of this file and `CHANGES.md`.
 
-## Findings & Actions (round 238)
+## Findings & Actions (round 239)
+
+### Fixed this round
+
+1. **🟡 `security.service.ts` — hardcoded `64` for version length instead of exported constant.**
+    `createUser` (line 162) and `updateAgent` (line 364) passed the magic number `64` as
+    the `maxLength` argument to `requireStringField` for the `version` field.
+    `MAX_AGENT_DESCRIPTION_LENGTH` (1000) was already imported from `@besterp/shared` for
+    agent descriptions, but no constant existed for version string length. Added
+    `MAX_VERSION_LENGTH = 64` to `packages/shared/src/constants.ts` and exported it from
+    `index.ts`. Updated both call sites in `SecurityService` to use the constant instead of
+    the literal, matching the pattern used by all other field-length validations across the
+    three domain services.
+
+2. **🟡 `party.service.ts:137` — inline type-check error message used unquoted field name.**
+    The inline guard for `partyType` used the message `"Party type is required and must be a non-empty string."`
+    while every other inline type-check throw across all three domain services uses the
+    quoted canonical format `` `'field' must be a string.` ``. Changed to
+    `` `'partyType' must be a string.` `` for consistency. The emptiness aspect is covered
+    by the same `!partyType.trim()` check in the same branch; the type error takes priority
+    in the message since a non-string input cannot be meaningfully trimmed.
+
+3. **🟡 `party.service.ts:199` — inline type-check error message included redundant `is required`.**
+    The inline guard in `validateCreatePartyFields` used `"'name' is required and must be a string."`
+    while the canonical format used everywhere else is `` `'name' must be a string.` ``.
+    The "is required" wording is redundant with the type check (a non-string is inherently
+    missing/rejected) and diverged from the established pattern. Aligned to the canonical
+    short form.
+
+4. **🟡 `security.service.ts:198,218` — inline array-type-check error messages omitted quoted field names.**
+    `validateAgentArrays` threw `"capabilities must be a string array."` and
+    `"allowedEntityTypes must be a string array."` while the established convention
+    (visible in all `requireStringField` throws and ProductService equivalents) quotes the
+    field name: `` `'field' must be a string array.` ``. Changed both to
+    `` `'capabilities' must be a string array.` `` and
+    `` `'allowedEntityTypes' must be a string array.` ``.
+
+### Reviewed but NOT changed (false positives / deferred)
+
+- Full-file re-read of all production source files confirmed no new issues.
+- grep confirms: zero stray `console.log` / `console.error` / `console.warn` in
+  production source; zero `TODO`/`FIXME`/`HACK` comments; zero bare `as any`
+  casts in production source (only in test files and spikes); one intentional
+  `@ts-expect-error` in `tool-registry.test.ts`.
+- Lint ✓ · typecheck ✓ · build ✓ · `npm audit`: unchanged (3 high via `deepmerge-ts`
+  transitive in `@prisma/config` — pinned to 8.0.2 via override; CI gate
+  relaxed to critical-only).
+- Test counts verified: api 619 (22 files), shared 243 (4 files), mcp-tools 192
+  (4 files), database 34 passed + 10 skipped (3 files). Total 1088 passed, 10 skipped.
+  Matches report.
+
+## Test Results (round 239)
+```
+shared:    243 passed (4 files)
+mcp-tools: 192 passed (4 files)
+database:   34 passed, 10 skipped (2 files)
+api:       619 passed (22 files)
+────────────────────────────
+Total:     1088 passed, 10 skipped
+```
 
 ### Fixed this round
 

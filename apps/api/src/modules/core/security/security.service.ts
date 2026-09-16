@@ -14,6 +14,7 @@ import {
   MAX_TENANT_ID_LENGTH,
   MAX_PASSWORD_HASH_LENGTH,
   MAX_AGENT_DESCRIPTION_LENGTH,
+  MAX_VERSION_LENGTH,
   sanitizeForLogOutput,
   stripHtmlTags,
   computeHasMore,
@@ -159,7 +160,7 @@ export class SecurityService {
     const validatedTenantId = SecurityService.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "register_agent");
     const trimmedDisplayName = SecurityService.requireStringField(displayName, "displayName", MAX_PARTY_NAME_LENGTH, "register_agent");
     const trimmedDescription = SecurityService.requireStringField(description, "description", MAX_AGENT_DESCRIPTION_LENGTH, "register_agent");
-    const trimmedVersion = SecurityService.requireStringField(version, "version", 64, "register_agent");
+    const trimmedVersion = SecurityService.requireStringField(version, "version", MAX_VERSION_LENGTH, "register_agent");
     SecurityService.validateAgentArrays(capabilities, allowedEntityTypes, "register_agent");
     SecurityService.validateAgentLimits(validatedAgentId, maxToolCallsPerConversation, rateLimitPerMinute, "register_agent");
     SecurityService.validateMaxConcurrentConversations(maxConcurrentConversations, "register_agent");
@@ -195,7 +196,7 @@ export class SecurityService {
     tool: string,
   ): void {
     if (!Array.isArray(capabilities)) {
-      throw new InvalidTypeValueError("capabilities must be a string array.", {
+      throw new InvalidTypeValueError("'capabilities' must be a string array.", {
         suggestedTools: [tool],
         context: { field: "capabilities", received: typeof capabilities },
       });
@@ -215,7 +216,7 @@ export class SecurityService {
       }
     }
     if (!Array.isArray(allowedEntityTypes)) {
-      throw new InvalidTypeValueError("allowedEntityTypes must be a string array.", {
+      throw new InvalidTypeValueError("'allowedEntityTypes' must be a string array.", {
         suggestedTools: [tool],
         context: { field: "allowedEntityTypes", received: typeof allowedEntityTypes },
       });
@@ -361,7 +362,7 @@ export class SecurityService {
     if (updates.allowedEntityTypes !== undefined) updateData.allowedEntityTypes = updates.allowedEntityTypes;
     if (updates.rateLimitPerMinute !== undefined)
       updateData.rateLimitPerMinute = updates.rateLimitPerMinute;
-    if (updates.version !== undefined) updateData.version = stripHtmlTags(SecurityService.requireStringField(updates.version, "version", 64, "update_agent"));
+    if (updates.version !== undefined) updateData.version = stripHtmlTags(SecurityService.requireStringField(updates.version, "version", MAX_VERSION_LENGTH, "update_agent"));
     if (updates.isActive !== undefined) updateData.isActive = updates.isActive;
     return updateData;
   }
