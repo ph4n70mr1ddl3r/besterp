@@ -1,6 +1,15 @@
 # BestERP — Security & Architecture Fixes
 
-## Changes Applied (2026-09-15) — Code Review Round 232
+## Changes Applied (2026-09-16) — Code Review Round 238
+
+### 🟡 `product.service.ts` — `buildUpdateData` unified to static
+
+**Problem:** `ProductService.buildUpdateData` was declared as `private async` instance method while its body references no `this` — it only calls `ProductService.*` static helpers (`validateUpdateName`, `validateUpdateDescription`, `validateUpdateSku`). Every other cross-service helper (`SecurityService.buildUpdateData`, `PartyService.toPartyResult`, etc.) follows the `private static` convention. Changed to `private static buildUpdateData` and updated the call site from `this.buildUpdateData(...)` to `ProductService.buildUpdateData(...)`.
+
+**Note:** `validateUpdateProductType` still uses `this.prisma.admin.productType.findUnique()` and must remain an instance method. `updateProduct` now calls `buildUpdateData` (static) first for string validation, then delegates to `validateUpdateProductType` (instance) for the DB lookup — keeping both paths under the lint complexity cap.
+
+---
+
 
 ### 🟡 `party.service.ts` — three transaction helpers unified to static
 
