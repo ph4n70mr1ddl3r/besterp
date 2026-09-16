@@ -536,8 +536,7 @@ describe("validateOptionalString", () => {
   });
 
   it("throws when trimmed value exceeds maxLength", () => {
-    expect(() => validateOptionalString("field", "x".repeat(101), 100)).toThrow("too long");
-    expect(() => validateOptionalString("field", "x".repeat(101), 100)).toThrow("max 100");
+    expect(() => validateOptionalString("field", "x".repeat(101), 100)).toThrow("'field' exceeds maximum length of 100 characters.");
   });
 
   it("accepts a value exactly at maxLength", () => {
@@ -546,7 +545,7 @@ describe("validateOptionalString", () => {
 
   it("includes field name and received type in the non-string error", () => {
     expect(() => validateOptionalString("agentId", 123, 200))
-      .toThrow("agentId must be a string, received number");
+      .toThrow("'agentId' must be a string.");
   });
 });
 

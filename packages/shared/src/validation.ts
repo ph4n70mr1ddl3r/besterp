@@ -39,7 +39,7 @@ export function validateOptionalString(
   if (value === undefined || value === null) return undefined;
   if (typeof value !== "string") {
     throw new InvalidTypeValueError(
-      `${fieldName} must be a string, received ${typeof value}.`,
+      `'${fieldName}' must be a string.`,
       { context: { field: fieldName, received: typeof value } }
     );
   }
@@ -47,7 +47,7 @@ export function validateOptionalString(
   if (trimmed.length === 0) {
     if (value.length > 0) {
       throw new InvalidTypeValueError(
-        `${fieldName} cannot be whitespace-only.`,
+        `'${fieldName}' cannot be whitespace-only.`,
         { context: { field: fieldName } }
       );
     }
@@ -55,8 +55,8 @@ export function validateOptionalString(
   }
   if (trimmed.length > maxLength) {
     throw new InvalidTypeValueError(
-      `${fieldName} is too long (${trimmed.length} chars, max ${maxLength}).`,
-      { context: { field: fieldName, length: trimmed.length, maxLength } }
+      `'${fieldName}' exceeds maximum length of ${maxLength} characters.`,
+      { context: { field: fieldName, length: trimmed.length } }
     );
   }
   return trimmed;

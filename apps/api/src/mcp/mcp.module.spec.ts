@@ -368,7 +368,7 @@ describe("McpService", () => {
           userId: "user-1",
           agentId: "   ",
         })
-      ).toThrow("agentId cannot be whitespace-only");
+      ).toThrow("'agentId' cannot be whitespace-only");
     });
 
     it("should reject whitespace-only conversationId", () => {
@@ -385,7 +385,7 @@ describe("McpService", () => {
           userId: "user-1",
           conversationId: "   ",
         })
-      ).toThrow("conversationId cannot be whitespace-only");
+      ).toThrow("'conversationId' cannot be whitespace-only");
     });
 
     it("should normalise empty-string agentId to undefined", () => {
@@ -440,7 +440,7 @@ describe("McpService", () => {
           userId: "user-1",
           idempotencyKey: "x".repeat(501),
         })
-      ).toThrow("idempotencyKey is too long");
+      ).toThrow("'idempotencyKey' exceeds maximum length of 500 characters.");
     });
 
     it("should accept idempotency key at max length", () => {
@@ -499,7 +499,7 @@ describe("McpService", () => {
           userId: "user-1",
           idempotencyKey: "   ",
         })
-      ).toThrow("idempotencyKey cannot be whitespace-only");
+      ).toThrow("'idempotencyKey' cannot be whitespace-only");
     });
 
     it("should reject overly long agentId", () => {
@@ -516,7 +516,7 @@ describe("McpService", () => {
           userId: "user-1",
           agentId: "x".repeat(201),
         })
-      ).toThrow("agentId is too long");
+      ).toThrow("'agentId' exceeds maximum length of 200 characters.");
     });
 
     it("should accept agentId at max length", () => {
@@ -551,7 +551,7 @@ describe("McpService", () => {
           userId: "user-1",
           conversationId: "x".repeat(201),
         })
-      ).toThrow("conversationId is too long");
+      ).toThrow("'conversationId' exceeds maximum length of 200 characters.");
     });
 
     it("should accept conversationId at max length", () => {
@@ -586,7 +586,7 @@ describe("McpService", () => {
           userId: "user-1",
           agentId: 42 as unknown as string,
         })
-      ).toThrow(/agentId must be a string/);
+      ).toThrow(/'agentId' must be a string/);
     });
 
     it("should reject non-string idempotencyKey with a structured error", () => {
@@ -596,7 +596,7 @@ describe("McpService", () => {
           userId: "user-1",
           idempotencyKey: { not: "a string" } as unknown as string,
         })
-      ).toThrow(/idempotencyKey must be a string/);
+      ).toThrow(/'idempotencyKey' must be a string/);
     });
 
     it("should reject non-string conversationId with a structured error", () => {
@@ -606,7 +606,7 @@ describe("McpService", () => {
           userId: "user-1",
           conversationId: true as unknown as string,
         })
-      ).toThrow(/conversationId must be a string/);
+      ).toThrow(/'conversationId' must be a string/);
     });
 
     it("should normalise null agentId to undefined", () => {
@@ -636,7 +636,7 @@ describe("McpService", () => {
             reasoning: 42 as unknown as string,
           });
         expect(callWithType).toThrow(InvalidTypeValueError);
-        expect(callWithType).toThrow(/reasoning must be a string/);
+        expect(callWithType).toThrow(/'reasoning' must be a string/);
       });
 
       it("should reject reasoning exceeding max length", () => {
@@ -647,7 +647,7 @@ describe("McpService", () => {
             reasoning: "x".repeat(2001),
           });
         expect(callWithLongReasoning).toThrow(InvalidTypeValueError);
-        expect(callWithLongReasoning).toThrow("reasoning is too long");
+        expect(callWithLongReasoning).toThrow("'reasoning' exceeds maximum length of 2000 characters.");
       });
 
       it("should reject whitespace-only reasoning", () => {
@@ -664,7 +664,7 @@ describe("McpService", () => {
             userId: "user-1",
             reasoning: "   ",
           })
-        ).toThrow("reasoning cannot be whitespace-only");
+        ).toThrow("'reasoning' cannot be whitespace-only");
       });
 
       it("should trim reasoning before storing", () => {
