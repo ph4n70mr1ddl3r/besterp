@@ -61,22 +61,7 @@ export class ProductService {
   // ─── Create Product ───────────────────────────────────────────
 
   async createProduct(input: CreateProductInput): Promise<ProductResult> {
-    const { tenantId, productType, name, description, sku, features } = input;
-
-    const trimmedTenantId = ProductService.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "create_product");
-    if (typeof name !== "string") {
-      throw new InvalidTypeValueError(`'name' must be a string.`, { suggestedTools: ["create_product"], context: { field: "name", received: typeof name } });
-    }
-    const trimmedName = ProductService.requireNonEmptyString(name.trim(), "name", MAX_PARTY_NAME_LENGTH, "create_product");
-    if (description !== undefined && description !== null && typeof description !== "string") {
-      throw new InvalidTypeValueError(`'description' must be a string.`, { suggestedTools: ["create_product"], context: { field: "description", received: typeof description } });
-    }
-    const trimmedDescription = description !== undefined && description !== null ? ProductService.requireOptionalString(stripHtmlTags(description.trim()), "description", MAX_PARTY_DESCRIPTION_LENGTH, "create_product") : null;
-    if (sku !== undefined && sku !== null && typeof sku !== "string") {
-      throw new InvalidTypeValueError(`'sku' must be a string.`, { suggestedTools: ["create_product"], context: { field: "sku", received: typeof sku } });
-    }
-    const trimmedSku = sku !== undefined && sku !== null ? ProductService.requireOptionalString(stripHtmlTags(sku.trim()), "sku", MAX_SKU_LENGTH, "create_product") : null;
-    const trimmedProductType = ProductService.requireStringField(productType, "productType", MAX_PRODUCT_TYPE_LENGTH, "create_product");
+    const { trimmedTenantId, trimmedName, trimmedDescription, trimmedSku, trimmedProductType, validatedFeatures } = await ProductService.validateCreateProductInput(input);
 
     // Validate product type exists
     const productTypeRecord = await this.prisma.admin.productType.findUnique({ where: { name: trimmedProductType } });
@@ -85,16 +70,6 @@ export class ProductService {
         `PRODUCT_TYPE '${sanitizeForLogOutput(trimmedProductType)}' is not valid. Use 'get_type_table_values' to see available product types.`,
         { suggestedTools: ["get_type_table_values"], context: { field: "productType", invalidValue: sanitizeForLogOutput(trimmedProductType) } }
       );
-    }
-
-    // Validate features before transaction (early validation, round 236)
-    let validatedFeatures = undefined;
-    if (features && features.length > 0) {
-      validatedFeatures = features.map((f) => {
-        const trimmedName = ProductService.requireNonEmptyString(f.name.trim(), "featureName", MAX_FEATURE_NAME_LENGTH, "create_product");
-        const trimmedValue = ProductService.requireNonEmptyString(f.value.trim(), "featureValue", MAX_FEATURE_VALUE_LENGTH, "create_product");
-        return { name: trimmedName, value: trimmedValue };
-      });
     }
 
     const db: TenantScopedClient = this.prisma.tenantScoped(trimmedTenantId);
@@ -125,6 +100,43 @@ export class ProductService {
     } catch (err: unknown) {
       throw mapPrismaError(err, "create_product", "create_product", "product");
     }
+  }
+
+  /** Validate and trim all scalar input fields for createProduct.
+   *  Extracted to keep createProduct's cyclomatic complexity under the lint cap. */
+  private static async validateCreateProductInput(input: CreateProductInput): Promise<{ trimmedTenantId: string; trimmedName: string; trimmedDescription: string | null; trimmedSku: string | null; trimmedProductType: string; validatedFeatures: Array<{ name: string; value: string }> | undefined }> {
+    const tenantId = input.tenantId;
+    const productType = input.productType;
+    const name = input.name;
+    const description = input.description;
+    const sku = input.sku;
+    const features = input.features;
+
+    const trimmedTenantId = ProductService.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "create_product");
+    if (typeof name !== "string") {
+      throw new InvalidTypeValueError(`'name' must be a string.`, { suggestedTools: ["create_product"], context: { field: "name", received: typeof name } });
+    }
+    const trimmedName = ProductService.requireNonEmptyString(name.trim(), "name", MAX_PARTY_NAME_LENGTH, "create_product");
+    if (description !== undefined && description !== null && typeof description !== "string") {
+      throw new InvalidTypeValueError(`'description' must be a string.`, { suggestedTools: ["create_product"], context: { field: "description", received: typeof description } });
+    }
+    const trimmedDescription = description !== undefined && description !== null ? ProductService.requireOptionalString(stripHtmlTags(description.trim()), "description", MAX_PARTY_DESCRIPTION_LENGTH, "create_product") : null;
+    if (sku !== undefined && sku !== null && typeof sku !== "string") {
+      throw new InvalidTypeValueError(`'sku' must be a string.`, { suggestedTools: ["create_product"], context: { field: "sku", received: typeof sku } });
+    }
+    const trimmedSku = sku !== undefined && sku !== null ? ProductService.requireOptionalString(stripHtmlTags(sku.trim()), "sku", MAX_SKU_LENGTH, "create_product") : null;
+    const trimmedProductType = ProductService.requireStringField(productType, "productType", MAX_PRODUCT_TYPE_LENGTH, "create_product");
+
+    let validatedFeatures = undefined;
+    if (features && features.length > 0) {
+      validatedFeatures = features.map((f) => {
+        const trimmedName = ProductService.requireNonEmptyString(f.name.trim(), "featureName", MAX_FEATURE_NAME_LENGTH, "create_product");
+        const trimmedValue = ProductService.requireNonEmptyString(f.value.trim(), "featureValue", MAX_FEATURE_VALUE_LENGTH, "create_product");
+        return { name: trimmedName, value: trimmedValue };
+      });
+    }
+
+    return { trimmedTenantId, trimmedName, trimmedDescription, trimmedSku, trimmedProductType, validatedFeatures };
   }
 
   // ─── Get Product ──────────────────────────────────────────────

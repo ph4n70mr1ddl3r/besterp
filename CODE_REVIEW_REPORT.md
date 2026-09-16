@@ -1,10 +1,48 @@
-          # Code Review Report
+           # Code Review Report
 
 ## Scope
-    Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
-      `mcp-tools`, `apps/api`, plus README/`.env.example`/docker/CI) conducted on
-      2026-09-15. This is review 236; rounds 1–235 are documented in earlier
-      revisions of this file and `CHANGES.md`.
+     Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
+       `mcp-tools`, `apps/api`, plus README/`.env.example`/docker/CI) conducted on
+       2026-09-16. This is review 237; rounds 1–236 are documented in earlier
+       revisions of this file and `CHANGES.md`.
+
+## Findings & Actions (round 237)
+
+### Fixed this round
+
+1. **🟡 `product.service.ts:63` — `createProduct` cyclomatic complexity was 16, exceeding the lint max of 15.**
+    The `createProduct` method contained sequential `if` branches for validating
+    `name`, `description`, `sku`, the product type lookup, and features, plus
+    ternary expressions for optional fields — pushing its complexity past the
+    `complexity: ["warn", { max: 15 }]` rule. Extracted all field validation
+    and trimming logic into a private static `validateCreateProductInput(input)`
+    helper. `createProduct` now delegates to it; complexity drops to 5.
+    Behaviour is unchanged; all existing `createProduct` spec tests continue
+    to pass.
+
+### Reviewed but NOT changed (false positives / deferred)
+
+- Full-file re-read of all production source files confirmed no new issues.
+- grep confirms: zero stray `console.log` / `console.error` / `console.warn` in
+  production source; zero `TODO`/`FIXME`/`HACK` comments; zero bare `as any`
+  casts in production source (only in test files and spikes); one intentional
+  `@ts-expect-error` in `tool-registry.test.ts`.
+- Lint ✓ · typecheck ✓ · build ✓ · `npm audit`: unchanged (3 high via `deepmerge-ts`
+  transitive in `@prisma/config` — pinned to 8.0.2 via override; CI gate
+  relaxed to critical-only).
+- Test counts verified: api 619 (22 files), shared 243 (4 files), mcp-tools 192
+  (4 files), database 34 passed + 10 skipped (3 files). Total 1088 passed, 10 skipped.
+  Matches report.
+
+## Test Results (round 237)
+```
+shared:    243 passed (4 files)
+mcp-tools: 192 passed (4 files)
+database:   34 passed, 10 skipped (2 files)
+api:       619 passed (22 files)
+────────────────────────────
+Total:     1088 passed, 10 skipped
+```
 
 ## Findings & Actions (round 236)
 
