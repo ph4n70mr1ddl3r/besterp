@@ -156,7 +156,8 @@ function createTransactionWrapper(prisma: PrismaClient, tenantId: string) {
       throw new InvalidTypeValueError(
         "Batch $transaction([...promises]) is not supported on a tenant-scoped client. " +
         "Use an interactive transaction instead: $transaction(async (tx) => { ... }). " +
-        "Note: interactive transactions run sequentially, unlike batch which runs concurrently."
+        "Note: interactive transactions run sequentially, unlike batch which runs concurrently.",
+        { context: { field: "$transaction", received: typeof args[0] } }
       );
     }
 
@@ -170,7 +171,8 @@ function createTransactionWrapper(prisma: PrismaClient, tenantId: string) {
 
     throw new InvalidTypeValueError(
       `Unsupported $transaction argument: expected a function or array, got ${typeof args[0]}. ` +
-      `Use $transaction(async (tx) => { ... })`
+      `Use $transaction(async (tx) => { ... })`,
+      { context: { field: "$transaction", received: typeof args[0] } }
     );
   };
 }

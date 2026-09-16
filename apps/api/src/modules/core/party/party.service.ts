@@ -634,7 +634,7 @@ export class PartyService {
   private static validateAddPartyRoleInput(roleType: string): string {
     if (typeof roleType !== "string") {
       throw new InvalidTypeValueError(
-        "roleType must be a non-empty string.",
+        "'roleType' must be a string.",
         { suggestedTools: ["add_party_role"], context: { field: "roleType", received: typeof roleType } }
       );
     }

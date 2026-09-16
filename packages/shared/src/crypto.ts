@@ -22,7 +22,7 @@ import { InvalidTypeValueError } from "./errors.js";
  */
 function checkCircular(value: object, ancestors: Set<object>): void {
   if (ancestors.has(value)) {
-    throw new InvalidTypeValueError("Circular reference detected in hash input");
+    throw new InvalidTypeValueError("Circular reference detected in hash input", { context: { field: "input" } });
   }
 }
 
@@ -63,7 +63,8 @@ function sortMap(value: Map<unknown, unknown>, ancestors: Set<object>, depth: nu
         if (budget.bytes > MAX_HASH_TOTAL_BYTES) {
           throw new InvalidTypeValueError(
             `Input exceeds aggregate serialized size limit of ${MAX_HASH_TOTAL_BYTES} bytes. ` +
-            `Refusing to hash to prevent denial of service.`
+            `Refusing to hash to prevent denial of service.`,
+            { context: { field: "input", limit: MAX_HASH_TOTAL_BYTES } }
           );
         }
       }
@@ -133,7 +134,8 @@ function serializeSpecialObject(value: object, ancestors: Set<object>, depth: nu
   // hashed, so reject them (mirroring the function guard in sortKeysDeep).
   if (value instanceof WeakMap || value instanceof WeakSet) {
     throw new InvalidTypeValueError(
-      "Cannot hash a WeakMap/WeakSet value. Weak collections are non-enumerable and cannot be serialized for idempotency hashing."
+      "Cannot hash a WeakMap/WeakSet value. Weak collections are non-enumerable and cannot be serialized for idempotency hashing.",
+      { context: { field: "input" } }
     );
   }
   if (value instanceof Date) return value.toISOString();
@@ -216,14 +218,16 @@ function checkStringBounds(value: string, budget?: { bytes: number }): void {
     if (budget.bytes > MAX_HASH_TOTAL_BYTES) {
       throw new InvalidTypeValueError(
         `Input exceeds aggregate serialized size limit of ${MAX_HASH_TOTAL_BYTES} bytes. ` +
-        `Refusing to hash to prevent denial of service.`
+        `Refusing to hash to prevent denial of service.`,
+        { context: { field: "input", limit: MAX_HASH_TOTAL_BYTES } }
       );
     }
   }
   if (len > MAX_HASH_STRING_BYTES) {
     throw new InvalidTypeValueError(
       `Input contains a string longer than ${MAX_HASH_STRING_BYTES} bytes. ` +
-      `Refusing to hash to prevent denial of service.`
+      `Refusing to hash to prevent denial of service.`,
+      { context: { field: "input", limit: MAX_HASH_STRING_BYTES } }
     );
   }
 }
@@ -245,7 +249,8 @@ function chargeKeyBytes(value: string, budget?: { bytes: number }): void {
   if (budget.bytes > MAX_HASH_TOTAL_BYTES) {
     throw new InvalidTypeValueError(
       `Input exceeds aggregate serialized size limit of ${MAX_HASH_TOTAL_BYTES} bytes. ` +
-      `Refusing to hash to prevent denial of service.`
+      `Refusing to hash to prevent denial of service.`,
+      { context: { field: "input", limit: MAX_HASH_TOTAL_BYTES } }
     );
   }
 }
@@ -277,7 +282,8 @@ function dispatchContainer(
 function sortKeysDeep(value: unknown, ancestors?: Set<object>, depth = 0, budget?: { bytes: number }): unknown {
   if (depth > MAX_HASH_DEPTH) {
     throw new InvalidTypeValueError(
-      `Input exceeds maximum nesting depth of ${MAX_HASH_DEPTH}. Refusing to hash to prevent stack overflow.`
+      `Input exceeds maximum nesting depth of ${MAX_HASH_DEPTH}. Refusing to hash to prevent stack overflow.`,
+      { context: { field: "input", depth, maxDepth: MAX_HASH_DEPTH } }
     );
   }
   if (value === null || value === undefined) return null;
@@ -326,7 +332,8 @@ function countKeys(value: unknown, ancestors?: Set<object>, depth = 0): number {
   // reject at the same depth.
   if (depth > MAX_HASH_DEPTH) {
     throw new InvalidTypeValueError(
-      `Input exceeds maximum nesting depth of ${MAX_HASH_DEPTH}. Refusing to hash to prevent stack overflow.`
+      `Input exceeds maximum nesting depth of ${MAX_HASH_DEPTH}. Refusing to hash to prevent stack overflow.`,
+      { context: { field: "input", depth, maxDepth: MAX_HASH_DEPTH } }
     );
   }
   ancestors = ancestors ?? new Set<object>();
@@ -397,7 +404,8 @@ export function hashInput(input: unknown): string {
     const keyCount = countKeys(input);
     if (keyCount > MAX_HASH_KEYS) {
       throw new InvalidTypeValueError(
-        `Input has too many keys (${keyCount}, max ${MAX_HASH_KEYS}). Refusing to hash to prevent DoS.`
+        `Input has too many keys (${keyCount}, max ${MAX_HASH_KEYS}). Refusing to hash to prevent DoS.`,
+        { context: { field: "input", keyCount, maxKeys: MAX_HASH_KEYS } }
       );
     }
     const budgetStart = performance.now();
@@ -407,7 +415,8 @@ export function hashInput(input: unknown): string {
     if (elapsed > BUDGET_MS) {
       throw new InvalidTypeValueError(
         `Hashing exceeded the CPU-time budget of ${BUDGET_MS}ms (${elapsed.toFixed(1)}ms). ` +
-        `Refusing to hash to prevent denial of service.`
+        `Refusing to hash to prevent denial of service.`,
+        { context: { field: "input", elapsedMs: elapsed, budgetMs: BUDGET_MS } }
       );
     }
     const serialized = JSON.stringify(canonical);
