@@ -1,5 +1,24 @@
 # BestERP — Security & Architecture Fixes
 
+## Changes Applied (2026-09-16) — Code Review Round 242
+
+### 🟡 `security.service.ts` — collapsed duplicate `validateAgentLimits` call in `updateAgent`
+
+**Problem:** `updateAgent` had two separate `if` branches for
+`maxToolCallsPerConversation` and `rateLimitPerMinute`, each calling
+`SecurityService.validateAgentLimits` with the full pair of values. When an
+update supplied both fields, the helper ran twice with identical arguments.
+`validateAgentLimits` is idempotent (it skips each range check when the value
+is `undefined`), so correctness was unaffected, but the duplicate call was
+wasteful and hurt readability.
+
+**Fix:** Collapsed the two branches into a single `||`-guarded conditional that
+calls `validateAgentLimits` once, passing the current value of each field
+(or `undefined` when the field was not supplied). This matches the same
+single-call pattern already used in `registerAgent`.
+
+---
+
 ## Changes Applied (2026-09-16) — Code Review Round 240
 
 ### 🟡 `security.service.ts` — three inline error messages aligned to quoted canonical format

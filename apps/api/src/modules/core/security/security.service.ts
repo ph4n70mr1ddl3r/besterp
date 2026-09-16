@@ -294,19 +294,11 @@ export class SecurityService {
     }
     // Validate numeric limits when provided — mirrors registerAgent so the
     // service layer rejects out-of-range values before they reach the DB
-    // (round 206). Each field is validated independently so only the field
-    // being updated is checked — the previous `?? 0` default caused a false
-    // failure when only one of the two limit fields was provided (0 < 1
-    // triggers the range check on the unchanged field).
-    if (updates.maxToolCallsPerConversation !== undefined) {
-      SecurityService.validateAgentLimits(
-        validatedAgentId,
-        updates.maxToolCallsPerConversation,
-        updates.rateLimitPerMinute,
-        "update_agent",
-      );
-    }
-    if (updates.rateLimitPerMinute !== undefined) {
+    // (round 206). A single conditional covers both fields so the combined
+    // validateAgentLimits call runs once even when both are present; passing
+    // undefined for the untouched field is safe because validateAgentLimits
+    // skips the range check when the value is undefined.
+    if (updates.maxToolCallsPerConversation !== undefined || updates.rateLimitPerMinute !== undefined) {
       SecurityService.validateAgentLimits(
         validatedAgentId,
         updates.maxToolCallsPerConversation,
