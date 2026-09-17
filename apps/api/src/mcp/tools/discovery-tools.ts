@@ -16,6 +16,8 @@ import {
   sanitizeForLogOutput,
   stripHtmlTags,
   MAX_ENTITY_LENGTH,
+  MAX_SEARCH_QUERY_LENGTH,
+  MAX_ERROR_CODE_LENGTH,
   DEFAULT_SEARCH_LIMIT,
   MIN_SEARCH_LIMIT,
   MAX_SEARCH_LIMIT,
@@ -366,7 +368,7 @@ Example: search_across_entities({ query: "Widget", entity: "product" })`,
     inputSchema: z.strictObject({
       query: z.string()
         .transform((s) => s.trim())
-        .pipe(z.string().min(1).max(200))
+        .pipe(z.string().min(1).max(MAX_SEARCH_QUERY_LENGTH))
         .describe("Search term (partial match, case-insensitive)"),
       entity: z.enum(["party", "product"]).optional()
         .describe("Restrict search to a specific entity type. Omit to search all."),
@@ -562,7 +564,7 @@ Example: explain_error({ errorCode: "INVALID_TYPE_VALUE" })`,
     inputSchema: z.strictObject({
       errorCode: z.string()
         .transform((s) => s.trim().toUpperCase())
-        .pipe(z.string().min(1).max(50))
+        .pipe(z.string().min(1).max(MAX_ERROR_CODE_LENGTH))
         .describe("The error code to explain (e.g., 'INVALID_TYPE_VALUE', 'P2002')"),
     }),
 

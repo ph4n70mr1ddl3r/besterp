@@ -92,6 +92,12 @@ export const MAX_FEATURE_NAME_LENGTH = 100;
 /** Maximum length for product feature values. */
 export const MAX_FEATURE_VALUE_LENGTH = 500;
 
+/** Maximum length for universal search query terms. */
+export const MAX_SEARCH_QUERY_LENGTH = 200;
+
+/** Maximum length for error codes in explain_error tool. */
+export const MAX_ERROR_CODE_LENGTH = 50;
+
 /** Maximum length for agent descriptions. */
 export const MAX_AGENT_DESCRIPTION_LENGTH = 1000;
 

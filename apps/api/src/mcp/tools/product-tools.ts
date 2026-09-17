@@ -21,6 +21,8 @@ import {
   MAX_PRODUCT_TYPE_LENGTH,
   MAX_PRICE_TYPE_LENGTH,
   MAX_SKU_LENGTH,
+  MAX_FEATURE_NAME_LENGTH,
+  MAX_FEATURE_VALUE_LENGTH,
   DEFAULT_SEARCH_LIMIT,
   MIN_SEARCH_LIMIT,
   MAX_SEARCH_LIMIT,
@@ -83,8 +85,8 @@ const createProductSchema = z.strictObject({
   sku: optionalFilteredString(MAX_SKU_LENGTH).describe("Optional stock-keeping unit (must be unique within tenant)"),
   categoryId: uuidParam("Optional category ID to associate with this product").optional(),
   features: z.array(z.strictObject({
-    name: sanitizedString(1, 100).describe("Feature name (e.g., 'color', 'size')"),
-    value: sanitizedString(1, 500).describe("Feature value"),
+    name: sanitizedString(1, MAX_FEATURE_NAME_LENGTH).describe("Feature name (e.g., 'color', 'size')"),
+    value: sanitizedString(1, MAX_FEATURE_VALUE_LENGTH).describe("Feature value"),
   })).optional().describe("Optional product features"),
 });
 
@@ -218,8 +220,8 @@ Returns a paginated list of products matching the criteria.`,
 
 const addProductFeatureSchema = z.strictObject({
   productId: uuidParam("The UUID of the product to add the feature to"),
-  name: sanitizedString(1, 100).describe("Feature name (e.g., 'color', 'size', 'weight')"),
-  value: sanitizedString(1, 500).describe("Feature value"),
+  name: sanitizedString(1, MAX_FEATURE_NAME_LENGTH).describe("Feature name (e.g., 'color', 'size', 'weight')"),
+  value: sanitizedString(1, MAX_FEATURE_VALUE_LENGTH).describe("Feature value"),
 });
 
 type AddProductFeatureInput_z = z.infer<typeof addProductFeatureSchema>;
