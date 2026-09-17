@@ -1,5 +1,32 @@
 # BestERP — Security & Architecture Fixes
 
+## Changes Applied (2026-09-17) — Code Review Round 248
+
+### 🟡 `product-tools.ts` — hardcoded `100` replaced with `MAX_PRODUCT_TYPE_LENGTH`
+
+**Problem:** `searchProductsSchema` used `optionalSearchFilterString(100)` for
+the `productType` filter length cap while `MAX_PRODUCT_TYPE_LENGTH = 100` was
+already imported from `@besterp/shared` and used everywhere else in the same
+file. A hardcoded literal diverges from the constant if the cap is ever
+changed, leaving the schema silently out of sync with the service layer.
+
+**Fix:** Replaced the literal `100` with `MAX_PRODUCT_TYPE_LENGTH`.
+
+### 🟡 `agent-tools.ts` — `.describe()` placement unified in helper functions
+
+**Problem:** `agentIdParam` and `agentNameParam` both called
+`.describe(description)` on the inner schema (inside `.pipe()`), while the
+equivalent `uuidParam` helper in `packages/mcp-tools/src/schema/schema-builders.ts`
+and every other direct usage in `agent-tools.ts` places `.describe()` on the
+outer schema. This inconsistency meant the description metadata ended up
+attached to a different Zod schema node, producing subtly different schema
+shapes in the agent-facing tool registry output.
+
+**Fix:** Moved `.describe()` to the outer invocation in both helpers, matching
+the established pattern used by `uuidParam` and all other schema builders.
+
+---
+
 ## Changes Applied (2026-09-16) — Code Review Round 242
 
 ### 🟡 `security.service.ts` — collapsed duplicate `validateAgentLimits` call in `updateAgent`

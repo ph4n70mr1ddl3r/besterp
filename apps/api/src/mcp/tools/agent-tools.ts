@@ -67,13 +67,15 @@ function getSecurityService(ctx: ToolContext) {
 function agentIdParam(description: string) {
   return z.string()
     .transform((s) => s.trim())
-    .pipe(z.string().min(1).max(MAX_AGENT_ID_LENGTH).describe(description));
+    .pipe(z.string().min(1).max(MAX_AGENT_ID_LENGTH))
+    .describe(description);
 }
 
 function agentNameParam(description: string) {
   return z.string()
     .transform((s) => stripHtmlTags(s.trim()))
-    .pipe(z.string().min(1).max(MAX_PARTY_NAME_LENGTH).describe(description));
+    .pipe(z.string().min(1).max(MAX_PARTY_NAME_LENGTH))
+    .describe(description);
 }
 
 // ─── Tool: register_agent ────────────────────────────────────────
