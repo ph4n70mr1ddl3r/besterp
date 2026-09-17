@@ -202,7 +202,7 @@ export class PartyService {
     }
     const trimmedName = name.trim();
     if (trimmedName.length === 0) {
-      throw new InvalidTypeValueError(`'name' must not be empty.`, { suggestedTools: ["create_party"], context: { field: "name", received: name } });
+      throw new InvalidTypeValueError(`'name' must not be empty.`, { suggestedTools: ["create_party"], context: { field: "name", received: sanitizeForLogOutput(stripHtmlTags(name)) } });
     }
     PartyService.requireMaxLength(trimmedName, "Party name", MAX_PARTY_NAME_LENGTH, "create_party");
 
@@ -640,7 +640,7 @@ export class PartyService {
     }
     const trimmed = roleType.trim();
     if (!trimmed) {
-      throw new InvalidTypeValueError(`'roleType' must not be empty.`, { suggestedTools: ["add_party_role"], context: { field: "roleType", received: roleType } });
+      throw new InvalidTypeValueError(`'roleType' must not be empty.`, { suggestedTools: ["add_party_role"], context: { field: "roleType", received: sanitizeForLogOutput(stripHtmlTags(roleType)) } });
     }
     PartyService.requireMaxLength(trimmed, "Role type", MAX_ROLE_TYPE_LENGTH, "add_party_role");
     return trimmed;
@@ -1322,7 +1322,7 @@ export class PartyService {
     if (trimmed.length === 0) {
       throw new InvalidTypeValueError(
         `'${field}' must be a non-empty ISO 8601 date string.`,
-        { suggestedTools, context: { field, received: value } }
+        { suggestedTools, context: { field, received: sanitizeForLogOutput(stripHtmlTags(value)) } }
       );
     }
     // Defense-in-depth: cap the raw input length so that an absurdly long
