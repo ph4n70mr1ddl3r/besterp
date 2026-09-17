@@ -29,6 +29,7 @@ import {
   MAX_FEATURE_VALUE_LENGTH,
   computeHasMore,
   handleTransactionError as mapPrismaError,
+  TX_TIMEOUT_MS,
 } from "@besterp/shared";
 import {
   CreateProductInput,
@@ -42,8 +43,6 @@ import {
   AddProductPriceInput,
   ProductPriceResult,
 } from "./product.types.js";
-
-const TX_TIMEOUT_MS = 10_000;
 
 @Injectable()
 export class ProductService {
@@ -61,7 +60,7 @@ export class ProductService {
   // ─── Create Product ───────────────────────────────────────────
 
   async createProduct(input: CreateProductInput): Promise<ProductResult> {
-    const { trimmedTenantId, trimmedName, trimmedDescription, trimmedSku, trimmedProductType, validatedFeatures } = await ProductService.validateCreateProductInput(input);
+    const { trimmedTenantId, trimmedName, trimmedDescription, trimmedSku, trimmedProductType, validatedFeatures } = ProductService.validateCreateProductInput(input);
 
     // Validate product type exists
     const productTypeRecord = await this.prisma.admin.productType.findUnique({ where: { name: trimmedProductType } });
@@ -104,7 +103,7 @@ export class ProductService {
 
   /** Validate and trim all scalar input fields for createProduct.
    *  Extracted to keep createProduct's cyclomatic complexity under the lint cap. */
-  private static async validateCreateProductInput(input: CreateProductInput): Promise<{ trimmedTenantId: string; trimmedName: string; trimmedDescription: string | null; trimmedSku: string | null; trimmedProductType: string; validatedFeatures: Array<{ name: string; value: string }> | undefined }> {
+  private static validateCreateProductInput(input: CreateProductInput): { trimmedTenantId: string; trimmedName: string; trimmedDescription: string | null; trimmedSku: string | null; trimmedProductType: string; validatedFeatures: Array<{ name: string; value: string }> | undefined } {
     const tenantId = input.tenantId;
     const productType = input.productType;
     const name = input.name;
@@ -233,7 +232,7 @@ export class ProductService {
     const productId = ProductService.requireUuid(rawProductId, "productId", ["update_product"]);
 
     const updateData = await ProductService.buildUpdateData(updates, "update_product");
-    await this.validateUpdateProductType(updates.productTypeId, updateData, "update_product");
+    await ProductService.validateUpdateProductType(updates.productTypeId, updateData, "update_product", this.prisma);
 
     const db: TenantScopedClient = this.prisma.tenantScoped(trimmedTenantId);
 
@@ -264,23 +263,26 @@ export class ProductService {
     return updateData;
   }
 
-  private validateUpdateProductType(productTypeId: string | undefined, updateData: Prisma.ProductUpdateInput, tool: string): Promise<void> {
+  private static async validateUpdateProductType(
+    productTypeId: string | undefined,
+    updateData: Prisma.ProductUpdateInput,
+    tool: string,
+    prisma: PrismaService,
+  ): Promise<void> {
     if (productTypeId !== undefined && typeof productTypeId !== "string") {
       throw new InvalidTypeValueError(`'productTypeId' must be a string.`, { suggestedTools: [tool], context: { field: "productTypeId", received: typeof productTypeId } });
     }
     if (productTypeId !== undefined) {
       const trimmedProductTypeId = productTypeId.trim();
-      return this.prisma.admin.productType.findUnique({ where: { name: trimmedProductTypeId } }).then((pt) => {
-        if (!pt) {
-          throw new InvalidTypeValueError(
-            `PRODUCT_TYPE '${sanitizeForLogOutput(trimmedProductTypeId)}' is not valid.`,
-            { suggestedTools: ["get_type_table_values"], context: { field: "productTypeId", invalidValue: sanitizeForLogOutput(trimmedProductTypeId) } }
-          );
-        }
-        updateData.productType = { connect: { productTypeId: pt.productTypeId } };
-      });
+      const pt = await prisma.admin.productType.findUnique({ where: { name: trimmedProductTypeId } });
+      if (!pt) {
+        throw new InvalidTypeValueError(
+          `PRODUCT_TYPE '${sanitizeForLogOutput(trimmedProductTypeId)}' is not valid.`,
+          { suggestedTools: ["get_type_table_values"], context: { field: "productTypeId", invalidValue: sanitizeForLogOutput(trimmedProductTypeId) } }
+        );
+      }
+      updateData.productType = { connect: { productTypeId: pt.productTypeId } };
     }
-    return Promise.resolve();
   }
 
   private static validateUpdateName(name: string | undefined, updateData: Prisma.ProductUpdateInput, tool: string): void {

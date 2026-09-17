@@ -197,7 +197,7 @@ const PRISMA_ERROR_HANDLERS: Record<string, ErrorFactory> = {
   },
 };
 
-const CONNECTION_ERROR_CODES = new Set(["P1000", "P1001", "P1002", "P1003", "P1017"]);
+const CONNECTION_ERROR_CODES = new Set(["P1000", "P1001", "P1002", "P1003", "P1008", "P1017"]);
 
 function handlePrismaError(prismaCode: string, prismaMeta: { target?: string | string[] } | undefined, entityName: string, entityPlural: string, definition: { name: string }): PrismaErrorResult | null {
   if (CONNECTION_ERROR_CODES.has(prismaCode)) {

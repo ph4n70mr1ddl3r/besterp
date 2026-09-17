@@ -211,6 +211,9 @@ export const MAX_AUDIT_QUEUE_SIZE = 1000;
 /** Maximum time (ms) a write can wait in the audit write queue before being dropped. */
 export const AUDIT_WRITE_QUEUE_TIMEOUT_MS = 5_000;
 
+/** Timeout for Prisma interactive transactions (ms). */
+export const TX_TIMEOUT_MS = 10_000;
+
 /** Preview length (bytes) when a payload is truncated. */
 export const TRUNCATE_PREVIEW_BYTES = 1024;
 

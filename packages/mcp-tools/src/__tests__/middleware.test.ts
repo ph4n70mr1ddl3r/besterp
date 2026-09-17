@@ -1950,6 +1950,18 @@ describe("Error Handler Middleware", () => {
     expect(result.error?.suggestedTools).toContain("test_tool");
   });
 
+  it("should handle Prisma connection timeout (P1008)", async () => {
+    const prismaError: any = new Error("Connection timed out");
+    prismaError.code = "P1008";
+
+    const result = await errorHandlerMiddleware({}, mockContext, mockDefinition, throwingNext(prismaError));
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe("DATABASE_CONNECTION_ERROR");
+    expect(result.error?.message).toContain("same idempotency key");
+    expect(result.error?.suggestedTools).toContain("list_available_tools");
+  });
+
   it("should redact Map values whose key is a sensitive field name", async () => {
     // Maps in DomainError.context are converted to [[key, value], ...] arrays.
     // The shared redactor applies isSensitiveFieldName to Map keys so a secret

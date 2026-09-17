@@ -49,7 +49,7 @@ export class SecurityService {
 
     const trimmedTenantId = SecurityService.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "create_user");
     const validatedPartyId = SecurityService.requireStringField(partyId, "partyId", MAX_USER_ID_LENGTH, "create_user");
-    SecurityService.requireStringField(passwordHash, "passwordHash", MAX_PASSWORD_HASH_LENGTH, "create_user");
+    const trimmedPasswordHash = SecurityService.requireStringField(passwordHash, "passwordHash", MAX_PASSWORD_HASH_LENGTH, "create_user");
 
     // Verify the party exists in this tenant before linking
     let party;
@@ -80,7 +80,7 @@ export class SecurityService {
           userId: crypto.randomUUID(),
           partyId: validatedPartyId,
           tenantId: trimmedTenantId,
-          passwordHash,
+          passwordHash: trimmedPasswordHash,
         },
         select: {
           userId: true,

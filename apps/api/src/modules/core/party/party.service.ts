@@ -75,6 +75,7 @@ import {
   DEFAULT_PHONE_COUNTRY_CODE,
   computeHasMore,
   handleTransactionError as mapPrismaError,
+  TX_TIMEOUT_MS,
 } from "@besterp/shared";
 import {
   CreatePartyInput,
@@ -96,9 +97,6 @@ type PartyWithIncludes = Prisma.PartyGetPayload<{
     roles: { include: { roleType: true } };
   };
 }>;
-
-/** Timeout for Prisma interactive transactions (ms). */
-const TX_TIMEOUT_MS = 10_000;
 
 /** Max attempts (initial + retries) for the addPartyRole concurrency retry loop. */
 const MAX_CONCURRENCY_RETRIES = 3;
@@ -134,7 +132,7 @@ export class PartyService {
     // callers that bypass boundary validation, but defense-in-depth matters.
     if (typeof partyType !== "string" || !partyType.trim()) {
       throw new InvalidTypeValueError(
-        "'partyType' must be a string.",
+        "'partyType' must not be empty.",
         { suggestedTools: ["create_party"], context: { field: "partyType", received: typeof partyType } }
       );
     }
@@ -244,7 +242,7 @@ export class PartyService {
         { suggestedTools: ["create_party"], context: { field: "firstName", received: typeof personData.firstName } }
       );
     }
-    const trimmedFirstName = personData.firstName?.trim() ?? "";
+    const trimmedFirstName = personData.firstName.trim() ?? "";
     if (!trimmedFirstName) {
       throw new MissingSubtypeDataError("firstName is required for person data.", { suggestedTools: ["create_party"], context: { field: "firstName" } });
     }

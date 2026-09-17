@@ -5,23 +5,28 @@
 import { z } from "zod";
 import { UUID_REGEX, isValidISODate, stripHtmlTags } from "@besterp/shared";
 
-/** Required string: trims, strips HTML, enforces min/max length. */
+/**
+ * Required string: trims, strips HTML, enforces min/max length.
+ * Use for fields that must be present and non-empty after sanitization.
+ */
 export function sanitizedString(min: number, max: number) {
   return z.string()
     .transform(s => stripHtmlTags(s.trim()))
     .pipe(z.string().min(min).max(max));
 }
 
-/** Optional trimmed string that rejects whitespace-only input.
- *  Trims, strips HTML/script payloads, and normalises empty/whitespace-only input
- *  to undefined. Used for optional fields and search filters.
+/**
+ * Optional trimmed string that rejects whitespace-only input.
+ * Trims, strips HTML/script payloads, and normalises empty/whitespace-only input
+ * to undefined. Used for optional fields and search filters.
  *
- *  The length cap is enforced on the TRIMMED value (the `.pipe` below), not on
- *  the raw input: a value padded with whitespace to just over `max` is valid
- *  once trimmed, and the service layer and the required-field helper
- *  `sanitizedString` both length-check the trimmed value.
- *  A pre-transform `.max()` would reject exactly the padded-but-valid inputs
- *  the other surfaces accept — a cross-surface inconsistency. */
+ * The length cap is enforced on the TRIMMED value (the `.pipe` below), not on
+ * the raw input: a value padded with whitespace to just over `max` is valid
+ * once trimmed, and the service layer and the required-field helper
+ * `sanitizedString` both length-check the trimmed value.
+ * A pre-transform `.max()` would reject exactly the padded-but-valid inputs
+ * the other surfaces accept — a cross-surface inconsistency.
+ */
 export function optionalFilteredString(max: number) {
   return z.string()
     .optional()
@@ -33,13 +38,15 @@ export function optionalFilteredString(max: number) {
     .pipe(z.string().max(max).optional());
 }
 
-/** Optional search filter: REJECTS whitespace-only/HTML-only input instead of
- *  silently dropping it. The service layer's requireNonEmptyFilter treats a
- *  whitespace-only filter as a probable caller mistake and refuses to widen
- *  the query to "return all" — the REST DTO enforces the same contract.
- *  optionalFilteredString normalised "   " to undefined here, so the same
- *  request would silently return the unfiltered listing on MCP while REST
- *  returned 422: a cross-surface divergence with data-widening consequences. */
+/**
+ * Optional search filter: REJECTS whitespace-only/HTML-only input instead of
+ * silently dropping it. The service layer's requireNonEmptyFilter treats a
+ * whitespace-only filter as a probable caller mistake and refuses to widen
+ * the query to "return all" — the REST DTO enforces the same contract.
+ * optionalFilteredString normalised "   " to undefined here, so the same
+ * request would silently return the unfiltered listing on MCP while REST
+ * returned 422: a cross-surface divergence with data-widening consequences.
+ */
 export function optionalSearchFilterString(max: number) {
   return z.string()
     .optional()
@@ -52,7 +59,10 @@ export function optionalSearchFilterString(max: number) {
     );
 }
 
-/** Optional ISO 8601 date: trims, validates format, enforces max length. */
+/**
+ * Optional ISO 8601 date: trims, validates format, enforces max length.
+ * Defaults to max 50 chars; pass a smaller value for constrained fields.
+ */
 export function optionalIsoDate(max: number = 50) {
   return z.string()
     .optional()
