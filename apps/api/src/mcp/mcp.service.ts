@@ -131,7 +131,7 @@ export class McpService implements OnModuleInit {
     if (raw !== undefined && !SAFE_IDEMPOTENCY_KEY.test(raw)) {
       throw new InvalidTypeValueError(
         "idempotencyKey must contain only printable ASCII characters.",
-        { context: { field: "idempotencyKey" } }
+        { suggestedTools: ["list_available_tools"], context: { field: "idempotencyKey" } }
       );
     }
     // Return the raw trimmed key verbatim. SAFE_IDEMPOTENCY_KEY already

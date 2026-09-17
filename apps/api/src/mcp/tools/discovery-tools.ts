@@ -206,7 +206,7 @@ Returns the entity's description, AI prompt hint, and key fields.`,
     inputSchema: z.strictObject({
       entityName: z.string()
         .transform((s) => s.trim().toLowerCase())
-        .pipe(z.string().min(1).max(64))
+        .pipe(z.string().min(1).max(MAX_ENTITY_LENGTH))
         .describe("The entity name to describe (e.g., 'party', 'person', 'role_type')"),
     }),
 
@@ -313,7 +313,7 @@ Example: get_valid_transitions({ entity: "party" }) returns { active: ["inactive
     inputSchema: z.strictObject({
       entity: z.string()
         .transform((s) => s.trim().toLowerCase())
-        .pipe(z.string().min(1).max(64))
+        .pipe(z.string().min(1).max(MAX_ENTITY_LENGTH))
         .describe("The entity name (e.g., 'party', 'order', 'invoice')"),
     }),
 

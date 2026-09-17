@@ -18,6 +18,9 @@ import {
   InvalidTypeValueError,
   MAX_PARTY_NAME_LENGTH,
   MAX_PARTY_DESCRIPTION_LENGTH,
+  MAX_PRODUCT_TYPE_LENGTH,
+  MAX_PRICE_TYPE_LENGTH,
+  MAX_SKU_LENGTH,
   DEFAULT_SEARCH_LIMIT,
   MIN_SEARCH_LIMIT,
   MAX_SEARCH_LIMIT,
@@ -73,11 +76,11 @@ function getProductService(ctx: ToolContext) {
 const createProductSchema = z.strictObject({
   productType: z.string()
     .transform((s) => s.trim().toUpperCase())
-    .pipe(z.string().min(1).max(100))
+    .pipe(z.string().min(1).max(MAX_PRODUCT_TYPE_LENGTH))
     .describe("Product type (e.g., 'GOOD', 'SERVICE', 'RAW_MATERIAL')"),
   name: sanitizedString(1, MAX_PARTY_NAME_LENGTH).describe("Product name (1-500 characters)"),
   description: optionalFilteredString(MAX_PARTY_DESCRIPTION_LENGTH).describe("Optional product description"),
-  sku: optionalFilteredString(100).describe("Optional stock-keeping unit (must be unique within tenant)"),
+  sku: optionalFilteredString(MAX_SKU_LENGTH).describe("Optional stock-keeping unit (must be unique within tenant)"),
   categoryId: uuidParam("Optional category ID to associate with this product").optional(),
   features: z.array(z.strictObject({
     name: sanitizedString(1, 100).describe("Feature name (e.g., 'color', 'size')"),
@@ -260,7 +263,7 @@ const addProductPriceSchema = z.strictObject({
   productId: uuidParam("The UUID of the product to add the price to"),
   priceType: z.string()
     .transform((s) => s.trim().toUpperCase())
-    .pipe(z.string().min(1).max(50))
+    .pipe(z.string().min(1).max(MAX_PRICE_TYPE_LENGTH))
     .describe("Price type (e.g., 'LIST', 'WHOLESALE', 'DISCOUNT')"),
   amount: z.number().positive().describe("Price amount (must be > 0)"),
   currencyCode: z.string()

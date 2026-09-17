@@ -14,8 +14,11 @@ import {
   stripHtmlTags,
   MAX_AGENT_ID_LENGTH,
   MAX_PARTY_NAME_LENGTH,
+  MAX_AGENT_DESCRIPTION_LENGTH,
+  MAX_VERSION_LENGTH,
   MAX_CAPABILITIES_LENGTH,
   MAX_CAPABILITY_STRING_LENGTH,
+  MAX_ENTITY_LENGTH,
   DEFAULT_SEARCH_LIMIT,
   MIN_SEARCH_LIMIT,
   MAX_SEARCH_LIMIT,
@@ -80,7 +83,7 @@ const registerAgentSchema = z.strictObject({
   displayName: agentNameParam("Display name for the agent (e.g., 'Sales Assistant')"),
   description: z.string()
     .transform((s) => stripHtmlTags(s.trim()))
-    .pipe(z.string().min(1).max(1000))
+    .pipe(z.string().min(1).max(MAX_AGENT_DESCRIPTION_LENGTH))
     .describe("AI-readable description of this agent's purpose and capabilities"),
   capabilities: z.array(z.string().min(1).max(MAX_CAPABILITY_STRING_LENGTH))
     .min(1)
@@ -88,7 +91,7 @@ const registerAgentSchema = z.strictObject({
     .describe("List of tool names this agent is allowed to call (e.g., ['create_party', 'search_parties'])"),
   version: z.string()
     .transform((s) => s.trim())
-    .pipe(z.string().min(1).max(64))
+    .pipe(z.string().min(1).max(MAX_VERSION_LENGTH))
     .describe("Semantic version string (e.g., '1.0.0')"),
   maxToolCallsPerConversation: z.number().int().min(1).max(10000).optional()
     .describe("Max tool calls per conversation (default: 100)"),
@@ -96,7 +99,7 @@ const registerAgentSchema = z.strictObject({
     .describe("Max concurrent conversations (default: 5)"),
   maxTransactionAmount: z.number().min(0).optional()
     .describe("Per-operation financial limit in tenant base currency (default: 0 = unlimited)"),
-  allowedEntityTypes: z.array(z.string().min(1).max(64)).optional()
+  allowedEntityTypes: z.array(z.string().min(1).max(MAX_ENTITY_LENGTH)).optional()
     .describe("Entity types this agent can interact with (e.g., ['party', 'order'])"),
   rateLimitPerMinute: z.number().int().min(1).max(1000).optional()
     .describe("Max tool calls per minute (default: 30)"),
@@ -244,19 +247,19 @@ const updateAgentSchema = z.strictObject({
   displayName: agentNameParam("New display name").optional(),
   description: z.string()
     .transform((s) => stripHtmlTags(s.trim()))
-    .pipe(z.string().min(1).max(1000))
+    .pipe(z.string().min(1).max(MAX_AGENT_DESCRIPTION_LENGTH))
     .optional()
     .describe("New description"),
   capabilities: z.array(z.string().min(1).max(MAX_CAPABILITY_STRING_LENGTH)).optional()
     .describe("Updated capability list"),
   version: z.string()
     .transform((s) => s.trim())
-    .pipe(z.string().min(1).max(64).optional())
+    .pipe(z.string().min(1).max(MAX_VERSION_LENGTH).optional())
     .describe("New version string"),
   maxToolCallsPerConversation: z.number().int().min(1).max(10000).optional(),
   maxConcurrentConversations: z.number().int().min(1).max(100).optional(),
   maxTransactionAmount: z.number().min(0).optional(),
-  allowedEntityTypes: z.array(z.string().min(1).max(64)).optional(),
+  allowedEntityTypes: z.array(z.string().min(1).max(MAX_ENTITY_LENGTH)).optional(),
   rateLimitPerMinute: z.number().int().min(1).max(1000).optional(),
   isActive: z.boolean().optional(),
 }).refine(
