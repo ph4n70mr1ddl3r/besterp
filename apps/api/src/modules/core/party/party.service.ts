@@ -177,7 +177,12 @@ export class PartyService {
     // adds unnecessary RLS overhead and may fail if policies don't include
     // these tables. Look up BEFORE the transaction to avoid cross-connection
     // consistency concerns (the admin client is a separate connection).
-    const partyTypeRecord = await this.prisma.admin.partyType.findUnique({ where: { name: trimmedPartyType } });
+    let partyTypeRecord;
+    try {
+      partyTypeRecord = await this.prisma.admin.partyType.findUnique({ where: { name: trimmedPartyType } });
+    } catch (err) {
+      throw mapPrismaError(err, "create_party", "create_party", "party");
+    }
     if (!partyTypeRecord) {
       throw new InvalidTypeValueError(
         `PARTY_TYPE '${trimmedPartyType}' is not valid. Valid types: ['PERSON', 'ORGANIZATION'].`,
@@ -568,7 +573,12 @@ export class PartyService {
 
     // Use admin client for global reference data — role_type is a shared
     // cross-tenant lookup table, not tenant-scoped. RLS policies do not apply.
-    const roleTypeRecord = await this.prisma.admin.roleType.findUnique({ where: { name: trimmedRoleType } });
+    let roleTypeRecord;
+    try {
+      roleTypeRecord = await this.prisma.admin.roleType.findUnique({ where: { name: trimmedRoleType } });
+    } catch (err) {
+      throw mapPrismaError(err, "add_party_role", "add_party_role", "party role");
+    }
     if (!roleTypeRecord) {
       throw new InvalidTypeValueError(
         `ROLE_TYPE '${trimmedRoleType}' is not valid. Use 'get_type_table_values' to see valid role types.`,
@@ -791,7 +801,12 @@ export class PartyService {
     // Use admin client for global reference data — contact_mechanism_type is a
     // shared cross-tenant lookup table, not tenant-scoped. RLS policies do not
     // apply.
-    const cmType = await this.prisma.admin.contactMechanismType.findUnique({ where: { name: trimmedCmType } });
+    let cmType;
+    try {
+      cmType = await this.prisma.admin.contactMechanismType.findUnique({ where: { name: trimmedCmType } });
+    } catch (err) {
+      throw mapPrismaError(err, "add_contact_mechanism", "add_contact_mechanism", "contact mechanism");
+    }
     if (!cmType) {
       throw new InvalidTypeValueError(
         `CONTACT_MECHANISM_TYPE '${trimmedCmType}' is not valid. Valid types: ['POSTAL_ADDRESS', 'TELECOM_NUMBER', 'EMAIL_ADDRESS'].`,

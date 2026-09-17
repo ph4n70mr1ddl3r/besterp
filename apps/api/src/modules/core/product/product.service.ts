@@ -63,7 +63,12 @@ export class ProductService {
     const { trimmedTenantId, trimmedName, trimmedDescription, trimmedSku, trimmedProductType, validatedFeatures } = ProductService.validateCreateProductInput(input);
 
     // Validate product type exists
-    const productTypeRecord = await this.prisma.admin.productType.findUnique({ where: { name: trimmedProductType } });
+    let productTypeRecord;
+    try {
+      productTypeRecord = await this.prisma.admin.productType.findUnique({ where: { name: trimmedProductType } });
+    } catch (err) {
+      throw mapPrismaError(err, "create_product", "create_product", "product");
+    }
     if (!productTypeRecord) {
       throw new InvalidTypeValueError(
         `PRODUCT_TYPE '${sanitizeForLogOutput(trimmedProductType)}' is not valid. Use 'get_type_table_values' to see available product types.`,

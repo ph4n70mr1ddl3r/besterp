@@ -25,6 +25,15 @@ import {
   MAX_SEARCH_LIMIT,
   MIN_SEARCH_OFFSET,
   MAX_SEARCH_OFFSET,
+  DEFAULT_MAX_TOOL_CALLS_PER_CONVERSATION,
+  MIN_MAX_TOOL_CALLS_PER_CONVERSATION,
+  MAX_MAX_TOOL_CALLS_PER_CONVERSATION,
+  DEFAULT_MAX_CONCURRENT_CONVERSATIONS,
+  MIN_MAX_CONCURRENT_CONVERSATIONS,
+  MAX_MAX_CONCURRENT_CONVERSATIONS,
+  DEFAULT_RATE_LIMIT_PER_MINUTE,
+  MIN_RATE_LIMIT_PER_MINUTE,
+  MAX_RATE_LIMIT_PER_MINUTE,
 } from "@besterp/shared";
 import {
   CreateUserInput,
@@ -149,11 +158,11 @@ export class SecurityService {
       displayName,
       description,
       capabilities,
-      maxToolCallsPerConversation = 100,
-      maxConcurrentConversations = 5,
+      maxToolCallsPerConversation = DEFAULT_MAX_TOOL_CALLS_PER_CONVERSATION,
+      maxConcurrentConversations = DEFAULT_MAX_CONCURRENT_CONVERSATIONS,
       maxTransactionAmount = 0,
       allowedEntityTypes = [],
-      rateLimitPerMinute = 30,
+      rateLimitPerMinute = DEFAULT_RATE_LIMIT_PER_MINUTE,
       version,
     } = input;
 
@@ -238,15 +247,15 @@ export class SecurityService {
     rateLimitPerMinute: number | undefined,
     tool: string,
   ): void {
-    if (maxToolCallsPerConversation !== undefined && (maxToolCallsPerConversation < 1 || maxToolCallsPerConversation > 10000)) {
+    if (maxToolCallsPerConversation !== undefined && (maxToolCallsPerConversation < MIN_MAX_TOOL_CALLS_PER_CONVERSATION || maxToolCallsPerConversation > MAX_MAX_TOOL_CALLS_PER_CONVERSATION)) {
       throw new InvalidTypeValueError(
-        `maxToolCallsPerConversation must be between 1 and 10000, got ${maxToolCallsPerConversation}.`,
+        `maxToolCallsPerConversation must be between ${MIN_MAX_TOOL_CALLS_PER_CONVERSATION} and ${MAX_MAX_TOOL_CALLS_PER_CONVERSATION}, got ${maxToolCallsPerConversation}.`,
         { suggestedTools: [tool], context: { field: "maxToolCallsPerConversation", value: maxToolCallsPerConversation } }
       );
     }
-    if (rateLimitPerMinute !== undefined && (rateLimitPerMinute < 1 || rateLimitPerMinute > 1000)) {
+    if (rateLimitPerMinute !== undefined && (rateLimitPerMinute < MIN_RATE_LIMIT_PER_MINUTE || rateLimitPerMinute > MAX_RATE_LIMIT_PER_MINUTE)) {
       throw new InvalidTypeValueError(
-        `rateLimitPerMinute must be between 1 and 1000, got ${rateLimitPerMinute}.`,
+        `rateLimitPerMinute must be between ${MIN_RATE_LIMIT_PER_MINUTE} and ${MAX_RATE_LIMIT_PER_MINUTE}, got ${rateLimitPerMinute}.`,
         { suggestedTools: [tool], context: { field: "rateLimitPerMinute", value: rateLimitPerMinute } }
       );
     }
@@ -256,9 +265,9 @@ export class SecurityService {
    *  Mirrors the Zod schema (agent-tools.ts) so the service layer rejects
    *  out-of-range values for direct/internal callers that bypass Zod (round 234). */
   private static validateMaxConcurrentConversations(value: number, tool: string): void {
-    if (value < 1 || value > 100) {
+    if (value < MIN_MAX_CONCURRENT_CONVERSATIONS || value > MAX_MAX_CONCURRENT_CONVERSATIONS) {
       throw new InvalidTypeValueError(
-        `maxConcurrentConversations must be between 1 and 100, got ${value}.`,
+        `maxConcurrentConversations must be between ${MIN_MAX_CONCURRENT_CONVERSATIONS} and ${MAX_MAX_CONCURRENT_CONVERSATIONS}, got ${value}.`,
         { suggestedTools: [tool], context: { field: "maxConcurrentConversations", value } }
       );
     }

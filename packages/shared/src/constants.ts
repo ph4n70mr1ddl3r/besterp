@@ -110,6 +110,35 @@ export const MAX_CAPABILITIES_LENGTH = 50;
 /** Maximum length for a single capability string. */
 export const MAX_CAPABILITY_STRING_LENGTH = 100;
 
+// ─── Agent Limits ──────────────────────────────────────────────
+
+/** Default max tool calls per conversation for new agents. */
+export const DEFAULT_MAX_TOOL_CALLS_PER_CONVERSATION = 100;
+
+/** Min max tool calls per conversation for an agent. */
+export const MIN_MAX_TOOL_CALLS_PER_CONVERSATION = 1;
+
+/** Max max tool calls per conversation for an agent. */
+export const MAX_MAX_TOOL_CALLS_PER_CONVERSATION = 10000;
+
+/** Default max concurrent conversations for a new agent. */
+export const DEFAULT_MAX_CONCURRENT_CONVERSATIONS = 5;
+
+/** Min max concurrent conversations for an agent. */
+export const MIN_MAX_CONCURRENT_CONVERSATIONS = 1;
+
+/** Max max concurrent conversations for an agent. */
+export const MAX_MAX_CONCURRENT_CONVERSATIONS = 100;
+
+/** Default rate limit (calls per minute) for a new agent. */
+export const DEFAULT_RATE_LIMIT_PER_MINUTE = 30;
+
+/** Min rate limit (calls per minute) for an agent. */
+export const MIN_RATE_LIMIT_PER_MINUTE = 1;
+
+/** Max rate limit (calls per minute) for an agent. */
+export const MAX_RATE_LIMIT_PER_MINUTE = 1000;
+
 // ─── Auth Limits ───────────────────────────────────────────────
 
 /** Maximum length for user IDs in JWT tokens. */

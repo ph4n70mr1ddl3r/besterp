@@ -1,10 +1,72 @@
-              # Code Review Report
+               # Code Review Report
 
 ## Scope
        Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
          `mcp-tools`, `apps/api`, plus README/`.env.example`/docker/CI) conducted on
-          2026-09-17. This is review 248; rounds 1–247 are documented in earlier
+          2026-09-17. This is review 249; rounds 1–248 are documented in earlier
           revisions of this file and `CHANGES.md`.
+
+## Findings & Actions (round 249)
+
+### Fixed this round
+
+1. **🟡 `security.service.ts` / `agent-tools.ts` — hardcoded agent limit literals diverged from shared constants.**
+    `registerAgent` defaulted `maxToolCallsPerConversation` to `100`, `maxConcurrentConversations` to `5`,
+    and `rateLimitPerMinute` to `30`; `validateAgentLimits` hard-coded ranges `1…10000` and `1…1000`;
+    `validateMaxConcurrentConversations` hard-coded `1…100`. The equivalent Zod schemas in
+    `agent-tools.ts` repeated the same literals (`min(1).max(10000)`, etc.). If any cap or default
+    were changed in one surface but not the other, the service layer and the MCP boundary would
+    silently disagree — a direct caller bypassing Zod would be accepted on one surface and
+    rejected on the other. Added nine shared constants to `packages/shared/src/constants.ts`:
+    `DEFAULT_MAX_TOOL_CALLS_PER_CONVERSATION`, `MIN_MAX_TOOL_CALLS_PER_CONVERSATION`,
+    `MAX_MAX_TOOL_CALLS_PER_CONVERSATION`, `DEFAULT_MAX_CONCURRENT_CONVERSATIONS`,
+    `MIN_MAX_CONCURRENT_CONVERSATIONS`, `MAX_MAX_CONCURRENT_CONVERSATIONS`,
+    `DEFAULT_RATE_LIMIT_PER_MINUTE`, `MIN_RATE_LIMIT_PER_MINUTE`, `MAX_RATE_LIMIT_PER_MINUTE`.
+    Updated both `SecurityService` and `agent-tools.ts` to import and use them, so the
+    service-layer ranges and the Zod schema bounds stay in sync from a single source of truth.
+    Also improved the error messages to interpolate the actual min/max values instead of
+    hard-coding them, so the messages stay accurate if the constants are ever retuned.
+
+2. **🟡 `product.service.ts` — admin `productType` lookup lacked Prisma error mapping.**
+    `createProduct` called `this.prisma.admin.productType.findUnique()` outside a try/catch,
+    so a Prisma infrastructure error (connection failure, timeout) would propagate as a raw
+    `Error` instead of being mapped to a structured `DomainError` subclass via
+    `mapPrismaError`. `SecurityService.createUser` already wrapped its equivalent party lookup
+    correctly (lines 57–63); `PartyService` had the same pattern in three places. Wrapped
+    the lookup in a `try/catch` calling `mapPrismaError` with self-referential tools
+    (`"create_product"`), matching the established pattern.
+
+3. **🟡 `party.service.ts` — three admin reference-data lookups lacked Prisma error mapping.**
+    `createParty` (line 180), `addPartyRole` (line 571), and `addContactMechanism` (line 794)
+    each called `this.prisma.admin.*.findUnique()` for cross-tenant lookup tables without a
+    surrounding try/catch. A Prisma error on any of these paths would escape as an opaque 500
+    instead of a structured domain error. Wrapped all three in `try/catch` blocks calling
+    `mapPrismaError` with self-referential tool names, matching the pattern established in
+    `SecurityService.createUser` and the newly-fixed `ProductService.createProduct`.
+
+### Reviewed but NOT changed (false positives / deferred)
+
+- Full-file re-read of all production source files confirmed no new issues.
+- grep confirms: zero stray `console.log` / `console.error` / `console.warn` in
+  production source; zero `TODO`/`FIXME`/`HACK` comments; zero bare `as any`
+  casts in production source (only in test files and spikes); one intentional
+  `@ts-expect-error` in `tool-registry.test.ts`.
+- Lint ✓ · typecheck ✓ · build ✓ · `npm audit`: unchanged (3 high via `deepmerge-ts`
+  transitive in `@prisma/config` — pinned to 8.0.2 via override; CI gate
+  relaxed to critical-only).
+- Test counts verified: api 619 (22 files), shared 243 (4 files), mcp-tools 193
+  (4 files), database 34 passed + 10 skipped (3 files). Total 1089 passed, 10 skipped.
+  Matches report.
+
+## Test Results (round 249)
+```
+shared:    243 passed (4 files)
+mcp-tools: 193 passed (4 files)
+database:   34 passed, 10 skipped (2 files)
+api:       619 passed (22 files)
+────────────────────────────
+Total:     1089 passed, 10 skipped
+```
 
 ## Findings & Actions (round 248)
 
