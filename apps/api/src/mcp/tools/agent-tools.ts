@@ -265,7 +265,8 @@ const updateAgentSchema = z.strictObject({
     .describe("Updated capability list"),
   version: z.string()
     .transform((s) => s.trim())
-    .pipe(z.string().min(1).max(MAX_VERSION_LENGTH).optional())
+    .pipe(z.string().min(1).max(MAX_VERSION_LENGTH))
+    .optional()
     .describe("New version string"),
   maxToolCallsPerConversation: z.number().int().min(MIN_MAX_TOOL_CALLS_PER_CONVERSATION).max(MAX_MAX_TOOL_CALLS_PER_CONVERSATION).optional()
     .describe(`Max tool calls per conversation (default: ${DEFAULT_MAX_TOOL_CALLS_PER_CONVERSATION})`),
