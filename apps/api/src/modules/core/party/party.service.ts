@@ -468,8 +468,8 @@ export class PartyService {
     // opaque 500 INTERNAL_ERROR instead of the structured InvalidTypeValueError
     // every other out-of-contract field produces (same defense-in-depth class
     // as the round-151/159 typeof guards on string fields).
-    PartyService.requireIntegerPageParam(limit, "limit");
-    PartyService.requireIntegerPageParam(offset, "offset");
+    PartyService.requireIntegerPageParam(limit, "limit", "search_parties");
+    PartyService.requireIntegerPageParam(offset, "offset", "search_parties");
     const validatedLimit = Math.min(Math.max(limit, MIN_SEARCH_LIMIT), MAX_SEARCH_LIMIT); // Clamp between 1-500
     const validatedOffset = Math.min(Math.max(offset, MIN_SEARCH_OFFSET), MAX_SEARCH_OFFSET);
 
@@ -1270,11 +1270,11 @@ export class PartyService {
    *  See searchParties for why the clamp alone is insufficient. The received
    *  value is stringified when non-finite because JSON.stringify(NaN) → null
    *  would erase the diagnostic detail from the serialized DomainError context. */
-  private static requireIntegerPageParam(value: number, field: string): void {
+  private static requireIntegerPageParam(value: number, field: string, tool: string): void {
     if (!Number.isFinite(value) || !Number.isInteger(value)) {
       throw new InvalidTypeValueError(
         `'${field}' must be a finite integer (received ${String(value)}).`,
-        { suggestedTools: ["search_parties"], context: { field, received: Number.isFinite(value) ? value : String(value) } }
+        { suggestedTools: [tool], context: { field, received: Number.isFinite(value) ? value : String(value) } }
       );
     }
   }
