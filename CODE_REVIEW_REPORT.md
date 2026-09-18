@@ -1,10 +1,63 @@
-                # Code Review Report
+                 # Code Review Report
 
 ## Scope
-       Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
-         `mcp-tools`, `apps/api`, plus README/`.env.example`/docker/CI) conducted on
-          2026-09-18. This is review 250; rounds 1–249 are documented in earlier
-          revisions of this file and `CHANGES.md`.
+        Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
+          `mcp-tools`, `apps/api`, plus README/`.env.example`/docker/CI) conducted on
+           2026-09-18. This is review 251; rounds 1–250 are documented in earlier
+           revisions of this file and `CHANGES.md`.
+
+## Findings & Actions (round 251)
+
+### Fixed this round
+
+1. **🟡 `discovery-tools.ts` — `search_across_entities` pagination params missing `.describe()`.**
+     The `limit` and `offset` fields in `search_across_entities` used bare
+     `.optional().default(...)` without a `.describe()` call, while the
+     equivalent fields in `party-tools.ts`, `product-tools.ts`, and
+     `agent-tools.ts` all carry `.describe()` with the same phrasing pattern
+     (e.g. `` `Maximum results to return (max ${MAX_SEARCH_LIMIT})` ``). The
+     missing descriptions meant the agent-facing schema registry omitted any
+     explanation of what those fields control, making the tool harder for
+     agents to use correctly. Added matching `.describe()` calls to both
+     fields, preserving the identical format used across the other three tool
+     files.
+
+2. **🟡 `agent-tools.ts` — `updateAgentSchema` numeric and boolean fields missing `.describe()`.**
+     Six fields in `updateAgentSchema` (`maxToolCallsPerConversation`,
+     `maxConcurrentConversations`, `maxTransactionAmount`,
+     `allowedEntityTypes`, `rateLimitPerMinute`, `isActive`) were declared
+     without `.describe()`, while the equivalent fields in
+     `registerAgentSchema` (same file, same schema conventions) all include
+     `.describe()` with human-readable explanations. The divergence meant the
+     agent-facing schema registry would expose the registration tool's
+     descriptions but not the update tool's, creating an asymmetric
+     experience that could confuse agents about what the fields mean. Added
+     `.describe()` to each field, mirroring the wording already established
+     in `registerAgentSchema`.
+
+### Reviewed but NOT changed (false positives / deferred)
+
+- Full-file re-read of all production source files confirmed no new issues.
+- grep confirms: zero stray `console.log` / `console.error` / `console.warn` in
+  production source; zero `TODO`/`FIXME`/`HACK` comments; zero bare `as any`
+  casts in production source (only in test files and spikes); one intentional
+  `@ts-expect-error` in `tool-registry.test.ts`.
+- Lint ✓ · typecheck ✓ · build ✓ · `npm audit`: unchanged (3 high via `deepmerge-ts`
+  transitive in `@prisma/config` — pinned to 8.0.2 via override; CI gate
+  relaxed to critical-only).
+- Test counts verified: api 624 (22 files), shared 243 (4 files), mcp-tools 193
+  (4 files), database 34 passed + 10 skipped (3 files). Total 1094 passed, 10 skipped.
+  Matches report.
+
+## Test Results (round 251)
+```
+shared:    243 passed (4 files)
+mcp-tools: 193 passed (4 files)
+database:   34 passed, 10 skipped (2 files)
+api:       624 passed (22 files)
+────────────────────────────
+Total:     1094 passed, 10 skipped
+```
 
 ## Findings & Actions (round 250)
 

@@ -1,5 +1,33 @@
 # BestERP — Security & Architecture Fixes
 
+## Changes Applied (2026-09-18) — Code Review Round 251
+
+### 🟡 `discovery-tools.ts` — `search_across_entities` pagination params gain `.describe()`
+
+**Problem:** The `limit` and `offset` fields in `search_across_entities` used
+bare `.optional().default(...)` without a `.describe()` call, while the
+equivalent fields in `party-tools.ts`, `product-tools.ts`, and
+`agent-tools.ts` all carry `.describe()` with the same phrasing pattern. The
+missing descriptions meant the agent-facing schema registry omitted any
+explanation of what those fields control.
+
+**Fix:** Added matching `.describe()` calls to both fields, preserving the
+identical format used across the other three tool files.
+
+### 🟡 `agent-tools.ts` — `updateAgentSchema` numeric and boolean fields gain `.describe()`
+
+**Problem:** Six fields in `updateAgentSchema` (`maxToolCallsPerConversation`,
+`maxConcurrentConversations`, `maxTransactionAmount`, `allowedEntityTypes`,
+`rateLimitPerMinute`, `isActive`) were declared without `.describe()`, while
+the equivalent fields in `registerAgentSchema` (same file) all include
+`.describe()` with human-readable explanations. The divergence created an
+asymmetric agent-facing schema experience.
+
+**Fix:** Added `.describe()` to each field, mirroring the wording already
+established in `registerAgentSchema`.
+
+---
+
 ## Changes Applied (2026-09-18) — Code Review Round 250
 
 ### 🟡 `discovery-tools.ts` — soft-failure returns unified: context added, input sanitized, error codes corrected

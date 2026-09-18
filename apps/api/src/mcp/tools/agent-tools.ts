@@ -267,12 +267,18 @@ const updateAgentSchema = z.strictObject({
     .transform((s) => s.trim())
     .pipe(z.string().min(1).max(MAX_VERSION_LENGTH).optional())
     .describe("New version string"),
-  maxToolCallsPerConversation: z.number().int().min(MIN_MAX_TOOL_CALLS_PER_CONVERSATION).max(MAX_MAX_TOOL_CALLS_PER_CONVERSATION).optional(),
-  maxConcurrentConversations: z.number().int().min(MIN_MAX_CONCURRENT_CONVERSATIONS).max(MAX_MAX_CONCURRENT_CONVERSATIONS).optional(),
-  maxTransactionAmount: z.number().min(0).optional(),
-  allowedEntityTypes: z.array(z.string().min(1).max(MAX_ENTITY_LENGTH)).optional(),
-  rateLimitPerMinute: z.number().int().min(MIN_RATE_LIMIT_PER_MINUTE).max(MAX_RATE_LIMIT_PER_MINUTE).optional(),
-  isActive: z.boolean().optional(),
+  maxToolCallsPerConversation: z.number().int().min(MIN_MAX_TOOL_CALLS_PER_CONVERSATION).max(MAX_MAX_TOOL_CALLS_PER_CONVERSATION).optional()
+    .describe(`Max tool calls per conversation (default: ${DEFAULT_MAX_TOOL_CALLS_PER_CONVERSATION})`),
+  maxConcurrentConversations: z.number().int().min(MIN_MAX_CONCURRENT_CONVERSATIONS).max(MAX_MAX_CONCURRENT_CONVERSATIONS).optional()
+    .describe(`Max concurrent conversations (default: ${DEFAULT_MAX_CONCURRENT_CONVERSATIONS})`),
+  maxTransactionAmount: z.number().min(0).optional()
+    .describe("Per-operation financial limit in tenant base currency (default: 0 = unlimited)"),
+  allowedEntityTypes: z.array(z.string().min(1).max(MAX_ENTITY_LENGTH)).optional()
+    .describe("Entity types this agent can interact with (e.g., ['party', 'order'])"),
+  rateLimitPerMinute: z.number().int().min(MIN_RATE_LIMIT_PER_MINUTE).max(MAX_RATE_LIMIT_PER_MINUTE).optional()
+    .describe(`Max tool calls per minute (default: ${DEFAULT_RATE_LIMIT_PER_MINUTE})`),
+  isActive: z.boolean().optional()
+    .describe("Whether the agent is active"),
 }).refine(
   (data) => Object.keys(data).some((k) => k !== "agentId"),
   { message: "At least one updatable field must be provided." }
