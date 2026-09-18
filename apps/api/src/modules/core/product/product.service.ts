@@ -27,6 +27,7 @@ import {
   MAX_SKU_LENGTH,
   MAX_FEATURE_NAME_LENGTH,
   MAX_FEATURE_VALUE_LENGTH,
+  DEFAULT_CURRENCY_CODE,
   computeHasMore,
   handleTransactionError as mapPrismaError,
   TX_TIMEOUT_MS,
@@ -358,7 +359,7 @@ export class ProductService {
   // ─── Add Product Price ────────────────────────────────────────
 
   async addProductPrice(input: AddProductPriceInput): Promise<ProductPriceResult> {
-    const { tenantId, productId: rawProductId, priceType, amount, currencyCode = "USD", fromDate, thruDate } = input;
+    const { tenantId, productId: rawProductId, priceType, amount, currencyCode = DEFAULT_CURRENCY_CODE, fromDate, thruDate } = input;
 
     const trimmedTenantId = ProductService.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "add_product_price");
     const productId = ProductService.requireUuid(rawProductId, "productId", ["add_product_price"]);

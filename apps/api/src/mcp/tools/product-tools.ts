@@ -179,8 +179,8 @@ Returns full product details with all features and active prices.`,
 const searchProductsSchema = z.strictObject({
   name: optionalSearchFilterString(MAX_PARTY_NAME_LENGTH).describe("Filter by name (partial match, case-insensitive)"),
   productType: optionalSearchFilterString(MAX_PRODUCT_TYPE_LENGTH).describe("Filter by product type (e.g., 'GOOD', 'SERVICE')"),
-  limit: z.number().int().min(MIN_SEARCH_LIMIT).max(MAX_SEARCH_LIMIT).optional().default(DEFAULT_SEARCH_LIMIT),
-  offset: z.number().int().min(MIN_SEARCH_OFFSET).max(MAX_SEARCH_OFFSET).optional().default(0),
+  limit: z.number().int().min(MIN_SEARCH_LIMIT).max(MAX_SEARCH_LIMIT).optional().default(DEFAULT_SEARCH_LIMIT).describe(`Maximum results to return (max ${MAX_SEARCH_LIMIT})`),
+  offset: z.number().int().min(MIN_SEARCH_OFFSET).max(MAX_SEARCH_OFFSET).optional().default(0).describe(`Number of results to skip (min ${MIN_SEARCH_OFFSET})`),
 });
 
 type SearchProductsInput_z = z.infer<typeof searchProductsSchema>;

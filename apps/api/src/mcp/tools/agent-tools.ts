@@ -172,8 +172,8 @@ Example: Register a sales assistant agent
 const listAgentsSchema = z.strictObject({
   agentId: agentIdParam("Filter by specific agent ID").optional(),
   isActive: z.boolean().optional().describe("Filter by active status"),
-  limit: z.number().int().min(MIN_SEARCH_LIMIT).max(MAX_SEARCH_LIMIT).optional().default(DEFAULT_SEARCH_LIMIT),
-  offset: z.number().int().min(MIN_SEARCH_OFFSET).max(MAX_SEARCH_OFFSET).optional().default(0),
+  limit: z.number().int().min(MIN_SEARCH_LIMIT).max(MAX_SEARCH_LIMIT).optional().default(DEFAULT_SEARCH_LIMIT).describe(`Maximum results to return (max ${MAX_SEARCH_LIMIT})`),
+  offset: z.number().int().min(MIN_SEARCH_OFFSET).max(MAX_SEARCH_OFFSET).optional().default(0).describe(`Number of results to skip (min ${MIN_SEARCH_OFFSET})`),
 });
 
 type ListAgentsInput_z = z.infer<typeof listAgentsSchema>;
