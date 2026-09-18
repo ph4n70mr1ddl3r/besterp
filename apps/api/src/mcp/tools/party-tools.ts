@@ -181,14 +181,14 @@ const personSchema = z.strictObject({
   firstName: sanitizedString(1, MAX_PERSON_NAME_LENGTH).describe("First/given name"),
   lastName: sanitizedString(1, MAX_PERSON_NAME_LENGTH).describe("Last/family name"),
   middleName: optionalFilteredString(MAX_MIDDLE_NAME_LENGTH).describe("Middle name"),
-  birthDate: optionalIsoDate().describe("Date of birth (ISO 8601)"),
+  birthDate: optionalIsoDate(MAX_DATE_STRING_LENGTH).describe(`Date of birth (ISO 8601, max ${MAX_DATE_STRING_LENGTH} chars)`),
   gender: optionalFilteredString(MAX_GENDER_LENGTH).describe("Gender"),
 });
 
 const organizationSchema = z.strictObject({
   legalName: sanitizedString(1, MAX_LEGAL_NAME_LENGTH).describe("Legal/registered name of the organization"),
   taxId: optionalFilteredString(MAX_TAX_ID_LENGTH).describe("Tax identification number"),
-  registrationDate: optionalIsoDate().describe("Date of registration (ISO 8601)"),
+  registrationDate: optionalIsoDate(MAX_DATE_STRING_LENGTH).describe(`Date of registration (ISO 8601, max ${MAX_DATE_STRING_LENGTH} chars)`),
 });
 
 const postalAddressSchema = z.strictObject({

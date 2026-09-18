@@ -1,10 +1,11 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import {
   resolveRateLimitConfig,
   resolveHardExitTimeoutMs,
   resolveTrustProxyHops,
   resolvePort,
   normalizeEnvironmentValue,
+  normalizeCacheSize,
   DEFAULT_RATE_LIMIT_WINDOW_MS,
   DEFAULT_RATE_LIMIT_MAX_PER_WINDOW,
   DEFAULT_HARD_EXIT_TIMEOUT_MS,
@@ -184,5 +185,43 @@ describe("resolvePort", () => {
   it("accepts the maximum valid port", () => {
     const result = resolvePort(env({ PORT: String(MAX_PORT) }));
     expect(result.value).toBe(MAX_PORT);
+  });
+});
+
+describe("normalizeCacheSize", () => {
+  function mockLogger() {
+    return { warn: vi.fn() } as any;
+  }
+
+  it("returns the default when raw is undefined", () => {
+    expect(normalizeCacheSize(undefined, 100, "TEST_CACHE", mockLogger())).toBe(100);
+  });
+
+  it("returns the default when raw is an empty string", () => {
+    expect(normalizeCacheSize("", 100, "TEST_CACHE", mockLogger())).toBe(100);
+  });
+
+  it("returns the default when raw is whitespace-only", () => {
+    expect(normalizeCacheSize("   ", 100, "TEST_CACHE", mockLogger())).toBe(100);
+  });
+
+  it("returns the default when raw is NaN", () => {
+    expect(normalizeCacheSize("abc", 100, "TEST_CACHE", mockLogger())).toBe(100);
+  });
+
+  it("clamps to minimum of 1 when raw is 0", () => {
+    expect(normalizeCacheSize("0", 100, "TEST_CACHE", mockLogger())).toBe(1);
+  });
+
+  it("parses a valid integer within range", () => {
+    expect(normalizeCacheSize("500", 100, "TEST_CACHE", mockLogger())).toBe(500);
+  });
+
+  it("clamps values above 100_000 to 100_000", () => {
+    expect(normalizeCacheSize("999999", 100, "TEST_CACHE", mockLogger())).toBe(100_000);
+  });
+
+  it("clamps negative values to 1", () => {
+    expect(normalizeCacheSize("-10", 100, "TEST_CACHE", mockLogger())).toBe(1);
   });
 });

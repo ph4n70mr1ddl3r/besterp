@@ -3,7 +3,7 @@
 // instead of duplicating them verbatim.
 
 import { z } from "zod";
-import { UUID_REGEX, isValidISODate, stripHtmlTags, MAX_UUID_STRING_LENGTH } from "@besterp/shared";
+import { UUID_REGEX, isValidISODate, stripHtmlTags, MAX_UUID_STRING_LENGTH, MAX_DATE_STRING_LENGTH } from "@besterp/shared";
 
 /**
  * Required string: trims, strips HTML, enforces min/max length.
@@ -63,7 +63,7 @@ export function optionalSearchFilterString(max: number) {
  * Optional ISO 8601 date: trims, validates format, enforces max length.
  * Defaults to max 50 chars; pass a smaller value for constrained fields.
  */
-export function optionalIsoDate(max: number = 50) {
+export function optionalIsoDate(max: number = MAX_DATE_STRING_LENGTH) {
   return z.string()
     .optional()
     .transform(s => s?.trim() || undefined)

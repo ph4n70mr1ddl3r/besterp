@@ -30,6 +30,7 @@ import {
   MAX_SEARCH_LIMIT,
   MIN_SEARCH_OFFSET,
   MAX_SEARCH_OFFSET,
+  MAX_DATE_STRING_LENGTH,
 } from "@besterp/shared";
 import type {
   CreateProductInput,
@@ -275,8 +276,8 @@ const addProductPriceSchema = z.strictObject({
     .pipe(z.string().length(MAX_CURRENCY_CODE_LENGTH))
     .default(DEFAULT_CURRENCY_CODE)
     .describe(`ISO 4217 currency code (default: ${DEFAULT_CURRENCY_CODE})`),
-  fromDate: optionalIsoDate().describe("Start date (ISO 8601, default: now)"),
-  thruDate: optionalIsoDate().describe("End date (ISO 8601, null = no expiry)"),
+  fromDate: optionalIsoDate(MAX_DATE_STRING_LENGTH).describe(`Start date (ISO 8601, max ${MAX_DATE_STRING_LENGTH} chars, default: now)`),
+  thruDate: optionalIsoDate(MAX_DATE_STRING_LENGTH).describe(`End date (ISO 8601, null = no expiry, max ${MAX_DATE_STRING_LENGTH} chars)`),
 });
 
 type AddProductPriceInput_z = z.infer<typeof addProductPriceSchema>;

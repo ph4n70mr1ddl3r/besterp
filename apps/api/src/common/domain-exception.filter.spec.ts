@@ -80,7 +80,7 @@ describe("DomainExceptionFilter", () => {
       });
     });
 
-    it("returns a generic message for unknown DomainError codes (500)", () => {
+    it("should return a generic message for unknown DomainError codes (500)", () => {
       process.env.NODE_ENV = "production";
       const ctx = createMockHost();
       const error = new DomainError("TOTALLY_UNKNOWN_CODE", "boom");

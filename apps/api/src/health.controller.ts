@@ -4,7 +4,7 @@
 // Delegates to HealthService for actual health checks.
 
 import { Controller, Get, Logger, ServiceUnavailableException } from "@nestjs/common";
-import { sanitizeForLogOutput, isProd } from "@besterp/shared";
+import { sanitizeForLogOutput, isProd, READY_CHECK_TIMEOUT_MS } from "@besterp/shared";
 import { Public } from "./auth/public.decorator.js";
 import { HealthService } from "./health.service.js";
 
@@ -46,7 +46,7 @@ export class HealthController {
     // The underlying DB query continues until it completes or the connection
     // pool is torn down; the timeout only aborts the HTTP response.
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    const timeoutId = setTimeout(() => controller.abort(), READY_CHECK_TIMEOUT_MS);
     timeoutId.unref();
 
     try {

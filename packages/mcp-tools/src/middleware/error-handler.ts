@@ -12,6 +12,7 @@ import {
   sanitizeForLogOutput,
   pluralize,
   redactSensitiveFieldValues,
+  MAX_ERROR_LOG_LINE_LENGTH,
   type DomainError,
 } from "@besterp/shared";
 import { ToolMiddleware, ToolResult } from "../schema/tool-definition.js";
@@ -43,9 +44,6 @@ function extractPrismaError(error: unknown): { code: string | undefined; meta: {
   }
   return { code: undefined, meta: undefined };
 }
-
-/** Maximum length for a single error message in the error handler stderr log. */
-const MAX_ERROR_LOG_LINE_LENGTH = 500;
 
 function sanitizeContextValueForToolResult(value: unknown): unknown {
   const sanitized = redactSensitiveFieldValues(value);

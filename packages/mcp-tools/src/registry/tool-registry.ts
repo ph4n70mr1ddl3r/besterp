@@ -118,7 +118,7 @@ export class ToolRegistry {
       );
     }
 
-    this.validateInputSchemaShape(definition.name, definition.inputSchema);
+    ToolRegistry.validateInputSchemaShape(definition.name, definition.inputSchema);
 
     this.tools.set(definition.name, {
       definition,
@@ -159,7 +159,7 @@ export class ToolRegistry {
     // tenantId could set an arbitrary tenant on RLS — a cross-tenant access
     // path. Validate here, BEFORE any middleware or handler runs, and fail
     // closed with a non-enumerating error (no tenant/id echoed to the agent).
-    const auth = this.validateContextIdentity(context);
+    const auth = ToolRegistry.validateContextIdentity(context);
     if ("error" in auth) return auth.error;
 
     const entry = this.tools.get(name);
@@ -222,7 +222,7 @@ export class ToolRegistry {
     // validation step see schema-conformant input. The final handler's own
     // strip remains as belt-and-suspenders in case a pipeline is invoked
     // through a path that bypasses execute().
-    const pipelineInput = this.stripPromotedIdempotencyKey(raw);
+    const pipelineInput = ToolRegistry.stripPromotedIdempotencyKey(raw);
 
     // Check pipeline cache — rebuilt only on register() or addGlobalMiddleware()
     let pipeline = this.pipelineCache.get(name);
@@ -239,7 +239,7 @@ export class ToolRegistry {
         },
         // Final handler — validates input with Zod, then calls the handler
         async (input, ctx) => {
-          const parsed = definition.inputSchema.safeParse(this.stripPromotedIdempotencyKey(input));
+          const parsed = definition.inputSchema.safeParse(ToolRegistry.stripPromotedIdempotencyKey(input));
           if (!parsed.success) {
             const issueString = parsed.error.issues
               .map((i) => `${i.path.map((p) => String(p)).join(".")}: ${i.message}`)
@@ -274,7 +274,7 @@ export class ToolRegistry {
             // Sanitize every string (strip URLs/paths/ANSI) and redact values
             // carried under a sensitive-named path so this agent-facing surface
             // stays consistent with every other error path.
-            const sanitizedIssues = this.sanitizeIssues(parsed.error.issues, MAX_VALIDATION_ISSUES);
+            const sanitizedIssues = ToolRegistry.sanitizeIssues(parsed.error.issues, MAX_VALIDATION_ISSUES);
             return {
               success: false,
               error: {
@@ -312,7 +312,7 @@ export class ToolRegistry {
    *
    * Accepts `unknown`; non-object inputs pass through untouched.
    */
-  private stripPromotedIdempotencyKey(input: unknown): unknown {
+  private static stripPromotedIdempotencyKey(input: unknown): unknown {
     if (input == null || typeof input !== "object" || Array.isArray(input)) return input;
     if (!("idempotencyKey" in input)) return input;
     const { idempotencyKey: _promoted, ...rest } = input as Record<string, unknown>;
@@ -333,15 +333,15 @@ export class ToolRegistry {
    * trimmed retry missed the record and re-executed the write. Fails closed:
    * no tenant/id value is reflected to the agent on error.
    */
-  private validateContextIdentity(context: ToolContext): { error: ToolResult } | { context: ToolContext } {
+  private static validateContextIdentity(context: ToolContext): { error: ToolResult } | { context: ToolContext } {
     let tenantId: string;
     try {
       tenantId = validateTenantIdEnhancedForAuth(context.tenantId);
     } catch {
-      return { error: this.contextIdentityError("INVALID_TENANT_ID", "tenant identifier") };
+      return { error: ToolRegistry.contextIdentityError("INVALID_TENANT_ID", "tenant identifier") };
     }
     if (typeof context.userId !== "string") {
-      return { error: this.contextIdentityError("INVALID_USER_ID", "user identifier") };
+      return { error: ToolRegistry.contextIdentityError("INVALID_USER_ID", "user identifier") };
     }
     // Trim userId to match the behavior of McpService.buildContext and
     // TenantGuard — both accept whitespace-padded values by trimming them.
@@ -349,7 +349,7 @@ export class ToolRegistry {
     // the length/pattern checks below, not by the trim-equality guard.
     const userId = context.userId.trim();
     if (userId.length === 0 || userId.length > MAX_USER_ID_LENGTH || !OPTIONAL_ID_PATTERN.test(userId)) {
-      return { error: this.contextIdentityError("INVALID_USER_ID", "user identifier") };
+      return { error: ToolRegistry.contextIdentityError("INVALID_USER_ID", "user identifier") };
     }
     // `agentId`/`conversationId` are persisted verbatim into the cross-tenant
     // durable idempotency + audit sinks, so an unvalidated/oversized/attacker-
@@ -360,12 +360,12 @@ export class ToolRegistry {
     // conversationId. Using explicit `if` / `else` instead of `??` makes the
     // short-circuit semantics obvious and avoids the cognitive load of
     // reading `??` as "if-null-then-try-the-next-field".
-    const agentIdError = this.validateOptionalIdentityField(context.agentId, "agentId", MAX_AGENT_ID_LENGTH);
+    const agentIdError = ToolRegistry.validateOptionalIdentityField(context.agentId, "agentId", MAX_AGENT_ID_LENGTH);
     if (agentIdError) return { error: agentIdError };
-    const conversationIdError = this.validateOptionalIdentityField(context.conversationId, "conversationId", MAX_CONVERSATION_ID_LENGTH);
+    const conversationIdError = ToolRegistry.validateOptionalIdentityField(context.conversationId, "conversationId", MAX_CONVERSATION_ID_LENGTH);
     if (conversationIdError) return { error: conversationIdError };
-    const agentId = this.normalizedOptionalIdentityField(context.agentId);
-    const conversationId = this.normalizedOptionalIdentityField(context.conversationId);
+    const agentId = ToolRegistry.normalizedOptionalIdentityField(context.agentId);
+    const conversationId = ToolRegistry.normalizedOptionalIdentityField(context.conversationId);
     // Only rebuild the context when a value actually changed — avoids
     // needless object churn (and a new reference) on the common path.
     const identityChanged = tenantId !== context.tenantId || userId !== context.userId
@@ -373,7 +373,7 @@ export class ToolRegistry {
     return { context: identityChanged ? { ...context, tenantId, userId, agentId, conversationId } : context };
   }
 
-  private contextIdentityError(code: string, fieldLabel: string): ToolResult {
+  private static contextIdentityError(code: string, fieldLabel: string): ToolResult {
     return {
       success: false,
       error: {
@@ -389,7 +389,7 @@ export class ToolRegistry {
    * character set and length bounds as tenantId/userId. Returns a failing
    * ToolResult when malformed, or null when absent/acceptable.
    */
-  private validateOptionalIdentityField(
+  private static validateOptionalIdentityField(
     value: string | undefined,
     field: string,
     maxLength: number,
@@ -442,7 +442,7 @@ export class ToolRegistry {
    * durable idempotency + audit sinks match the values that were validated —
    * the same trimmed-values-must-propagate contract tenantId/userId follow.
    */
-  private normalizedOptionalIdentityField(value: string | undefined): string | undefined {
+  private static normalizedOptionalIdentityField(value: string | undefined): string | undefined {
     // Null is treated as absent by validateOptionalIdentityField (matching
     // JwtStrategy/McpService), so it must be normalized away here too rather
     // than crashing on .trim().
@@ -484,7 +484,7 @@ export class ToolRegistry {
    * complexity within the lint cap while still catching shape mismatches
    * at registration time rather than mid-execution.
    */
-  private validateInputSchemaShape(toolName: string, schema: unknown): void {
+  private static validateInputSchemaShape(toolName: string, schema: unknown): void {
     const cast = schema as { safeParse: (i: unknown) => { success: boolean; data?: unknown; error?: { issues?: unknown } } };
     if (typeof cast.safeParse !== "function") return;
     // Probe with a definitely-invalid input so the error shape is always
@@ -496,7 +496,7 @@ export class ToolRegistry {
     // schema that accepts the probe input (success:true) has no error shape
     // to check here, but a second probe below may produce one.
     if (probe.error) {
-      this.assertErrorShape(toolName, probe.error);
+      ToolRegistry.assertErrorShape(toolName, probe.error);
     }
     // Second probe with null: catches schemas that accept arbitrary objects
     // (e.g. z.any(), z.record(), or custom schemas) but reject scalars.
@@ -507,14 +507,14 @@ export class ToolRegistry {
     // in JavaScript, so the null guard inside assertErrorShape is required.
     const probeNull = cast.safeParse(null);
     if (probeNull.error) {
-      this.assertErrorShape(toolName, probeNull.error);
+      ToolRegistry.assertErrorShape(toolName, probeNull.error);
     }
   }
 
   /** Assert that an error object from safeParse() carries an 'issues' array.
    *  Extracted from validateInputSchemaShape to keep that method's complexity
    *  within the lint cap while still validating the shape on both probes. */
-  private assertErrorShape(toolName: string, error: unknown): void {
+  private static assertErrorShape(toolName: string, error: unknown): void {
     // `typeof null === "object"` in JavaScript, so an explicit null guard is
     // required here: a schema whose error shape carries `issues: null` would
     // otherwise pass the type check and later crash at `parsed.error.issues.map(...)`
@@ -561,7 +561,7 @@ export class ToolRegistry {
    * secret carried under a sensitive-named field or an embedded connection
    * string. Caps to the first `maxIssues` issues for memory safety.
    */
-  private sanitizeIssues(issues: ReadonlyArray<{ path: PropertyKey[]; message: string; code?: string; received?: unknown }>, maxIssues: number): unknown[] {
+  private static sanitizeIssues(issues: ReadonlyArray<{ path: PropertyKey[]; message: string; code?: string; received?: unknown }>, maxIssues: number): unknown[] {
     return issues.slice(0, maxIssues).map((issue) => {
       const path = issue.path.map((p) => String(p));
       // Path KEY NAMES are deliberately preserved (only control/URL content is

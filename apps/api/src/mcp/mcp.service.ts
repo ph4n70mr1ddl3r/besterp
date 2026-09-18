@@ -64,11 +64,11 @@ export class McpService implements OnModuleInit {
     idempotencyKey?: string;
     reasoning?: string;
   }): ToolContext {
-    const tenantId = this.validateTenantId(overrides.tenantId);
-    const userId = this.validateUserId(overrides.userId);
-    const idempotencyKey = this.validateIdempotencyKey(overrides.idempotencyKey);
-    const { agentId, conversationId } = this.validateOptionalIds(overrides);
-    const reasoning = this.validateReasoning(overrides.reasoning);
+    const tenantId = McpService.validateTenantId(overrides.tenantId);
+    const userId = McpService.validateUserId(overrides.userId);
+    const idempotencyKey = McpService.validateIdempotencyKey(overrides.idempotencyKey);
+    const { agentId, conversationId } = McpService.validateOptionalIds(overrides);
+    const reasoning = McpService.validateReasoning(overrides.reasoning);
 
     return {
       tenantId,
@@ -85,11 +85,11 @@ export class McpService implements OnModuleInit {
     };
   }
 
-  private validateTenantId(value: string): string {
+  private static validateTenantId(value: string): string {
     return validateTenantIdEnhancedForAuth(value);
   }
 
-  private validateUserId(value: string): string {
+  private static validateUserId(value: string): string {
     if (typeof value !== "string") {
       throw new InvalidTypeValueError(
         `'userId' must be a string.`,
@@ -126,7 +126,7 @@ export class McpService implements OnModuleInit {
     return rawUserId;
   }
 
-  private validateIdempotencyKey(value: string | undefined): string | undefined {
+  private static validateIdempotencyKey(value: string | undefined): string | undefined {
     const raw = validateOptionalString("idempotencyKey", value, MAX_IDEMPOTENCY_KEY_LENGTH);
     if (raw !== undefined && !SAFE_IDEMPOTENCY_KEY.test(raw)) {
       throw new InvalidTypeValueError(
@@ -144,7 +144,7 @@ export class McpService implements OnModuleInit {
     return raw;
   }
 
-  private validateOptionalIds(overrides: { agentId?: string; conversationId?: string }): { agentId: string | undefined; conversationId: string | undefined } {
+  private static validateOptionalIds(overrides: { agentId?: string; conversationId?: string }): { agentId: string | undefined; conversationId: string | undefined } {
     const agentId = validateOptionalString("agentId", overrides.agentId, MAX_AGENT_ID_LENGTH);
     const conversationId = validateOptionalString("conversationId", overrides.conversationId, MAX_CONVERSATION_ID_LENGTH);
     // Pattern validation for agentId and conversationId is handled by
@@ -160,7 +160,7 @@ export class McpService implements OnModuleInit {
     return { agentId, conversationId };
   }
 
-  private validateReasoning(value: string | undefined): string | undefined {
+  private static validateReasoning(value: string | undefined): string | undefined {
     const reasoning = validateOptionalString("reasoning", value, MAX_REASONING_LENGTH);
     return reasoning !== undefined ? sanitizeForLogOutput(stripHtmlTags(reasoning)) : undefined;
   }

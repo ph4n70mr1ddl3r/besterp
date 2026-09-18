@@ -229,6 +229,9 @@ export const MAX_STORED_PAYLOAD_SIZE = 65_536; // 64 KB
 /** Maximum size (bytes) for soft-failure error messages. */
 export const MAX_SOFT_FAILURE_MESSAGE_SIZE = 4096;
 
+/** Maximum length for a single error message line in the MCP error-handler stderr log. */
+export const MAX_ERROR_LOG_LINE_LENGTH = 500;
+
 // ─── Auth Config ──────────────────────────────────────────────
 
 /** Regex for validating JWT_EXPIRES_IN duration format (e.g., "24h", "60m", "7d").
@@ -257,6 +260,15 @@ export const AUDIT_WRITE_QUEUE_TIMEOUT_MS = 5_000;
 
 /** Timeout for Prisma interactive transactions (ms). */
 export const TX_TIMEOUT_MS = 10_000;
+
+/** Timeout for Redis health probe connections (ms). */
+export const REDIS_PROBE_TIMEOUT_MS = 2_000;
+
+/** Maximum size (bytes) for the Redis probe response buffer (DoS guard). */
+export const MAX_RESPONSE_BUFFER_BYTES = 1_024;
+
+/** Timeout for the /health/ready endpoint check (ms). */
+export const READY_CHECK_TIMEOUT_MS = 5_000;
 
 /** Preview length (bytes) when a payload is truncated. */
 export const TRUNCATE_PREVIEW_BYTES = 1024;

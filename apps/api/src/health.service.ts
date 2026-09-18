@@ -6,7 +6,7 @@
 
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from "@nestjs/common";
 import { PrismaService } from "./prisma/prisma.service.js";
-import { sanitizeForLogOutput, resolveRedisTls, isDev, isProd, DEFAULT_REDIS_PORT } from "@besterp/shared";
+import { sanitizeForLogOutput, resolveRedisTls, isDev, isProd, DEFAULT_REDIS_PORT, REDIS_PROBE_TIMEOUT_MS, MAX_RESPONSE_BUFFER_BYTES } from "@besterp/shared";
 import { normalizeEnvironmentValue } from "./bootstrap-config.js";
 import * as fs from "node:fs/promises";
 import * as net from "node:net";
@@ -353,13 +353,13 @@ export class HealthService implements OnModuleInit, OnModuleDestroy {
         ? tls.connect({ host: redisHost, port: redisPort, rejectUnauthorized: true })
         : new net.Socket();
       let responseBuffer = "";
-      const MAX_RESPONSE_BUFFER = 1024;
+      const MAX_RESPONSE_BUFFER = MAX_RESPONSE_BUFFER_BYTES;
       // Track the timeout so we can clear it and detach listeners in a
       // centralized cleanup — prevents listener leaks when the socket is
       // destroyed or the promise settles via an unexpected path.
       const timeout = setTimeout(() => {
         cleanupAndReject(new Error("Redis connection timed out"));
-      }, 2000);
+      }, REDIS_PROBE_TIMEOUT_MS);
       // Centralized cleanup: clears the timeout, removes ALL listeners, and
       // destroys the socket. Called on every resolve/reject path so no
       // listener can outlive the Promise and accumulate across probes.

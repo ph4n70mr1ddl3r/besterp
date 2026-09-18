@@ -4,6 +4,7 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { HealthController } from "./health.controller.js";
 import { HealthStatus, VersionInfo } from "./health.service.js";
+import { READY_CHECK_TIMEOUT_MS } from "@besterp/shared";
 
 describe("HealthController", () => {
   afterEach(() => {
@@ -158,8 +159,9 @@ describe("HealthController", () => {
     });
 
     it("should throw ServiceUnavailableException when health check times out", async () => {
-      // Use a real timer — the ready() handler now uses a setTimeout-based
-      // AbortController, not fake-timer machinery.
+      // Use fake timers so the 5s timeout fires deterministically without
+      // blocking the test suite for 5 full seconds on every run.
+      vi.useFakeTimers();
       const mockHealthService = {
         getHealth: vi.fn().mockReturnValue(new Promise(() => {})),
         getVersion: vi.fn(),
@@ -169,14 +171,10 @@ describe("HealthController", () => {
       const readyPromise = controller.ready();
       void readyPromise.catch(() => {});
 
-      await new Promise((r) => setTimeout(r, 50));
-      vi.useRealTimers();
-
-      // The ready() handler races getHealth() against a 5-second timer.
-      // Extend vitest's per-test timeout so the real 5s health-check
-      // timeout can fire without the test itself being killed first.
+      await vi.advanceTimersByTimeAsync(READY_CHECK_TIMEOUT_MS);
       await expect(readyPromise).rejects.toThrow("health check timed out");
-    }, 10_000);
+      vi.useRealTimers();
+    });
 
     it("should wrap unexpected errors in ServiceUnavailableException", async () => {
       const mockHealthService = {
