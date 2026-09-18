@@ -9,12 +9,13 @@ export default tseslint.config(
       parserOptions: {
         projectService: {
           allowDefaultProject: [
+            "apps/api/src/**/*.spec.ts",
+            "apps/api/vitest.config.ts",
             "packages/database/src/__tests__/*.ts",
             "packages/database/prisma/*.ts",
             "packages/database/scripts/*.ts",
             "packages/mcp-tools/src/__tests__/*.ts",
             "packages/shared/src/__tests__/*.ts",
-            "apps/api/vitest.config.ts",
             "packages/database/vitest.config.ts",
             "packages/mcp-tools/vitest.config.ts",
             "packages/shared/vitest.config.ts",

@@ -15,19 +15,22 @@ A modern, AI-powered ERP system with multi-tenant architecture, built with NestJ
 
 ```
 besterp/
-├── apps/api/                 # NestJS API application
-│   ├── src/
-│   │   ├── modules/            # Domain modules (party, product, security)
-│   │   ├── mcp/tools/           # MCP tool definitions
-│   │   ├── auth/               # Authentication & authorization
-│   │   ├── prisma/             # Database service
-│   │   ├── common/             # Shared utilities
-│   │   └── *.spec.ts           # Unit/integration tests
+├── apps/
+│   └── api/                 # NestJS API application
+│       └── src/
+│           ├── modules/        # Domain modules (party, product, security)
+│           ├── mcp/tools/      # MCP tool definitions
+│           ├── auth/           # Authentication & authorization
+│           ├── prisma/         # Database service
+│           └── common/         # Shared utilities
 ├── packages/
 │   ├── shared/                # Shared utilities (errors, crypto, validation)
 │   ├── database/             # Database utilities & RLS extension
 │   └── mcp-tools/            # MCP tool framework
-└── docs/                     # Documentation
+├── docker/                   # Docker Compose configuration
+├── docs/                     # Project design documents
+├── CHANGES.md                # Iterative change log
+└── CODE_REVIEW_REPORT.md     # Code review history
 ```
 
 ## Recent Improvements
@@ -182,9 +185,9 @@ npm run db:seed
    ```
 
 6. **Run the application**
-   ```bash
-   cd apps/api && npm run start:dev
-   ```
+    ```bash
+    npm run start:dev --workspace=@besterp/api
+    ```
 
 7. **Access the health endpoint**
    ```bash

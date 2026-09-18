@@ -17,6 +17,7 @@
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
     "noImplicitOverride": true,
-    "isolatedModules": true
+    "isolatedModules": true,
+    "types": ["node"]
   }
 }

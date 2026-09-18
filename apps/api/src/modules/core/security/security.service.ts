@@ -4,6 +4,7 @@
 // Implements AGENTIC_AI_DESIGN.md §8.1: Agent Registry
 
 import { Injectable, Logger } from "@nestjs/common";
+import * as crypto from "node:crypto";
 import { PrismaService } from "../../../prisma/prisma.service.js";
 import {
   InvalidTypeValueError,

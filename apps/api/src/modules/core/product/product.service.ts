@@ -28,6 +28,7 @@ import {
   MAX_FEATURE_NAME_LENGTH,
   MAX_FEATURE_VALUE_LENGTH,
   DEFAULT_CURRENCY_CODE,
+  MAX_CURRENCY_CODE_LENGTH,
   computeHasMore,
   handleTransactionError as mapPrismaError,
   TX_TIMEOUT_MS,
@@ -237,7 +238,7 @@ export class ProductService {
     const trimmedTenantId = ProductService.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "update_product");
     const productId = ProductService.requireUuid(rawProductId, "productId", ["update_product"]);
 
-    const updateData = await ProductService.buildUpdateData(updates, "update_product");
+    const updateData = ProductService.buildUpdateData(updates, "update_product");
     await ProductService.validateUpdateProductType(updates.productTypeId, updateData, "update_product", this.prisma);
 
     const db: TenantScopedClient = this.prisma.tenantScoped(trimmedTenantId);
@@ -261,7 +262,7 @@ export class ProductService {
   /** Build the Prisma updateData object from partial UpdateProductInput.
    *  Extracted from updateProduct to keep its complexity under the lint cap.
    *  Each branch validates and sanitizes one optional field. */
-  private static async buildUpdateData(updates: Partial<UpdateProductInput>, tool: string): Promise<Prisma.ProductUpdateInput> {
+  private static buildUpdateData(updates: Partial<UpdateProductInput>, tool: string): Prisma.ProductUpdateInput {
     const updateData: Prisma.ProductUpdateInput = {};
     ProductService.validateUpdateName(updates.name, updateData, tool);
     ProductService.validateUpdateDescription(updates.description, updateData, tool);
@@ -452,6 +453,9 @@ export class ProductService {
   private static validatePriceCurrencyCode(currencyCode: string, tool: string): void {
     if (typeof currencyCode !== "string") {
       throw new InvalidTypeValueError("'currencyCode' must be a string.", { suggestedTools: [tool], context: { field: "currencyCode", received: typeof currencyCode } });
+    }
+    if (currencyCode.length !== MAX_CURRENCY_CODE_LENGTH) {
+      throw new InvalidTypeValueError(`'currencyCode' must be ${MAX_CURRENCY_CODE_LENGTH} characters.`, { suggestedTools: [tool], context: { field: "currencyCode", length: currencyCode.length } });
     }
   }
 

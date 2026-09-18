@@ -75,7 +75,7 @@ function getSecurityService(ctx: ToolContext) {
 
 function agentIdParam(description: string) {
   return z.string()
-    .transform((s) => s.trim())
+    .transform((s) => stripHtmlTags(s.trim()))
     .pipe(z.string().min(1).max(MAX_AGENT_ID_LENGTH))
     .describe(description);
 }
