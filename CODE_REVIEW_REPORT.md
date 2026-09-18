@@ -1,10 +1,49 @@
                   # Code Review Report
 
 ## Scope
-         Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
-           `mcp-tools`, `apps/api`, plus README/`.env.example`/docker/CI) conducted on
-            2026-09-18. This is review 252; rounds 1–251 are documented in earlier
-            revisions of this file and `CHANGES.md`.
+           Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
+            `mcp-tools`, `apps/api`, plus README/`.env.example`/docker/CI) conducted on
+             2026-09-18. This is review 254; rounds 1–253 are documented in earlier
+             revisions of this file and `CHANGES.md`.
+
+## Findings & Actions (round 254)
+
+### Fixed this round
+
+1. **🟡 `eslint.config.js` — `allowDefaultProject` glob contained disallowed `**`.**
+    The `allowDefaultProject` entry `"apps/api/src/**/*.spec.ts"` used a
+    double-star glob, which newer TypeScript ESLint rejects with a parsing
+    error that surfaces on every file linted in every workspace. The api
+    workspace's own `tsconfig.json` already includes all of `src/` (including
+    `.spec.ts` files), so the entry was both redundant and invalid. Removing
+    it restored clean lint across all four workspaces.
+
+2. **🟡 `validation.ts:22` — unused `eslint-disable-next-line no-control-regex`
+    directive.** The `no-control-regex` rule does not fire on a regex built
+    via `new RegExp(...)` at runtime (only on literal `/[\x00-\x1f]/`-style
+    patterns), so the suppress directive was dead code. Removed it to eliminate
+    a fixable warning.
+
+### Reviewed but NOT changed
+
+- Full-file re-read of all production source files confirmed no new issues.
+- grep confirms: zero stray `console.log` / `console.error` / `console.warn` in
+  production source; zero `TODO`/`FIXME`/`HACK` comments; zero bare `as any`
+  casts in production source (only in test files and spikes).
+- Lint ✓ · typecheck ✓ · `npm audit`: unchanged.
+- Test counts verified: api 632 (22 files), shared 243 (4 files), mcp-tools 193
+  (4 files), database 34 passed + 10 skipped (3 files). Total 1102 passed, 10 skipped.
+  Matches report.
+
+## Test Results (round 254)
+```
+shared:    243 passed (4 files)
+mcp-tools: 193 passed (4 files)
+database:   34 passed, 10 skipped (3 files)
+api:       632 passed (22 files)
+────────────────────────────
+Total:     1102 passed, 10 skipped
+```
 
 ## Findings & Actions (round 252)
 

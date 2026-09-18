@@ -9,7 +9,6 @@ export default tseslint.config(
       parserOptions: {
         projectService: {
           allowDefaultProject: [
-            "apps/api/src/**/*.spec.ts",
             "apps/api/vitest.config.ts",
             "packages/database/src/__tests__/*.ts",
             "packages/database/prisma/*.ts",

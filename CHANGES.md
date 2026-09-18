@@ -1,5 +1,29 @@
 # BestERP — Security & Architecture Fixes
 
+## Changes Applied (2026-09-18) — Code Review Round 254
+
+### 🟡 `eslint.config.js` — removed disallowed `**` glob from `allowDefaultProject`
+
+**Problem:** The `allowDefaultProject` entry `"apps/api/src/**/*.spec.ts"`
+contained a double-star glob, which newer TypeScript ESLint rejects as a
+parsing-error that surfaces on every file linted across all workspaces. The
+api workspace's own `tsconfig.json` already includes all of `src/` (including
+`.spec.ts` files), so the entry was redundant.
+
+**Fix:** Removed the invalid entry. Lint is now clean across all four
+workspaces (0 errors, 0 warnings).
+
+### 🟡 `validation.ts` — removed unused `eslint-disable` directive
+
+**Problem:** The `no-control-regex` suppress on the `OPTIONAL_ID_PATTERN`
+RegExp constructor was dead code: the rule only fires on literal
+`/[\x00-\x1f]/`-style patterns, not on regexes built via `new RegExp(...)`.
+It surfaced as a fixable warning after the eslint config fix above.
+
+**Fix:** Removed the unused suppress directive.
+
+---
+
 ## Changes Applied (2026-09-18) — Code Review Round 251
 
 ### 🟡 `discovery-tools.ts` — `search_across_entities` pagination params gain `.describe()`

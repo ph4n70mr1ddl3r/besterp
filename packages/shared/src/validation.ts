@@ -19,7 +19,6 @@ import { MAX_USER_ID_LENGTH } from "./constants.js";
  * - JwtStrategy.validate() for userId/agentId pattern checks
  * - ToolRegistry.validateContextIdentity() (originally defined there; now centralized)
  */
-// eslint-disable-next-line no-control-regex
 export const OPTIONAL_ID_PATTERN: RegExp = new RegExp(`^[^\\s\\x00-\\x1f\\x7f-\\x9f\\u00ad\\u061c\\u200b-\\u200f\\u202a-\\u202e\\u2060-\\u206f\\ufeff]{1,${MAX_USER_ID_LENGTH}}$`);
 
 /**
