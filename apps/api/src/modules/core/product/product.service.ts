@@ -279,7 +279,12 @@ export class ProductService {
     }
     if (productTypeId !== undefined) {
       const trimmedProductTypeId = productTypeId.trim();
-      const pt = await prisma.admin.productType.findUnique({ where: { name: trimmedProductTypeId } });
+      let pt;
+      try {
+        pt = await prisma.admin.productType.findUnique({ where: { name: trimmedProductTypeId } });
+      } catch (err) {
+        throw mapPrismaError(err, "update_product", "update_product", "product");
+      }
       if (!pt) {
         throw new InvalidTypeValueError(
           `PRODUCT_TYPE '${sanitizeForLogOutput(trimmedProductTypeId)}' is not valid.`,
