@@ -1,6 +1,80 @@
 # BestERP — Security & Architecture Fixes
 
-## Changes Applied (2026-09-17) — Code Review Round 248
+## Changes Applied (2026-09-18) — Code Review Round 250
+
+### 🟡 `discovery-tools.ts` — soft-failure returns unified: context added, input sanitized, error codes corrected
+
+**Problem:** Seven soft-failure `return { success: false, error: { … } }` paths
+in `describe_entity`, `get_valid_transitions`, `search_across_entities`, and
+`explain_error` omitted the `context` field entirely, so agents received no
+structured diagnostic data for recoverable failures. Four paths reflected raw
+user input (`input.entityName`, `input.entity`, `input.errorCode`) in
+agent-facing error messages without sanitization — a crafted value could inject
+ANSI escape sequences or URL-like payloads into the agent's view. Two
+service-unavailable paths (missing `partyService` / `productService` in
+`search_across_entities`) returned `code: "ENTITY_NOT_FOUND"`, which the
+`explain_error` tool maps to "The entity you referenced does not exist" —
+misleading guidance for an infrastructure failure. The `entityDescriptor`
+delegate check validated `findFirst` existence but had no runtime shape guard
+(unlike the type-table delegate check above it).
+
+**Fix:** Added `context` to all seven soft-failure paths (populated with the
+relevant input fields). Wrapped all reflected user values in
+`stripHtmlTags(sanitizeForLogOutput(...))` before embedding in messages.
+Changed the two service-unavailable paths to use `code: "SERVICE_UNAVAILABLE"`.
+Added a runtime shape guard on the `entityDescriptor` delegate. Five regression
+tests added to `discovery-tools.spec.ts`.
+
+### 🟡 `product-tools.ts` — hardcoded currency constants replaced with shared constants
+
+**Problem:** `addProductPriceSchema` used `.length(3)` and `.default("USD")` as
+bare literals while `MAX_PRODUCT_TYPE_LENGTH` and other domain constants were
+already imported from `@besterp/shared`. No shared source of truth existed for
+ISO 4217 currency code length or the default currency.
+
+**Fix:** Added `MAX_CURRENCY_CODE_LENGTH = 3` and `DEFAULT_CURRENCY_CODE = "USD"`
+to `packages/shared/src/constants.ts`. Updated `product-tools.ts` to import
+and use both constants.
+
+### 🟡 `schema-builders.ts` — hardcoded UUID max length replaced with shared constant
+
+**Problem:** `uuidParam` used `.max(36)` as a bare literal. While 36 is the
+well-known canonical UUID string length, it was not centralized.
+
+**Fix:** Added `MAX_UUID_STRING_LENGTH = 36` to `packages/shared/src/constants.ts`
+and updated `uuidParam` to reference it.
+
+### 🟡 `security.service.ts` — `requireIntegerPageParam` now accepts self-referential `suggestedTools`
+
+**Problem:** `SecurityService.requireIntegerPageParam` always returned
+`suggestedTools: ["search_agents"]` regardless of which operation invoked it.
+`PartyService` and `ProductService` both accept a `tool` parameter for
+self-referential suggestions; this was a signature divergence.
+
+**Fix:** Added a `tool: string` parameter to
+`SecurityService.requireIntegerPageParam` and updated the sole call site in
+`searchAgents` to pass `"search_agents"`.
+
+### 🟡 `product.service.ts` — inline type-check messages aligned to single-quote format
+
+**Problem:** Eight inline type-check throws in `ProductService` used backtick
+template literals with no interpolation (e.g. `` `'name' must be a string.` ``)
+while `PartyService` and `SecurityService` use plain single-quoted strings for
+the same messages.
+
+**Fix:** Changed all eight to plain single-quoted strings for consistency.
+
+### 🟡 `product.service.ts` / `security.service.ts` — removed empty `context: {}` from no-update-fields errors
+
+**Problem:** Both `updateProduct` and `updateAgent` threw
+`InvalidTypeValueError` with `context: {}` when no updatable fields were
+provided. An empty context object provides no diagnostic value.
+
+**Fix:** Removed `context: {}` from both throws.
+
+---
+
+## Changes Applied (2026-09-17) — Code Review Round 249
 
 ### 🟡 `product-tools.ts` — hardcoded `100` replaced with `MAX_PRODUCT_TYPE_LENGTH`
 

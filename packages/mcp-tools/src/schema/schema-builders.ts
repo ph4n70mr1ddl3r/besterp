@@ -3,7 +3,7 @@
 // instead of duplicating them verbatim.
 
 import { z } from "zod";
-import { UUID_REGEX, isValidISODate, stripHtmlTags } from "@besterp/shared";
+import { UUID_REGEX, isValidISODate, stripHtmlTags, MAX_UUID_STRING_LENGTH } from "@besterp/shared";
 
 /**
  * Required string: trims, strips HTML, enforces min/max length.
@@ -82,6 +82,6 @@ export function optionalIsoDate(max: number = 50) {
 export function uuidParam(description: string) {
   return z.string()
     .transform(s => s.trim())
-    .pipe(z.string().min(1).max(36).regex(UUID_REGEX, "Must be a valid UUID"))
+    .pipe(z.string().min(1).max(MAX_UUID_STRING_LENGTH).regex(UUID_REGEX, "Must be a valid UUID"))
     .describe(description);
 }

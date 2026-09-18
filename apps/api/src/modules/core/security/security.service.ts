@@ -331,7 +331,6 @@ export class SecurityService {
     if (Object.keys(updateData).length === 0) {
       throw new InvalidTypeValueError("No update fields provided.", {
         suggestedTools: ["update_agent"],
-        context: {},
       });
     }
 
@@ -413,8 +412,8 @@ export class SecurityService {
     } = input;
 
     const trimmedTenantId = SecurityService.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "search_agents");
-    SecurityService.requireIntegerPageParam(limit, "limit");
-    SecurityService.requireIntegerPageParam(offset, "offset");
+    SecurityService.requireIntegerPageParam(limit, "limit", "search_agents");
+    SecurityService.requireIntegerPageParam(offset, "offset", "search_agents");
     const validatedLimit = Math.min(Math.max(limit, MIN_SEARCH_LIMIT), MAX_SEARCH_LIMIT);
     const validatedOffset = Math.min(Math.max(offset, MIN_SEARCH_OFFSET), MAX_SEARCH_OFFSET);
 
@@ -521,11 +520,11 @@ export class SecurityService {
    *  value is stringified when non-finite because JSON.stringify(NaN) → null
    *  would erase the diagnostic detail from the serialized DomainError context.
    *  Mirrors PartyService.requireIntegerPageParam (round 176). */
-  private static requireIntegerPageParam(value: number, field: string): void {
+  private static requireIntegerPageParam(value: number, field: string, tool: string): void {
     if (!Number.isFinite(value) || !Number.isInteger(value)) {
       throw new InvalidTypeValueError(
         `'${field}' must be a finite integer (received ${String(value)}).`,
-        { suggestedTools: ["search_agents"], context: { field, received: Number.isFinite(value) ? value : String(value) } }
+        { suggestedTools: [tool], context: { field, received: Number.isFinite(value) ? value : String(value) } }
       );
     }
   }

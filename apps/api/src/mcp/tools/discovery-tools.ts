@@ -225,9 +225,10 @@ Returns the entity's description, AI prompt hint, and key fields.`,
         return {
           success: false,
           error: {
-            code: "ENTITY_NOT_FOUND",
-            message: `Entity descriptor table not available.`,
+            code: "SERVICE_UNAVAILABLE",
+            message: "Entity descriptor table not available.",
             suggestedTools: ["list_available_tools"],
+            context: { reason: "entityDescriptor delegate missing or malformed" },
           },
         };
       }
@@ -239,8 +240,9 @@ Returns the entity's description, AI prompt hint, and key fields.`,
           success: false,
           error: {
             code: "ENTITY_NOT_FOUND",
-            message: `No descriptor found for entity '${input.entityName}'. Use 'list_available_tools' to see available entities, or 'get_type_table_values' for classification vocabularies.`,
+            message: `No descriptor found for entity '${stripHtmlTags(sanitizeForLogOutput(input.entityName))}'. Use 'list_available_tools' to see available entities, or 'get_type_table_values' for classification vocabularies.`,
             suggestedTools: ["list_available_tools"],
+            context: { entityName: stripHtmlTags(sanitizeForLogOutput(input.entityName)) },
           },
         };
       }
@@ -334,8 +336,9 @@ Example: get_valid_transitions({ entity: "party" }) returns { active: ["inactive
           success: false,
           error: {
             code: "ENTITY_NOT_FOUND",
-            message: `No status transitions registered for entity '${input.entity}'. Available entities: ${registered}.`,
+            message: `No status transitions registered for entity '${stripHtmlTags(sanitizeForLogOutput(input.entity))}'. Available entities: ${registered}.`,
             suggestedTools: ["describe_entity", "list_available_tools"],
+            context: { entity: stripHtmlTags(sanitizeForLogOutput(input.entity)) },
           },
         };
       }
@@ -394,9 +397,10 @@ Example: search_across_entities({ query: "Widget", entity: "product" })`,
             return {
               success: false,
               error: {
-                code: "ENTITY_NOT_FOUND",
+                code: "SERVICE_UNAVAILABLE",
                 message: "Party search service is not available.",
                 suggestedTools: ["list_available_tools"],
+                context: { service: "partyService" },
               },
             };
           }
@@ -415,9 +419,10 @@ Example: search_across_entities({ query: "Widget", entity: "product" })`,
             return {
               success: false,
               error: {
-                code: "ENTITY_NOT_FOUND",
+                code: "SERVICE_UNAVAILABLE",
                 message: "Product search service is not available.",
                 suggestedTools: ["list_available_tools"],
+                context: { service: "productService" },
               },
             };
           }
@@ -434,8 +439,9 @@ Example: search_across_entities({ query: "Widget", entity: "product" })`,
           success: false,
           error: {
             code: "ENTITY_NOT_FOUND",
-            message: `Entity type '${input.entity}' is not searchable. Available: party, product.`,
+            message: `Entity type '${stripHtmlTags(sanitizeForLogOutput(input.entity))}' is not searchable. Available: party, product.`,
             suggestedTools: ["list_available_tools", "describe_entity"],
+            context: { entity: stripHtmlTags(sanitizeForLogOutput(input.entity)) },
           },
         };
       }
@@ -581,8 +587,9 @@ Example: explain_error({ errorCode: "INVALID_TYPE_VALUE" })`,
           success: false,
           error: {
             code: "UNKNOWN_ERROR_CODE",
-            message: `No explanation found for error code '${input.errorCode}'. Check the tool output for the exact error code, or contact support.`,
+            message: `No explanation found for error code '${stripHtmlTags(sanitizeForLogOutput(input.errorCode))}'. Check the tool output for the exact error code, or contact support.`,
             suggestedTools: ["list_available_tools"],
+            context: { errorCode: stripHtmlTags(sanitizeForLogOutput(input.errorCode)) },
           },
         };
       }

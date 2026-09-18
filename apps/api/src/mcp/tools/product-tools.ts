@@ -23,6 +23,8 @@ import {
   MAX_SKU_LENGTH,
   MAX_FEATURE_NAME_LENGTH,
   MAX_FEATURE_VALUE_LENGTH,
+  MAX_CURRENCY_CODE_LENGTH,
+  DEFAULT_CURRENCY_CODE,
   DEFAULT_SEARCH_LIMIT,
   MIN_SEARCH_LIMIT,
   MAX_SEARCH_LIMIT,
@@ -270,9 +272,9 @@ const addProductPriceSchema = z.strictObject({
   amount: z.number().positive().describe("Price amount (must be > 0)"),
   currencyCode: z.string()
     .transform((s) => s.trim().toUpperCase())
-    .pipe(z.string().length(3))
-    .default("USD")
-    .describe("ISO 4217 currency code (default: USD)"),
+    .pipe(z.string().length(MAX_CURRENCY_CODE_LENGTH))
+    .default(DEFAULT_CURRENCY_CODE)
+    .describe(`ISO 4217 currency code (default: ${DEFAULT_CURRENCY_CODE})`),
   fromDate: optionalIsoDate().describe("Start date (ISO 8601, default: now)"),
   thruDate: optionalIsoDate().describe("End date (ISO 8601, null = no expiry)"),
 });

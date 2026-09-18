@@ -509,5 +509,75 @@ describe("Discovery MCP Tools", () => {
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe("INVALID_INPUT");
     });
+
+    it("should include context on unknown error code soft-failure", async () => {
+      const result = await registry.execute(
+        "explain_error",
+        { errorCode: "MY_CUSTOM_CODE" },
+        mockContext,
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe("UNKNOWN_ERROR_CODE");
+      expect(result.error?.context).toEqual({ errorCode: "MY_CUSTOM_CODE" });
+    });
+
+    it("should sanitize user input in entity descriptor not-found message", async () => {
+      const result = await registry.execute(
+        "describe_entity",
+        { entityName: "<script>evil</script>party" },
+        mockContext,
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe("ENTITY_NOT_FOUND");
+      expect(result.error?.message).not.toContain("<script>");
+      expect(result.error?.message).not.toContain("evil");
+      expect(result.error?.context?.entityName).not.toContain("<script>");
+    });
+
+    it("should return SERVICE_UNAVAILABLE when party service is missing", async () => {
+      const result = await registry.execute(
+        "search_across_entities",
+        { query: "Acme", entity: "party" },
+        mockContext,
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe("SERVICE_UNAVAILABLE");
+      expect(result.error?.context).toEqual({ service: "partyService" });
+    });
+
+    it("should return SERVICE_UNAVAILABLE when product service is missing", async () => {
+      const result = await registry.execute(
+        "search_across_entities",
+        { query: "Acme", entity: "product" },
+        mockContext,
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe("SERVICE_UNAVAILABLE");
+      expect(result.error?.context).toEqual({ service: "productService" });
+    });
+
+    it("should include context on missing entity descriptor delegate", async () => {
+      const brokenPrisma = {
+        ...mockPrisma,
+        entityDescriptor: null,
+      } as unknown as PrismaClient;
+
+      const brokenRegistry = new ToolRegistry();
+      registerDiscoveryTools(brokenRegistry, brokenPrisma);
+
+      const result = await brokenRegistry.execute(
+        "describe_entity",
+        { entityName: "party" },
+        mockContext,
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe("SERVICE_UNAVAILABLE");
+      expect(result.error?.context?.reason).toBe("entityDescriptor delegate missing or malformed");
+    });
   });
 });

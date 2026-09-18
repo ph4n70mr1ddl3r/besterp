@@ -92,6 +92,12 @@ export const MAX_FEATURE_NAME_LENGTH = 100;
 /** Maximum length for product feature values. */
 export const MAX_FEATURE_VALUE_LENGTH = 500;
 
+/** Maximum length for ISO 4217 currency codes (3 characters). */
+export const MAX_CURRENCY_CODE_LENGTH = 3;
+
+/** Default currency code for products when none is specified. */
+export const DEFAULT_CURRENCY_CODE = "USD";
+
 /** Maximum length for universal search query terms. */
 export const MAX_SEARCH_QUERY_LENGTH = 200;
 
@@ -100,6 +106,9 @@ export const MAX_ERROR_CODE_LENGTH = 50;
 
 /** Maximum length for agent descriptions. */
 export const MAX_AGENT_DESCRIPTION_LENGTH = 1000;
+
+/** Maximum length for canonical UUID strings (8-4-4-4-12 format = 36 chars). */
+export const MAX_UUID_STRING_LENGTH = 36;
 
 /** Maximum length for agent version strings. */
 export const MAX_VERSION_LENGTH = 64;

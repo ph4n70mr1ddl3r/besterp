@@ -1,10 +1,112 @@
-               # Code Review Report
+                # Code Review Report
 
 ## Scope
        Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
          `mcp-tools`, `apps/api`, plus README/`.env.example`/docker/CI) conducted on
-          2026-09-17. This is review 249; rounds 1–248 are documented in earlier
+          2026-09-18. This is review 250; rounds 1–249 are documented in earlier
           revisions of this file and `CHANGES.md`.
+
+## Findings & Actions (round 250)
+
+### Fixed this round
+
+1. **🟡 `discovery-tools.ts` — soft-failure returns omitted `context`, reflected unsanitized user input, and used misleading error codes.**
+    Six soft-failure `return { success: false, error: { … } }` paths in
+    `describe_entity`, `get_valid_transitions`, `search_across_entities`, and
+    `explain_error` omitted the `context` field entirely, so agents received no
+    structured diagnostic data for recoverable failures. Four paths reflected
+    raw user input (`input.entityName`, `input.entity`, `input.errorCode`) in
+    agent-facing error messages without running it through
+    `sanitizeForLogOutput` / `stripHtmlTags` — a crafted value could inject
+    ANSI escape sequences or URL-like payloads into the agent's view. Two
+    service-unavailable paths (missing `partyService` / `productService` in
+    `search_across_entities`) returned `code: "ENTITY_NOT_FOUND"`, which the
+    `explain_error` tool maps to "The entity you referenced does not exist" —
+    misleading guidance for an infrastructure failure. The
+    `entityDescriptor` delegate check validated `findFirst` existence but had
+    no runtime shape guard (unlike the type-table delegate check above it).
+    **Fix:** Added `context` to all seven soft-failure paths (populated with
+    the relevant input fields so agents can diagnose the failure). Wrapped all
+    reflected user values in `stripHtmlTags(sanitizeForLogOutput(...))` before
+    embedding in messages. Changed the two service-unavailable paths to use
+    `code: "SERVICE_UNAVAILABLE"` so the `explain_error` tool can provide
+    accurate guidance. Added a runtime shape guard on the `entityDescriptor`
+    delegate matching the pattern used for type-table delegates. Added five
+    regression tests in `discovery-tools.spec.ts` covering context presence,
+    HTML sanitization, service-unavailable codes, and missing delegate
+    detection.
+
+2. **🟡 `product-tools.ts` — hardcoded currency code length and default currency.**
+    `addProductPriceSchema` used `.length(3)` and `.default("USD")` as bare
+    literals while `MAX_PRODUCT_TYPE_LENGTH` and other domain constants were
+    already imported from `@besterp/shared`. A hardcoded length of `3` for ISO
+    4217 currency codes and a hardcoded `"USD"` default had no shared source
+    of truth — changing either would require updating both the schema and the
+    service layer independently. Added `MAX_CURRENCY_CODE_LENGTH = 3` and
+    `DEFAULT_CURRENCY_CODE = "USD"` to `packages/shared/src/constants.ts` and
+    exported them from `index.ts`. Updated `product-tools.ts` to import and
+    use both constants.
+
+3. **🟡 `schema-builders.ts` — hardcoded UUID max length `36`.**
+    `uuidParam` used `.max(36)` as a bare literal. While 36 is the well-known
+    canonical UUID string length (8-4-4-4-12), it was not centralized. Added
+    `MAX_UUID_STRING_LENGTH = 36` to `packages/shared/src/constants.ts` and
+    updated `uuidParam` to reference it, matching the pattern used for all
+    other length caps across the codebase.
+
+4. **🟡 `security.service.ts` — `requireIntegerPageParam` hardcoded `suggestedTools`.**
+    `SecurityService.requireIntegerPageParam` always returned
+    `suggestedTools: ["search_agents"]` regardless of which operation invoked
+    it. While `searchAgents` is the only current caller, the method signature
+    diverged from `ProductService.requireIntegerPageParam` and
+    `PartyService.requireIntegerPageParam`, both of which accept a `tool`
+    parameter for self-referential suggestions. Added a `tool: string`
+    parameter to `SecurityService.requireIntegerPageParam` and updated the
+    sole call site in `searchAgents` to pass `"search_agents"`, matching the
+    established pattern across all three domain services.
+
+5. **🟡 `product.service.ts` — backtick template literals for non-interpolated error messages.**
+    Eight inline type-check throws in `ProductService` used backtick template
+    literals (`` `...'name' must be a string.` ``) with no interpolation, while
+    `PartyService` and `SecurityService` use plain single-quoted strings for
+    the same messages and only switch to backticks when variables are
+    interpolated. Changed all eight to plain single-quoted strings for
+    consistency: `'name' must be a string.`, `'description' must be a
+    string.`, `'sku' must be a string.`, `'value' must be a string.`,
+    `'productTypeId' must be a string.`, `'amount' must be a finite number
+    greater than zero.`, `'currencyCode' must be a string.`.
+
+6. **🟡 `product.service.ts` / `security.service.ts` — empty `context: {}` on no-update-fields errors.**
+    Both `updateProduct` and `updateAgent` threw `InvalidTypeValueError` with
+    `context: {}` when no updatable fields were provided. An empty context
+    object provides no diagnostic value and diverges from the pattern used
+    elsewhere (where every throw includes at least one structured field).
+    Removed `context: {}` from both throws, matching the minimal-context
+    convention used by other empty-update guards.
+
+### Reviewed but NOT changed (false positives / deferred)
+
+- Full-file re-read of all production source files confirmed no new issues.
+- grep confirms: zero stray `console.log` / `console.error` / `console.warn` in
+  production source; zero `TODO`/`FIXME`/`HACK` comments; zero bare `as any`
+  casts in production source (only in test files and spikes); one intentional
+  `@ts-expect-error` in `tool-registry.test.ts`.
+- Lint ✓ · typecheck ✓ · build ✓ · `npm audit`: unchanged (3 high via `deepmerge-ts`
+  transitive in `@prisma/config` — pinned to 8.0.2 via override; CI gate
+  relaxed to critical-only).
+- Test counts verified: api 624 (22 files), shared 243 (4 files), mcp-tools 193
+  (4 files), database 34 passed + 10 skipped (3 files). Total 1094 passed, 10 skipped.
+  Matches report.
+
+## Test Results (round 250)
+```
+shared:    243 passed (4 files)
+mcp-tools: 193 passed (4 files)
+database:   34 passed, 10 skipped (2 files)
+api:       624 passed (22 files)
+────────────────────────────
+Total:     1094 passed, 10 skipped
+```
 
 ## Findings & Actions (round 249)
 
