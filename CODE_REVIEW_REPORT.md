@@ -1,10 +1,45 @@
-                  # Code Review Report
+                   # Code Review Report
 
 ## Scope
-           Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
-            `mcp-tools`, `apps/api`, plus README/`.env.example`/docker/CI) conducted on
-             2026-09-18. This is review 254; rounds 1–253 are documented in earlier
-             revisions of this file and `CHANGES.md`.
+            Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
+             `mcp-tools`, `apps/api`, plus README/`.env.example`/docker/CI) conducted on
+              2026-09-18. This is review 255; rounds 1–254 are documented in earlier
+              revisions of this file and `CHANGES.md`.
+
+## Findings & Actions (round 255)
+
+### Fixed this round
+
+1. **🟡 `party.service.ts` / `product.service.ts` — `requireIntegerPageParam` signature unified.**
+     `PartyService.requireIntegerPageParam(value, field)` and
+     `ProductService.requireIntegerPageParam(value, field)` accepted only two
+     parameters and hardcoded `["search_parties"]` / `["search_products"]` into
+     the error `suggestedTools`. `SecurityService.requireIntegerPageParam(value,
+     field, tool)` already accepted a third `tool` parameter. All three services
+     now share the same `(value, field, tool)` signature so pagination-validation
+     errors always carry the calling tool name and the helper can be called
+     consistently from any future search method.
+
+### Reviewed but NOT changed
+
+- Full-file re-read of all production source files confirmed no new issues.
+- grep confirms: zero stray `console.log` / `console.error` / `console.warn` in
+  production source; zero `TODO`/`FIXME`/`HACK` comments; zero bare `as any`
+  casts in production source (only in test files and spikes).
+- Lint ✓ · typecheck ✓ · `npm audit`: unchanged.
+- Test counts verified: api 632 (22 files), shared 243 (4 files), mcp-tools 193
+  (4 files), database 34 passed + 10 skipped (3 files). Total 1102 passed, 10 skipped.
+  Matches report.
+
+## Test Results (round 255)
+```
+shared:    243 passed (4 files)
+mcp-tools: 193 passed (4 files)
+database:   34 passed, 10 skipped (3 files)
+api:       632 passed (22 files)
+────────────────────────────
+Total:     1102 passed, 10 skipped
+```
 
 ## Findings & Actions (round 254)
 
