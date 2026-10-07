@@ -42,7 +42,7 @@ import {
 export class PartyController {
   constructor(private readonly partyService: PartyService) {}
 
-  private getTenantContext(req: ExpressRequest): TenantContext {
+  private static getTenantContext(req: ExpressRequest): TenantContext {
     const ctx = req.tenantContext;
     if (!ctx?.tenantId) {
       throw new UnauthorizedException("Tenant context is missing. Authentication failed.");
@@ -56,7 +56,7 @@ export class PartyController {
     @Request() req: ExpressRequest,
     @Body() body: CreatePartyDto
   ) {
-    const { tenantId } = this.getTenantContext(req);
+    const { tenantId } = PartyController.getTenantContext(req);
     // tenantId is placed AFTER spread to guarantee JWT context wins.
     // ValidationPipe (whitelist + forbidNonWhitelisted) would reject a
     // body containing a `tenantId` field with a 400 error since
@@ -71,7 +71,7 @@ export class PartyController {
     @Res({ passthrough: true }) res: Response,
     @Query() query: SearchPartiesDto
   ) {
-    const { tenantId } = this.getTenantContext(req);
+    const { tenantId } = PartyController.getTenantContext(req);
     const { name, partyType, roleType, limit, offset } = query;
     const result = await this.partyService.searchParties({
       tenantId,
@@ -97,7 +97,7 @@ export class PartyController {
     @Request() req: ExpressRequest,
     @Param("id", ParseUUIDPipe) partyId: string
   ) {
-    const { tenantId } = this.getTenantContext(req);
+    const { tenantId } = PartyController.getTenantContext(req);
     return this.partyService.getParty(tenantId, partyId);
   }
 
@@ -108,7 +108,7 @@ export class PartyController {
     @Param("id", ParseUUIDPipe) partyId: string,
     @Body() body: AddPartyRoleDto
   ) {
-    const { tenantId } = this.getTenantContext(req);
+    const { tenantId } = PartyController.getTenantContext(req);
     return this.partyService.addPartyRole({
       ...body,
       tenantId,
@@ -123,7 +123,7 @@ export class PartyController {
     @Param("id", ParseUUIDPipe) partyId: string,
     @Body() body: AddContactMechanismDto
   ) {
-    const { tenantId } = this.getTenantContext(req);
+    const { tenantId } = PartyController.getTenantContext(req);
     return this.partyService.addContactMechanism({
       ...body,
       tenantId,

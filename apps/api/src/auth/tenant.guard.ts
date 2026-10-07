@@ -48,15 +48,15 @@ export class TenantGuard implements CanActivate {
     }
     const user = rawUser as JwtValidatedUser;
 
-    const tenantId = this.validateTenantId(user);
-    const userId = this.validateUserId(user);
-    const agentId = this.validateAgentId(user);
+    const tenantId = TenantGuard.validateTenantId(user);
+    const userId = TenantGuard.validateUserId(user);
+    const agentId = TenantGuard.validateAgentId(user);
 
     request.tenantContext = { tenantId, userId, agentId };
     return true;
   }
 
-  private validateTenantId(user: JwtValidatedUser): string {
+  private static validateTenantId(user: JwtValidatedUser): string {
     if (user.tenantId === undefined || user.tenantId === null) {
       throw new UnauthorizedException(
         "TenantGuard: tenantId is missing from JWT payload."
@@ -76,7 +76,7 @@ export class TenantGuard implements CanActivate {
     }
   }
 
-  private validateUserId(user: JwtValidatedUser): string {
+  private static validateUserId(user: JwtValidatedUser): string {
     if (typeof user.userId !== "string") {
       throw new UnauthorizedException(
         "TenantGuard: userId is not a string. JWT payload is malformed."
@@ -107,7 +107,7 @@ export class TenantGuard implements CanActivate {
     return userId;
   }
 
-  private validateAgentId(user: JwtValidatedUser): string | undefined {
+  private static validateAgentId(user: JwtValidatedUser): string | undefined {
     if (user.agentId != null && typeof user.agentId !== "string") {
       throw new UnauthorizedException(
         "TenantGuard: agentId is not a string. JWT payload is malformed."

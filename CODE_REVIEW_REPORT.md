@@ -1,10 +1,34 @@
-                   # Code Review Report
+                    # Code Review Report
 
 ## Scope
-            Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
-             `mcp-tools`, `apps/api`, plus README/`.env.example`/docker/CI) conducted on
-              2026-09-18. This is review 255; rounds 1–254 are documented in earlier
-              revisions of this file and `CHANGES.md`.
+             Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
+              `mcp-tools`, `apps/api`, plus README/`.env.example`/docker/CI) conducted on
+               2026-10-07. This is review 256; rounds 1–255 are documented in earlier
+               revisions of this file and `CHANGES.md`.
+
+## Findings & Actions (round 256)
+
+### Fixed this round
+
+1. **🟡 `tenant.guard.ts` — 3 private instance methods converted to static.**
+      `validateTenantId`, `validateUserId`, and `validateAgentId` were declared as
+      `private` instance methods while their bodies contained no `this` reference — they
+      only use the `user` parameter and call shared helpers. Every other private helper
+      across the codebase follows the `private static` convention when it does not access
+      instance state. Changed all three to `private static` and updated call sites in
+      `canActivate()` from `this.validateXxx(...)` to `TenantGuard.validateXxx(...)`.
+
+2. **🟡 `jwt.strategy.ts` — 2 private instance methods converted to static.**
+      `validateRequiredField` and `validateOptionalField` were declared as `private`
+      instance methods while their bodies reference no `this` — they only operate on
+      pure parameters. Changed both to `private static` and updated call sites in
+      `validate()` from `this.validateXxx(...)` to `JwtStrategy.validateXxx(...)`.
+
+3. **🟡 `party.controller.ts` — 1 private instance method converted to static.**
+      `getTenantContext` was declared as a `private` instance method while its body
+      contains no `this` reference — it only uses the `req` parameter. Changed to
+      `private static` and updated all 5 call sites from `this.getTenantContext(req)`
+      to `PartyController.getTenantContext(req)`.
 
 ## Findings & Actions (round 255)
 
@@ -25,14 +49,24 @@
 - Full-file re-read of all production source files confirmed no new issues.
 - grep confirms: zero stray `console.log` / `console.error` / `console.warn` in
   production source; zero `TODO`/`FIXME`/`HACK` comments; zero bare `as any`
-  casts in production source (only in test files and spikes).
+  casts in production source (only in test files and spikes); one intentional
+  `@ts-expect-error` in `tool-registry.test.ts`.
 - Lint ✓ · typecheck ✓ · `npm audit`: unchanged.
 - Test counts verified: api 632 (22 files), shared 243 (4 files), mcp-tools 193
   (4 files), database 34 passed + 10 skipped (3 files). Total 1102 passed, 10 skipped.
   Matches report.
 
-## Test Results (round 255)
+## Test Results (round 256)
 ```
+shared:    243 passed (4 files)
+mcp-tools: 193 passed (4 files)
+database:   34 passed, 10 skipped (3 files)
+api:       632 passed (22 files)
+────────────────────────────
+Total:     1102 passed, 10 skipped
+```
+
+## Findings & Actions (round 255)
 shared:    243 passed (4 files)
 mcp-tools: 193 passed (4 files)
 database:   34 passed, 10 skipped (3 files)

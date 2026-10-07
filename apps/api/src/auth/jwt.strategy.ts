@@ -91,7 +91,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   }
 
   async validate(payload: JwtPayload): Promise<JwtValidatedUser> {
-    const userId = this.validateRequiredField(payload.sub, "user ID (sub)", MAX_USER_ID_LENGTH);
+    const userId = JwtStrategy.validateRequiredField(payload.sub, "user ID (sub)", MAX_USER_ID_LENGTH);
     // Pattern-validate userId at the JWT boundary so a forged-but-correctly-signed
     // token carrying a malicious sub (e.g. one containing control chars or
     // characters that would break downstream log/audit formatting) is rejected
@@ -108,7 +108,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
           "User IDs may only contain printable non-whitespace characters.",
       );
     }
-    const tenantId = this.validateRequiredField(payload.tenantId, "tenantId", MAX_TENANT_ID_LENGTH);
+    const tenantId = JwtStrategy.validateRequiredField(payload.tenantId, "tenantId", MAX_TENANT_ID_LENGTH);
 
     // Defense-in-depth: validate tenantId format at the auth boundary so a
     // forged-but-signed token carrying a malicious tenantId never reaches
@@ -134,7 +134,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       );
     }
 
-    const agentId = this.validateOptionalField(payload.agentId, "agentId", MAX_AGENT_ID_LENGTH);
+    const agentId = JwtStrategy.validateOptionalField(payload.agentId, "agentId", MAX_AGENT_ID_LENGTH);
     // Pattern-validate agentId at the JWT boundary for the same reason as userId:
     // a malicious sub carries the same trust level as a forged agentId — both
     // become durable sink values (audit rows, idempotency keys). Reject non-
@@ -145,7 +145,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
           "Agent IDs may only contain alphanumeric characters, hyphens, and underscores.",
       );
     }
-    const role = this.validateOptionalField(payload.role, "role", MAX_ROLE_LENGTH);
+    const role = JwtStrategy.validateOptionalField(payload.role, "role", MAX_ROLE_LENGTH);
 
     return {
       userId,
@@ -155,7 +155,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     };
   }
 
-  private validateRequiredField(value: unknown, fieldName: string, maxLength: number): string {
+  private static validateRequiredField(value: unknown, fieldName: string, maxLength: number): string {
     if (typeof value !== "string" || value.length === 0) {
       throw new UnauthorizedException(`Invalid token: missing ${fieldName}.`);
     }
@@ -171,7 +171,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     return trimmed;
   }
 
-  private validateOptionalField(value: unknown, fieldName: string, maxLength: number): string | undefined {
+  private static validateOptionalField(value: unknown, fieldName: string, maxLength: number): string | undefined {
     if (value === undefined || value === null) return undefined;
     if (typeof value !== "string") {
       throw new UnauthorizedException(`Invalid token: ${fieldName} must be a string.`);
