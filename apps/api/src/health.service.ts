@@ -200,9 +200,13 @@ export class HealthService implements OnModuleInit, OnModuleDestroy {
 
     // Get memory usage — track heap metrics consistently
     const memoryUsage = process.memoryUsage();
-    const heapUsed = Math.round(memoryUsage.heapUsed / 1024 / 1024);      // MB
-    const heapTotal = Math.round(memoryUsage.heapTotal / 1024 / 1024);    // MB
-    const rss = Math.round(memoryUsage.rss / 1024 / 1024);                // MB (total OS memory)
+    // BYTES_PER_MB is a named constant for the 1024×1024 conversion used
+    // throughout this file so the intent is explicit rather than buried in
+    // ad-hoc arithmetic on every call site.
+    const BYTES_PER_MB = 1024 * 1024;
+    const heapUsed = Math.round(memoryUsage.heapUsed / BYTES_PER_MB);
+    const heapTotal = Math.round(memoryUsage.heapTotal / BYTES_PER_MB);
+    const rss = Math.round(memoryUsage.rss / BYTES_PER_MB);
     const heapPercentage = heapTotal > 0 ? Math.round((heapUsed / heapTotal) * 100) : 0;
 
     // Redis is optional (background jobs): even when configured AND
