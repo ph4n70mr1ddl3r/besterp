@@ -6,6 +6,39 @@
                2026-10-07. This is review 256; rounds 1–255 are documented in earlier
                revisions of this file and `CHANGES.md`.
 
+## Findings & Actions (round 257)
+
+### Fixed this round
+
+1. **🟡 `domain-exception.filter.ts` — 1 private instance method converted to static.**
+       `handleHttpException` was declared as a `private` instance method while its body
+       referenced no `this` — it only operates on its `exception` and `response` parameters
+       plus standalone functions (`isDev`, `stripHtmlTags`, `sanitizeForLogOutput`) and the
+       module-level `CLASS_VALIDATOR_PREFIX_REGEX` constant. Changed to `private static` and
+       updated the sole call site in `catch()` from `this.handleHttpException(...)` to
+       `DomainExceptionFilter.handleHttpException(...)`.
+
+### Reviewed but NOT changed
+
+- Full-file re-read of all production source files confirmed no new issues.
+- grep confirms: zero stray `console.log` / `console.error` / `console.warn` in
+  production source; zero `TODO`/`FIXME`/`HACK` comments; zero bare `as any`
+  casts in production source (only in test files and spikes).
+- Lint ✓ · typecheck ✓ · `npm audit`: unchanged.
+- Test counts verified: api 632 (22 files), shared 243 (4 files), mcp-tools 193
+  (4 files), database 34 passed + 10 skipped (3 files). Total 1102 passed, 10 skipped.
+  Matches report.
+
+## Test Results (round 257)
+```
+shared:    243 passed (4 files)
+mcp-tools: 193 passed (4 files)
+database:   34 passed, 10 skipped (3 files)
+api:       632 passed (22 files)
+────────────────────────────
+Total:     1102 passed, 10 skipped
+```
+
 ## Findings & Actions (round 256)
 
 ### Fixed this round

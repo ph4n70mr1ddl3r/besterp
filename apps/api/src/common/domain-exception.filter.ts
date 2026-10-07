@@ -90,7 +90,7 @@ export class DomainExceptionFilter implements ExceptionFilter {
     }
 
     if (exception instanceof HttpException) {
-      this.handleHttpException(exception, response);
+      DomainExceptionFilter.handleHttpException(exception, response);
       return;
     }
 
@@ -138,7 +138,7 @@ export class DomainExceptionFilter implements ExceptionFilter {
     response.status(status).json(body);
   }
 
-  private handleHttpException(exception: HttpException, response: Response): void {
+  private static handleHttpException(exception: HttpException, response: Response): void {
     const status = exception.getStatus();
     const exceptionResponse = exception.getResponse();
 
