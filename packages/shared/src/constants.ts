@@ -378,3 +378,8 @@ export function isProd(): boolean {
 
 /** Maximum recursion depth for nesting-depth guards across hash, truncate, and sanitize paths. */
 export const MAX_NESTING_DEPTH = 100;
+
+/** Number of bytes in one mebibyte (MiB). Centralised so health-service byte→MB
+ *  conversions and any future consumer share the same literal instead of each
+ *  writing `1024 * 1024` inline. */
+export const BYTES_PER_MB = 1024 * 1024;

@@ -6,7 +6,7 @@
 
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from "@nestjs/common";
 import { PrismaService } from "./prisma/prisma.service.js";
-import { sanitizeForLogOutput, resolveRedisTls, isDev, isProd, DEFAULT_REDIS_PORT, REDIS_PROBE_TIMEOUT_MS, MAX_RESPONSE_BUFFER_BYTES } from "@besterp/shared";
+import { sanitizeForLogOutput, resolveRedisTls, isDev, isProd, DEFAULT_REDIS_PORT, REDIS_PROBE_TIMEOUT_MS, MAX_RESPONSE_BUFFER_BYTES, BYTES_PER_MB } from "@besterp/shared";
 import { normalizeEnvironmentValue } from "./bootstrap-config.js";
 import * as fs from "node:fs/promises";
 import * as net from "node:net";
@@ -200,10 +200,8 @@ export class HealthService implements OnModuleInit, OnModuleDestroy {
 
     // Get memory usage — track heap metrics consistently
     const memoryUsage = process.memoryUsage();
-    // BYTES_PER_MB is a named constant for the 1024×1024 conversion used
-    // throughout this file so the intent is explicit rather than buried in
-    // ad-hoc arithmetic on every call site.
-    const BYTES_PER_MB = 1024 * 1024;
+    // BYTES_PER_MB is imported from @besterp/shared so the byte→MB conversion
+    // factor is a single source of truth rather than duplicated at every call site.
     const heapUsed = Math.round(memoryUsage.heapUsed / BYTES_PER_MB);
     const heapTotal = Math.round(memoryUsage.heapTotal / BYTES_PER_MB);
     const rss = Math.round(memoryUsage.rss / BYTES_PER_MB);
