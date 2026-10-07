@@ -10,7 +10,7 @@
 
 import { DynamicModule, Logger, Module, OnModuleDestroy } from "@nestjs/common";
 import { BullModule } from "@nestjs/bullmq";
-import { resolveRedisTls, sanitizeForLogOutput, isDev, DEFAULT_REDIS_PORT } from "@besterp/shared";
+import { resolveRedisTls, sanitizeForLogOutput, isDev, DEFAULT_REDIS_PORT, BULLMQ_RETRY_BASE_DELAY_MS, BULLMQ_RETRY_MAX_DELAY_MS, BULLMQ_RETRY_MAX_JITTER_MS } from "@besterp/shared";
 
 export interface QueueModuleOptions {
   redis: {
@@ -135,8 +135,8 @@ export class QueueModule implements OnModuleDestroy {
       );
       return undefined;
     }
-    const baseDelay = Math.min(times * 200, 5000);
-    const jitter = Math.random() * 200;
+    const baseDelay = Math.min(times * BULLMQ_RETRY_BASE_DELAY_MS, BULLMQ_RETRY_MAX_DELAY_MS);
+    const jitter = Math.random() * BULLMQ_RETRY_MAX_JITTER_MS;
     return baseDelay + jitter;
   }
 

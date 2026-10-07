@@ -3,8 +3,47 @@
 ## Scope
              Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
               `mcp-tools`, `apps/api`, plus README/`.env.example`/docker/CI) conducted on
-               2026-10-07. This is review 256; rounds 1–255 are documented in earlier
+               2026-10-07. This is review 258; rounds 1–257 are documented in earlier
                revisions of this file and `CHANGES.md`.
+
+## Findings & Actions (round 258)
+
+### Fixed this round
+
+1. **🟡 `schema-builders.ts` — stale doc comment updating `optionalIsoDate` default.**
+       The JSDoc for `optionalIsoDate` said "Defaults to max 50 chars" while the actual
+       default parameter was already `MAX_DATE_STRING_LENGTH` (30), set in round 252 when
+       the date-length mismatch was unified. The doc comment was the sole remnant of the
+       pre-round-252 state. Updated it to "Defaults to MAX_DATE_STRING_LENGTH (30 chars)".
+
+2. **🟡 `queue.module.ts` — 3 hardcoded BullMQ retry-literal values centralized to shared constants.**
+       `redisRetryStrategy` used bare `200`, `5000`, and `200` (base delay, cap, and jitter
+       respectively) while every other timeout/bound/literal across the codebase is already
+       centralized in `@besterp/shared/constants.ts` and imported at the call site. Added
+       `BULLMQ_RETRY_BASE_DELAY_MS`, `BULLMQ_RETRY_MAX_DELAY_MS`, and
+       `BULLMQ_RETRY_MAX_JITTER_MS` to `constants.ts` and imported them in `queue.module.ts`,
+       replacing all three literals.
+
+### Reviewed but NOT changed
+
+- Full-file re-read of all production source files confirmed no new issues.
+- grep confirms: zero stray `console.log` / `console.error` / `console.warn` in
+  production source; zero `TODO`/`FIXME`/`HACK` comments; zero bare `as any`
+  casts in production source (only in test files and spikes).
+- Lint ✓ · typecheck ✓ · `npm audit`: unchanged.
+- Test counts verified: api 632 (22 files), shared 243 (4 files), mcp-tools 193
+  (4 files), database 34 passed + 10 skipped (3 files). Total 1102 passed, 10 skipped.
+  Matches report.
+
+## Test Results (round 258)
+```
+shared:    243 passed (4 files)
+mcp-tools: 193 passed (4 files)
+database:   34 passed, 10 skipped (3 files)
+api:       632 passed (22 files)
+────────────────────────────
+Total:     1102 passed, 10 skipped
+```
 
 ## Findings & Actions (round 257)
 

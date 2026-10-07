@@ -279,6 +279,17 @@ export const MAX_ENTITY_LENGTH = 64;
 /** Maximum allowed JWT token lifetime in days. */
 export const MAX_JWT_EXPIRES_IN_DAYS = 30;
 
+// ─── Redis / BullMQ ──────────────────────────────────────────────
+
+/** Base delay (ms) between BullMQ Redis reconnect retries, before jitter. */
+export const BULLMQ_RETRY_BASE_DELAY_MS = 200;
+
+/** Maximum delay (ms) for BullMQ Redis reconnect retries (capped, before jitter). */
+export const BULLMQ_RETRY_MAX_DELAY_MS = 5_000;
+
+/** Maximum jitter (ms) added to BullMQ Redis reconnect retry delays. */
+export const BULLMQ_RETRY_MAX_JITTER_MS = 200;
+
 // ─── Redis ─────────────────────────────────────────────────────
 
 /** Default Redis port when REDIS_PORT is unset in development. */
