@@ -272,8 +272,9 @@ const addProductPriceSchema = z.strictObject({
     .describe("Price type (e.g., 'LIST', 'WHOLESALE', 'DISCOUNT')"),
   amount: z.number().positive().describe("Price amount (must be > 0)"),
   currencyCode: z.string()
-    .transform((s) => s.trim().toUpperCase())
-    .pipe(z.string().length(MAX_CURRENCY_CODE_LENGTH))
+    .optional()
+    .transform((s) => s?.trim().toUpperCase())
+    .pipe(z.string().length(MAX_CURRENCY_CODE_LENGTH).optional())
     .default(DEFAULT_CURRENCY_CODE)
     .describe(`ISO 4217 currency code (default: ${DEFAULT_CURRENCY_CODE})`),
   fromDate: optionalIsoDate(MAX_DATE_STRING_LENGTH).describe(`Start date (ISO 8601, max ${MAX_DATE_STRING_LENGTH} chars, default: now)`),

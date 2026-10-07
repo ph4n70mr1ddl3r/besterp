@@ -1,10 +1,81 @@
-                       # Code Review Report
+                        # Code Review Report
 
 ## Scope
-               Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
-                `mcp-tools`, `apps/api`, plus README/`.env.example`/docker/CI) conducted on
-                 2026-10-07. This is review 261; rounds 1–260 are documented in earlier
-                 revisions of this file and `CHANGES.md`.
+                Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
+                 `mcp-tools`, `apps/api`, plus README/`.env.example`/docker/CI) conducted on
+                  2026-10-07. This is review 263; rounds 1–262 are documented in earlier
+                  revisions of this file and `CHANGES.md`.
+
+## Findings & Actions (round 263)
+
+### Fixed this round
+
+1. **🟡 `product-tools.ts` — `currencyCode` Zod schema unified to explicit `.optional().default()` pattern.**
+         The `addProductPriceSchema.currencyCode` field used `.default(DEFAULT_CURRENCY_CODE)`
+         without an explicit `.optional()`, while every other optional+default field across
+         all four tool files (`party-tools.ts`, `product-tools.ts`, `agent-tools.ts`,
+         `discovery-tools.ts`) uses the explicit `.optional().default(...)` pattern. Although
+         `.default()` implies `.optional()` in Zod, the inconsistency made the schema visually
+         diverge from the established convention and could mislead future readers into thinking
+         the field required non-null input before the default was applied. Added `.optional()`
+         before `.transform()` and `.pipe(z.string().length(MAX_CURRENCY_CODE_LENGTH).optional())`
+         to match the identical pattern used by all other optional+default fields, ensuring
+         the agent-facing schema registry presents a uniform shape for every defaulted field.
+
+### Reviewed but NOT changed
+
+- Full-file re-read of all production source files confirmed no new issues.
+- grep confirms: zero stray `console.log` / `console.error` / `console.warn` in
+  production source; zero `TODO`/`FIXME`/`HACK` comments; zero bare `as any`
+  casts in production source (only in test files and spikes).
+- Lint ✓ · typecheck ✓ · build ✓ · `npm audit`: unchanged.
+- Test counts verified: api 632 (22 files), shared 243 (4 files), mcp-tools 193
+  (4 files), database 34 passed + 10 skipped (3 files). Total 1102 passed, 10 skipped.
+  Matches report.
+
+## Test Results (round 263)
+```
+shared:    243 passed (4 files)
+mcp-tools: 193 passed (4 files)
+database:   34 passed, 10 skipped (3 files)
+api:       632 passed (22 files)
+────────────────────────────
+Total:     1102 passed, 10 skipped
+```
+
+## Findings & Actions (round 262)
+
+### Fixed this round
+
+1. **🟡 `health.service.ts` / `constants.ts` — centralized `BYTES_PER_MB` constant.**
+         `getHealth()` in `health.service.ts` used a local `const BYTES_PER_MB = 1024 * 1024`
+         for the byte→MiB conversion, while every other timeout/bound/literal across the
+         codebase was already centralized in `@besterp/shared/constants.ts`. Added
+         `BYTES_PER_MB = 1024 * 1024` to `constants.ts` and exported it from the barrel,
+         then updated `health.service.ts` to import the shared constant instead of defining
+         it locally — eliminating the last remaining inline magic-number literal for a
+         well-known conversion factor in production source.
+
+### Reviewed but NOT changed
+
+- Full-file re-read of all production source files confirmed no new issues.
+- grep confirms: zero stray `console.log` / `console.error` / `console.warn` in
+  production source; zero `TODO`/`FIXME`/`HACK` comments; zero bare `as any`
+  casts in production source (only in test files and spikes).
+- Lint ✓ · typecheck ✓ · build ✓ · `npm audit`: unchanged.
+- Test counts verified: api 632 (22 files), shared 243 (4 files), mcp-tools 193
+  (4 files), database 34 passed + 10 skipped (3 files). Total 1102 passed, 10 skipped.
+  Matches report.
+
+## Test Results (round 262)
+```
+shared:    243 passed (4 files)
+mcp-tools: 193 passed (4 files)
+database:   34 passed, 10 skipped (3 files)
+api:       632 passed (22 files)
+────────────────────────────
+Total:     1102 passed, 10 skipped
+```
 
 ## Findings & Actions (round 261)
 
