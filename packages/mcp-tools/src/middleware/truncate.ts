@@ -15,7 +15,7 @@
 //   `{ _error: "Failed to serialize value" }` — never throw from a middleware
 //   side-effect like audit/idempotency logging.
 
-import { MAX_STORED_PAYLOAD_SIZE, sanitizeForLogOutput, TRUNCATE_PREVIEW_BYTES } from "@besterp/shared";
+import { MAX_STORED_PAYLOAD_SIZE, sanitizeForLogOutput, TRUNCATE_PREVIEW_BYTES, MAX_NESTING_DEPTH } from "@besterp/shared";
 export { MAX_STORED_PAYLOAD_SIZE };
 
 /** Shared TextEncoder/TextDecoder instances — avoids allocation in hot paths. */
@@ -183,9 +183,6 @@ function normaliseContainer(value: object, seen: WeakSet<object>, depth = 0): un
   }
 }
 
-/** Maximum recursion depth for `normaliseForTruncation` to prevent stack overflow on deeply nested inputs. Mirrors `MAX_HASH_DEPTH` in crypto.ts and `MAX_REDACTION_DEPTH` in sanitize.ts so the truncation path cannot be used as a DoS vector against the audit-log / idempotency middlewares. */
-const MAX_TRUNCATE_DEPTH = 100;
-
 /**
  * Recursively normalise a value to a JSON-safe form, converting nested
  * Map/Set to arrays. `JSON.stringify` silently converts Map/Set to `{}`,
@@ -195,7 +192,7 @@ const MAX_TRUNCATE_DEPTH = 100;
  * references within Map/Set values are rejected rather than silently lost.
  */
 function normaliseForTruncation(value: unknown, seen: WeakSet<object> = new WeakSet(), depth = 0): unknown {
-  if (depth > MAX_TRUNCATE_DEPTH) {
+  if (depth > MAX_NESTING_DEPTH) {
     throw new Error("Input exceeds maximum nesting depth");
   }
   if (value === null || value === undefined) return value;

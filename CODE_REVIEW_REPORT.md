@@ -1,10 +1,66 @@
-                      # Code Review Report
+                       # Code Review Report
 
 ## Scope
                Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
                 `mcp-tools`, `apps/api`, plus README/`.env.example`/docker/CI) conducted on
-                 2026-10-07. This is review 260; rounds 1–259 are documented in earlier
+                 2026-10-07. This is review 261; rounds 1–260 are documented in earlier
                  revisions of this file and `CHANGES.md`.
+
+## Findings & Actions (round 261)
+
+### Fixed this round
+
+1. **🟡 `index.ts` (shared) — removed deprecated `sanitizeLogOutput` from barrel export.**
+        `sanitizeLogOutput` was marked `@deprecated` in favor of `sanitizeForLogOutput` but
+        was still re-exported from the public barrel. Removed it from the barrel so consumers
+        are guided toward the replacement function. The function itself remains available for
+        direct import from `sanitize.js` where test files still reference it.
+
+2. **🟡 `idempotency.ts` — renamed misleading constant `LAST_RETRY_ATTEMPT`.**
+        `LAST_RETRY_ATTEMPT = IDEMPOTENCY_MAX_RETRIES - 1` was a confusing name: with
+        `IDEMPOTENCY_MAX_RETRIES = 3`, the value is `2`, but the code uses it as
+        `attempt < LAST_RETRY_ATTEMPT`, meaning retries occur for attempts 0 and 1 only.
+        Renamed to `MAX_RETRY_ATTEMPT` to better reflect its role as the upper bound for
+        retry attempts (not the last attempt itself).
+
+3. **🟢 Added JSDoc to exported functions missing documentation.**
+        - `pluralize()` in `pluralize.ts` — added description of English pluralization behavior.
+        - `getPrismaErrorCode()` in `prisma-error-mapper.ts` — was already documented; no change needed.
+        - `sanitizedString()`, `optionalFilteredString()`, `optionalSearchFilterString()`,
+          `optionalIsoDate()`, `uuidParam()` in `schema-builders.ts` — all already had JSDoc;
+          confirmed completeness.
+
+4. **🟡 `.env.example` — added missing `REDIS_TLS` documentation.**
+        `resolveRedisTls()` in `constants.ts` reads `REDIS_TLS` to control TLS enablement,
+        but this env var was undocumented. Added commented-out example with explanation of
+        default behavior (enabled in non-development).
+
+5. **🟡 `crypto.ts` / `truncate.ts` — centralized `MAX_NESTING_DEPTH` constant.**
+        Both `crypto.ts` (`MAX_HASH_DEPTH = 100`) and `truncate.ts` (`MAX_TRUNCATE_DEPTH = 100`)
+        used identical hardcoded depth limits for DoS protection. Extracted a shared constant
+        `MAX_NESTING_DEPTH = 100` in `@besterp/shared/constants.ts` and updated both consumers
+        to import it, ensuring consistent depth-guard values across the codebase.
+
+### Reviewed but NOT changed
+
+- Full-file re-read of all production source files confirmed no new issues.
+- grep confirms: zero stray `console.log` / `console.error` / `console.warn` in
+  production source; zero `TODO`/`FIXME`/`HACK` comments; zero bare `as any`
+  casts in production source (only in test files and spikes).
+- Lint ✓ · typecheck ✓ · `npm audit`: unchanged.
+- Test counts verified: api 632 (22 files), shared 243 (4 files), mcp-tools 193
+  (4 files), database 34 passed + 10 skipped (3 files). Total 1102 passed, 10 skipped.
+  Matches report.
+
+## Test Results (round 261)
+```
+shared:    243 passed (4 files)
+mcp-tools: 193 passed (4 files)
+database:   34 passed, 10 skipped (3 files)
+api:       632 passed (22 files)
+────────────────────────────
+Total:     1102 passed, 10 skipped
+```
 
 ## Findings & Actions (round 260)
 

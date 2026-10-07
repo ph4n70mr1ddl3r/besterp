@@ -44,7 +44,7 @@ export {
 } from "./validation.js";
 
 export {
-  stripHtmlTags, sanitizeLogOutput, sanitizeLogMessage, safeFromCodePoint,
+  stripHtmlTags, sanitizeLogMessage, safeFromCodePoint,
   sanitizeForLogOutput, isSensitiveFieldName, redactSensitiveFieldValues,
   MAX_REDACTION_DEPTH, splitFieldNameTokens, sanitizePostalAddress,
   sanitizeTelecomNumber,
@@ -138,4 +138,5 @@ export {
   normalizeEnvironmentValue,
   DEFAULT_REDIS_PORT,
   ADVISORY_LOCK_KEY_CLEANUP_IDEMPOTENCY,
+  MAX_NESTING_DEPTH,
 } from "./constants.js";

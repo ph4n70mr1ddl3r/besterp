@@ -21,7 +21,7 @@ import { hashInput, getErrorCode, sanitizeForLogOutput, stripHtmlTags, redactSen
 import { ToolMiddleware, ToolResult, ToolContext, ZodSchemaLike } from "../schema/tool-definition.js";
 import { truncateValue, MAX_STORED_PAYLOAD_SIZE, capString, isTruncationMarker } from "./truncate.js";
 
-const LAST_RETRY_ATTEMPT = IDEMPOTENCY_MAX_RETRIES - 1;
+const MAX_RETRY_ATTEMPT = IDEMPOTENCY_MAX_RETRIES - 1;
 
 /**
  * Create an idempotency middleware backed by PostgreSQL.
@@ -312,7 +312,7 @@ async function acquireIdempotencyRecord(
       return { existingRecord: existing, recordCreated: created };
     } catch (e) {
       const code = getErrorCode(e);
-      if (code === "P2034" && attempt < LAST_RETRY_ATTEMPT) {
+      if (code === "P2034" && attempt < MAX_RETRY_ATTEMPT) {
         await delay(retryDelayMs(IDEMPOTENCY_RETRY_BASE_DELAY_MS, attempt));
         continue;
       }
@@ -627,7 +627,7 @@ async function updateIdempotencyRecordWithRetry(
         );
         return;
       }
-      if (attempt < LAST_RETRY_ATTEMPT) {
+      if (attempt < MAX_RETRY_ATTEMPT) {
         await delay(retryDelayMs(IDEMPOTENCY_RETRY_BASE_DELAY_MS, attempt));
         continue;
       }

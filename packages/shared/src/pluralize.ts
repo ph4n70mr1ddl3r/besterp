@@ -60,6 +60,10 @@ function isConsonantOEnding(lower: string): boolean {
   return lower.endsWith("o") && lower.length >= 2 && !VOWELS.has(lower.charAt(lower.length - 2));
 }
 
+/**
+ * English pluralization for entity names used in MCP error messages and suggested tool names.
+ * Handles common irregular forms and sibilant/y/ox endings; falls back to adding "s".
+ */
 export function pluralize(entity: string): string {
   if (entity.length === 0) return entity;
   const lower = entity.toLowerCase();

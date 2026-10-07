@@ -375,3 +375,6 @@ export function isDev(): boolean {
 export function isProd(): boolean {
   return normalizeEnvironmentValue(process.env.NODE_ENV) === "production";
 }
+
+/** Maximum recursion depth for nesting-depth guards across hash, truncate, and sanitize paths. */
+export const MAX_NESTING_DEPTH = 100;

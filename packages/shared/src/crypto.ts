@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { InvalidTypeValueError } from "./errors.js";
+import { MAX_NESTING_DEPTH } from "./constants.js";
 
 /**
  * Deterministically sort object keys at all nesting levels.
@@ -173,9 +174,6 @@ function sortObject(value: object, ancestors: Set<object>, depth: number, budget
 
 const TEXT_ENCODER = new TextEncoder();
 
-/** Maximum recursion depth to prevent stack overflow on deeply nested inputs. */
-const MAX_HASH_DEPTH = 100;
-
 /** Maximum number of keys in the canonical form to prevent DoS via wide/shallow objects. */
 const MAX_HASH_KEYS = 10_000;
 
@@ -280,10 +278,10 @@ function dispatchContainer(
 }
 
 function sortKeysDeep(value: unknown, ancestors?: Set<object>, depth = 0, budget?: { bytes: number }): unknown {
-  if (depth > MAX_HASH_DEPTH) {
+  if (depth > MAX_NESTING_DEPTH) {
     throw new InvalidTypeValueError(
-      `Input exceeds maximum nesting depth of ${MAX_HASH_DEPTH}. Refusing to hash to prevent stack overflow.`,
-      { context: { field: "input", depth, maxDepth: MAX_HASH_DEPTH } }
+      `Input exceeds maximum nesting depth of ${MAX_NESTING_DEPTH}. Refusing to hash to prevent stack overflow.`,
+      { context: { field: "input", depth, maxDepth: MAX_NESTING_DEPTH } }
     );
   }
   if (value === null || value === undefined) return null;
@@ -325,15 +323,15 @@ function countKeys(value: unknown, ancestors?: Set<object>, depth = 0): number {
   if (value === null || value === undefined || typeof value !== "object") return 0;
   // Mirror sortKeysDeep's depth guard. Without this, a deeply-nested input
   // (e.g. a 15k-level nested array) would blow the call stack inside countKeys
-  // with a RangeError BEFORE the documented MAX_HASH_DEPTH guard in
+  // with a RangeError BEFORE the documented MAX_NESTING_DEPTH guard in
   // sortKeysDeep ever runs — defeating the stack-overflow DoS protection the
   // architecture explicitly documents. The range check uses `>` (depth must
   // exceed the limit) to match sortKeysDeep exactly, so both recursion passes
   // reject at the same depth.
-  if (depth > MAX_HASH_DEPTH) {
+  if (depth > MAX_NESTING_DEPTH) {
     throw new InvalidTypeValueError(
-      `Input exceeds maximum nesting depth of ${MAX_HASH_DEPTH}. Refusing to hash to prevent stack overflow.`,
-      { context: { field: "input", depth, maxDepth: MAX_HASH_DEPTH } }
+      `Input exceeds maximum nesting depth of ${MAX_NESTING_DEPTH}. Refusing to hash to prevent stack overflow.`,
+      { context: { field: "input", depth, maxDepth: MAX_NESTING_DEPTH } }
     );
   }
   ancestors = ancestors ?? new Set<object>();
