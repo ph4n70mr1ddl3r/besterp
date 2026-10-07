@@ -1,10 +1,58 @@
-                    # Code Review Report
+                     # Code Review Report
 
 ## Scope
-             Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
-              `mcp-tools`, `apps/api`, plus README/`.env.example`/docker/CI) conducted on
-               2026-10-07. This is review 258; rounds 1–257 are documented in earlier
-               revisions of this file and `CHANGES.md`.
+              Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
+               `mcp-tools`, `apps/api`, plus README/`.env.example`/docker/CI) conducted on
+                2026-10-07. This is review 259; rounds 1–258 are documented in earlier
+                revisions of this file and `CHANGES.md`.
+
+## Findings & Actions (round 259)
+
+### Fixed this round
+
+1. **🔴 `seed.ts` / `schema.prisma` / migration — agent_registry composite PK.**
+       The `agent_registry` table had a single-column PK on `agent_id` only, which
+       prevented per-tenant agent scoping: the seed's second upsert (tenant-globex)
+       found and no-op'd the tenant-acme row instead of creating a separate record,
+       and runtime `registerAgent` calls would collide across tenants. Changed the
+       PK to a composite `(agent_id, tenant_id)` via a hand-written migration
+       (`20261007000000_agent_registry_composite_pk/migration.sql`) that recreates
+       the table with the new PK, migrated existing rows, and restored the index.
+       Updated the Prisma schema (`@@id([agentId, tenantId])`) and all three
+       call sites in `security.service.ts` (`update`, `delete`, `findUnique`) to
+       use the compound unique selector `agentId_tenantId: { agentId, tenantId }`.
+       Updated the seed's two upsert `where` clauses to the same compound selector.
+       Updated the P2002 test assertion to expect `target: ["agent_id", "tenant_id"]`.
+
+2. **🟡 `security.service.ts` — redundant `?? 0` on `maxTransactionAmount`.**
+       The destructuring at line 164 already defaults `maxTransactionAmount = 0`,
+       so the `?? 0` in the `create` data object at line 190 was dead code. Removed it.
+
+3. **🟡 `main.ts` — inaccurate module header comment about RLS timing.**
+       The comment listed "RLS" as a boot-time security assertion, but RLS is
+       verified during `PrismaService.onModuleInit()`, not during the synchronous
+       bootstrap scan. Updated the comment to reflect the actual timing.
+
+### Reviewed but NOT changed
+
+- Full-file re-read of all production source files confirmed no new issues.
+- grep confirms: zero stray `console.log` / `console.error` / `console.warn` in
+  production source; zero `TODO`/`FIXME`/`HACK` comments; zero bare `as any`
+  casts in production source (only in test files and spikes).
+- Lint ✓ · typecheck ✓ · `npm audit`: unchanged.
+- Test counts verified: api 632 (22 files), shared 243 (4 files), mcp-tools 193
+  (4 files), database 34 passed + 10 skipped (3 files). Total 1102 passed, 10 skipped.
+  Matches report.
+
+## Test Results (round 259)
+```
+shared:    243 passed (4 files)
+mcp-tools: 193 passed (4 files)
+database:   34 passed, 10 skipped (3 files)
+api:       632 passed (22 files)
+────────────────────────────
+Total:     1102 passed, 10 skipped
+```
 
 ## Findings & Actions (round 258)
 

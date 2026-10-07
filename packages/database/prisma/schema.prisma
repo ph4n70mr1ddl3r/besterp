@@ -324,7 +324,7 @@ model ConfirmationGate {
 // Implements AGENTIC_AI_DESIGN.md §8.1 (Agent Registry).
 
 model AgentRegistry {
-  agentId                         String   @id @map("agent_id")
+  agentId                         String   @map("agent_id")
   tenantId                        String   @map("tenant_id")
   displayName                     String   @map("display_name")
   description                     String
@@ -338,6 +338,7 @@ model AgentRegistry {
   isActive                        Boolean  @default(true) @map("is_active")
   createdAt                       DateTime @default(now()) @map("created_at")
 
+  @@id([agentId, tenantId])
   @@index([tenantId])
   @@map("agent_registry")
 }

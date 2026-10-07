@@ -475,7 +475,7 @@ async function seedProductTypes(prisma: PrismaClient): Promise<number> {
 async function seedAgentRegistry(prisma: PrismaClient): Promise<number> {
   const agents = await Promise.all([
     prisma.agentRegistry.upsert({
-      where: { agentId: "default-agent" },
+      where: { agentId_tenantId: { agentId: "default-agent", tenantId: "tenant-acme" } },
       update: {},
       create: {
         agentId: "default-agent",
@@ -493,7 +493,7 @@ async function seedAgentRegistry(prisma: PrismaClient): Promise<number> {
       },
     }),
     prisma.agentRegistry.upsert({
-      where: { agentId: "default-agent" },
+      where: { agentId_tenantId: { agentId: "default-agent", tenantId: "tenant-globex" } },
       update: {},
       create: {
         agentId: "default-agent",

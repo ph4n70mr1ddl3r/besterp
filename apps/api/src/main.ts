@@ -5,7 +5,8 @@
 // - Global API prefix, CORS, and rate limiting
 // - Request validation pipe and JWT authentication
 // - Graceful shutdown with hard-exit timeout
-// - Boot-time security assertions (@Public() scope, RLS, superuser refusal)
+// - Boot-time security assertions (@Public() scope, superuser refusal);
+//   RLS verification runs during PrismaService.onModuleInit(), not at boot.
 
 import "reflect-metadata";
 import { NestFactory, DiscoveryService } from "@nestjs/core";

@@ -195,7 +195,7 @@ describe("SecurityService", () => {
     });
 
     it("maps P2002 to DuplicateEntityError", async () => {
-      prisma.admin.agentRegistry.create.mockRejectedValue({ code: "P2002", meta: { target: ["agent_id"] } });
+      prisma.admin.agentRegistry.create.mockRejectedValue({ code: "P2002", meta: { target: ["agent_id", "tenant_id"] } });
 
       await expect(
         service.registerAgent({
@@ -301,7 +301,7 @@ describe("SecurityService", () => {
 
       await service.updateAgent({ agentId: " a1 ", tenantId: "t1", displayName: "Updated" });
       expect(prisma.admin.agentRegistry.update).toHaveBeenCalledWith(
-        expect.objectContaining({ where: { agentId: "a1", tenantId: "t1" } })
+        expect.objectContaining({ where: { agentId_tenantId: { agentId: "a1", tenantId: "t1" } } })
       );
     });
 
@@ -507,7 +507,7 @@ describe("SecurityService", () => {
 
       await service.deleteAgent("t1", " a1 ");
       expect(prisma.admin.agentRegistry.delete).toHaveBeenCalledWith({
-        where: { agentId: "a1", tenantId: "t1" },
+        where: { agentId_tenantId: { agentId: "a1", tenantId: "t1" } },
       });
     });
 
@@ -537,7 +537,7 @@ describe("SecurityService", () => {
 
       await service.getAgent("t1", " a1 ");
       expect(prisma.admin.agentRegistry.findUnique).toHaveBeenCalledWith({
-        where: { agentId: "a1", tenantId: "t1" },
+        where: { agentId_tenantId: { agentId: "a1", tenantId: "t1" } },
       });
     });
 

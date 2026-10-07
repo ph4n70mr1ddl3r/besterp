@@ -187,7 +187,7 @@ export class SecurityService {
           capabilities,
           maxToolCallsPerConversation,
           maxConcurrentConversations,
-          maxTransactionAmount: maxTransactionAmount ?? 0,
+          maxTransactionAmount,
           allowedEntityTypes,
           rateLimitPerMinute,
           version: stripHtmlTags(trimmedVersion),
@@ -337,7 +337,7 @@ export class SecurityService {
 
     try {
       const agent = await this.prisma.admin.agentRegistry.update({
-        where: { agentId: validatedAgentId, tenantId: trimmedTenantId },
+        where: { agentId_tenantId: { agentId: validatedAgentId, tenantId: trimmedTenantId } },
         data: updateData,
       });
       this.logger.log(`Updated agent: ${sanitizeForLogOutput(validatedAgentId)}`);
@@ -374,7 +374,7 @@ export class SecurityService {
     const validatedAgentId = SecurityService.requireStringField(agentId, "agentId", MAX_AGENT_ID_LENGTH, "delete_agent");
     try {
       await this.prisma.admin.agentRegistry.delete({
-        where: { agentId: validatedAgentId, tenantId: trimmedTenantId },
+        where: { agentId_tenantId: { agentId: validatedAgentId, tenantId: trimmedTenantId } },
       });
       this.logger.log(`Deleted agent: ${sanitizeForLogOutput(validatedAgentId)}`);
       return { success: true };
@@ -389,7 +389,7 @@ export class SecurityService {
     let agent;
     try {
       agent = await this.prisma.admin.agentRegistry.findUnique({
-        where: { agentId: validatedAgentId, tenantId: trimmedTenantId },
+        where: { agentId_tenantId: { agentId: validatedAgentId, tenantId: trimmedTenantId } },
       });
     } catch (err) {
       throw mapPrismaError(err, "get_agent", "get_agent", "agent");
