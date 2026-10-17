@@ -288,6 +288,9 @@ export class ProductService {
       if (trimmedProductTypeId.length === 0) {
         throw new InvalidTypeValueError("'productType' must contain visible characters after HTML sanitization.", { suggestedTools: ["update_product"], context: { field: "productType" } });
       }
+      if (trimmedProductTypeId.length > MAX_PRODUCT_TYPE_LENGTH) {
+        throw new InvalidTypeValueError(`'productType' exceeds maximum length of ${MAX_PRODUCT_TYPE_LENGTH} characters.`, { suggestedTools: ["update_product"], context: { field: "productType", length: trimmedProductTypeId.length } });
+      }
       let pt;
       try {
         pt = await prisma.admin.productType.findUnique({ where: { name: trimmedProductTypeId } });
@@ -475,15 +478,17 @@ export class ProductService {
   }
 
   private static requireNonEmptyString(value: string, field: string, maxLength: number, tool: string): string {
-    if (value.length === 0) {
-      throw new InvalidTypeValueError(`'${field}' must not be empty.`, { suggestedTools: [tool], context: { field } });
-    }
-    if (value.length > maxLength) {
-      throw new InvalidTypeValueError(`'${field}' exceeds maximum length of ${maxLength} characters.`, { suggestedTools: [tool], context: { field, length: value.length } });
-    }
     const stripped = stripHtmlTags(value);
     if (stripped.length === 0) {
+      // Preserve the "must not be empty" message for genuinely empty input
+      // (no HTML) so existing callers/tests keep their contract.
+      if (value.trim().length === 0) {
+        throw new InvalidTypeValueError(`'${field}' must not be empty.`, { suggestedTools: [tool], context: { field } });
+      }
       throw new InvalidTypeValueError(`'${field}' must contain visible characters after HTML sanitization.`, { suggestedTools: [tool], context: { field } });
+    }
+    if (stripped.length > maxLength) {
+      throw new InvalidTypeValueError(`'${field}' exceeds maximum length of ${maxLength} characters.`, { suggestedTools: [tool], context: { field, length: stripped.length } });
     }
     return stripped;
   }
@@ -498,9 +503,9 @@ export class ProductService {
   }
 
   private static requireUuid(value: string, field: string, suggestedTools: string[]): string {
-    const trimmed = value.trim();
+    const trimmed = stripHtmlTags(value.trim());
     if (!UUID_REGEX.test(trimmed)) {
-      const safeValue = sanitizeForLogOutput(stripHtmlTags(trimmed));
+      const safeValue = sanitizeForLogOutput(trimmed);
       throw new InvalidTypeValueError(`'${field}' must be a valid UUID.`, { suggestedTools, context: { field, received: safeValue } });
     }
     return trimmed;
@@ -508,7 +513,7 @@ export class ProductService {
 
   private static requireNonEmptyFilter(value: string | undefined | null, field: string, maxLength: number, tools: string[]): string | undefined {
     if (value === undefined || value === null) return undefined;
-    const trimmed = value.trim();
+    const trimmed = stripHtmlTags(value.trim());
     if (trimmed.length === 0) {
       throw new InvalidTypeValueError(`Filter '${field}' cannot be whitespace-only.`, { suggestedTools: tools, context: { field } });
     }

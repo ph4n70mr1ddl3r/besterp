@@ -207,14 +207,14 @@ export class PartyService {
     if (trimmedName.length === 0) {
       throw new InvalidTypeValueError(`'name' must not be empty.`, { suggestedTools: ["create_party"], context: { field: "name", received: sanitizeForLogOutput(stripHtmlTags(name)) } });
     }
-    PartyService.requireMaxLength(trimmedName, "Party name", MAX_PARTY_NAME_LENGTH, "create_party");
+    PartyService.requireMaxLength(stripHtmlTags(trimmedName), "Party name", MAX_PARTY_NAME_LENGTH, "create_party");
 
     const trimmedDescription = description?.trim() ?? null;
     if (trimmedDescription !== null && trimmedDescription.length === 0) {
       throw new InvalidTypeValueError("'description' cannot be whitespace-only.", { suggestedTools: ["create_party"], context: { field: "description" } });
     }
     if (trimmedDescription !== null) {
-      PartyService.requireMaxLength(trimmedDescription, "Description", MAX_PARTY_DESCRIPTION_LENGTH, "create_party");
+      PartyService.requireMaxLength(stripHtmlTags(trimmedDescription), "Description", MAX_PARTY_DESCRIPTION_LENGTH, "create_party");
     }
     return { trimmedName, trimmedDescription };
   }
@@ -251,7 +251,7 @@ export class PartyService {
     if (!trimmedFirstName) {
       throw new MissingSubtypeDataError("firstName is required for person data.", { suggestedTools: ["create_party"], context: { field: "firstName" } });
     }
-    PartyService.requireMaxLength(trimmedFirstName, "First name", MAX_PERSON_NAME_LENGTH, "create_party");
+    PartyService.requireMaxLength(stripHtmlTags(trimmedFirstName), "First name", MAX_PERSON_NAME_LENGTH, "create_party");
     if (typeof personData.lastName !== "string") {
       throw new InvalidTypeValueError(
         "'lastName' must be a string.",
@@ -262,12 +262,12 @@ export class PartyService {
     if (!trimmedLastName) {
       throw new MissingSubtypeDataError("lastName is required for person data.", { suggestedTools: ["create_party"], context: { field: "lastName" } });
     }
-    PartyService.requireMaxLength(trimmedLastName, "Last name", MAX_PERSON_NAME_LENGTH, "create_party");
+    PartyService.requireMaxLength(stripHtmlTags(trimmedLastName), "Last name", MAX_PERSON_NAME_LENGTH, "create_party");
     if (typeof personData.gender === "string") {
-      PartyService.requireMaxLength(personData.gender.trim(), "Gender", MAX_GENDER_LENGTH, "create_party");
+      PartyService.requireMaxLength(stripHtmlTags(personData.gender.trim()), "Gender", MAX_GENDER_LENGTH, "create_party");
     }
     if (typeof personData.middleName === "string") {
-      PartyService.requireMaxLength(personData.middleName.trim(), "Middle name", MAX_MIDDLE_NAME_LENGTH, "create_party");
+      PartyService.requireMaxLength(stripHtmlTags(personData.middleName.trim()), "Middle name", MAX_MIDDLE_NAME_LENGTH, "create_party");
     }
     if (personData.birthDate != null) {
       PartyService.requireValidDate(personData.birthDate, "birthDate", ["create_party"]);
@@ -287,12 +287,12 @@ export class PartyService {
     if (!trimmedLegalName) {
       throw new MissingSubtypeDataError("legalName is required for organization data.", { suggestedTools: ["create_party"], context: { field: "legalName" } });
     }
-    PartyService.requireMaxLength(trimmedLegalName, "Legal name", MAX_LEGAL_NAME_LENGTH, "create_party");
+    PartyService.requireMaxLength(stripHtmlTags(trimmedLegalName), "Legal name", MAX_LEGAL_NAME_LENGTH, "create_party");
     if (orgData.registrationDate != null) {
       PartyService.requireValidDate(orgData.registrationDate, "registrationDate", ["create_party"]);
     }
     if (typeof orgData.taxId === "string") {
-      PartyService.requireMaxLength(orgData.taxId.trim(), "Tax ID", MAX_TAX_ID_LENGTH, "create_party");
+      PartyService.requireMaxLength(stripHtmlTags(orgData.taxId.trim()), "Tax ID", MAX_TAX_ID_LENGTH, "create_party");
     }
   }
 
@@ -951,13 +951,13 @@ export class PartyService {
       );
     }
     if (typeof postalAddress.addressLine2 === "string") {
-      PartyService.requireMaxLength(postalAddress.addressLine2.trim(), "addressLine2", MAX_ADDRESS_LINE_LENGTH, "add_contact_mechanism");
+      PartyService.requireMaxLength(stripHtmlTags(postalAddress.addressLine2.trim()), "addressLine2", MAX_ADDRESS_LINE_LENGTH, "add_contact_mechanism");
     }
     if (typeof postalAddress.stateProvince === "string") {
-      PartyService.requireMaxLength(postalAddress.stateProvince.trim(), "stateProvince", MAX_STATE_PROVINCE_LENGTH, "add_contact_mechanism");
+      PartyService.requireMaxLength(stripHtmlTags(postalAddress.stateProvince.trim()), "stateProvince", MAX_STATE_PROVINCE_LENGTH, "add_contact_mechanism");
     }
     if (typeof postalAddress.postalCode === "string") {
-      PartyService.requireMaxLength(postalAddress.postalCode.trim(), "postalCode", MAX_POSTAL_CODE_LENGTH, "add_contact_mechanism");
+      PartyService.requireMaxLength(stripHtmlTags(postalAddress.postalCode.trim()), "postalCode", MAX_POSTAL_CODE_LENGTH, "add_contact_mechanism");
     }
   }
 
@@ -1008,7 +1008,7 @@ export class PartyService {
       );
     }
     if (typeof telecomNumber.extension === "string") {
-      PartyService.requireMaxLength(telecomNumber.extension.trim(), "extension", MAX_EXTENSION_LENGTH, "add_contact_mechanism");
+      PartyService.requireMaxLength(stripHtmlTags(telecomNumber.extension.trim()), "extension", MAX_EXTENSION_LENGTH, "add_contact_mechanism");
     }
   }
 
@@ -1256,7 +1256,7 @@ export class PartyService {
     suggestedTools: string[],
   ): string | undefined {
     if (value === undefined || value === null) return undefined;
-    const trimmed = value.trim();
+    const trimmed = stripHtmlTags(value.trim());
     if (trimmed.length === 0) {
       throw new InvalidTypeValueError(
         `Filter '${field}' cannot be whitespace-only.`,
@@ -1326,9 +1326,9 @@ export class PartyService {
    *  suggestedTools is required so every caller explicitly declares which
    *  tools are relevant — no default hiding behind an omitted argument. */
   private static requireUuid(value: string, field: string, suggestedTools: string[]): string {
-    const trimmed = value.trim();
+    const trimmed = stripHtmlTags(value.trim());
     if (!UUID_REGEX.test(trimmed)) {
-      const safeValue = sanitizeForLogOutput(stripHtmlTags(trimmed));
+      const safeValue = sanitizeForLogOutput(trimmed);
       throw new InvalidTypeValueError(
         `'${field}' must be a valid UUID.`,
         { suggestedTools, context: { field, received: safeValue } }

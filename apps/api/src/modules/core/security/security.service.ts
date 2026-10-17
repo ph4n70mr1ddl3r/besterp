@@ -430,7 +430,11 @@ export class SecurityService {
 
   async deleteAgent(tenantId: string, agentId: string): Promise<{ success: boolean }> {
     const trimmedTenantId = SecurityService.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "delete_agent");
-    const validatedAgentId = SecurityService.requireStringField(agentId, "agentId", MAX_AGENT_ID_LENGTH, "delete_agent");
+    const rawAgentId = SecurityService.requireStringField(agentId, "agentId", MAX_AGENT_ID_LENGTH, "delete_agent");
+    const validatedAgentId = stripHtmlTags(rawAgentId);
+    if (validatedAgentId.length === 0) {
+      throw new InvalidTypeValueError("'agentId' must contain visible characters after HTML sanitization.", { suggestedTools: ["delete_agent"], context: { field: "agentId" } });
+    }
     try {
       await this.prisma.admin.agentRegistry.delete({
         where: { agentId_tenantId: { agentId: validatedAgentId, tenantId: trimmedTenantId } },
@@ -444,7 +448,11 @@ export class SecurityService {
 
   async getAgent(tenantId: string, agentId: string): Promise<AgentResult> {
     const trimmedTenantId = SecurityService.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "get_agent");
-    const validatedAgentId = SecurityService.requireStringField(agentId, "agentId", MAX_AGENT_ID_LENGTH, "get_agent");
+    const rawAgentId = SecurityService.requireStringField(agentId, "agentId", MAX_AGENT_ID_LENGTH, "get_agent");
+    const validatedAgentId = stripHtmlTags(rawAgentId);
+    if (validatedAgentId.length === 0) {
+      throw new InvalidTypeValueError("'agentId' must contain visible characters after HTML sanitization.", { suggestedTools: ["get_agent"], context: { field: "agentId" } });
+    }
     let agent;
     try {
       agent = await this.prisma.admin.agentRegistry.findUnique({
@@ -478,7 +486,14 @@ export class SecurityService {
     const validatedOffset = Math.min(Math.max(offset, MIN_SEARCH_OFFSET), MAX_SEARCH_OFFSET);
 
     const where: Record<string, unknown> = { tenantId: trimmedTenantId };
-    if (agentId) where.agentId = agentId;
+    if (agentId !== undefined && agentId !== null) {
+      const rawAgentId = SecurityService.requireStringField(agentId, "agentId", MAX_AGENT_ID_LENGTH, "search_agents");
+      const strippedAgentId = stripHtmlTags(rawAgentId);
+      if (strippedAgentId.length === 0) {
+        throw new InvalidTypeValueError("'agentId' must contain visible characters after HTML sanitization.", { suggestedTools: ["search_agents"], context: { field: "agentId" } });
+      }
+      where.agentId = strippedAgentId;
+    }
     if (isActive !== undefined) where.isActive = isActive;
 
     // Run count first, then findMany with the validated limit. Under READ
