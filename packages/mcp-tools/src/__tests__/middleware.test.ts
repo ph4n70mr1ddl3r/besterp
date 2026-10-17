@@ -2,9 +2,9 @@
 // Tests idempotency, audit logging, and error handling
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { 
-  idempotencyMiddleware, 
-  auditLogMiddleware, 
+import {
+  idempotencyMiddleware,
+  auditLogMiddleware,
   errorHandlerMiddleware,
   confirmationGateMiddleware,
 } from "../middleware/index.js";

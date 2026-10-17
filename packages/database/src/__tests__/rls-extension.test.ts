@@ -37,7 +37,7 @@ describe("RLS Extension", () => {
         "admin' --",
         "'; EXEC sp_executesql N'DELETE FROM parties';--"
       ];
-      
+
       for (const sql of sqlInjections) {
         expect(() => validateTenantIdEnhanced(sql)).toThrow();
       }
@@ -55,7 +55,7 @@ describe("RLS Extension", () => {
         "drop table users--",
         "SELECT * FROM users; DELETE FROM users--"
       ];
-      
+
       for (const input of dangerousInputs) {
         expect(() => validateTenantIdEnhanced(input)).toThrow();
       }
@@ -71,7 +71,7 @@ describe("RLS Extension", () => {
         $connect: vi.fn(),
         $disconnect: vi.fn(),
       };
-      
+
       expect(() => validatePrismaClientForRls(mockPrisma as any)).not.toThrow();
     });
 
@@ -87,7 +87,7 @@ describe("RLS Extension", () => {
         $disconnect: vi.fn(),
         // Missing $executeRaw — set_tenant_context requires it
       };
-      
+
       expect(() => validatePrismaClientForRls(mockPrisma as any)).toThrow(InvalidTypeValueError);
     });
 
@@ -98,7 +98,7 @@ describe("RLS Extension", () => {
         $connect: vi.fn(),
         $disconnect: vi.fn(),
       };
-      
+
       expect(() => validatePrismaClientForRls(mockPrisma as any)).toThrow(InvalidTypeValueError);
     });
   });
@@ -144,7 +144,7 @@ describe("RLS Extension", () => {
 
     it("should wrap findMany operations in tenant context", async () => {
       const client = createTenantClient(mockPrisma, "tenant-1");
-      
+
       // The proxy wraps model ops in $transaction. Mock it to simulate
       // the flow: set tenant context, then delegate to the model.
       mockPrisma.$transaction.mockImplementationOnce(async (fn) => {
@@ -155,7 +155,7 @@ describe("RLS Extension", () => {
         };
         return fn(tx);
       });
-      
+
       const result = await client.party.findMany();
       expect(result).toEqual([{ partyId: "p1" }]);
       expect(mockPrisma.$transaction).toHaveBeenCalled();
@@ -163,7 +163,7 @@ describe("RLS Extension", () => {
 
     it("should wrap create operations in tenant context", async () => {
       const client = createTenantClient(mockPrisma, "tenant-1");
-      
+
       mockPrisma.$transaction.mockImplementationOnce(async (fn) => {
         const tx = {
           $executeRaw: vi.fn().mockResolvedValue(undefined),
@@ -172,11 +172,11 @@ describe("RLS Extension", () => {
         };
         return fn(tx);
       });
-      
+
       const result = await client.partyRole.create({
         data: { partyId: "party-123", roleTypeId: "role-123" }
       });
-      
+
       expect(result).toBeDefined();
       expect(result.partyRoleId).toBe("123");
       expect(mockPrisma.$transaction).toHaveBeenCalled();
@@ -212,7 +212,7 @@ describe("RLS Extension", () => {
 
     it("should handle interactive transactions correctly", async () => {
       const client = createTenantClient(mockPrisma, "tenant-1");
-      
+
       // The proxy wraps $transaction to inject SET LOCAL before the callback.
       // The callback should NOT need to call $queryRaw itself — the proxy does it.
       mockPrisma.$transaction.mockImplementationOnce(async (fn) => {
@@ -224,20 +224,20 @@ describe("RLS Extension", () => {
         };
         return fn(tx);
       });
-      
+
       const result = await client.$transaction(async (tx) => {
         await tx.party.findMany();
         await tx.partyRole.create({ data: {} });
         return "success";
       });
-      
+
       expect(result).toBe("success");
       expect(mockPrisma.$transaction).toHaveBeenCalled();
     });
 
     it("should block dangerous methods on tenant-scoped client", () => {
       const client = createTenantClient(mockPrisma, "tenant-1");
-      
+
       // These methods are blocked to prevent connection lifecycle changes
       // and RLS bypass via raw SQL on the tenant-scoped proxy
       expect(() => client.$connect).toThrow(/Cannot call/);
@@ -342,7 +342,7 @@ describe("RLS Extension", () => {
         $disconnect: vi.fn(),
         // Missing $executeRaw
       } as any;
-      
+
       expect(() => createTenantClient(invalidPrisma, "tenant-1")).toThrow(InvalidTypeValueError);
     });
   });

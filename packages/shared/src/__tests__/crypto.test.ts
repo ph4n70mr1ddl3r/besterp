@@ -38,7 +38,7 @@ describe("hashInput", () => {
     expect(booleanHash).toMatch(/^[a-f0-9]{64}$/);
     expect(nullHash).toMatch(/^[a-f0-9]{64}$/);
     expect(undefinedHash).toMatch(/^[a-f0-9]{64}$/);
-    
+
     // All primitives should produce different hashes except undefined -> null
     expect(stringHash).not.toBe(numberHash);
     expect(stringHash).not.toBe(booleanHash);
@@ -51,7 +51,7 @@ describe("hashInput", () => {
     const array1 = [1, 2, 3];
     const array2 = [1, 2, 3];
     const array3 = [3, 2, 1];
-    
+
     expect(hashInput(array1)).toBe(hashInput(array2)); // Same order = same hash
     expect(hashInput(array1)).not.toBe(hashInput(array3)); // Different order = different hash
   });
@@ -60,24 +60,24 @@ describe("hashInput", () => {
     const obj1 = { x: 1, y: 2, z: 3 };
     const obj2 = { z: 3, y: 2, x: 1 };
     const obj3 = { a: 1, b: 2, c: 3 };
-    
+
     expect(hashInput(obj1)).toBe(hashInput(obj2)); // Same key-value pairs = same hash
     expect(hashInput(obj1)).not.toBe(hashInput(obj3)); // Different keys = different hash
   });
 
   it("should handle nested objects regardless of key order", () => {
-    const obj1 = { 
+    const obj1 = {
       outer: { inner: 1, other: 2 },
       value: 3,
       array: [1, 2, 3]
     };
-    
+
     const obj2 = {
       value: 3,
       array: [1, 2, 3],
       outer: { other: 2, inner: 1 }
     };
-    
+
     expect(hashInput(obj1)).toBe(hashInput(obj2));
   });
 
@@ -85,11 +85,11 @@ describe("hashInput", () => {
     const zeroHash = hashInput(0);
     const emptyStringHash = hashInput("");
     const falseHash = hashInput(false);
-    
+
     expect(zeroHash).toMatch(/^[a-f0-9]{64}$/);
     expect(emptyStringHash).toMatch(/^[a-f0-9]{64}$/);
     expect(falseHash).toMatch(/^[a-f0-9]{64}$/);
-    
+
     // All should be different
     expect(zeroHash).not.toBe(emptyStringHash);
     expect(zeroHash).not.toBe(falseHash);
@@ -101,7 +101,7 @@ describe("hashInput", () => {
     for (let i = 0; i < 1000; i++) {
       largeObject[`key_${i}`] = `value_${i}`;
     }
-    
+
     // Should not throw and should produce a valid hash
     expect(() => hashInput(largeObject)).not.toThrow();
     const hash = hashInput(largeObject);
@@ -111,7 +111,7 @@ describe("hashInput", () => {
   it("should handle circular references (throws error)", () => {
     const circularObj: any = {};
     circularObj.self = circularObj;
-    
+
     expect(() => hashInput(circularObj)).toThrow();
   });
 
@@ -136,7 +136,7 @@ describe("hashInput", () => {
     const date1 = new Date("2024-01-01T00:00:00.000Z");
     const date2 = new Date("2024-01-01T00:00:00.000Z");
     const date3 = new Date("2024-01-02T00:00:00.000Z");
-    
+
     expect(hashInput(date1)).toBe(hashInput(date2)); // Same date = same hash
     expect(hashInput(date1)).not.toBe(hashInput(date3)); // Different date = different hash
   });
@@ -144,11 +144,11 @@ describe("hashInput", () => {
   it("should handle BigInt values", () => {
     const bigInt1 = BigInt("9007199254740991");
     const bigInt2 = BigInt("9007199254740992");
-    
+
     expect(() => hashInput(bigInt1)).not.toThrow();
     expect(() => hashInput(bigInt2)).not.toThrow();
     expect(hashInput(bigInt1)).not.toBe(hashInput(bigInt2));
-    
+
     // Big integers should be serialized consistently
     expect(hashInput(bigInt1)).toBe(hashInput(BigInt("9007199254740991")));
   });
@@ -157,19 +157,19 @@ describe("hashInput", () => {
     const symbol1 = Symbol("test");
     const symbol2 = Symbol("test");
     const symbol3 = Symbol("different");
-    
+
     expect(() => hashInput(symbol1)).not.toThrow();
     expect(() => hashInput(symbol2)).not.toThrow();
     expect(() => hashInput(symbol3)).not.toThrow();
-    
+
     // Symbols with the same description should produce the same hash
     // This is intentional behavior for idempotency - symbols with the same description
     // are treated as equivalent for hashing purposes
     expect(hashInput(symbol1)).toBe(hashInput(symbol2));
-    
+
     // Symbols with different descriptions should produce different hashes
     expect(hashInput(symbol1)).not.toBe(hashInput(symbol3));
-    
+
     // Same symbol should produce the same hash
     expect(hashInput(symbol1)).toBe(hashInput(symbol1));
   });
@@ -187,11 +187,11 @@ describe("hashInput", () => {
         bigint: BigInt("123")
       }
     };
-    
+
     expect(() => hashInput(complexObj)).not.toThrow();
     const hash = hashInput(complexObj);
     expect(hash).toMatch(/^[a-f0-9]{64}$/);
-    
+
     // Same structure should produce same hash
     const identicalComplexObj = {
       string: "hello",
@@ -205,7 +205,7 @@ describe("hashInput", () => {
         bigint: BigInt("123")
       }
     };
-    
+
     expect(hashInput(complexObj)).toBe(hashInput(identicalComplexObj));
   });
 
@@ -228,7 +228,7 @@ describe("hashInput", () => {
   it("should be case-sensitive for strings", () => {
     const hash1 = hashInput("Hello");
     const hash2 = hashInput("hello");
-    
+
     expect(hash1).not.toBe(hash2);
   });
 
@@ -236,7 +236,7 @@ describe("hashInput", () => {
     const hash1 = hashInput("hello world");
     const hash2 = hashInput("helloworld");
     const hash3 = hashInput(" hello world ");
-    
+
     expect(hash1).not.toBe(hash2);
     expect(hash1).not.toBe(hash3);
     expect(hash2).not.toBe(hash3);
