@@ -963,6 +963,21 @@ export class PartyService {
     }
     PartyService.requireStringField(telecomNumber.areaCode, "areaCode", MAX_AREA_CODE_LENGTH, "add_contact_mechanism");
     PartyService.requireStringField(telecomNumber.lineNumber, "lineNumber", MAX_LINE_NUMBER_LENGTH, "add_contact_mechanism");
+    // Defense-in-depth: reject values that are entirely consumed by
+    // stripHtmlTags so an HTML-only areaCode/lineNumber cannot be stored
+    // as an empty string (mirrors assertSanitizedPostalUsable / createParty).
+    if (stripHtmlTags(telecomNumber.areaCode.trim()).length === 0) {
+      throw new InvalidTypeValueError(
+        "areaCode must contain visible characters after HTML sanitization.",
+        { suggestedTools: ["add_contact_mechanism"], context: { field: "areaCode" } }
+      );
+    }
+    if (stripHtmlTags(telecomNumber.lineNumber.trim()).length === 0) {
+      throw new InvalidTypeValueError(
+        "lineNumber must contain visible characters after HTML sanitization.",
+        { suggestedTools: ["add_contact_mechanism"], context: { field: "lineNumber" } }
+      );
+    }
     if (telecomNumber.countryCode) {
       // Strip HTML BEFORE the length/regex checks so validation agrees with
       // (a) validateEmailSubtype's strip-then-validate pattern below, (b) the
@@ -1007,6 +1022,9 @@ export class PartyService {
     // changes a valid email — the local part cannot contain '<' or '>' —
     // so legitimate addresses pass through untouched.
     const normalized = stripHtmlTags(emailAddress.email.trim().toLowerCase());
+    if (normalized.length === 0) {
+      throw new InvalidTypeValueError("email must contain visible characters after HTML sanitization.", { suggestedTools: ["add_contact_mechanism"], context: { field: "email" } });
+    }
     if (!EMAIL_REGEX.test(normalized)) {
       throw new InvalidTypeValueError(`Invalid email format: ${normalized}`, { suggestedTools: ["add_contact_mechanism"], context: { contactMechanismType: "EMAIL_ADDRESS", field: "email", invalidValue: normalized } });
     }

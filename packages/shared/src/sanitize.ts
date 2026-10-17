@@ -715,10 +715,10 @@ export function sanitizePostalAddress(addr: {
   const postalCode = addr.postalCode?.trim();
   return {
     addressLine1: stripHtmlTags(addr.addressLine1.trim()),
-    addressLine2: addressLine2 ? stripHtmlTags(addressLine2) : null,
+    addressLine2: addressLine2 ? (stripHtmlTags(addressLine2) || null) : null,
     city: stripHtmlTags(addr.city.trim()),
-    stateProvince: stateProvince ? stripHtmlTags(stateProvince) : null,
-    postalCode: postalCode ? stripHtmlTags(postalCode) : null,
+    stateProvince: stateProvince ? (stripHtmlTags(stateProvince) || null) : null,
+    postalCode: postalCode ? (stripHtmlTags(postalCode) || null) : null,
     country: stripHtmlTags(addr.country.trim().toUpperCase()),
   };
 }
@@ -738,9 +738,9 @@ export function sanitizeTelecomNumber(tel: {
   const countryCode = tel.countryCode?.trim();
   const extension = tel.extension?.trim();
   return {
-    countryCode: countryCode ? stripHtmlTags(countryCode) : defaultCountryCode,
+    countryCode: countryCode ? (stripHtmlTags(countryCode) || defaultCountryCode) : defaultCountryCode,
     areaCode: stripHtmlTags((tel.areaCode ?? "").trim()),
     lineNumber: stripHtmlTags((tel.lineNumber ?? "").trim()),
-    extension: extension ? stripHtmlTags(extension) : null,
+    extension: extension ? (stripHtmlTags(extension) || null) : null,
   };
 }

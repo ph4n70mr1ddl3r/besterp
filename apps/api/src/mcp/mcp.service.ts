@@ -162,7 +162,9 @@ export class McpService implements OnModuleInit {
 
   private static validateReasoning(value: string | undefined): string | undefined {
     const reasoning = validateOptionalString("reasoning", value, MAX_REASONING_LENGTH);
-    return reasoning !== undefined ? sanitizeForLogOutput(stripHtmlTags(reasoning)) : undefined;
+    if (reasoning === undefined) return undefined;
+    const stripped = sanitizeForLogOutput(stripHtmlTags(reasoning));
+    return stripped.length === 0 ? undefined : stripped;
   }
 
   getRegistry(): ToolRegistry {

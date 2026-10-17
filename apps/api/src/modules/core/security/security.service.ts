@@ -172,6 +172,15 @@ export class SecurityService {
     const trimmedDisplayName = SecurityService.requireStringField(displayName, "displayName", MAX_PARTY_NAME_LENGTH, "register_agent");
     const trimmedDescription = SecurityService.requireStringField(description, "description", MAX_AGENT_DESCRIPTION_LENGTH, "register_agent");
     const trimmedVersion = SecurityService.requireStringField(version, "version", MAX_VERSION_LENGTH, "register_agent");
+    if (stripHtmlTags(trimmedDisplayName).length === 0) {
+      throw new InvalidTypeValueError("'displayName' must contain visible characters after HTML sanitization.", { suggestedTools: ["register_agent"], context: { field: "displayName" } });
+    }
+    if (stripHtmlTags(trimmedDescription).length === 0) {
+      throw new InvalidTypeValueError("'description' must contain visible characters after HTML sanitization.", { suggestedTools: ["register_agent"], context: { field: "description" } });
+    }
+    if (stripHtmlTags(trimmedVersion).length === 0) {
+      throw new InvalidTypeValueError("'version' must contain visible characters after HTML sanitization.", { suggestedTools: ["register_agent"], context: { field: "version" } });
+    }
     SecurityService.validateAgentArrays(capabilities, allowedEntityTypes, "register_agent");
     SecurityService.validateAgentLimits(validatedAgentId, maxToolCallsPerConversation, rateLimitPerMinute, "register_agent");
     SecurityService.validateMaxConcurrentConversations(maxConcurrentConversations, "register_agent");
@@ -352,8 +361,16 @@ export class SecurityService {
    *  (round 208). Each branch validates and sanitizes one optional field. */
   private static buildUpdateData(updates: Partial<UpdateAgentInput>): Record<string, unknown> {
     const updateData: Record<string, unknown> = {};
-    if (updates.displayName !== undefined) updateData.displayName = stripHtmlTags(SecurityService.requireStringField(updates.displayName, "displayName", MAX_PARTY_NAME_LENGTH, "update_agent"));
-    if (updates.description !== undefined) updateData.description = stripHtmlTags(SecurityService.requireStringField(updates.description, "description", MAX_AGENT_DESCRIPTION_LENGTH, "update_agent"));
+    if (updates.displayName !== undefined) {
+      const v = SecurityService.requireStringField(updates.displayName, "displayName", MAX_PARTY_NAME_LENGTH, "update_agent");
+      if (stripHtmlTags(v).length === 0) throw new InvalidTypeValueError("'displayName' must contain visible characters after HTML sanitization.", { suggestedTools: ["update_agent"], context: { field: "displayName" } });
+      updateData.displayName = stripHtmlTags(v);
+    }
+    if (updates.description !== undefined) {
+      const v = SecurityService.requireStringField(updates.description, "description", MAX_AGENT_DESCRIPTION_LENGTH, "update_agent");
+      if (stripHtmlTags(v).length === 0) throw new InvalidTypeValueError("'description' must contain visible characters after HTML sanitization.", { suggestedTools: ["update_agent"], context: { field: "description" } });
+      updateData.description = stripHtmlTags(v);
+    }
     if (updates.capabilities !== undefined) updateData.capabilities = updates.capabilities;
     if (updates.maxToolCallsPerConversation !== undefined)
       updateData.maxToolCallsPerConversation = updates.maxToolCallsPerConversation;
@@ -364,7 +381,11 @@ export class SecurityService {
     if (updates.allowedEntityTypes !== undefined) updateData.allowedEntityTypes = updates.allowedEntityTypes;
     if (updates.rateLimitPerMinute !== undefined)
       updateData.rateLimitPerMinute = updates.rateLimitPerMinute;
-    if (updates.version !== undefined) updateData.version = stripHtmlTags(SecurityService.requireStringField(updates.version, "version", MAX_VERSION_LENGTH, "update_agent"));
+    if (updates.version !== undefined) {
+      const v = SecurityService.requireStringField(updates.version, "version", MAX_VERSION_LENGTH, "update_agent");
+      if (stripHtmlTags(v).length === 0) throw new InvalidTypeValueError("'version' must contain visible characters after HTML sanitization.", { suggestedTools: ["update_agent"], context: { field: "version" } });
+      updateData.version = stripHtmlTags(v);
+    }
     if (updates.isActive !== undefined) updateData.isActive = updates.isActive;
     return updateData;
   }
