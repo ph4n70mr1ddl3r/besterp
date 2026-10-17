@@ -131,7 +131,11 @@ export class ProductService {
       throw new InvalidTypeValueError("'sku' must be a string.", { suggestedTools: ["create_product"], context: { field: "sku", received: typeof sku } });
     }
     const trimmedSku = sku !== undefined && sku !== null ? ProductService.requireOptionalString(stripHtmlTags(sku.trim()), "sku", MAX_SKU_LENGTH, "create_product") : null;
-    const trimmedProductType = ProductService.requireStringField(productType, "productType", MAX_PRODUCT_TYPE_LENGTH, "create_product");
+    const rawProductType = ProductService.requireStringField(productType, "productType", MAX_PRODUCT_TYPE_LENGTH, "create_product");
+    const trimmedProductType = stripHtmlTags(rawProductType);
+    if (trimmedProductType.length === 0) {
+      throw new InvalidTypeValueError("'productType' must contain visible characters after HTML sanitization.", { suggestedTools: ["create_product"], context: { field: "productType" } });
+    }
 
     let validatedFeatures = undefined;
     if (features && features.length > 0) {
@@ -422,8 +426,8 @@ export class ProductService {
     thruDate: string | null | undefined,
     tool: string,
   ): { priceType: string; amount: number; currencyCode: string; fromDate: Date; thruDate: Date | null } {
-    const trimmedPriceType = priceType.trim();
-    const trimmedCurrencyCode = currencyCode.trim().toUpperCase();
+    const trimmedPriceType = stripHtmlTags(priceType.trim());
+    const trimmedCurrencyCode = stripHtmlTags(currencyCode.trim()).toUpperCase();
     ProductService.validatePriceAmount(amount, tool);
     ProductService.validatePriceType(trimmedPriceType, tool);
     ProductService.validatePriceCurrencyCode(trimmedCurrencyCode, tool);
@@ -441,20 +445,20 @@ export class ProductService {
   }
 
   private static validatePriceType(priceType: string, tool: string): void {
-    if (priceType.trim().length === 0) {
+    if (priceType.length === 0) {
       throw new InvalidTypeValueError("'priceType' must not be empty.", { suggestedTools: [tool], context: { field: "priceType" } });
     }
-    // Zod schema (product-tools.ts) enforces max 50 chars at the boundary,
-    // but direct/internal callers bypass Zod — this is the last line of
-    // defense so an oversized priceType cannot reach the DB (round 234).
-    if (priceType.trim().length > MAX_PRICE_TYPE_LENGTH) {
-      throw new InvalidTypeValueError(`'priceType' exceeds maximum length of ${MAX_PRICE_TYPE_LENGTH} characters.`, { suggestedTools: [tool], context: { field: "priceType", length: priceType.trim().length } });
+    if (priceType.length > MAX_PRICE_TYPE_LENGTH) {
+      throw new InvalidTypeValueError(`'priceType' exceeds maximum length of ${MAX_PRICE_TYPE_LENGTH} characters.`, { suggestedTools: [tool], context: { field: "priceType", length: priceType.length } });
     }
   }
 
   private static validatePriceCurrencyCode(currencyCode: string, tool: string): void {
     if (typeof currencyCode !== "string") {
       throw new InvalidTypeValueError("'currencyCode' must be a string.", { suggestedTools: [tool], context: { field: "currencyCode", received: typeof currencyCode } });
+    }
+    if (currencyCode.length === 0) {
+      throw new InvalidTypeValueError("'currencyCode' must not be empty.", { suggestedTools: [tool], context: { field: "currencyCode" } });
     }
     if (currencyCode.length !== MAX_CURRENCY_CODE_LENGTH) {
       throw new InvalidTypeValueError(`'currencyCode' must be ${MAX_CURRENCY_CODE_LENGTH} characters.`, { suggestedTools: [tool], context: { field: "currencyCode", length: currencyCode.length } });

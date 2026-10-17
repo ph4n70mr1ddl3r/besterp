@@ -31,6 +31,7 @@ import {
   MIN_SEARCH_OFFSET,
   MAX_SEARCH_OFFSET,
   MAX_DATE_STRING_LENGTH,
+  stripHtmlTags,
 } from "@besterp/shared";
 import type {
   CreateProductInput,
@@ -80,7 +81,7 @@ function getProductService(ctx: ToolContext) {
 
 const createProductSchema = z.strictObject({
   productType: z.string()
-    .transform((s) => s.trim().toUpperCase())
+    .transform((s) => stripHtmlTags(s.trim()).toUpperCase())
     .pipe(z.string().min(1).max(MAX_PRODUCT_TYPE_LENGTH))
     .describe("Product type (e.g., 'GOOD', 'SERVICE', 'RAW_MATERIAL')"),
   name: sanitizedString(1, MAX_PARTY_NAME_LENGTH).describe("Product name (1-500 characters)"),
@@ -267,13 +268,13 @@ Features are key-value pairs that describe product characteristics
 const addProductPriceSchema = z.strictObject({
   productId: uuidParam("The UUID of the product to add the price to"),
   priceType: z.string()
-    .transform((s) => s.trim().toUpperCase())
+    .transform((s) => stripHtmlTags(s.trim()).toUpperCase())
     .pipe(z.string().min(1).max(MAX_PRICE_TYPE_LENGTH))
     .describe("Price type (e.g., 'LIST', 'WHOLESALE', 'DISCOUNT')"),
   amount: z.number().positive().describe("Price amount (must be > 0)"),
   currencyCode: z.string()
     .optional()
-    .transform((s) => s?.trim().toUpperCase())
+    .transform((s) => s === undefined ? undefined : stripHtmlTags(s.trim()).toUpperCase())
     .pipe(z.string().length(MAX_CURRENCY_CODE_LENGTH))
     .default(DEFAULT_CURRENCY_CODE)
     .describe(`ISO 4217 currency code (default: ${DEFAULT_CURRENCY_CODE})`),

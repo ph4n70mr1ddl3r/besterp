@@ -17,6 +17,8 @@ import {
   MAX_AGENT_DESCRIPTION_LENGTH,
   MAX_VERSION_LENGTH,
   MAX_CAPABILITIES_LENGTH,
+  MAX_CAPABILITY_STRING_LENGTH,
+  MAX_ENTITY_LENGTH,
   sanitizeForLogOutput,
   stripHtmlTags,
   computeHasMore,
@@ -182,6 +184,8 @@ export class SecurityService {
       throw new InvalidTypeValueError("'version' must contain visible characters after HTML sanitization.", { suggestedTools: ["register_agent"], context: { field: "version" } });
     }
     SecurityService.validateAgentArrays(capabilities, allowedEntityTypes, "register_agent");
+    const sanitizedCapabilities = capabilities.map((c: string) => stripHtmlTags(c.trim()));
+    const sanitizedAllowedEntityTypes = allowedEntityTypes.map((e: string) => stripHtmlTags(e.trim()));
     SecurityService.validateAgentLimits(validatedAgentId, maxToolCallsPerConversation, rateLimitPerMinute, "register_agent");
     SecurityService.validateMaxConcurrentConversations(maxConcurrentConversations, "register_agent");
     SecurityService.validateMaxTransactionAmount(maxTransactionAmount, "register_agent");
@@ -193,11 +197,11 @@ export class SecurityService {
           tenantId: validatedTenantId,
           displayName: stripHtmlTags(trimmedDisplayName),
           description: stripHtmlTags(trimmedDescription),
-          capabilities,
+          capabilities: sanitizedCapabilities,
           maxToolCallsPerConversation,
           maxConcurrentConversations,
           maxTransactionAmount,
-          allowedEntityTypes,
+          allowedEntityTypes: sanitizedAllowedEntityTypes,
           rateLimitPerMinute,
           version: stripHtmlTags(trimmedVersion),
           isActive: true,
@@ -228,10 +232,23 @@ export class SecurityService {
       });
     }
     for (const item of capabilities) {
-      if (typeof item !== "string" || !item.trim()) {
+      if (typeof item !== "string") {
         throw new InvalidTypeValueError(`'capability' must be a non-empty string.`, {
           suggestedTools: [tool],
           context: { field: "capabilities", received: typeof item },
+        });
+      }
+      const stripped = stripHtmlTags(item.trim());
+      if (stripped.length === 0) {
+        throw new InvalidTypeValueError(`'capability' must contain visible characters after HTML sanitization.`, {
+          suggestedTools: [tool],
+          context: { field: "capabilities" },
+        });
+      }
+      if (stripped.length > MAX_CAPABILITY_STRING_LENGTH) {
+        throw new InvalidTypeValueError(`'capability' exceeds maximum length of ${MAX_CAPABILITY_STRING_LENGTH} characters.`, {
+          suggestedTools: [tool],
+          context: { field: "capabilities", length: stripped.length },
         });
       }
     }
@@ -242,10 +259,23 @@ export class SecurityService {
       });
     }
     for (const item of allowedEntityTypes) {
-      if (typeof item !== "string" || !item.trim()) {
+      if (typeof item !== "string") {
         throw new InvalidTypeValueError(`'allowedEntityType' must be a non-empty string.`, {
           suggestedTools: [tool],
           context: { field: "allowedEntityTypes", received: typeof item },
+        });
+      }
+      const stripped = stripHtmlTags(item.trim());
+      if (stripped.length === 0) {
+        throw new InvalidTypeValueError(`'allowedEntityType' must contain visible characters after HTML sanitization.`, {
+          suggestedTools: [tool],
+          context: { field: "allowedEntityTypes" },
+        });
+      }
+      if (stripped.length > MAX_ENTITY_LENGTH) {
+        throw new InvalidTypeValueError(`'allowedEntityType' exceeds maximum length of ${MAX_ENTITY_LENGTH} characters.`, {
+          suggestedTools: [tool],
+          context: { field: "allowedEntityTypes", length: stripped.length },
         });
       }
     }
@@ -371,14 +401,14 @@ export class SecurityService {
       if (stripHtmlTags(v).length === 0) throw new InvalidTypeValueError("'description' must contain visible characters after HTML sanitization.", { suggestedTools: ["update_agent"], context: { field: "description" } });
       updateData.description = stripHtmlTags(v);
     }
-    if (updates.capabilities !== undefined) updateData.capabilities = updates.capabilities;
+    if (updates.capabilities !== undefined) updateData.capabilities = updates.capabilities.map((c: string) => stripHtmlTags(c.trim()));
     if (updates.maxToolCallsPerConversation !== undefined)
       updateData.maxToolCallsPerConversation = updates.maxToolCallsPerConversation;
     if (updates.maxConcurrentConversations !== undefined)
       updateData.maxConcurrentConversations = updates.maxConcurrentConversations;
     if (updates.maxTransactionAmount !== undefined)
       updateData.maxTransactionAmount = updates.maxTransactionAmount;
-    if (updates.allowedEntityTypes !== undefined) updateData.allowedEntityTypes = updates.allowedEntityTypes;
+    if (updates.allowedEntityTypes !== undefined) updateData.allowedEntityTypes = updates.allowedEntityTypes.map((e: string) => stripHtmlTags(e.trim()));
     if (updates.rateLimitPerMinute !== undefined)
       updateData.rateLimitPerMinute = updates.rateLimitPerMinute;
     if (updates.version !== undefined) {

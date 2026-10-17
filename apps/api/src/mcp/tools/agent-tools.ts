@@ -96,12 +96,12 @@ const registerAgentSchema = z.strictObject({
     .transform((s) => stripHtmlTags(s.trim()))
     .pipe(z.string().min(1).max(MAX_AGENT_DESCRIPTION_LENGTH))
     .describe("AI-readable description of this agent's purpose and capabilities"),
-  capabilities: z.array(z.string().min(1).max(MAX_CAPABILITY_STRING_LENGTH))
+  capabilities: z.array(z.string().transform((s) => stripHtmlTags(s.trim())).pipe(z.string().min(1).max(MAX_CAPABILITY_STRING_LENGTH)))
     .min(1)
     .max(MAX_CAPABILITIES_LENGTH)
     .describe("List of tool names this agent is allowed to call (e.g., ['create_party', 'search_parties'])"),
   version: z.string()
-    .transform((s) => s.trim())
+    .transform((s) => stripHtmlTags(s.trim()))
     .pipe(z.string().min(1).max(MAX_VERSION_LENGTH))
     .describe("Semantic version string (e.g., '1.0.0')"),
   maxToolCallsPerConversation: z.number().int().min(MIN_MAX_TOOL_CALLS_PER_CONVERSATION).max(MAX_MAX_TOOL_CALLS_PER_CONVERSATION).optional()
@@ -110,7 +110,7 @@ const registerAgentSchema = z.strictObject({
     .describe(`Max concurrent conversations (default: ${DEFAULT_MAX_CONCURRENT_CONVERSATIONS})`),
   maxTransactionAmount: z.number().min(0).optional()
     .describe("Per-operation financial limit in tenant base currency (default: 0 = unlimited)"),
-  allowedEntityTypes: z.array(z.string().min(1).max(MAX_ENTITY_LENGTH)).optional()
+  allowedEntityTypes: z.array(z.string().transform((s) => stripHtmlTags(s.trim())).pipe(z.string().min(1).max(MAX_ENTITY_LENGTH))).optional()
     .describe("Entity types this agent can interact with (e.g., ['party', 'order'])"),
   rateLimitPerMinute: z.number().int().min(MIN_RATE_LIMIT_PER_MINUTE).max(MAX_RATE_LIMIT_PER_MINUTE).optional()
     .describe(`Max tool calls per minute (default: ${DEFAULT_RATE_LIMIT_PER_MINUTE})`),
@@ -261,10 +261,10 @@ const updateAgentSchema = z.strictObject({
     .pipe(z.string().min(1).max(MAX_AGENT_DESCRIPTION_LENGTH))
     .optional()
     .describe("New description"),
-  capabilities: z.array(z.string().min(1).max(MAX_CAPABILITY_STRING_LENGTH)).optional()
+  capabilities: z.array(z.string().transform((s) => stripHtmlTags(s.trim())).pipe(z.string().min(1).max(MAX_CAPABILITY_STRING_LENGTH))).optional()
     .describe("Updated capability list"),
   version: z.string()
-    .transform((s) => s.trim())
+    .transform((s) => stripHtmlTags(s.trim()))
     .pipe(z.string().min(1).max(MAX_VERSION_LENGTH))
     .optional()
     .describe("New version string"),
@@ -274,7 +274,7 @@ const updateAgentSchema = z.strictObject({
     .describe(`Max concurrent conversations (default: ${DEFAULT_MAX_CONCURRENT_CONVERSATIONS})`),
   maxTransactionAmount: z.number().min(0).optional()
     .describe("Per-operation financial limit in tenant base currency (default: 0 = unlimited)"),
-  allowedEntityTypes: z.array(z.string().min(1).max(MAX_ENTITY_LENGTH)).optional()
+  allowedEntityTypes: z.array(z.string().transform((s) => stripHtmlTags(s.trim())).pipe(z.string().min(1).max(MAX_ENTITY_LENGTH))).optional()
     .describe("Entity types this agent can interact with (e.g., ['party', 'order'])"),
   rateLimitPerMinute: z.number().int().min(MIN_RATE_LIMIT_PER_MINUTE).max(MAX_RATE_LIMIT_PER_MINUTE).optional()
     .describe(`Max tool calls per minute (default: ${DEFAULT_RATE_LIMIT_PER_MINUTE})`),
