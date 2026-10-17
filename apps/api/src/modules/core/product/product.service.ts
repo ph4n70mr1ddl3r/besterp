@@ -422,14 +422,16 @@ export class ProductService {
     thruDate: string | null | undefined,
     tool: string,
   ): { priceType: string; amount: number; currencyCode: string; fromDate: Date; thruDate: Date | null } {
+    const trimmedPriceType = priceType.trim();
+    const trimmedCurrencyCode = currencyCode.trim().toUpperCase();
     ProductService.validatePriceAmount(amount, tool);
-    ProductService.validatePriceType(priceType, tool);
-    ProductService.validatePriceCurrencyCode(currencyCode, tool);
+    ProductService.validatePriceType(trimmedPriceType, tool);
+    ProductService.validatePriceCurrencyCode(trimmedCurrencyCode, tool);
     const parsedFromDate = fromDate ? parseISODateTimeAsUTC(fromDate) : new Date();
     ProductService.validateParsedDate(parsedFromDate, "fromDate", fromDate, tool);
     const parsedThruDate = thruDate ? parseISODateTimeAsUTC(thruDate) : null;
     ProductService.validateParsedDate(parsedThruDate, "thruDate", thruDate, tool);
-    return { priceType: priceType.toUpperCase(), amount, currencyCode: currencyCode.toUpperCase(), fromDate: parsedFromDate, thruDate: parsedThruDate };
+    return { priceType: trimmedPriceType.toUpperCase(), amount, currencyCode: trimmedCurrencyCode, fromDate: parsedFromDate, thruDate: parsedThruDate };
   }
 
   private static validatePriceAmount(amount: number, tool: string): void {
@@ -472,7 +474,11 @@ export class ProductService {
     if (value.length > maxLength) {
       throw new InvalidTypeValueError(`'${field}' exceeds maximum length of ${maxLength} characters.`, { suggestedTools: [tool], context: { field, length: value.length } });
     }
-    return stripHtmlTags(value);
+    const stripped = stripHtmlTags(value);
+    if (stripped.length === 0) {
+      throw new InvalidTypeValueError(`'${field}' must contain visible characters after HTML sanitization.`, { suggestedTools: [tool], context: { field } });
+    }
+    return stripped;
   }
 
   private static requireOptionalString(value: string, field: string, maxLength: number, tool: string): string | null {
@@ -480,7 +486,8 @@ export class ProductService {
     if (value.length > maxLength) {
       throw new InvalidTypeValueError(`'${field}' exceeds maximum length of ${maxLength} characters.`, { suggestedTools: [tool], context: { field, length: value.length } });
     }
-    return stripHtmlTags(value);
+    const stripped = stripHtmlTags(value);
+    return stripped.length === 0 ? null : stripped;
   }
 
   private static requireUuid(value: string, field: string, suggestedTools: string[]): string {
