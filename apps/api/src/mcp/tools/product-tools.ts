@@ -274,7 +274,7 @@ const addProductPriceSchema = z.strictObject({
   currencyCode: z.string()
     .optional()
     .transform((s) => s?.trim().toUpperCase())
-    .pipe(z.string().length(MAX_CURRENCY_CODE_LENGTH).optional())
+    .pipe(z.string().length(MAX_CURRENCY_CODE_LENGTH))
     .default(DEFAULT_CURRENCY_CODE)
     .describe(`ISO 4217 currency code (default: ${DEFAULT_CURRENCY_CODE})`),
   fromDate: optionalIsoDate(MAX_DATE_STRING_LENGTH).describe(`Start date (ISO 8601, max ${MAX_DATE_STRING_LENGTH} chars, default: now)`),
