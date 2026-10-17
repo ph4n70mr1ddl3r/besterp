@@ -70,7 +70,7 @@ Each tool listing includes its risk level and confirmation requirements.`,
         .optional()
         .transform((s) => {
           if (s === undefined) return undefined;
-          const trimmed = s.trim();
+          const trimmed = stripHtmlTags(s.trim());
           return trimmed.length === 0 ? undefined : trimmed;
         })
         .pipe(z.string().max(MAX_ENTITY_LENGTH).optional())
@@ -207,7 +207,7 @@ Returns the entity's description, AI prompt hint, and key fields.`,
 
     inputSchema: z.strictObject({
       entityName: z.string()
-        .transform((s) => s.trim().toLowerCase())
+        .transform((s) => stripHtmlTags(s.trim()).toLowerCase())
         .pipe(z.string().min(1).max(MAX_ENTITY_LENGTH))
         .describe("The entity name to describe (e.g., 'party', 'person', 'role_type')"),
     }),
@@ -316,7 +316,7 @@ Example: get_valid_transitions({ entity: "party" }) returns { active: ["inactive
 
     inputSchema: z.strictObject({
       entity: z.string()
-        .transform((s) => s.trim().toLowerCase())
+        .transform((s) => stripHtmlTags(s.trim()).toLowerCase())
         .pipe(z.string().min(1).max(MAX_ENTITY_LENGTH))
         .describe("The entity name (e.g., 'party', 'order', 'invoice')"),
     }),
@@ -370,7 +370,7 @@ Example: search_across_entities({ query: "Widget", entity: "product" })`,
 
     inputSchema: z.strictObject({
       query: z.string()
-        .transform((s) => s.trim())
+        .transform((s) => stripHtmlTags(s.trim()))
         .pipe(z.string().min(1).max(MAX_SEARCH_QUERY_LENGTH))
         .describe("Search term (partial match, case-insensitive)"),
       entity: z.enum(["party", "product"]).optional()
@@ -569,7 +569,7 @@ Example: explain_error({ errorCode: "INVALID_TYPE_VALUE" })`,
 
     inputSchema: z.strictObject({
       errorCode: z.string()
-        .transform((s) => s.trim().toUpperCase())
+        .transform((s) => stripHtmlTags(s.trim()).toUpperCase())
         .pipe(z.string().min(1).max(MAX_ERROR_CODE_LENGTH))
         .describe("The error code to explain (e.g., 'INVALID_TYPE_VALUE', 'P2002')"),
     }),

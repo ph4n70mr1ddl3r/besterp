@@ -66,7 +66,11 @@ export function optionalSearchFilterString(max: number) {
 export function optionalIsoDate(max: number = MAX_DATE_STRING_LENGTH) {
   return z.string()
     .optional()
-    .transform(s => s?.trim() || undefined)
+    .transform(s => {
+      if (s === undefined || s === null) return undefined;
+      const trimmed = stripHtmlTags(s.trim());
+      return trimmed.length === 0 ? undefined : trimmed;
+    })
     .pipe(z.string().max(max).optional())
     .refine(
       v => v === undefined || isValidISODate(v),
@@ -81,7 +85,7 @@ export function optionalIsoDate(max: number = MAX_DATE_STRING_LENGTH) {
  */
 export function uuidParam(description: string) {
   return z.string()
-    .transform(s => s.trim())
+    .transform(s => stripHtmlTags(s.trim()))
     .pipe(z.string().min(1).max(MAX_UUID_STRING_LENGTH).regex(UUID_REGEX, "Must be a valid UUID"))
     .describe(description);
 }

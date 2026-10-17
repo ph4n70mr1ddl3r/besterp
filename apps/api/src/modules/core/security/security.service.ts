@@ -169,7 +169,11 @@ export class SecurityService {
       version,
     } = input;
 
-    const validatedAgentId = SecurityService.requireStringField(agentId, "agentId", MAX_AGENT_ID_LENGTH, "register_agent");
+    const rawAgentId = SecurityService.requireStringField(agentId, "agentId", MAX_AGENT_ID_LENGTH, "register_agent");
+    const validatedAgentId = stripHtmlTags(rawAgentId);
+    if (validatedAgentId.length === 0) {
+      throw new InvalidTypeValueError("'agentId' must contain visible characters after HTML sanitization.", { suggestedTools: ["register_agent"], context: { field: "agentId" } });
+    }
     const validatedTenantId = SecurityService.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "register_agent");
     const trimmedDisplayName = SecurityService.requireStringField(displayName, "displayName", MAX_PARTY_NAME_LENGTH, "register_agent");
     const trimmedDescription = SecurityService.requireStringField(description, "description", MAX_AGENT_DESCRIPTION_LENGTH, "register_agent");
@@ -329,7 +333,11 @@ export class SecurityService {
     const { agentId, tenantId, ...updates } = input;
 
     const trimmedTenantId = SecurityService.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "update_agent");
-    const validatedAgentId = SecurityService.requireStringField(agentId, "agentId", MAX_AGENT_ID_LENGTH, "update_agent");
+    const rawAgentId = SecurityService.requireStringField(agentId, "agentId", MAX_AGENT_ID_LENGTH, "update_agent");
+    const validatedAgentId = stripHtmlTags(rawAgentId);
+    if (validatedAgentId.length === 0) {
+      throw new InvalidTypeValueError("'agentId' must contain visible characters after HTML sanitization.", { suggestedTools: ["update_agent"], context: { field: "agentId" } });
+    }
 
     // Validate array fields when provided — mirrors registerAgent so the
     // service layer remains the last line of defense for direct/internal

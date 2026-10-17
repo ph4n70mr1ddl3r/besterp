@@ -525,7 +525,7 @@ describe("Discovery MCP Tools", () => {
     it("should sanitize user input in entity descriptor not-found message", async () => {
       const result = await registry.execute(
         "describe_entity",
-        { entityName: "<script>evil</script>party" },
+        { entityName: "<script>evil</script>nonexistent_entity" },
         mockContext,
       );
 

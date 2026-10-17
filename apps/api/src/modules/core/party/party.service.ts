@@ -650,8 +650,12 @@ export class PartyService {
     if (!trimmed) {
       throw new InvalidTypeValueError(`'roleType' must not be empty.`, { suggestedTools: ["add_party_role"], context: { field: "roleType", received: sanitizeForLogOutput(stripHtmlTags(roleType)) } });
     }
-    PartyService.requireMaxLength(trimmed, "Role type", MAX_ROLE_TYPE_LENGTH, "add_party_role");
-    return trimmed;
+    const stripped = stripHtmlTags(trimmed);
+    if (stripped.length === 0) {
+      throw new InvalidTypeValueError(`'roleType' must contain visible characters after HTML sanitization.`, { suggestedTools: ["add_party_role"], context: { field: "roleType" } });
+    }
+    PartyService.requireMaxLength(stripped, "Role type", MAX_ROLE_TYPE_LENGTH, "add_party_role");
+    return stripped;
   }
 
   private static parseFromDate(fromDate: string | undefined | null): Date {

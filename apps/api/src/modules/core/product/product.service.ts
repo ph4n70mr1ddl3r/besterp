@@ -284,7 +284,10 @@ export class ProductService {
       throw new InvalidTypeValueError("'productTypeId' must be a string.", { suggestedTools: [tool], context: { field: "productTypeId", received: typeof productTypeId } });
     }
     if (productTypeId !== undefined) {
-      const trimmedProductTypeId = productTypeId.trim();
+      const trimmedProductTypeId = stripHtmlTags(productTypeId.trim());
+      if (trimmedProductTypeId.length === 0) {
+        throw new InvalidTypeValueError("'productType' must contain visible characters after HTML sanitization.", { suggestedTools: ["update_product"], context: { field: "productType" } });
+      }
       let pt;
       try {
         pt = await prisma.admin.productType.findUnique({ where: { name: trimmedProductTypeId } });
