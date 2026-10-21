@@ -60,13 +60,25 @@ const TRUNCATION_MARKER_KEY = "__besterp_trunc";
  * serialisation-failure indicator, not a truncation indicator — consumers
  * that check `isTruncationMarker` will never misidentify it as truncated data.
  */
-function truncationMarker(encoded: Uint8Array): {
+function truncationMarker(encoded: Uint8Array, effectiveMax: number = MAX_STORED_PAYLOAD_SIZE): {
   __besterp_trunc: true;
   _truncated: true;
   _originalSize: number;
-  _preview: string;
+  _preview?: string;
 } {
-  return {
+  // The marker itself is stored, so it must fit inside `effectiveMax`. The
+  // preview is a fixed TRUNCATE_PREVIEW_BYTES (1024) by default, which is
+  // larger than a caller-supplied limit (e.g. `truncateValue(v, 100)`) — the
+  // returned marker was then BIGGER than the limit it was supposed to enforce.
+  // Shrink the preview (and drop it entirely if needed) until the serialised
+  // marker fits.
+  let preview = sanitizeForLogOutput(safeSliceUtf8(encoded, TRUNCATE_PREVIEW_BYTES));
+  let marker: {
+    __besterp_trunc: true;
+    _truncated: true;
+    _originalSize: number;
+    _preview?: string;
+  } = {
     [TRUNCATION_MARKER_KEY]: true,
     _truncated: true,
     _originalSize: encoded.byteLength,
@@ -79,8 +91,19 @@ function truncationMarker(encoded: Uint8Array): {
     // `_preview` field — an asymmetric leak into the cross-tenant audit sink.
     // sanitizeForLogOutput scrubs high-entropy bearer/secret tokens by shape,
     // so the preview can never carry a raw secret.
-    _preview: sanitizeForLogOutput(safeSliceUtf8(encoded, TRUNCATE_PREVIEW_BYTES)),
+    _preview: preview,
   };
+  while (textEncoder.encode(JSON.stringify(marker)).byteLength > effectiveMax && preview.length > 0) {
+    preview = preview.slice(0, Math.floor(preview.length / 2));
+    marker = { ...marker, _preview: preview };
+  }
+  // Even an empty preview may not fit (an extremely small limit). Drop the
+  // optional `_preview` field rather than exceeding the bound.
+  if (textEncoder.encode(JSON.stringify(marker)).byteLength > effectiveMax) {
+    const { _preview: _dropped, ...rest } = marker;
+    return rest;
+  }
+  return marker;
 }
 
 export function isTruncationMarker(value: unknown): boolean {
@@ -104,7 +127,10 @@ export function isTruncationMarker(value: unknown): boolean {
 export function capString(value: unknown, maxBytes: number): string {
   const effectiveMax = Math.max(1, maxBytes);
   if (typeof value !== "string") {
-    return "Non-string value in error message (truncated)";
+    // The fallback message must itself respect the cap — it was a fixed
+    // 45-byte string regardless of `maxBytes`, so a small cap produced a
+    // result LARGER than the limit it was supposed to enforce.
+    return safeSliceUtf8(textEncoder.encode("Non-string value in error message (truncated)"), effectiveMax);
   }
   const encoded = textEncoder.encode(value);
   if (encoded.byteLength <= effectiveMax) {
@@ -249,7 +275,7 @@ function safeParse(serialized: string): unknown | undefined {
  * returning a truncation marker if so, or `null` if the value fits.
  */
 function checkOversized(encoded: Uint8Array, effectiveMax: number): ReturnType<typeof truncationMarker> | null {
-  return encoded.byteLength > effectiveMax ? truncationMarker(encoded) : null;
+  return encoded.byteLength > effectiveMax ? truncationMarker(encoded, effectiveMax) : null;
 }
 
 /**
@@ -264,7 +290,7 @@ function checkOversized(encoded: Uint8Array, effectiveMax: number): ReturnType<t
 function checkOversizedStoredString(raw: string, effectiveMax: number): ReturnType<typeof truncationMarker> | null {
   const encoded = textEncoder.encode(raw);
   const stored = textEncoder.encode(JSON.stringify(raw));
-  return stored.byteLength > effectiveMax ? truncationMarker(encoded) : null;
+  return stored.byteLength > effectiveMax ? truncationMarker(encoded, effectiveMax) : null;
 }
 
 /**

@@ -24,6 +24,7 @@ import {
   stripHtmlTags,
   computeHasMore,
   handleTransactionError as mapPrismaError,
+  decimalToNumber,
   DEFAULT_SEARCH_LIMIT,
   MIN_SEARCH_LIMIT,
   MAX_SEARCH_LIMIT,
@@ -191,7 +192,7 @@ export class SecurityService {
     SecurityService.validateAgentArrays(capabilities, allowedEntityTypes, "register_agent");
     const sanitizedCapabilities = capabilities.map((c: string) => stripHtmlTags(c.trim()));
     const sanitizedAllowedEntityTypes = allowedEntityTypes.map((e: string) => stripHtmlTags(e.trim()));
-    SecurityService.validateAgentLimits(validatedAgentId, maxToolCallsPerConversation, rateLimitPerMinute, "register_agent");
+    SecurityService.validateAgentLimits(maxToolCallsPerConversation, rateLimitPerMinute, "register_agent");
     SecurityService.validateMaxConcurrentConversations(maxConcurrentConversations, "register_agent");
     SecurityService.validateMaxTransactionAmount(maxTransactionAmount, "register_agent");
 
@@ -297,7 +298,6 @@ export class SecurityService {
   }
 
   private static validateAgentLimits(
-    _agentId: string,
     maxToolCallsPerConversation: number | undefined,
     rateLimitPerMinute: number | undefined,
     tool: string,
@@ -368,7 +368,6 @@ export class SecurityService {
     // skips the range check when the value is undefined.
     if (updates.maxToolCallsPerConversation !== undefined || updates.rateLimitPerMinute !== undefined) {
       SecurityService.validateAgentLimits(
-        validatedAgentId,
         updates.maxToolCallsPerConversation,
         updates.rateLimitPerMinute,
         "update_agent",
@@ -634,22 +633,12 @@ export class SecurityService {
    * agent result reported `maxTransactionAmount: null`, even when a limit
    * had been configured. The agent therefore could not verify that a
    * financial restriction was applied.
+   *
+   * Delegates to the shared `decimalToNumber` helper, which is also used by
+   * the product-price mapper, so the two cannot drift.
    */
   private static toTransactionAmount(value: unknown): number | null {
-    if (typeof value === "number") return Number.isFinite(value) ? value : null;
-    if (value === null || value === undefined) return null;
-    if (typeof value === "object") {
-      const decimal = value as { toNumber?: () => number; toString?: () => string };
-      if (typeof decimal.toNumber === "function") {
-        const parsed = decimal.toNumber();
-        return Number.isFinite(parsed) ? parsed : null;
-      }
-      if (typeof decimal.toString === "function") {
-        const parsed = Number(decimal.toString());
-        return Number.isFinite(parsed) ? parsed : null;
-      }
-    }
-    return null;
+    return decimalToNumber(value);
   }
 
   /** Validate that a pagination parameter is a finite integer before clamping.

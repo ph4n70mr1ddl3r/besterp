@@ -297,8 +297,8 @@ describe("hashInput", () => {
     expect(hashInput({})).toMatch(/^[a-f0-9]{64}$/);
   });
 
-  it("should refuse to hash input nested deeper than MAX_HASH_DEPTH (DoS guard)", () => {
-    // Build nesting ~120 levels deep — beyond the MAX_HASH_DEPTH (100) cap.
+  it("should refuse to hash input nested deeper than MAX_NESTING_DEPTH (DoS guard)", () => {
+    // Build nesting ~120 levels deep — beyond the MAX_NESTING_DEPTH (100) cap.
     let deep: Record<string, unknown> = { leaf: 1 };
     for (let i = 0; i  < 120; i++) {
       deep = { nested: deep };
@@ -313,7 +313,7 @@ describe("hashInput", () => {
   it("should throw InvalidTypeValueError (not RangeError) on pathological nesting (stack-overflow regression)", () => {
     // Regression (round 115): countKeys recursed without any depth guard, so a
     // nested array ~15k levels deep blew the call stack with a RangeError
-    // BEFORE sortKeysDeep's documented MAX_HASH_DEPTH (100) guard ever ran.
+    // BEFORE sortKeysDeep's documented MAX_NESTING_DEPTH (100) guard ever ran.
     // The depth check now lives in BOTH passes so the input is rejected at the
     // same depth by countKeys (the first recursion) instead of crashing.
     //

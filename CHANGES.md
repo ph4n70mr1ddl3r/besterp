@@ -1,5 +1,450 @@
 # BestERP — Security & Architecture Fixes
 
+## Changes Applied (2026-10-21) — Code Review Round 271
+
+### 🔴 `product.service.ts` — `get_product` and `add_product_price` failed for every product that had a price
+
+**Problem:** `product_price.amount` is a Prisma `Decimal @db.Decimal(19, 4)`,
+which the driver returns as a `Prisma.Decimal` OBJECT — never a JS `number`.
+The result mappers asserted `typeof value === "number"`, so the numeric branch
+was NEVER taken for a real database row:
+
+- `get_product` threw `INVALID_TYPE_VALUE: Internal data error: product price
+  amount has unexpected type 'object'` for **every** product that had at least
+  one price.
+- `add_product_price` wrote the row and THEN threw, so the agent was told the
+  write failed although the price had been persisted — and a retry under the
+  same idempotency key created a **duplicate price row**.
+
+The bug was invisible in the tests because the mocks used plain numbers. The
+sibling implementation (`SecurityService.toTransactionAmount`) already
+documented the correct shape — the two had simply drifted apart.
+
+**Fix:**
+- New shared helper `decimalToNumber` (`@besterp/shared/decimal.ts`) converts a
+  `Prisma.Decimal` / numeric string / plain number into a number, returning
+  `null` for anything that cannot be represented.
+- `ProductService.toPriceAmount` and `SecurityService.toTransactionAmount` both
+  delegate to it, so the two mappers cannot drift again.
+- Added a regression test that mocks a Decimal-shaped object (the real driver
+  shape) and asserts the mapped amount is a number.
+
+### 🔴 `rls-setup.sql` + `prisma.service.ts` — two tenant tables had no RLS at all
+
+**Problem:** `user` (which stores `password_hash`) and `agent_registry` were
+added after the original RLS script and were never covered by it. Both carry a
+`tenant_id` column and both are tenant-scoped, so with no policy the
+application role could read and write **every tenant's rows** — the exact
+silent cross-tenant exposure the rest of the script exists to prevent.
+
+The boot-time check did not catch it either: `verifyRlsEnabled` only flags a
+table that HAS force-RLS but is missing from the verification list. A table
+with **no RLS at all** is invisible to that check, so the service logged
+"RLS verified enabled" while two tenant tables (one of them the most
+sensitive in the schema) remained unprotected.
+
+**Fix:**
+- `rls-setup.sql` now enables + forces RLS on `agent_registry` and `"user"`
+  (quoted — `user` is a reserved word) and adds tenant-isolation policies.
+  The `user` policy uses the dual constraint (own `tenant_id` AND owning
+  party), mirroring `postal_address` / `telecom_number`.
+- The boot-time verification list now includes both tables, so a deployment
+  that forgets to apply the updated `rls-setup.sql` REFUSES TO BOOT.
+- Added a regression test that a tenant table with no RLS fails the boot check.
+
+### 🔴 `main.ts` — an unhandled promise rejection exited the process with code 0
+
+**Problem:** `gracefulShutdown` always called `process.exit(0)`. An
+`unhandledRejection` is an ERROR condition, but the process looked like a
+clean termination to systemd (`Restart=on-failure`), Docker
+(`restart: on-failure`) and Kubernetes (`restartPolicy: OnFailure`) — so the
+service stayed DOWN instead of being restarted, and monitoring saw a normal
+termination rather than a crash.
+
+**Fix:** `gracefulShutdown` now takes the exit code, and the
+`unhandledRejection` path exits with `1` (matching `uncaughtException`).
+
+### 🟠 `main.ts` — the AppModule import was unguarded, defeating its own purpose
+
+**Problem:** The dynamic import of `AppModule` was introduced so that a
+missing `REDIS_HOST` / `REDIS_PASSWORD` would fail with a clean one-line
+error instead of a raw import-time stack trace. But the import was NOT wrapped
+in a try/catch, and `QueueModule.forRoot()` runs during the decorator
+evaluation the import triggers — so the process still died with a raw
+`Error: Redis host is required…` stack trace.
+
+**Fix:** Both the dynamic import and `NestFactory.create` are now wrapped and
+report a clean, sanitized error before `process.exit(1)`.
+
+### 🟠 `main.ts` — required env vars were enforced only in `production`
+
+**Problem:** `validateRequiredEnvVars` required `DATABASE_URL`,
+`DATABASE_ADMIN_URL` and `JWT_SECRET` only when `NODE_ENV === "production"`.
+`isDev()` and `isProd()` are NOT complements: `staging`, `test` and an unset
+`NODE_ENV` are neither — so those environments booted without the variables
+and then crashed inside `NestFactory.create` with a raw stack trace
+(`PrismaService` already refuses to boot without them in any non-dev
+environment).
+
+**Fix:** The required set is enforced in every NON-DEVELOPMENT environment.
+The rule moved into a testable resolver (`resolveRequiredEnvVars` in
+`bootstrap-config.ts`) with regression tests for production / staging / test /
+unset / development.
+
+### 🟠 `auth.module.ts` — an empty `JWT_EXPIRES_IN` broke every token-signing call
+
+**Problem:** `process.env.JWT_EXPIRES_IN ?? "24h"` passes an EMPTY string
+through unchanged (`??` only replaces `null`/`undefined`), and jsonwebtoken
+REJECTS `expiresIn: ""` ("expiresIn should be a number of seconds or string
+representing a timespan") — so every token-signing call threw at runtime.
+The boot validation had the same hole: an empty value is falsy, so it
+skipped the format check entirely.
+
+**Fix:** `main.ts` now rejects an empty `JWT_EXPIRES_IN` at boot, and the
+module falls back to the default with `||` semantics.
+
+### 🟠 `audit-log.ts` — an oversized confirmation aborted the tool call and lost the audit row
+
+**Problem:** The audit middleware is documented as fire-and-forget ("audit
+should never break the tool"), but `withConfirmation` called `stripHtmlTags`
+on the RAW confirmation. `stripHtmlTags` throws for inputs over 100 KB, and
+the confirmation is promoted from the tool arguments without any length
+validation. An oversized confirmation therefore:
+1. aborted the whole tool call with an opaque `INTERNAL_ERROR`,
+2. wrote NO audit row, and
+3. made the confirmation gate's own length check unreachable.
+
+**Fix:** The confirmation is clamped BEFORE it is sanitized, and the sanitize
+call is wrapped so the audit path can never throw. The same treatment was
+applied to the `userId` / `agentId` / `conversationId` identity fields, which
+are also sanitized outside the try/catch.
+
+### 🟠 `audit-log.ts` — a non-plain-object tool input vanished from the audit row
+
+**Problem:** `withConfirmation` built the audit payload as
+`{ ...(isPlainObjectData(input) ? input : {}), confirmation }` — so an array /
+Map / class-instance input was REPLACED by `{}` and the entire tool input
+disappeared from the durable audit trail.
+
+**Fix:** A non-plain-object input is now nested under an `input` key so both
+the input and the confirmation survive.
+
+### 🟠 `confirmation-gate.ts` — a markup-only confirmation passed the gate
+
+**Problem:** The length gate ran on the RAW confirmation, but the value that
+is propagated on the context and persisted to `ai_action_log.toolInput` is the
+post-`stripHtmlTags` one. A markup-only confirmation (an HTML comment
+wrapping a justification) passed the ">= 10 characters" check on the raw
+value but collapsed to `""` — so a high-risk operation executed with **no
+recorded justification at all**.
+
+**Fix:** The sanitized value is validated for length and non-emptiness, so the
+justification that is actually persisted is the one that was checked.
+
+### 🟠 `tool-registry.ts` — the validation-issue array was bounded in COUNT but not in LENGTH
+
+**Problem:** The joined issue summary was capped at 2000 chars, but each of
+the ≤50 issues carried an UNCAPPED `message` and `received` value (a Zod
+issue message can echo the offending input verbatim). The bounded issue array
+could therefore still carry ~5 MB to the agent.
+
+**Fix:** Each issue message and `received` value is capped independently
+(`MAX_VALIDATION_ISSUE_MESSAGE_LENGTH`), and the aggregate bound is now
+shared with the error-handler path (`MAX_ERROR_MESSAGE_LENGTH`).
+
+### 🟠 `error-handler.ts` — the DomainError path had no length cap at all
+
+**Problem:** The `INVALID_INPUT` path capped the agent-facing message at 2000
+chars, but the DomainError path applied only `sanitizeForLogOutput`'s internal
+100 KB truncation — so the two surfaces disagreed on how large an agent-facing
+error message may be.
+
+**Fix:** The DomainError `code`, `message` and `suggestedTools` are capped at
+the same shared `MAX_ERROR_MESSAGE_LENGTH`.
+
+### 🟠 `idempotency.ts` — a P2002 race was reported as an infrastructure outage
+
+**Problem:** The check-then-insert race in `acquireIdempotencyRecord` can
+surface as a unique-constraint violation (P2002) rather than a serialization
+failure. Every non-P2034 error was treated as fatal and returned
+`SERVICE_UNAVAILABLE` — whose message says "the operation cannot be retried
+at this time", the WRONG recovery instruction for a duplicate-key race
+(the concurrent request holds the record).
+
+**Fix:** P2002 re-reads the row and routes it through `handleExistingRecord`,
+so the agent gets the actionable `REQUEST_IN_PROGRESS` / replay semantics.
+
+### 🟠 `truncate.ts` — the truncation marker could be LARGER than the limit it enforced
+
+**Problem:** The marker's `_preview` was a fixed `TRUNCATE_PREVIEW_BYTES`
+(1024) regardless of the caller's limit, so `truncateValue(value, 100)`
+returned a 1102-byte stored payload — the stored form exceeded the bound the
+function promised to enforce. `capString`'s non-string fallback had the same
+problem (a fixed 45-byte string regardless of `maxBytes`).
+
+**Fix:** The marker shrinks its preview (and drops it entirely if needed)
+until the serialised marker fits the limit; `capString`'s fallback is
+capped.
+
+### 🟠 `sanitize.ts` — the redactor was vulnerable to prototype injection
+
+**Problem:** `redactPlainObject` built its result with a normal object
+literal. A `__proto__` key in the input therefore invoked the
+`Object.prototype.__proto__` SETTER: the key was silently dropped (never
+created as an own property) and the PROTOTYPE of the result was replaced by
+the attacker-supplied child, so `out.<attackerKey>` resolved through the
+prototype chain. The sibling implementation in `crypto.ts` explicitly used
+`Object.create(null)` for exactly this reason.
+
+**Fix:** Both `redactPlainObject` and the depth-limit branch construct their
+result with `Object.create(null)`.
+
+### 🟠 `sanitize.ts` — a shared (non-circular) sub-object was reported as `[Circular]`
+
+**Problem:** The traversal set was used as a "visited" set rather than an
+"ancestor" set, so the SECOND occurrence of a shared node was replaced with
+`"[Circular]"` and its data was silently dropped from the audit /
+idempotency / agent-facing payloads.
+
+**Fix:** Ancestor-set semantics — each container removes itself from the set
+in a `finally`, exactly as `crypto.ts` already did.
+
+### 🟠 `sanitize.ts` — `clientApiKey` was reflected verbatim
+
+**Problem:** `isSensitiveFieldName` matched `api_key` / `apiKey` exactly and
+`api[_-]?key` via a regex, but the regex requires a non-alphanumeric
+boundary before `api` — so `clientApiKey` / `userAPIKey` did NOT match, and
+the token fallback deliberately excludes the bare `key` token. The
+semantically identical `clientSecret` WAS redacted: an asymmetric
+secret-leak path.
+
+**Fix:** The field-name tokeniser now keeps acronym runs together
+(`userAPIKey` → `user`, `API`, `Key`) and the `api` + `key` compound is
+recognised as sensitive. The bare `key` token is still not sensitive, so
+`primaryKey` / `idempotencyKey` are unaffected.
+
+### 🟠 `sanitize.ts` — redaction corrupted embedded JSON
+
+**Problem:** The quoted-value rule dropped BOTH quote characters and rewrote
+the `:` separator as `=`, so `{"api_key":"sk_live_abc"}` became
+`{api_key=[REDACTED]}` — no longer valid JSON. Any consumer that parses a
+JSON-in-text payload after redaction (audit rows, idempotency records,
+agent-facing errors) could no longer parse it.
+
+**Fix:** The name's quote characters and the `:`/`=` separator are captured
+and restored, so the redacted text stays valid JSON.
+
+### 🟠 `sanitize.ts` + `validation.ts` — plain `Error`s escaped as 500 `INTERNAL_ERROR`
+
+**Problem:** `stripHtmlTags` and `parseISODateTimeAsUTC` threw plain `Error`s.
+Both are called from inside Zod `.transform()` calls, and a Zod transform
+that throws does NOT produce a ZodIssue — the exception escapes `safeParse`
+entirely and was reported to the client as an opaque 500 `INTERNAL_ERROR`
+(server fault) even though the cause was a client-supplied value.
+
+**Fix:** Both now throw a structured `InvalidTypeValueError`, so the REST
+filter answers 422 and the MCP error handler answers `INVALID_TYPE_VALUE`.
+
+### 🟠 `product.service.ts` — an unbounded `features` array, a case-sensitive type lookup, an inverted price window and a non-alphabetic currency code
+
+**Problem (four issues in the same service):**
+- `create_product`'s `features` array had NO length bound (only the
+  individual name/value lengths were capped), so one call could create an
+  unbounded number of `product_feature` rows. The sibling agent arrays are
+  capped at BOTH layers.
+- The product type was uppercased by the MCP tool but NOT by the service, and
+  the lookup was case-SENSITIVE — so `search_products` (case-insensitive)
+  could find a product that `create_product` then refused to create.
+- `add_product_price` never compared `thruDate` with `fromDate`, so a price
+  that expires BEFORE it starts was accepted and stored.
+- `validatePriceCurrencyCode` only checked the LENGTH, so `"1US"` was
+  accepted and stored as a currency code.
+
+**Fix:** `MAX_PRODUCT_FEATURES_LENGTH` is enforced in the Zod schema and the
+service; the service normalises the product type to upper case and looks it
+up case-insensitively; an inverted price window is rejected; the currency code
+must match `/^[A-Z]{3}$/`.
+
+### 🟠 `party.service.ts` — a case-sensitive role-type lookup, a raw-length email cap and a missing UUID type guard
+
+**Problem:**
+- `add_party_role` matched the role type case-SENSITIVELY while
+  `search_parties` matched it case-insensitively — an agent that searched
+  with `roleType: "customer"` was then told "ROLE_TYPE 'customer' is not
+  valid" even though `Customer` exists.
+- The email length cap was applied to the RAW trimmed value while both
+  boundary layers (REST DTO, MCP schema) cap the STRIPPED value — an
+  HTML-wrapped address passed both boundaries and was then rejected.
+- `requireUuid` called `value.trim()` without a type check, so a
+  non-string id threw a raw `TypeError` (500 `INTERNAL_ERROR`) instead of the
+  documented `InvalidTypeValueError`.
+
+**Fix:** The role-type lookup is case-insensitive; the email cap is applied
+to the sanitized value (`requireSanitizedStringField`); `requireUuid`
+type-checks before trimming (mirroring `SecurityService` / `ProductService`).
+
+### 🟠 `discovery-tools.ts` — a missing search service was reported as "no results"
+
+**Problem:** `searchOneEntity` resolved to `null` when a service was not
+wired in. The caller only inspects REJECTED settled results, so the failure
+was silently reported as `success: true` with `results.party = null` — an
+agent could not distinguish "this tenant has no parties named X" from "the
+party search service is unavailable". The entity-scoped branch of the SAME
+tool already handled this correctly via `unavailableServiceError`.
+
+**Fix:** A missing service now REJECTS, so the branch lands in the `failures`
+list and the tool reports `SERVICE_UNAVAILABLE` (or a partial failure).
+
+### 🟠 `discovery-tools.ts` — `explain_error` did not cover the codes the pipeline emits
+
+**Problem:** The explanation map contained the domain codes and the RAW
+Prisma codes — but the raw Prisma codes are never surfaced to the agent (the
+error handler translates P2002 → `DUPLICATE_ENTITY`, P2025 →
+`ENTITY_NOT_FOUND`, P2034 → `CONCURRENCY_CONFLICT`). The codes agents
+actually see — `INVALID_INPUT` (the most frequent failure of all),
+`CONFIRMATION_REQUIRED`, `INVALID_CONFIRMATION`, `IDEMPOTENCY_KEY_MISMATCH`,
+`REQUEST_IN_PROGRESS`, `SERVICE_UNAVAILABLE`, `REFERENCE_ERROR`,
+`DATABASE_ERROR`, `INTERNAL_ERROR`, `UNKNOWN_TOOL` — were all missing, so
+`explain_error({ errorCode: "INVALID_INPUT" })` returned
+`UNKNOWN_ERROR_CODE` from the tool whose entire purpose is to explain
+unfamiliar error codes.
+
+**Fix:** The map now covers every agent-facing code the pipeline emits (the
+Prisma codes are kept as aliases).
+
+### 🟠 `discovery-tools.ts` — `get_valid_transitions` advertised state machines that do not exist
+
+**Problem:** The transition registry listed `party` (whose model has NO
+`status` column), `order` and `invoice` (tables that do not exist in this
+schema at all). A hallucination-guarding tool that itself injected a
+hallucination: an agent was told a status-transition API existed for entities
+that have no status field and no transition tool.
+
+**Fix:** The registry now only contains entities that expose a status field
+AND have a transition tool (currently none), and the error message explains
+that no such entity exists in this deployment.
+
+### 🟠 `schema.prisma` — the `product.sku` uniqueness did not match the database
+
+**Problem:** The Prisma schema declared a GLOBAL `@unique` on `sku`, while
+the database constraint created by migration `20260901000002` is
+`product_sku_tenant_key UNIQUE (tenant_id, sku)`. The generated client
+therefore allowed `db.product.findUnique({ where: { sku } })` — which would
+return an arbitrary tenant's row — and `prisma migrate dev` saw the drift
+and would generate a migration DROPPING the tenant-scoped constraint in
+favour of a global unique index: a silent multi-tenancy regression.
+
+**Fix:** The schema now declares `@@unique([tenantId, sku], map:
+"product_sku_tenant_key")`, matching the database.
+
+### 🟠 `jwt.strategy.ts` + `tenant.guard.ts` — `agentId` was validated against two different patterns
+
+**Problem:** The auth boundary used the strict `TENANT_ID_PATTERN` for
+`agentId` while the MCP layer (`McpService.buildContext` /
+`ToolRegistry.validateContextIdentity`) used the permissive
+`OPTIONAL_ID_PATTERN`. An agent ID the tooling could legitimately mint
+(`"sales.v2"`) was therefore rejected with a 401 by the very tooling that
+produced it.
+
+**Fix:** Both boundaries now use the same pattern (which still rejects
+whitespace, control characters and zero-width/bidi sequences).
+
+### 🟠 `jwt.strategy.ts` + `tenant.guard.ts` — the `role` claim was parsed and then dropped
+
+**Problem:** The documented JWT payload contract has always carried a `role`
+claim (`{ sub, tenantId, role }`) and `JwtStrategy` always parsed and
+length-checked it — but `TenantGuard` dropped it before it reached the
+request context, so no downstream code could authorize by role and future
+authors had no way of knowing RBAC existed.
+
+**Fix:** The claim is propagated onto `TenantContext` (documented as
+available but not yet enforced).
+
+### 🟠 `domain-exception.filter.ts` — `context` and `suggestedTools` were not sanitized like `message`
+
+**Problem:** The `error` and `message` fields of the response apply
+`stripHtmlTags`; the `context` object did not (`redactSensitiveFieldValues`
+runs `sanitizeForLogOutput`, which does NOT strip HTML), and
+`suggestedTools` was reflected with no sanitization at all — while the 500
+branch of the same handler logged a sanitized copy.
+
+**Fix:** The context leaves are HTML-stripped recursively (bounded depth,
+never throwing) and every `suggestedTools` entry is sanitized.
+
+### 🟠 `health.service.ts` + `health.controller.ts` — the DB probe could hang and the Redis result was discarded
+
+**Problem:**
+- The anonymous `/api/health` endpoint issued `SELECT 1` with NO timeout
+  (`/ready` bounded the same call with a 5 s race), so a hung driver/pool
+  left the liveness endpoint hanging until the load balancer's own probe
+  timeout.
+- The Redis probe ran on every anonymous poll and its result was thrown
+  away by the controller — wasted socket churn whose outcome was never used.
+
+**Fix:** The DB probe is bounded by the same shared `READY_CHECK_TIMEOUT_MS`
+race, and the controller now surfaces the `warning` field (present only when
+a non-fatal dependency is degraded, so the healthy path discloses nothing).
+
+### 🟡 Consistency & cleanup
+
+- `prisma.service.ts` — removed the dead `getTenantCacheStats` /
+  `clearTenantCache` API and the write-only `cacheHits` / `cacheMisses`
+  counters (never read anywhere in the repo).
+- `main.ts` — the global route prefix is now a single `GLOBAL_API_PREFIX`
+  constant; the rate limiter's health-probe exemption derives its path from
+  it instead of repeating the literal (changing the prefix used to silently
+  disable the exemption).
+- `queue.module.ts` / `health.service.ts` / `auth/secret-strength.ts` — the
+  Redis connect timeout, the Redis retry cap, the Redis probe cache TTL and
+  the minimum JWT secret length moved into `@besterp/shared/constants.ts`,
+  where every other limit already lived.
+- `prisma.service.ts` + `rls-extension.ts` — the two cache-size defaults were
+  duplicated across packages; they now live in `@besterp/shared`.
+- `mcp.module.ts` — the module header described a middleware order that did
+  not include the confirmation gate; it now matches `McpService.onModuleInit`.
+- `discovery-tools.ts` — `list_available_tools` only reports
+  `confirmationRequired` for tools the gate actually enforces (high/critical
+  risk), so a stale gate row for a medium-risk tool cannot advertise a
+  requirement the pipeline does not apply.
+- `party.service.ts` — the "valid types" message for an invalid `PARTY_TYPE`
+  no longer hardcodes `['PERSON', 'ORGANIZATION']` (the type table also
+  contains `TENANT`); it points at `get_type_table_values` like the sibling
+  messages do.
+- `sanitize.ts` — removed the unreachable `REDACTED_PLACEHOLDERS` branch
+  (the candidate character class cannot contain a bracket, so a candidate
+  can never be a bracketed placeholder) and corrected the misleading pipeline
+  comment.
+- `sanitize.ts` — `resolveRedisTls` now trims `REDIS_TLS` (a whitespace-padded
+  `" true "` silently fell through to the environment default).
+- `validation.ts` — the ISO date regex no longer accepts an unbounded
+  fractional-second part; `isValidOptionalId` was added so callers stop
+  calling `OPTIONAL_ID_PATTERN.test(value)` directly (which coerces
+  `undefined` to the string `"undefined"` and MATCHES).
+- `prisma-error-mapper.ts` — `resolveConflictField` returns `null` instead of
+  the ungrammatical `"this record"` fallback (which produced "A party with the
+  same this record already exists in this tenant."), and the duplicate
+  `getPrismaErrorCode` implementation now delegates to the shared
+  `getErrorCode`.
+- `pluralize.ts` — the all-caps branch required the input to contain a
+  cased character (`pluralize("1234")` returned `"1234S"`).
+- `constants.ts` — corrected the `JWT_EXPIRES_IN_REGEX` doc, which
+  misattributed the lifetime cap to the pattern (the real cap is
+  `MAX_JWT_EXPIRES_IN_DAYS`, enforced in `main.ts`).
+- `docker/docker-compose.yml` + `.env.example` — the Redis service comment
+  claimed Redis was "not yet wired in application code" (it backs the
+  BullMQ queue and the health probe), and the plaintext-vs-TLS mismatch
+  between the compose stack and `resolveRedisTls` is now documented.
+
+## Test Results (round 271)
+```
+shared:    253 passed (5 files)
+mcp-tools: 213 passed (5 files)
+database:   34 passed, 10 skipped (3 files)
+api:       666 passed (22 files)
+────────────────────────────
+Total:     1166 passed, 10 skipped
+```
+
 ## Changes Applied (2026-10-21) — Code Review Round 270
 
 ### 🔴 `confirmation-gate.ts` + `tool-registry.ts` — the confirmation gate was a dead end and silently disabled idempotency

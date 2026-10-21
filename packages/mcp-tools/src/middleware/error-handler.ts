@@ -13,6 +13,7 @@ import {
   pluralize,
   redactSensitiveFieldValues,
   MAX_ERROR_LOG_LINE_LENGTH,
+  MAX_ERROR_MESSAGE_LENGTH,
   type DomainError,
 } from "@besterp/shared";
 import { ToolMiddleware, ToolResult } from "../schema/tool-definition.js";
@@ -69,18 +70,35 @@ function handleDomainError(error: DomainError, definition: { name: string }): To
       // error.code is a free-form string that a custom DomainError subclass
       // could set to a sensitive value. Sanitize it consistently with every
       // other agent-facing field so a crafted code is not reflected verbatim.
-      code: sanitizeForLogOutput(error.code),
-      message: sanitizeForLogOutput(error.message),
+      code: capAgentErrorText(sanitizeForLogOutput(error.code)),
+      // The message is length-capped like every other agent-facing error
+      // surface. `sanitizeForLogOutput` alone truncates at 100 KB, so a
+      // DomainError that embeds a large payload could return a 100 KB message
+      // to the agent while the registry's INVALID_INPUT path caps the SAME
+      // concept at MAX_ERROR_MESSAGE_LENGTH.
+      message: capAgentErrorText(sanitizeForLogOutput(error.message)),
       // suggestedTools strings come from DomainError constructor values (a
       // custom subclass could interpolate user input), so sanitize each one
       // like every other agent-facing field — the fallback list is static and
       // unaffected.
       suggestedTools: (error.suggestedTools?.length ?? 0) > 0
-        ? [...error.suggestedTools].map((t) => sanitizeForLogOutput(t))
+        ? [...error.suggestedTools].map((t) => capAgentErrorText(sanitizeForLogOutput(t)))
         : [definition.name, "list_available_tools"],
       context: sanitizeContextValueForToolResult(error.context) as Record<string, unknown> | undefined,
     },
   };
+}
+
+/**
+ * Cap an agent-facing error string at MAX_ERROR_MESSAGE_LENGTH.
+ *
+ * The registry's INVALID_INPUT path caps the joined issue summary at the same
+ * bound; the DomainError path had no cap at all (only the internal 100 KB
+ * sanitizer truncation), so the two surfaces disagreed on how large an
+ * agent-facing error message may be.
+ */
+function capAgentErrorText(value: string): string {
+  return value.length > MAX_ERROR_MESSAGE_LENGTH ? `${value.slice(0, MAX_ERROR_MESSAGE_LENGTH)}…` : value;
 }
 
 interface PrismaErrorResult {

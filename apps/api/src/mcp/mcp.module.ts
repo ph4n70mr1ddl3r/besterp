@@ -3,9 +3,15 @@
 // Registers the MCP tool registry with the full middleware stack:
 //   1. errorHandlerMiddleware (outermost — catches all exceptions)
 //   2. auditLogMiddleware (fire-and-forget durable audit writes)
-//   3. idempotencyMiddleware (deduplication via DB-backed records)
-//   4. Tool-specific middlewares (registered per-tool)
-//   5. Handler (Zod validation → service call)
+//   3. confirmationGateMiddleware (high/critical-risk confirmation)
+//   4. idempotencyMiddleware (deduplication via DB-backed records)
+//   5. Tool-specific middlewares (registered per-tool)
+//   6. Handler (Zod validation → service call)
+//
+// The confirmation gate MUST sit between the audit log and the idempotency
+// middleware: a request rejected for a missing/invalid confirmation must not
+// consume the caller's idempotency key. See McpService.onModuleInit for the
+// full rationale.
 //
 // Tools are registered in McpService.onModuleInit() after the module
 // wiring is complete, so the registry factory can resolve services.

@@ -8,6 +8,7 @@
 // prevents stored XSS at the database level.
 
 import { DEFAULT_PHONE_COUNTRY_CODE } from "./constants.js";
+import { InvalidTypeValueError } from "./errors.js";
 
 /**
  * Strip HTML tags and script content from a string.
@@ -32,9 +33,14 @@ const MAX_INPUT_LENGTH = 100_000;
 export function stripHtmlTags(input: string): string {
   if (input.length === 0) return input;
   if (TEXT_ENCODER.encode(input).length > MAX_INPUT_LENGTH) {
-    throw new Error(
-      `stripHtmlTags: input exceeds maximum allowed length (${MAX_INPUT_LENGTH} bytes). ` +
-      `This may indicate a DoS attempt via deeply nested HTML encoding.`
+    // Thrown as a structured domain error (not a plain Error) so the REST
+    // filter and the MCP error-handler report an actionable client error
+    // (422 / INVALID_TYPE_VALUE) instead of an opaque 500 INTERNAL_ERROR.
+    // A plain Error thrown from inside a Zod `.transform()` is NOT converted
+    // into a ZodIssue — it escapes the parse entirely.
+    throw new InvalidTypeValueError(
+      `Input exceeds the maximum allowed length of ${MAX_INPUT_LENGTH} bytes.`,
+      { context: { maxBytes: MAX_INPUT_LENGTH, actualBytes: TEXT_ENCODER.encode(input).length } }
     );
   }
 
@@ -56,9 +62,9 @@ export function stripHtmlTags(input: string): string {
 
     iterations++;
     if (TEXT_ENCODER.encode(sanitized).length > maxIntermediateBytes) {
-      throw new Error(
-        `stripHtmlTags: intermediate output exceeded ${maxIntermediateBytes} bytes during sanitization. ` +
-        `This may indicate a DoS attempt via entity expansion.`
+      throw new InvalidTypeValueError(
+        `Sanitized output exceeded ${maxIntermediateBytes} bytes during HTML sanitization.`,
+        { context: { maxBytes: maxIntermediateBytes } }
       );
     }
   } while (sanitized !== prev && iterations < MAX_SANITIZE_ITERATIONS);
@@ -204,7 +210,8 @@ export function sanitizeForLogOutput(message: string): string {
   const result = sanitizeLogMessage(message);
   // Order is critical: URL/host/path rules must run BEFORE the generic
   // long-token catch-all so URLs are collapsed to [HOST]/[PATH] first.
-  // The generic rule runs LAST to avoid re-consuming legitimate placeholders.
+  // The generic rule runs LAST so it only sees tokens the specific rules
+  // did not already consume.
   //
   // Each entry is a named function so the pipeline is easy to read, extend,
   // and test independently — nesting function calls deepens the call stack
@@ -273,8 +280,14 @@ const BOUNDARY_SECRET_PATTERN = new RegExp(
   String.raw`(^|[\s"'{([,;])((?:${SECRET_PARAM_ALTERNATION}))\s*[:=]\s*([^}\]\s"'\` ,;]+)`,
   "gi",
 );
+// The name's own quote characters AND the `:`/`=` separator are captured so
+// the redaction can be substituted back verbatim. Dropping them turned
+// `{"api_key":"sk_live_abc"}` into `{api_key=[REDACTED]}` — the redacted
+// string was no longer valid JSON, so a consumer that parses a JSON-in-text
+// payload after redaction (audit rows, idempotency records, agent-facing
+// errors) could no longer parse it.
 const QUOTED_SECRET_PATTERN = new RegExp(
-  String.raw`(^|[\s"'{([;,?])"?((?:${SECRET_PARAM_ALTERNATION_WITH_SESSION}))"?\s*[:=]\s*("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')`,
+  String.raw`(^|[\s"'{([;,?])("?)((?:${SECRET_PARAM_ALTERNATION_WITH_SESSION}))("?)\s*([:=])\s*("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')`,
   "gi",
 );
 
@@ -300,9 +313,18 @@ function replaceBoundarySecrets(input: string): string {
 
 /**
  * Redact secrets wrapped in quotes: `"api_key":"value"` or `password="value"`.
+ *
+ * The quote characters are PRESERVED. Dropping them turned
+ * `{"api_key":"sk_live_abc"}` into `{api_key=[REDACTED]}` — the redacted
+ * string was no longer valid JSON, so any consumer that parses a
+ * JSON-in-text payload after redaction (audit rows, idempotency records,
+ * agent-facing errors) failed to parse it.
  */
 function replaceQuotedSecrets(input: string): string {
-  return input.replace(QUOTED_SECRET_PATTERN, (_, lead, name) => `${lead}${name}=[REDACTED]`);
+  return input.replace(QUOTED_SECRET_PATTERN, (_, lead, nameOpen, name, nameClose, sep, value) => {
+    const quote = value.startsWith("'") ? "'" : '"';
+    return `${lead}${nameOpen}${name}${nameClose}${sep}${quote}[REDACTED]${quote}`;
+  });
 }
 
 /** Redact Bearer tokens, Basic auth credentials, and JWTs. */
@@ -335,12 +357,6 @@ function replaceProviderSecrets(input: string): string {
     .replace(/\b(?:AIza)[A-Za-z0-9_-]{35}/g, "[REDACTED_GOOGLE_KEY]")
     .replace(/\b(?:ya29\.)[A-Za-z0-9_-]{20,}/g, "[REDACTED_GOOGLE_TOKEN]");
 }
-
-/**
- * Catch-all for long high-entropy tokens that survived all specific rules above.
- * Uses heuristics to distinguish secrets from benign identifiers.
- */
-const REDACTED_PLACEHOLDERS = /^\[REDACTED(?:_[A-Z_]+)?\]$/;
 
 // ULID (Crockford base32, 26 chars): the dominant identity-ID shape across
 // the MCP ecosystem (Anthropic/Claude user, conversation, and thread IDs are
@@ -375,9 +391,14 @@ function replaceGenericLongToken(input: string): string {
     if (matchStart < pos) continue;
     result.push(input.slice(pos, matchStart));
     const candidate = match[0];
-    if (REDACTED_PLACEHOLDERS.test(candidate)) {
-      result.push(candidate);
-    } else if (ULID_PATTERN.test(candidate)) {
+    // NOTE: a "is this already a redaction placeholder?" check used to live
+    // here (`/^\[REDACTED(?:_[A-Z_]+)?\]$/`), but it was DEAD CODE: the
+    // candidate character class (`[A-Za-z0-9_./=+-]`) cannot contain a
+    // bracket, so a candidate can never equal a bracketed placeholder. The
+    // branch was removed rather than left as misleading dead code; the
+    // placeholder-shaped tokens that DO reach this point (e.g.
+    // `REDACTED_DATABASE_URL`) are preserved by the all-letters rule below.
+    if (ULID_PATTERN.test(candidate)) {
       result.push(candidate);
     } else if (PREFIXED_ULID_PATTERN.test(candidate)) {
       result.push(candidate);
@@ -537,18 +558,21 @@ const SENSITIVE_FIELD_NAME_PATTERN =
  * Split a field name into tokens at snake_case, kebab-case, and camelCase
  * boundaries (e.g. `clientSecret` → [`client`, `Secret`],
  * `access_token` → [`access`, `token`], `api-key` → [`api`, `key`]).
+ *
+ * Acronym runs are kept together (`userAPIKey` → [`user`, `API`, `Key`],
+ * not [`user`, `A`, `P`, `I`, `Key`]) so a compound like `APIKey` is still
+ * recognised as an adjacent `api`+`key` token pair.
  */
 function splitFieldNameTokens(key: string): string[] {
-  // Split on kebab/hyphen boundaries first, then on camelCase boundaries.
-  // Without the hyphen split, kebab-case names like `api-key` would tokenize
-  // to ["api-key"] (single token) and miss the sensitive "key" token.
-  const hyphenSplit = key.split("-");
-  const tokens: string[] = [];
-  for (const part of hyphenSplit) {
-    const matches = part.match(/[a-z0-9]+|[A-Z][a-z]*/g);
-    if (matches) tokens.push(...matches);
-  }
-  return tokens.filter((t) => t.length > 0);
+  // Insert a boundary between a lowercase/digit and a following uppercase
+  // (`clientSecret` → `client Secret`), then split an acronym run from a
+  // trailing Capitalised word (`APIKey` → `API Key`).
+  const spaced = key
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2");
+  return spaced
+    .split(/[\s_-]+/)
+    .filter((t) => t.length > 0);
 }
 
 /** Public tokeniser used by consumers that need to split field names into tokens. */
@@ -571,11 +595,23 @@ const SENSITIVE_FIELD_TOKENS: ReadonlySet<string> = Object.freeze(new Set([
  * over-redact benign names (`primaryKey`, `foreignKey`, `sortKey`,
  * `statusCode`). Key-bearing sensitive fields are covered by the explicit set
  * and the `api[_-]?key` regex branch.
+ *
+ * The `api` + `key` COMPOUND is sensitive even though `key` alone is not:
+ * `clientApiKey` / `userAPIKey` / `my-api-key` all name an API credential,
+ * while `primaryKey` / `idempotencyKey` name an identifier. The regex branch
+ * cannot see the compound because `api` is preceded by an alphanumeric
+ * character (the lookbehind rejects the match), so the token-pair rule closes
+ * that gap.
  */
 export function isSensitiveFieldName(key: string): boolean {
   if (SENSITIVE_FIELD_NAMES.has(key.toLowerCase())) return true;
   if (SENSITIVE_FIELD_NAME_PATTERN.test(key)) return true;
-  return splitFieldNameTokens(key).some((t) => SENSITIVE_FIELD_TOKENS.has(t.toLowerCase()));
+  const tokens = splitFieldNameTokens(key).map((t) => t.toLowerCase());
+  if (tokens.some((t) => SENSITIVE_FIELD_TOKENS.has(t))) return true;
+  for (let i = 0; i + 1 < tokens.length; i++) {
+    if (tokens[i] === "api" && tokens[i + 1] === "key") return true;
+  }
+  return false;
 }
 
 /**
@@ -610,42 +646,69 @@ export const MAX_REDACTION_DEPTH = 20;
 function redactArray(value: unknown[], depth: number, seen: WeakSet<object>): unknown {
   if (seen.has(value)) return "[Circular]";
   seen.add(value);
-  return value.map((item) => redactSensitiveFieldValues(item, depth + 1, seen));
+  try {
+    return value.map((item) => redactSensitiveFieldValues(item, depth + 1, seen));
+  } finally {
+    seen.delete(value);
+  }
 }
 
 function redactMap(value: Map<unknown, unknown>, depth: number, seen: WeakSet<object>): unknown {
   if (seen.has(value)) return "[Circular]";
   seen.add(value);
-  // Map is not JSON-native; convert to an array of [key, value] pairs so the
-  // data survives serialisation (a bare Map would become {} and be silently
-  // dropped from a reflected/durable payload). Sensitive-named keys are
-  // redacted (mirroring the MCP audit-log redactor) so a secret stored under a
-  // Map key is not reflected verbatim on any surface.
-  return [...value.entries()].map(([k, v]) => {
-    const keyStr = typeof k === "string" ? k : String(k);
-    return [
-      isSensitiveFieldName(keyStr) ? "[REDACTED]" : redactSensitiveFieldValues(k, depth + 1, seen),
-      isSensitiveFieldName(keyStr) ? "[REDACTED]" : redactSensitiveFieldValues(v, depth + 1, seen),
-    ];
-  });
+  try {
+    // Map is not JSON-native; convert to an array of [key, value] pairs so the
+    // data survives serialisation (a bare Map would become {} and be silently
+    // dropped from a reflected/durable payload). Sensitive-named keys are
+    // redacted (mirroring the MCP audit-log redactor) so a secret stored under a
+    // Map key is not reflected verbatim on any surface.
+    return [...value.entries()].map(([k, v]) => {
+      const keyStr = typeof k === "string" ? k : String(k);
+      return [
+        isSensitiveFieldName(keyStr) ? "[REDACTED]" : redactSensitiveFieldValues(k, depth + 1, seen),
+        isSensitiveFieldName(keyStr) ? "[REDACTED]" : redactSensitiveFieldValues(v, depth + 1, seen),
+      ];
+    });
+  } finally {
+    seen.delete(value);
+  }
 }
 
 function redactSet(value: Set<unknown>, depth: number, seen: WeakSet<object>): unknown {
   if (seen.has(value)) return "[Circular]";
   seen.add(value);
-  return [...value].map((v) => redactSensitiveFieldValues(v, depth + 1, seen));
+  try {
+    return [...value].map((v) => redactSensitiveFieldValues(v, depth + 1, seen));
+  } finally {
+    seen.delete(value);
+  }
 }
 
 function redactPlainObject(value: Record<string, unknown>, depth: number, seen: WeakSet<object>): unknown {
   if (seen.has(value)) return "[Circular]";
   seen.add(value);
-  const out: Record<string, unknown> = {};
-  for (const [key, child] of Object.entries(value)) {
-    out[key] = isSensitiveFieldName(key)
-      ? "[REDACTED]"
-      : redactSensitiveFieldValues(child, depth + 1, seen);
+  try {
+    // `Object.create(null)` — not `{}` — so a `__proto__` key in the input
+    // becomes an ordinary own data property instead of invoking the
+    // `Object.prototype.__proto__` setter. With a normal object literal the
+    // key was silently DROPPED (never created as an own property) and the
+    // prototype of the result was replaced by the attacker-supplied child
+    // object, so `out.<attackerKey>` resolved through the prototype chain.
+    // Mirrors the prototype-safe construction in crypto.ts's sortPlainObject.
+    const out: Record<string, unknown> = Object.create(null) as Record<string, unknown>;
+    for (const [key, child] of Object.entries(value)) {
+      out[key] = isSensitiveFieldName(key)
+        ? "[REDACTED]"
+        : redactSensitiveFieldValues(child, depth + 1, seen);
+    }
+    return out;
+  } finally {
+    // Ancestor-set semantics: the container is only "in progress" while its
+    // subtree is being walked. Without the delete, a DAG (the same sub-object
+    // referenced from two siblings — not a cycle) was misreported as
+    // "[Circular]" and its data was silently dropped from the redacted output.
+    seen.delete(value);
   }
-  return out;
 }
 
 function handleDepthLimit(value: unknown): unknown {
@@ -663,7 +726,7 @@ function handleDepthLimit(value: unknown): unknown {
       return [...value].map(() => "[Too deep]");
     }
     if (value instanceof WeakMap || value instanceof WeakSet) return "[WeakCollection]";
-    const capped: Record<string, unknown> = {};
+    const capped: Record<string, unknown> = Object.create(null) as Record<string, unknown>;
     for (const [key] of Object.entries(value as Record<string, unknown>)) {
       capped[key] = isSensitiveFieldName(key) ? "[REDACTED]" : "[Too deep]";
     }

@@ -11,12 +11,13 @@
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from "@nestjs/common";
 import { PrismaClient } from "@prisma/client";
 import { createTenantClient, CreateTenantClientOptions, TenantScopedClient } from "@besterp/database";
-import { MAX_TENANT_CACHE_SIZE, sanitizeForLogOutput, isDev, validateTenantIdEnhancedForAuth } from "@besterp/shared";
+import { MAX_TENANT_CACHE_SIZE, DEFAULT_MAX_METHOD_CACHE_SIZE, DEFAULT_MAX_DELEGATE_CACHE_SIZE, sanitizeForLogOutput, isDev, validateTenantIdEnhancedForAuth } from "@besterp/shared";
 import { normalizeCacheSize } from "../bootstrap-config.js";
 
-// Cache configuration constants — exported for testing and override via env
-export const DEFAULT_MAX_METHOD_CACHE_SIZE = 1000;
-export const DEFAULT_MAX_DELEGATE_CACHE_SIZE = 50;
+// Cache configuration constants — re-exported from @besterp/shared so the
+// PrismaService (env override) and the createTenantClient factory in
+// @besterp/database (fallback) share ONE source of truth.
+export { DEFAULT_MAX_METHOD_CACHE_SIZE, DEFAULT_MAX_DELEGATE_CACHE_SIZE };
 
 @Injectable()
 export class PrismaService
@@ -61,10 +62,6 @@ export class PrismaService
   private readonly unregisterTokens = new Map<string, object>();
   /** Access timestamps for LRU eviction — updated on each cache hit. */
   private readonly lastAccessed = new Map<string, number>();
-
-  /** Cache hit/miss counters for observability. */
-  private cacheHits = 0;
-  private cacheMisses = 0;
 
   // Cache sizes — configurable via env vars for tuning in production
   private maxMethodCacheSize!: number;
@@ -311,6 +308,12 @@ export class PrismaService
       "product_category",
       "product_feature",
       "product_price",
+      // Core-security tables added after the original RLS script — both are
+      // tenant-scoped (own tenant_id) and both are covered by
+      // rls-setup.sql. `user` stores password_hash, so it is the most
+      // sensitive table in the schema.
+      "agent_registry",
+      "user",
     ];
     try {
       // Query ALL force-RLS tables in `public` (do NOT pre-filter by
@@ -412,12 +415,9 @@ export class PrismaService
 
     const cached = this.tenantClientCache.get(normalizedTenantId)?.deref();
     if (cached) {
-      this.cacheHits++;
       this.lastAccessed.set(normalizedTenantId, Date.now());
       return cached;
     }
-
-    this.cacheMisses++;
 
     if (this.tenantClientCache.size >= MAX_TENANT_CACHE_SIZE) {
       this.evictTenantClient();
@@ -434,27 +434,6 @@ export class PrismaService
     this.cacheRegistry.register(client, normalizedTenantId, token);
     this.lastAccessed.set(normalizedTenantId, Date.now());
     return client;
-  }
-
-  /**
-   * Get cache statistics for observability.
-   * @returns Object with hits, misses, hit rate, and current cache size
-   */
-  getTenantCacheStats(): {
-    hits: number;
-    misses: number;
-    hitRate: number;
-    size: number;
-    maxSize: number;
-  } {
-    const total = this.cacheHits + this.cacheMisses;
-    return {
-      hits: this.cacheHits,
-      misses: this.cacheMisses,
-      hitRate: total > 0 ? this.cacheHits / total : 0,
-      size: [...this.tenantClientCache.values()].filter((ref) => ref.deref() !== undefined).length,
-      maxSize: MAX_TENANT_CACHE_SIZE,
-    };
   }
 
   /**
@@ -496,21 +475,6 @@ export class PrismaService
       );
       this.removeTenantClient(lruKey);
     }
-  }
-
-  /**
-   * Force cleanup of the tenant client cache.
-   * Useful for testing or manual cache clearing.
-   */
-  clearTenantCache(): void {
-    for (const [, token] of this.unregisterTokens) {
-      this.cacheRegistry.unregister(token);
-    }
-    this.tenantClientCache.clear();
-    this.unregisterTokens.clear();
-    this.lastAccessed.clear();
-    this.cacheHits = 0;
-    this.cacheMisses = 0;
   }
 
   /** Remove a tenant client and its associated tracking data. */

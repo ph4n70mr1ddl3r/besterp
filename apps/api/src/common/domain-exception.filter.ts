@@ -35,6 +35,42 @@ import {
 const CLASS_VALIDATOR_PREFIX_REGEX = /^(is\w+|mustBe\w+|must be [a-z ]+|should be [a-z ]+|should not be [a-z ]+|is not [a-z ]+|must contain|must not contain|should contain|should not contain|is optional|must be optional|is required|must be required|minAllowed|maxAllowed|notIn|min|max|length|equals|matches|isArray|minDecimalValue|isNotEmpty|isEmpty|isBoolean|isDate|isNumber|isString|isEnum|isInstanceOf|arrayMinSize|arrayMaxSize|isTrue|isFalse|isNull|isNotNull)[^a-zA-Z]*/i;
 
 /**
+ * Recursively strip HTML from every string leaf of an already-redacted
+ * context value.
+ *
+ * `redactSensitiveFieldValues` runs each string leaf through
+ * `sanitizeForLogOutput` (control chars / ANSI / secret redaction) but does
+ * NOT remove HTML. The `error` and `message` fields of the response apply
+ * `stripHtmlTags` as well, so a context leaf carrying markup was reflected
+ * verbatim while the identical value inside `message` was stripped.
+ *
+ * The traversal is depth-bounded (the redactor already caps the depth at
+ * MAX_REDACTION_DEPTH) and cycle-safe (the redactor already replaced cycles
+ * with the "[Circular]" marker).
+ */
+function stripHtmlTagsDeep(value: unknown, depth = 0): unknown {
+  if (depth > 20) return value;
+  if (typeof value === "string") {
+    try {
+      return stripHtmlTags(value);
+    } catch {
+      // stripHtmlTags rejects over-long inputs by throwing — never let the
+      // response builder fail because of a hostile context value.
+      return "[Oversized value omitted]";
+    }
+  }
+  if (Array.isArray(value)) return value.map((v) => stripHtmlTagsDeep(v, depth + 1));
+  if (value !== null && typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+      out[key] = stripHtmlTagsDeep(child, depth + 1);
+    }
+    return out;
+  }
+  return value;
+}
+
+/**
  * Map a DomainError code to an HTTP status code.
  */
 function domainErrorToStatus(error: DomainError): number {
@@ -130,10 +166,21 @@ export class DomainExceptionFilter implements ExceptionFilter {
         : stripHtmlTags(sanitizeForLogOutput(exception.message)),
     };
     if (dev && exception.suggestedTools.length > 0) {
-      body.suggestedTools = exception.suggestedTools;
+      // Sanitize each entry: the list comes from the DomainError constructor
+      // (a custom subclass can interpolate user input), and the 500 branch
+      // above already logs a sanitized copy — the response body must not be
+      // less protected than the log line.
+      body.suggestedTools = exception.suggestedTools.map((t) => stripHtmlTags(sanitizeForLogOutput(t)));
     }
     if (dev && Object.keys(exception.context).length > 0) {
-      body.context = redactSensitiveFieldValues(exception.context);
+      // `redactSensitiveFieldValues` runs every string leaf through
+      // `sanitizeForLogOutput`, which does NOT strip HTML. The `message` and
+      // `error` fields above apply `stripHtmlTags` as well, so a context value
+      // carrying markup (e.g. `received: "<img src=x onerror=…>"`) was
+      // reflected verbatim while the identical value inside `message` was
+      // stripped — the same asymmetric-sanitization class this file is
+      // otherwise careful about.
+      body.context = stripHtmlTagsDeep(redactSensitiveFieldValues(exception.context));
     }
     response.status(status).json(body);
   }

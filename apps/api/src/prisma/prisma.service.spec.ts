@@ -247,6 +247,8 @@ describe("PrismaService", () => {
         { relname: "product_category", relrowsecurity: true, relforcerowsecurity: true },
         { relname: "product_feature", relrowsecurity: true, relforcerowsecurity: true },
         { relname: "product_price", relrowsecurity: true, relforcerowsecurity: true },
+        { relname: "agent_registry", relrowsecurity: true, relforcerowsecurity: true },
+        { relname: "user", relrowsecurity: true, relforcerowsecurity: true },
       ];
       (service.appClient as unknown as { $queryRaw: () => Promise<unknown> }).$queryRaw = vi
         .fn()
@@ -305,6 +307,44 @@ describe("PrismaService", () => {
           ];
         });
       await expect(service.onModuleInit()).rejects.toThrow(/force-RLS on user_session which are NOT in the verification list/i);
+    });
+
+    it("refuses to boot when a tenant table has NO RLS at all", async () => {
+      // `agent_registry` and `user` were added after the original RLS script
+      // and were never covered by it. A table with NO RLS is invisible to the
+      // "unexpected force-RLS table" check (it only fires for tables that DO
+      // have FORCE RLS) — so the boot check would have reported "RLS verified"
+      // while two tenant-scoped tables (one of them storing password_hash)
+      // remained readable by every tenant of the application role.
+      const service = new PrismaService();
+      (service.appClient as unknown as { $queryRaw: () => Promise<unknown> }).$queryRaw = vi
+        .fn()
+        .mockImplementation(async (query: any) => {
+          const sql = String(query);
+          if (sql.includes("current_user")) return [{ role: "besterp_app" }];
+          if (sql.includes("pg_roles")) return [{ rolsuper: false, rolbypassrls: false }];
+          return [
+            { relname: "party", relrowsecurity: true, relforcerowsecurity: true },
+            { relname: "contact_mechanism", relrowsecurity: true, relforcerowsecurity: true },
+            { relname: "party_contact_mechanism", relrowsecurity: true, relforcerowsecurity: true },
+            { relname: "party_role", relrowsecurity: true, relforcerowsecurity: true },
+            { relname: "ai_action_log", relrowsecurity: true, relforcerowsecurity: true },
+            { relname: "idempotency_record", relrowsecurity: true, relforcerowsecurity: true },
+            { relname: "person", relrowsecurity: true, relforcerowsecurity: true },
+            { relname: "organization", relrowsecurity: true, relforcerowsecurity: true },
+            { relname: "postal_address", relrowsecurity: true, relforcerowsecurity: true },
+            { relname: "telecom_number", relrowsecurity: true, relforcerowsecurity: true },
+            { relname: "email_address", relrowsecurity: true, relforcerowsecurity: true },
+            { relname: "product", relrowsecurity: true, relforcerowsecurity: true },
+            { relname: "product_category", relrowsecurity: true, relforcerowsecurity: true },
+            { relname: "product_feature", relrowsecurity: true, relforcerowsecurity: true },
+            { relname: "product_price", relrowsecurity: true, relforcerowsecurity: true },
+            // `user` exists but has NO RLS applied.
+            { relname: "user", relrowsecurity: false, relforcerowsecurity: false },
+            { relname: "agent_registry", relrowsecurity: true, relforcerowsecurity: true },
+          ];
+        });
+      await expect(service.onModuleInit()).rejects.toThrow(/Row-Level Security is NOT/);
     });
   });
 

@@ -6,9 +6,11 @@
 
 /**
  * Minimum acceptable length for JWT_SECRET, in characters.
- * Exported so main.ts and tests reference a single source of truth.
+ * Re-exported from @besterp/shared so main.ts, this module and the tests all
+ * reference ONE source of truth (every other length cap lives in
+ * @besterp/shared/constants.ts).
  */
-export const MIN_JWT_SECRET_LENGTH = 32;
+export { MIN_JWT_SECRET_LENGTH } from "@besterp/shared";
 
 /**
  * Known default / test / placeholder secret literals (case-insensitive exact

@@ -47,6 +47,12 @@ export class DomainError extends Error {
       // canonical serializer for durable sinks (audit logs, idempotency
       // records), so a control/ANSI-embedded `code` must not reach those sinks
       // verbatim — sanitize it the same way `message` and `context` are.
+      //
+      // The secret redactor is used (not just the control-char strip) because
+      // a custom subclass can carry an attacker-influenced value in `code`;
+      // the generic high-entropy rule only rewrites tokens that mix letters
+      // AND digits, so every built-in code (uppercase + underscore, no digits)
+      // passes through unchanged.
       code: sanitizeForLogOutput(this.code),
       // `message` routinely echoes user-supplied input (connection strings,
       // `?api_key=…`). Sanitize it here for defense-in-depth so any caller that

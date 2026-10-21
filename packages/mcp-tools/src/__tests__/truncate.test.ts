@@ -250,7 +250,7 @@ describe("truncateValue never throws", () => {
     // Regression guard: normaliseForTruncation had no depth guard, so a
     // deeply-nested structure (e.g. Array(200).fill().map(x => ({ self: x })))
     // would blow the call stack. Mirrors the depth guards already in
-    // crypto.ts (MAX_HASH_DEPTH) and sanitize.ts (MAX_REDACTION_DEPTH).
+    // crypto.ts (MAX_NESTING_DEPTH) and sanitize.ts (MAX_REDACTION_DEPTH).
     // The depth limit throws, which serializeObjectValue catches and returns
     // as { _error: "Failed to serialize value" } — consistent with the
     // circular-reference error path.
@@ -258,5 +258,32 @@ describe("truncateValue never throws", () => {
     for (let i = 0; i < 200; i++) deep = { child: deep };
     const result = truncateValue(deep, MAX_STORED_PAYLOAD_SIZE);
     expect(result).toEqual({ _error: "Failed to serialize value" });
+  });
+});
+
+describe("truncateValue respects a caller-supplied limit", () => {
+  it("never returns a stored form larger than the requested limit", () => {
+    // The truncation marker carried a FIXED 1024-byte `_preview`, so a
+    // caller-supplied limit smaller than that produced a stored payload
+    // BIGGER than the limit it was supposed to enforce.
+    for (const limit of [100, 512, 1024, 4096]) {
+      const out = truncateValue({ data: "z".repeat(10_000) }, limit);
+      const stored = new TextEncoder().encode(JSON.stringify(out)).length;
+      expect(stored).toBeLessThanOrEqual(limit);
+    }
+  });
+
+  it("still reports the original size", () => {
+    const out = truncateValue({ data: "z".repeat(10_000) }, 100) as { _originalSize: number };
+    expect(out._originalSize).toBeGreaterThan(100);
+  });
+});
+
+describe("capString respects its own byte cap", () => {
+  it("caps the non-string fallback message", () => {
+    // The fallback was a fixed 45-byte string regardless of maxBytes, so a
+    // small cap produced a result LARGER than the limit.
+    const out = capString({ not: "a string" }, 10);
+    expect(new TextEncoder().encode(out).length).toBeLessThanOrEqual(10);
   });
 });

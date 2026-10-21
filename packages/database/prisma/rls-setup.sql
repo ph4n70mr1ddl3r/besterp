@@ -377,3 +377,51 @@ CREATE POLICY tenant_isolation_email_address ON email_address
       WHERE tenant_id = current_setting('app.current_tenant', TRUE)
     )
   );
+
+-- ─── Core Security tables (tenant-scoped) ────────────────────────
+-- `agent_registry` and `user` were added AFTER the original RLS script and
+-- were never covered by it. Both carry a tenant_id column and both are
+-- tenant-scoped, so without policies they were readable/writable by ANY
+-- tenant of the application role — the exact silent cross-tenant exposure
+-- the rest of this script exists to prevent. `user` additionally stores
+-- `password_hash`, making it the most sensitive table in the schema.
+
+-- Agent Registry (tenant-scoped via its own tenant_id)
+ALTER TABLE agent_registry ENABLE ROW LEVEL SECURITY;
+ALTER TABLE agent_registry FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation_agent_registry ON agent_registry;
+CREATE POLICY tenant_isolation_agent_registry ON agent_registry
+  USING (
+    current_setting('app.current_tenant', TRUE) != ''
+    AND tenant_id = current_setting('app.current_tenant', TRUE)
+  )
+  WITH CHECK (
+    current_setting('app.current_tenant', TRUE) != ''
+    AND tenant_id = current_setting('app.current_tenant', TRUE)
+  );
+
+-- User (tenant-scoped via its own tenant_id AND via the owning party)
+-- The dual constraint mirrors postal_address / telecom_number: the row's own
+-- tenant_id must match the current tenant AND its party must belong to the
+-- current tenant. The `user` table is quoted because `user` is a reserved
+-- word in PostgreSQL.
+ALTER TABLE "user" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "user" FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation_user ON "user";
+CREATE POLICY tenant_isolation_user ON "user"
+  USING (
+    current_setting('app.current_tenant', TRUE) != ''
+    AND tenant_id = current_setting('app.current_tenant', TRUE)
+    AND party_id IN (
+      SELECT party_id FROM party
+      WHERE tenant_id = current_setting('app.current_tenant', TRUE)
+    )
+  )
+  WITH CHECK (
+    current_setting('app.current_tenant', TRUE) != ''
+    AND tenant_id = current_setting('app.current_tenant', TRUE)
+    AND party_id IN (
+      SELECT party_id FROM party
+      WHERE tenant_id = current_setting('app.current_tenant', TRUE)
+    )
+  );

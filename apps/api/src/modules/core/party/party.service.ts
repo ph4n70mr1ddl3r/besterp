@@ -185,9 +185,14 @@ export class PartyService {
       throw mapPrismaError(err, "create_party", "create_party", "party");
     }
     if (!partyTypeRecord) {
+      // Do NOT hardcode the list of valid party types: the `party_type` table
+      // is reference data that the seed populates (it contains PERSON,
+      // ORGANIZATION and TENANT), and `get_type_table_values` returns the
+      // live list to the agent. A hardcoded list contradicted the type table
+      // the agent was told to consult.
       throw new InvalidTypeValueError(
-        `PARTY_TYPE '${trimmedPartyType}' is not valid. Valid types: ['PERSON', 'ORGANIZATION'].`,
-        { suggestedTools: ["get_type_table_values"], context: { field: "partyType", invalidValue: trimmedPartyType, validValues: ["PERSON", "ORGANIZATION"] } }
+        `PARTY_TYPE '${trimmedPartyType}' is not valid. Use 'get_type_table_values' to see the available party types.`,
+        { suggestedTools: ["get_type_table_values"], context: { field: "partyType", invalidValue: trimmedPartyType } }
       );
     }
 
@@ -586,7 +591,13 @@ export class PartyService {
     // cross-tenant lookup table, not tenant-scoped. RLS policies do not apply.
     let roleTypeRecord;
     try {
-      roleTypeRecord = await this.prisma.admin.roleType.findUnique({ where: { name: trimmedRoleType } });
+      // Case-insensitive lookup: `search_parties` matches the role type
+      // case-insensitively, so an agent that searched with roleType "customer"
+      // and then called `add_party_role({ roleType: "customer" })` was told
+      // "ROLE_TYPE 'customer' is not valid" even though "Customer" exists.
+      roleTypeRecord = await this.prisma.admin.roleType.findFirst({
+        where: { name: { equals: trimmedRoleType, mode: "insensitive" } },
+      });
     } catch (err) {
       throw mapPrismaError(err, "add_party_role", "add_party_role", "party role");
     }
@@ -1031,16 +1042,13 @@ export class PartyService {
     if (!emailAddress) {
       throw new MissingSubtypeDataError("emailAddress is required when contactMechanismType is EMAIL_ADDRESS.", { suggestedTools: ["add_contact_mechanism"], context: { contactMechanismType: "EMAIL_ADDRESS", missingField: "emailAddress" } });
     }
-    PartyService.requireStringField(emailAddress.email, "email", MAX_EMAIL_LENGTH, "add_contact_mechanism");
-    // Strip HTML tags for consistency with the MCP path and every other
-    // field this service sanitizes. The service is the last line of
-    // defense for direct/internal callers that bypass the REST DTO's
-    // stricter @IsEmail, and EMAIL_REGEX permits '<' and '>', so without
-    // this a value like '<script>alert(1)</script>@x.com' would be stored
-    // verbatim (stored-XSS surface if ever rendered). stripHtmlTags never
-    // changes a valid email — the local part cannot contain '<' or '>' —
-    // so legitimate addresses pass through untouched.
-    const normalized = stripHtmlTags(emailAddress.email.trim().toLowerCase());
+    // The STORED value is the HTML-stripped, lower-cased form, so the length
+    // cap must be applied to that form — both boundary layers (the REST DTO's
+    // `@Transform` strip+lower + `@MaxLength`, and the MCP `sanitizedString`
+    // schema) cap the STRIPPED value. `requireStringField` capped the RAW
+    // trimmed value, so an HTML-wrapped address whose raw length exceeded
+    // MAX_EMAIL_LENGTH passed both boundary layers and was then rejected here.
+    const normalized = PartyService.requireSanitizedStringField(emailAddress.email, "email", MAX_EMAIL_LENGTH, "add_contact_mechanism").toLowerCase();
     if (normalized.length === 0) {
       throw new InvalidTypeValueError("email must contain visible characters after HTML sanitization.", { suggestedTools: ["add_contact_mechanism"], context: { field: "email" } });
     }
@@ -1372,6 +1380,17 @@ export class PartyService {
    *  suggestedTools is required so every caller explicitly declares which
    *  tools are relevant — no default hiding behind an omitted argument. */
   private static requireUuid(value: string, field: string, suggestedTools: string[]): string {
+    // Type-check before .trim(): a direct/internal caller bypassing the
+    // DTO/Zod bounds could pass a non-string id, and `value.trim` throws a
+    // raw TypeError that surfaces as a 500 INTERNAL_ERROR instead of the
+    // documented InvalidTypeValueError. Mirrors SecurityService.requireUuid
+    // and ProductService.requireUuid.
+    if (typeof value !== "string") {
+      throw new InvalidTypeValueError(
+        `'${field}' must be a valid UUID.`,
+        { suggestedTools, context: { field, received: typeof value } }
+      );
+    }
     const trimmed = stripHtmlTags(value.trim());
     if (!UUID_REGEX.test(trimmed)) {
       const safeValue = sanitizeForLogOutput(trimmed);

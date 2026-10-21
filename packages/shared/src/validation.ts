@@ -4,7 +4,8 @@
 // duplication and ensure consistency.
 
 import { InvalidTypeValueError } from "./errors.js";
-import { MAX_USER_ID_LENGTH } from "./constants.js";
+import { MAX_USER_ID_LENGTH, MAX_DATE_STRING_LENGTH } from "./constants.js";
+import { sanitizeForLogOutput } from "./sanitize.js";
 
 /**
  * Permissive identity pattern for user IDs and agent IDs.
@@ -16,10 +17,27 @@ import { MAX_USER_ID_LENGTH } from "./constants.js";
  * or make two visually-identical IDs hash to different idempotency composite keys.
  *
  * Used by:
- * - JwtStrategy.validate() for userId/agentId pattern checks
- * - ToolRegistry.validateContextIdentity() (originally defined there; now centralized)
+ * - JwtStrategy.validate() for userId pattern checks
+ * - TenantGuard for the agentId pattern check
+ * - McpService.buildContext() / ToolRegistry.validateContextIdentity() for
+ *   userId/agentId/conversationId pattern checks
  */
 export const OPTIONAL_ID_PATTERN: RegExp = new RegExp(`^[^\\s\\x00-\\x1f\\x7f-\\x9f\\u00ad\\u061c\\u200b-\\u200f\\u202a-\\u202e\\u2060-\\u206f\\ufeff]{1,${MAX_USER_ID_LENGTH}}$`);
+
+/**
+ * Validate an optional identity string against {@link OPTIONAL_ID_PATTERN}.
+ *
+ * Use this INSTEAD of calling `OPTIONAL_ID_PATTERN.test(value)` directly:
+ * `RegExp.prototype.test` coerces its argument to a string, so
+ * `OPTIONAL_ID_PATTERN.test(undefined)` evaluates the literal string
+ * `"undefined"` — which MATCHES the pattern. A non-string value would
+ * therefore be silently accepted by a bare `.test()` call.
+ *
+ * @returns true when `value` is a string that satisfies the pattern.
+ */
+export function isValidOptionalId(value: unknown): value is string {
+  return typeof value === "string" && OPTIONAL_ID_PATTERN.test(value);
+}
 
 /**
  * Trim and validate an optional string field, throwing on non-string /
@@ -143,7 +161,7 @@ export const COUNTRY_CODE_ISO_REGEX: RegExp = /^[A-Z]{2,3}$/;
  * - PartyService.requireValidDate()
  */
 export const ISO_DATE_REGEX: RegExp =
-  /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])(Z|T([01]\d|2[0-3]):[0-5]\d:[0-5]\d(\.\d+)?(Z|\+14:00|-12:00|\+(0\d|1[0-3]):[0-5]\d|-(0\d|1[0-1]):[0-5]\d)?)?$/;
+  /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])(Z|T([01]\d|2[0-3]):[0-5]\d:[0-5]\d(\.\d{1,6})?(Z|\+14:00|-12:00|\+(0\d|1[0-3]):[0-5]\d|-(0\d|1[0-1]):[0-5]\d)?)?$/;
 
 /**
  * Normalize an ISO 8601 string so date-only and naive-datetime forms mean
@@ -174,11 +192,19 @@ export function normalizeISODateTimeToUTC(value: string): string {
  * via isValidISODate before invoking this function, but the guard catches
  * misbehaving callers (or future regression) so an invalid Date cannot leak
  * into storage or downstream logic.
+ *
+ * Throws a structured `InvalidTypeValueError` (not a plain Error) so the REST
+ * filter and the MCP error-handler report an actionable client error (422 /
+ * INVALID_TYPE_VALUE) instead of an opaque 500 INTERNAL_ERROR. The offending
+ * value is NOT echoed back — it is user-supplied and may carry a secret; the
+ * sanitized value is carried in the error context instead.
  */
 export function parseISODateTimeAsUTC(value: string): Date {
   const date = new Date(normalizeISODateTimeToUTC(value));
   if (Number.isNaN(date.getTime())) {
-    throw new Error(`Invalid ISO date string: "${value}".`);
+    throw new InvalidTypeValueError("Invalid ISO date string.", {
+      context: { received: sanitizeForLogOutput(value).slice(0, MAX_DATE_STRING_LENGTH) },
+    });
   }
   return date;
 }

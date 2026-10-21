@@ -24,8 +24,13 @@ services:
       timeout: 5s
       retries: 5
 
-  # Redis — Used for session storage, caching, and rate limiting.
-  # Not yet wired in application code. Needed for Phase 0b+.
+  # Redis — Backed by the BullMQ queue module (QueueModule) and the Redis
+  # health probe in HealthService.
+  #
+  # NOTE: this instance serves PLAINTEXT. The application enables TLS by
+  # default in every non-development environment (resolveRedisTls), so a
+  # deployment on this stack must set REDIS_TLS=0 (or front the instance with
+  # a TLS terminator) — see .env.example.
   redis:
     image: redis:7-alpine
     container_name: besterp-redis

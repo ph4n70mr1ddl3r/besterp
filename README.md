@@ -184,6 +184,11 @@ npm run db:seed
    ALLOW_SEED=1 npm run db:seed
    ```
 
+   The API **refuses to boot** if RLS is not enabled (and forced) on every
+   tenant-scoped table — including `user` and `agent_registry`, which store
+   password hashes and agent configuration. Re-apply `rls-setup.sql` after
+   pulling changes that add a tenant-scoped table.
+
 6. **Run the application**
     ```bash
     npm run start:dev --workspace=@besterp/api
@@ -209,7 +214,7 @@ npm run db:seed
 - `list_available_tools` - Discover available tools (includes risk level and whether a confirmation is required)
 - `get_type_table_values` - Get valid type values
 - `describe_entity` - Describe an entity's fields and semantics
-- `get_valid_transitions` - Get valid status transitions for an entity
+- `get_valid_transitions` - Get valid status transitions for an entity (only entities that expose a status field AND have a transition tool are listed)
 - `search_across_entities` - Universal search across entity types
 - `explain_error` - Explain an error code and suggest recovery steps
 

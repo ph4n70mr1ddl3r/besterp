@@ -418,7 +418,17 @@ model Product {
   tenantId      String   @map("tenant_id")
   name          String
   description   String?
-  sku           String?  @unique
+  // SKU uniqueness is TENANT-scoped: the database constraint created by
+  // migration 20260901000002 is `product_sku_tenant_key UNIQUE (tenant_id, sku)`.
+  // The Prisma schema previously declared a GLOBAL `@unique` on `sku`, which
+  // (a) made `db.product.findUnique({ where: { sku } })` type-check even
+  // though it would return an arbitrary tenant's row, and (b) made
+  // `prisma migrate dev` see drift and generate a migration that DROPPED the
+  // tenant-scoped constraint in favour of a global unique index — a silent
+  // multi-tenancy regression (the same SKU could no longer exist in two
+  // tenants). The `map:` keeps the existing constraint name so the schema and
+  // the database agree.
+  sku           String?
   version       Int      @default(1) @map("version")
   createdAt     DateTime @default(now()) @map("created_at")
   updatedAt     DateTime @updatedAt @map("updated_at")
@@ -434,6 +444,7 @@ model Product {
   features ProductFeature[]
   prices   ProductPrice[]
 
+  @@unique([tenantId, sku], map: "product_sku_tenant_key")
   @@index([tenantId])
   @@index([productTypeId])
   @@index([tenantId, productTypeId])

@@ -120,10 +120,16 @@ confirmation.`,
       // configuration rather than a hardcoded guess — the agent can then
       // supply the `confirmation` field up front instead of discovering the
       // requirement through a CONFIRMATION_REQUIRED rejection.
+      //
+      // The gate middleware only enforces tools whose risk level is "high" or
+      // "critical" (see confirmation-gate.ts), so a gate row for a
+      // medium/low-risk tool is NOT enforced. Reporting it as
+      // `confirmationRequired` would advertise a requirement the pipeline
+      // does not apply — the same class of drift as a stale type table.
       const gatedTools = await listGatedToolNames(prisma);
       const withConfirmation = tools.map((t) => ({
         ...t,
-        confirmationRequired: gatedTools.has(t.name),
+        confirmationRequired: gatedTools.has(t.name) && (t.riskLevel === "high" || t.riskLevel === "critical"),
       }));
       return {
         success: true,
@@ -320,30 +326,18 @@ Returns the entity's description, AI prompt hint, and key fields.`,
  * Admin-curated reference data — not tenant-scoped. New entities added in
  * future phases must register their transitions here so agents know the
  * allowed state-machine edges before attempting a transition.
+ *
+ * ONLY entities that BOTH expose a status field in the Prisma schema AND
+ * have a transition tool may appear here. The previous map listed `party`
+ * (whose model has NO status column), `order` and `invoice` (tables that do
+ * not exist in this schema at all) — a hallucination-guarding tool that
+ * itself injected a hallucination: an agent was told a status-transition
+ * API existed for entities that have no status field and no transition tool.
+ *
+ * An entity is added here in the same phase that introduces its status
+ * column and its transition tool.
  */
-const STATUS_TRANSITIONS: Record<string, Record<string, string[]>> = {
-  party: {
-    active: ["inactive", "suspended"],
-    inactive: ["active", "suspended"],
-    suspended: ["active", "inactive"],
-  },
-  order: {
-    draft: ["pending", "cancelled"],
-    pending: ["confirmed", "cancelled"],
-    confirmed: ["in_progress", "cancelled"],
-    in_progress: ["completed", "cancelled"],
-    completed: [],
-    cancelled: [],
-  },
-  invoice: {
-    draft: ["pending"],
-    pending: ["partially_paid", "overdue", "cancelled"],
-    partially_paid: ["paid", "overdue", "cancelled"],
-    paid: [],
-    overdue: ["paid", "cancelled"],
-    cancelled: [],
-  },
-};
+const STATUS_TRANSITIONS: Record<string, Record<string, string[]>> = {};
 
 function createGetValidTransitions(): ToolDefinition {
   return {
@@ -353,7 +347,9 @@ function createGetValidTransitions(): ToolDefinition {
 Use this before transitioning an entity's status to know which moves are allowed.
 Returns a map of current status → allowed next statuses.
 
-Example: get_valid_transitions({ entity: "party" }) returns { active: ["inactive", "suspended"], ... }`,
+Only entities that expose a status field AND have a status-transition tool are
+listed. If the registry is empty, this deployment has no such entity yet and
+no status transition can be performed.`,
 
     inputSchema: z.strictObject({
       entity: z.string()
@@ -372,12 +368,16 @@ Example: get_valid_transitions({ entity: "party" }) returns { active: ["inactive
 
       if (transitions === undefined) {
         // Enumerate all registered entities so the agent knows what's available.
-        const registered = Object.keys(STATUS_TRANSITIONS).join(", ");
+        const registeredEntities = Object.keys(STATUS_TRANSITIONS);
+        const registered = registeredEntities.length > 0 ? registeredEntities.join(", ") : "(none)";
         return {
           success: false,
           error: {
             code: "ENTITY_NOT_FOUND",
-            message: `No status transitions registered for entity '${stripHtmlTags(sanitizeForLogOutput(input.entity))}'. Available entities: ${registered}.`,
+            message: registeredEntities.length > 0
+              ? `No status transitions registered for entity '${stripHtmlTags(sanitizeForLogOutput(input.entity))}'. Available entities: ${registered}.`
+              : `No status transitions are registered for entity '${stripHtmlTags(sanitizeForLogOutput(input.entity))}'. ` +
+                "This deployment has no entity that exposes a status field with a transition tool, so no status transition can be performed.",
             suggestedTools: ["describe_entity", "list_available_tools"],
             context: { entity: stripHtmlTags(sanitizeForLogOutput(input.entity)) },
           },
@@ -523,9 +523,12 @@ Example: search_across_entities({ query: "Widget", entity: "product" })`,
 /**
  * Run one entity search through the service exposed on the tool context.
  *
- * A missing/unavailable service resolves to `null` (no results for that
- * entity) rather than throwing — the caller distinguishes a genuine empty
- * result from a service failure by inspecting the settled result.
+ * A missing/unavailable service REJECTS (rather than resolving to `null`).
+ * Resolving to `null` made an absent service indistinguishable from a
+ * genuine empty result: the settled-result inspection the caller performs
+ * only sees REJECTED branches, so the failure was silently reported as
+ * "no matches" with `success: true` — a service outage looked exactly like
+ * an empty tenant.
  */
 async function searchOneEntity(
   context: ToolContext,
@@ -534,9 +537,12 @@ async function searchOneEntity(
   input: { query: string; limit: number; offset: number },
 ): Promise<unknown> {
   const svc = context.services[serviceKey];
-  if (!svc || typeof svc !== "object" || typeof (svc as Record<string, unknown>)[method] !== "function") return null;
-  const search = (svc as unknown as Record<string, ((i: { tenantId: string; name?: string; limit?: number; offset?: number }) => Promise<unknown>) | undefined>)[method];
-  if (typeof search !== "function") return null;
+  const search = svc && typeof svc === "object"
+    ? (svc as unknown as Record<string, ((i: { tenantId: string; name?: string; limit?: number; offset?: number }) => Promise<unknown>) | undefined>)[method]
+    : undefined;
+  if (typeof search !== "function") {
+    throw new Error(`${serviceKey === "partyService" ? "Party" : "Product"} search service is not available.`);
+  }
   return search({
     tenantId: context.tenantId,
     name: input.query,
@@ -593,6 +599,66 @@ function describeSearchFailure(reason: unknown): string {
  * a plain-English explanation and suggested next steps instead of guessing.
  */
 const ERROR_EXPLANATIONS: Record<string, { message: string; suggestedTools: string[]; context?: Record<string, string> }> = {
+  INVALID_INPUT: {
+    message: "The tool arguments failed schema validation. A required field is missing, has the wrong type, or exceeds its length limit.",
+    suggestedTools: ["list_available_tools", "describe_entity"],
+    context: { tip: "Re-read the tool description and check the 'context.issues' array of the error for the exact offending fields." },
+  },
+  CONFIRMATION_REQUIRED: {
+    message: "This tool requires an explicit confirmation before it runs. High-risk operations must be justified by the agent.",
+    suggestedTools: ["list_available_tools"],
+    context: { tip: "Call the tool again with a 'confirmation' string (at least 10 characters) explaining why the operation should proceed." },
+  },
+  INVALID_CONFIRMATION: {
+    message: "The confirmation you supplied was rejected — it was missing, too short, too long, or contained no visible text after sanitization.",
+    suggestedTools: ["list_available_tools"],
+    context: { tip: "Supply a plain-text justification of at least 10 visible characters." },
+  },
+  IDEMPOTENCY_KEY_MISMATCH: {
+    message: "The idempotency key was already used for a different operation, or two different keys were supplied for the same call.",
+    suggestedTools: ["list_available_tools"],
+    context: { tip: "Use a fresh idempotency key for every distinct operation." },
+  },
+  REQUEST_IN_PROGRESS: {
+    message: "A concurrent request already holds this idempotency key. The operation is running or was rejected by a duplicate check.",
+    suggestedTools: ["list_available_tools"],
+    context: { tip: "Wait briefly and retry the SAME request with the SAME idempotency key." },
+  },
+  IDEMPOTENCY_CONTENTION: {
+    message: "The idempotency record could not be acquired because of concurrent contention.",
+    suggestedTools: ["list_available_tools"],
+    context: { tip: "Wait briefly and retry the same request with the same idempotency key (do not use a new key)." },
+  },
+  SERVICE_UNAVAILABLE: {
+    message: "A dependency required for this operation is unavailable. The operation did not complete.",
+    suggestedTools: ["list_available_tools"],
+    context: { tip: "Retry the same request later with the same idempotency key." },
+  },
+  REFERENCE_ERROR: {
+    message: "A referenced record does not exist or does not belong to this tenant.",
+    suggestedTools: ["search_across_entities", "get_party"],
+    context: { tip: "Look up the referenced record in this tenant before referencing it." },
+  },
+  DATABASE_ERROR: {
+    message: "The database rejected the operation. This is usually a server-side constraint or availability problem.",
+    suggestedTools: ["list_available_tools"],
+    context: { tip: "Retry shortly. If it persists, contact support with the error code." },
+  },
+  DATABASE_CONNECTION_ERROR: {
+    message: "The database could not be reached. The operation did not complete.",
+    suggestedTools: ["list_available_tools"],
+    context: { tip: "Retry later — this is a transient infrastructure issue, not a problem with your input." },
+  },
+  INTERNAL_ERROR: {
+    message: "An unexpected server-side error occurred. The operation did not complete.",
+    suggestedTools: ["list_available_tools"],
+    context: { tip: "Retry once; if it persists, contact support with the request ID." },
+  },
+  UNKNOWN_TOOL: {
+    message: "The requested tool is not registered.",
+    suggestedTools: ["list_available_tools"],
+    context: { tip: "Call list_available_tools to see the exact tool names." },
+  },
   INVALID_TYPE_VALUE: {
     message: "The value you provided does not match any valid option in the system. Type tables (PARTY_TYPE, ROLE_TYPE, etc.) define the allowed values.",
     suggestedTools: ["get_type_table_values", "list_available_tools", "describe_entity"],

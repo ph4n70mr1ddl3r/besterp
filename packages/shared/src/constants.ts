@@ -99,6 +99,15 @@ export const MAX_FEATURE_NAME_LENGTH = 100;
 /** Maximum length for product feature values. */
 export const MAX_FEATURE_VALUE_LENGTH = 500;
 
+/**
+ * Maximum number of features that may be attached to a product in one call.
+ *
+ * The individual name/value lengths are capped separately; without an array
+ * bound a single `create_product` call could create an unbounded number of
+ * `product_feature` rows (and an unbounded audit-log payload).
+ */
+export const MAX_PRODUCT_FEATURES_LENGTH = 50;
+
 /** Maximum length for ISO 4217 currency codes (3 characters). */
 export const MAX_CURRENCY_CODE_LENGTH = 3;
 
@@ -205,6 +214,21 @@ export const MAX_SEARCH_OFFSET = 10_000;
 /** Maximum number of tenant-scoped clients to cache. */
 export const MAX_TENANT_CACHE_SIZE = 256;
 
+/**
+ * Default maximum number of memoised tenant-client methods.
+ *
+ * Shared so the PrismaService (which reads the env override) and the
+ * `createTenantClient` factory in @besterp/database (which applies the
+ * fallback) cannot drift apart.
+ */
+export const DEFAULT_MAX_METHOD_CACHE_SIZE = 1000;
+
+/**
+ * Default maximum number of memoised tenant-client model delegates.
+ * See {@link DEFAULT_MAX_METHOD_CACHE_SIZE}.
+ */
+export const DEFAULT_MAX_DELEGATE_CACHE_SIZE = 50;
+
 // ─── Idempotency ───────────────────────────────────────────────
 
 /** Maximum length for idempotency keys. */
@@ -245,14 +269,40 @@ export const MAX_SOFT_FAILURE_MESSAGE_SIZE = 4096;
 /** Maximum length for a single error message line in the MCP error-handler stderr log. */
 export const MAX_ERROR_LOG_LINE_LENGTH = 500;
 
+/**
+ * Maximum length of an agent-facing error message.
+ *
+ * Every agent-facing error surface (the MCP error-handler's `message`, the
+ * tool registry's INVALID_INPUT summary) is capped at this length so a single
+ * error can never return a multi-hundred-KB payload to the agent. The
+ * detailed issue list stays available programmatically via `context.issues`.
+ */
+export const MAX_ERROR_MESSAGE_LENGTH = 2000;
+
+/**
+ * Maximum number of Zod issues reported back to the agent for a single
+ * invalid tool input.
+ */
+export const MAX_VALIDATION_ISSUES = 50;
+
+/**
+ * Maximum length of a single Zod issue message reflected to the agent.
+ *
+ * A Zod issue message can embed the offending input verbatim (e.g. a 100 KB
+ * string field), so each issue message — and each issue's `received` value —
+ * must be bounded independently of the aggregate issue count.
+ */
+export const MAX_VALIDATION_ISSUE_MESSAGE_LENGTH = 500;
+
 // ─── Auth Config ──────────────────────────────────────────────
 
 /** Regex for validating JWT_EXPIRES_IN duration format (e.g., "24h", "60m", "7d").
- *  Rejects a leading zero and caps the magnitude (`[1-9]\d{0,9}`) so degenerate
- *  values cannot be configured. A bare `0s` would expire every token immediately;
- *  an unbounded `999999999999999999d` would produce an effectively non-expiring
- *  token — both defeat the purpose of a short-lived JWT. `validateEnvironment`
- *  (main.ts) tests this pattern before booting, so the cap is enforced there. */
+ *  Rejects a leading zero and bounds the magnitude (`[1-9]\d{0,9}`) so a
+ *  degenerate value cannot be configured. A bare `0s` would expire every token
+ *  immediately. The pattern itself still permits a very large magnitude, so
+ *  the ACTUAL lifetime cap (MAX_JWT_EXPIRES_IN_DAYS) is enforced separately by
+ *  `validateJwtExpiresIn` in main.ts, which parses the matched value and
+ *  rejects a total duration above the maximum. */
 export const JWT_EXPIRES_IN_REGEX = /^([1-9]\d{0,9})([smhd])$/;
 
 // ─── Confirmation Gate ──────────────────────────────────────────
@@ -308,6 +358,35 @@ export const MAX_REQUEST_ID_LENGTH = 128;
 
 /** Timeout for Redis health probe connections (ms). */
 export const REDIS_PROBE_TIMEOUT_MS = 2_000;
+
+/**
+ * Default ioredis connect timeout (ms) for the BullMQ queue connection.
+ */
+export const REDIS_CONNECT_TIMEOUT_MS = 10_000;
+
+/**
+ * Maximum number of Redis reconnection attempts before the queue gives up.
+ *
+ * Mirrors the BullMQ retry backoff constants below — the retry policy was
+ * split across two files before this was centralised.
+ */
+export const REDIS_MAX_RETRIES = 10;
+
+/**
+ * Minimum length (characters) of a JWT secret.
+ *
+ * 32 hex characters = 128 bits of entropy, which is the minimum for a
+ * symmetric HMAC signing key.
+ */
+export const MIN_JWT_SECRET_LENGTH = 32;
+
+/**
+ * TTL of the cached Redis health-probe result (ms).
+ *
+ * The anonymous /api/health endpoint is polled every few seconds by load
+ * balancers; without a cache each poll opened a fresh Redis socket.
+ */
+export const REDIS_PROBE_CACHE_TTL_MS = 5_000;
 
 /** Maximum size (bytes) for the Redis probe response buffer (DoS guard). */
 export const MAX_RESPONSE_BUFFER_BYTES = 1_024;
@@ -370,7 +449,11 @@ export const ADVISORY_LOCK_KEY_CLEANUP_IDEMPOTENCY = 0x626573746572;
  * (or vice versa), which would hide configuration drift from operators.
  */
 export function resolveRedisTls(): boolean {
-  const raw = (process.env.REDIS_TLS ?? "").toLowerCase();
+  // `normalizeEnvironmentValue` applies trim + lowercase. Trimming matters
+  // because `" true "` (whitespace-padded) is a common copy/paste artefact and
+  // would silently fall through to the environment default instead of
+  // enabling TLS.
+  const raw = normalizeEnvironmentValue(process.env.REDIS_TLS) ?? "";
   if (["1", "true", "yes"].includes(raw)) return true;
   if (["0", "false", "no"].includes(raw)) return false;
   return !isDev();

@@ -26,6 +26,7 @@ import {
   resolveHardExitTimeoutMs,
   resolveRateLimitConfig,
   resolveTrustProxyHops,
+  resolveRequiredEnvVars,
   normalizeEnvironmentValue,
   DEFAULT_HARD_EXIT_TIMEOUT_MS,
   resolvePort,
@@ -34,6 +35,14 @@ import {
 } from "./bootstrap-config.js";
 
 const logger = new Logger("Bootstrap");
+
+/**
+ * The global route prefix for every REST endpoint.
+ *
+ * Single source of truth: the rate-limiter's health-probe exemption derives
+ * its path from this constant instead of repeating the literal.
+ */
+const GLOBAL_API_PREFIX = "api";
 
 function normalizeEnvironment(): void {
   // Normalize NODE_ENV early so all downstream comparisons are case-insensitive
@@ -61,20 +70,15 @@ function resolveHardExitTimeout(env: NodeJS.ProcessEnv): number {
 }
 
 function validateRequiredEnvVars(): void {
-  const requiredInProduction = ["DATABASE_URL", "DATABASE_ADMIN_URL", "JWT_SECRET"];
-  const missing = requiredInProduction.filter((v) => !process.env[v]);
-  if (missing.length > 0 && isProd()) {
+  // Required in EVERY non-development environment — not just production.
+  // `isDev()` and `isProd()` are NOT complements: "staging", "test" and an
+  // unset NODE_ENV are neither. PrismaService already refuses to boot
+  // without DATABASE_URL / DATABASE_ADMIN_URL in any non-dev environment, so
+  // enforcing the same rule here turns an opaque crash during
+  // NestFactory.create into the clean one-line error below.
+  const { missing, fatal } = resolveRequiredEnvVars(process.env);
+  if (fatal) {
     logger.error(`Missing required environment variables: ${missing.join(", ")}. Exiting.`);
-    process.exit(1);
-  }
-  // In development, DATABASE_URL missing is ALSO fatal — not a degraded-boot
-  // warning. PrismaService.initializeAppClient() throws unconditionally when
-  // DATABASE_URL is unset (every environment), so NestFactory.create would
-  // crash with a raw stack trace anyway; exiting here gives the clean
-  // one-line error instead. (A previous warning here described a
-  // boot-then-fail-later posture that could never actually occur.)
-  if (!process.env.DATABASE_URL && isDev()) {
-    logger.error("DATABASE_URL is not set. The API cannot start without a database. Set DATABASE_URL and retry. Exiting.");
     process.exit(1);
   }
 }
@@ -87,11 +91,23 @@ function validateJwtConfig(): void {
 
 function validateJwtExpiresIn(): void {
   // Validate JWT_EXPIRES_IN format if provided.
-  if (process.env.JWT_EXPIRES_IN && !JWT_EXPIRES_IN_REGEX.test(process.env.JWT_EXPIRES_IN)) {
-    logger.error(
-      `JWT_EXPIRES_IN "${process.env.JWT_EXPIRES_IN}" is invalid. Must be a duration string like "24h", "60m", "7d".`
-    );
-    process.exit(1);
+  //
+  // An EMPTY value is rejected explicitly: `process.env.JWT_EXPIRES_IN` is
+  // falsy for "", so the guard below skipped it entirely and the empty string
+  // reached JwtModule.register({ expiresIn: "" }) — where jsonwebtoken
+  // REJECTS it ("expiresIn should be a number of seconds or string
+  // representing a timespan"), so every token-signing call threw at runtime.
+  if (process.env.JWT_EXPIRES_IN !== undefined) {
+    if (process.env.JWT_EXPIRES_IN.trim().length === 0) {
+      logger.error("JWT_EXPIRES_IN is set but empty. Unset it to use the default (24h), or provide a duration like \"24h\", \"60m\", \"7d\".");
+      process.exit(1);
+    }
+    if (!JWT_EXPIRES_IN_REGEX.test(process.env.JWT_EXPIRES_IN)) {
+      logger.error(
+        `JWT_EXPIRES_IN "${process.env.JWT_EXPIRES_IN}" is invalid. Must be a duration string like "24h", "60m", "7d".`
+      );
+      process.exit(1);
+    }
   }
   // Enforce a maximum token lifetime to prevent absurdly long-lived tokens
   // (e.g., "9999999999d" ≈ 27,397 years). The regex allows magnitudes up to
@@ -202,18 +218,23 @@ function setupGracefulShutdown(app: INestApplication): void {
   const HARD_EXIT_TIMEOUT_MS = resolveHardExitTimeout(process.env);
   let shuttingDown = false;
 
-  async function gracefulShutdown(label: string, detail: unknown): Promise<void> {
+  async function gracefulShutdown(label: string, detail: unknown, exitCode: number): Promise<void> {
     const raw = detail instanceof Error ? detail.stack ?? detail.message : String(detail);
     logger.error(`${label}: ${sanitizeForLogOutput(raw)}`);
     // Set the flag BEFORE checking to prevent a second concurrent invocation
     // from also logging and starting a second hard-exit timer. The first
     // invocation that reaches this point wins; the loser exits immediately.
-    if (shuttingDown) process.exit(1);
+    if (shuttingDown) process.exit(exitCode);
     shuttingDown = true;
 
     try {
       await closeWithTimeout(app, "Graceful shutdown", HARD_EXIT_TIMEOUT_MS);
-      process.exit(0);
+      // The exit code MUST reflect WHY we are shutting down. An
+      // unhandled promise rejection is a fault, not a clean stop: exiting 0
+      // made the process look like a successful termination to systemd /
+      // Docker `restart: on-failure` / Kubernetes `restartPolicy: OnFailure`,
+      // so the service stayed DOWN instead of being restarted.
+      process.exit(exitCode);
     } catch (closeErr) {
       const errorDetail = closeErr instanceof Error ? closeErr.stack ?? closeErr.message : String(closeErr);
       logger.error(`Error during graceful shutdown: ${sanitizeForLogOutput(errorDetail)}`);
@@ -231,7 +252,10 @@ function setupGracefulShutdown(app: INestApplication): void {
   });
 
   process.on("unhandledRejection", (reason) => {
-    void gracefulShutdown("Unhandled promise rejection", reason);
+    // Exit with a NON-ZERO code: an unhandled rejection is an error
+    // condition, and a zero exit code told the process manager the service
+    // terminated normally (so it was never restarted).
+    void gracefulShutdown("Unhandled promise rejection", reason, 1);
   });
 
   app.enableShutdownHooks();
@@ -341,6 +365,42 @@ function resolveListenAddress(port: number, server: Server): string {
   return `http://${network}:${port}`;
 }
 
+/**
+ * Load the application module and create the Nest application.
+ *
+ * The dynamic import happens AFTER validateEnvironment(): AppModule's
+ * decorators evaluate config at module-load time (AuthModule's
+ * JwtModule.register calls resolveJwtSecret(); QueueModule.forRoot() throws
+ * in non-dev when Redis env vars are missing). With a static import, that
+ * evaluation runs BEFORE bootstrap() — so the carefully-ordered validators
+ * there (clean one-line errors, process.exit(1)) were unreachable for exactly
+ * the scenarios they document, and the process instead died during ESM module
+ * evaluation with a raw import-time stack trace. Importing here keeps the
+ * fail-fast-with-clean-error contract in main.ts authoritative.
+ *
+ * BOTH the import and the factory call are wrapped: the decorator evaluation
+ * the import triggers can still throw (e.g. QueueModule.forRoot() throws when
+ * REDIS_HOST is missing in a non-dev environment), and an unwrapped rejection
+ * there produced exactly the raw import-time stack trace this dynamic import
+ * was introduced to avoid.
+ */
+async function createApp(): Promise<INestApplication> {
+  let AppModule: typeof import("./app.module.js").AppModule;
+  try {
+    ({ AppModule } = await import("./app.module.js"));
+  } catch (err) {
+    logger.error(`Failed to load the application module: ${sanitizeForLogOutput(err instanceof Error ? err.message : String(err))}`);
+    process.exit(1);
+  }
+
+  try {
+    return await NestFactory.create(AppModule, { bodyParser: false });
+  } catch (err) {
+    logger.error(`Failed to start the application: ${sanitizeForLogOutput(err instanceof Error ? err.message : String(err))}`);
+    process.exit(1);
+  }
+}
+
 async function bootstrap() {
   normalizeEnvironment();
   validateEnvironment();
@@ -369,19 +429,7 @@ async function bootstrap() {
     process.exit(1);
   }
 
-  // Dynamic import AFTER validateEnvironment(): AppModule's decorators
-  // evaluate config at module-load time (AuthModule's JwtModule.register
-  // calls resolveJwtSecret(); QueueModule.forRoot() throws in non-dev when
-  // Redis env vars are missing). With a static import, that evaluation runs
-  // BEFORE bootstrap() — so the carefully-ordered validators above (clean
-  // one-line errors, process.exit(1)) were unreachable for exactly the
-  // scenarios they document, and the process instead died during ESM module
-  // evaluation with a raw import-time stack trace. Importing here keeps the
-  // fail-fast-with-clean-error contract in main.ts authoritative.
-  const { AppModule } = await import("./app.module.js");
-
-  const app = await NestFactory.create(AppModule, { bodyParser: false });
-
+  const app = await createApp();
   setupGracefulShutdown(app);
 
   // Trust exactly the configured number of proxy hops for client-IP
@@ -397,7 +445,7 @@ async function bootstrap() {
     );
   }
 
-  app.setGlobalPrefix("api");
+  app.setGlobalPrefix(GLOBAL_API_PREFIX);
 
   // Allowed origins are needed by the rate-limiter's custom 429 handler (below)
   // to attach CORS headers to rate-limited responses. The main CORS middleware
@@ -454,7 +502,13 @@ async function bootstrap() {
   // orchestrators poll these frequently, and rate-limiting them can cause
   // false-positive health failures and premature instance de-registration.
   app.use((req: Request, res: Response, next: NextFunction) => {
-    if (req.path === "/api/health" || req.path.startsWith("/api/health/")) {
+    // The health path is derived from the SAME constant as the global
+    // prefix: duplicating the literal meant a prefix change silently
+    // disabled the rate-limit exemption for health probes — the exact
+    // "false-positive health failure / premature instance de-registration"
+    // scenario the exemption exists to prevent.
+    const healthPath = `/${GLOBAL_API_PREFIX}/health`;
+    if (req.path === healthPath || req.path.startsWith(`${healthPath}/`)) {
       return next();
     }
     return generalLimiter(req, res, next);

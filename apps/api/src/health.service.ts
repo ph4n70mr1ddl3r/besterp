@@ -6,7 +6,7 @@
 
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from "@nestjs/common";
 import { PrismaService } from "./prisma/prisma.service.js";
-import { sanitizeForLogOutput, resolveRedisTls, isDev, isProd, DEFAULT_REDIS_PORT, REDIS_PROBE_TIMEOUT_MS, MAX_RESPONSE_BUFFER_BYTES, BYTES_PER_MB } from "@besterp/shared";
+import { sanitizeForLogOutput, resolveRedisTls, isDev, isProd, DEFAULT_REDIS_PORT, REDIS_PROBE_TIMEOUT_MS, REDIS_PROBE_CACHE_TTL_MS, MAX_RESPONSE_BUFFER_BYTES, BYTES_PER_MB, READY_CHECK_TIMEOUT_MS } from "@besterp/shared";
 import { normalizeEnvironmentValue } from "./bootstrap-config.js";
 import * as fs from "node:fs/promises";
 import * as net from "node:net";
@@ -104,7 +104,7 @@ export class HealthService implements OnModuleInit, OnModuleDestroy {
    * Promise dedup (see {@link #redisProbeInflight}) collapses CONCURRENT
    * bursts so the "one per TTL" bound holds even under a request flood.
    */
-  private static readonly REDIS_PROBE_CACHE_TTL_MS = 5_000;
+
   private redisProbeCache: { timestamp: number; status: "connected" | "disconnected" | "not_configured" } | undefined;
   /**
    * The currently-running Redis probe (if any). A result cache alone does
@@ -183,7 +183,15 @@ export class HealthService implements OnModuleInit, OnModuleDestroy {
     // (superuser) connection for a non-admin purpose.
     let databaseStatus: "connected" | "disconnected";
     try {
-      await this.prisma.appClient.$queryRaw`SELECT 1`;
+      // Bound the DB probe with the SAME timeout `/ready` applies. Without it
+      // a hung driver/pool (network partition, exhausted pool) left the
+      // ANONYMOUS liveness endpoint hanging until the load balancer's own
+      // probe timeout — the health check itself became the outage.
+      await this.withTimeout(
+        this.prisma.appClient.$queryRaw`SELECT 1`,
+        READY_CHECK_TIMEOUT_MS,
+        "database health check",
+      );
       databaseStatus = "connected";
     } catch (error) {
       // Dedupe like the Redis probes: load balancers poll /api/health every
@@ -232,6 +240,28 @@ export class HealthService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
+   * Race a promise against a timeout.
+   *
+   * The underlying operation is NOT cancelled (the driver has no portable
+   * cancellation) — the timeout only bounds how long the caller waits, so a
+   * hung connection cannot make the health endpoint hang. The rejected
+   * promise is swallowed so it never surfaces as an unhandled rejection.
+   */
+  private async withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
+    let timer: NodeJS.Timeout | undefined;
+    const timeoutPromise = new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(() => reject(new Error(`${label} timed out after ${timeoutMs}ms`)), timeoutMs);
+      timer.unref();
+    });
+    promise.catch(() => undefined);
+    try {
+      return await Promise.race([promise, timeoutPromise]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+
+  /**
    * Probe Redis connectivity and return a status.
    *
    * Returns "not_configured" when REDIS_HOST is unset. Warns (once per
@@ -248,7 +278,7 @@ export class HealthService implements OnModuleInit, OnModuleDestroy {
     // bounded. "not_configured" results open no socket, but caching them too
     // keeps the control flow uniform.
     const now = Date.now();
-    if (this.redisProbeCache && now - this.redisProbeCache.timestamp < HealthService.REDIS_PROBE_CACHE_TTL_MS) {
+    if (this.redisProbeCache && now - this.redisProbeCache.timestamp < REDIS_PROBE_CACHE_TTL_MS) {
       return this.redisProbeCache.status;
     }
     // Dedupe CONCURRENT probes: a result cache alone collapses polls that

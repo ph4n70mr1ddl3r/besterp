@@ -32,7 +32,18 @@ export class HealthController {
     }
     // Anonymous health endpoint returns only a minimal, non-fingerprintable
     // body. The full HealthStatus is still available to authenticated monitoring.
-    return { status: status.status, timestamp: status.timestamp, database: status.database };
+    //
+    // The optional `warning` IS surfaced: it is only present when a
+    // non-fatal dependency is degraded (e.g. "Redis is configured but
+    // disconnected — background jobs may not work"). Operators and load
+    // balancers need that signal, and it is absent in the healthy case, so
+    // it discloses nothing about the deployment in the normal path.
+    return {
+      status: status.status,
+      timestamp: status.timestamp,
+      database: status.database,
+      ...(status.warning ? { warning: status.warning } : {}),
+    };
   }
 
   @Get("version")

@@ -10,7 +10,7 @@ import {
 } from "../middleware/index.js";
 import { attachAuditWarning } from "../middleware/audit-log.js";
 import { ToolDefinition, ToolContext, ToolResult } from "../schema/tool-definition.js";
-import { DomainError } from "@besterp/shared";
+import { DomainError, hashInput } from "@besterp/shared";
 import { Prisma } from "@prisma/client";
 
 // Mock Prisma client for testing
@@ -2417,5 +2417,162 @@ describe("Confirmation Gate Middleware", () => {
 
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe("CONFIRMATION_REQUIRED");
+  });
+});
+
+describe("Regression: confirmation gate validates the SANITIZED value", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  const mockPrismaForGate = {
+    confirmationGate: { findUnique: vi.fn() },
+  };
+
+  const highRiskDefinition: ToolDefinition = {
+    ...mockDefinition,
+    riskLevel: "high",
+  };
+
+  it("rejects a confirmation that is only HTML markup (nothing left after stripping)", () => {
+    // The length gate ran on the RAW value, but the value that is propagated
+    // on the context and persisted to ai_action_log.toolInput is the
+    // post-strip one. A markup-only confirmation (an HTML comment wrapping a
+    // justification) passed the >= 10 character check on the raw value but
+    // collapsed to "" — so a high-risk operation executed with NO recorded
+    // justification at all.
+    (mockPrismaForGate.confirmationGate.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({ enabled: true });
+
+    const middleware = confirmationGateMiddleware(mockPrismaForGate as any);
+    const input = { name: "Jane", confirmation: `<!--${"y".repeat(50)}-->` };
+    return middleware(input, mockContext, highRiskDefinition, successNext({ success: true, data: "ok" })).then((result) => {
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe("INVALID_CONFIRMATION");
+    });
+  });
+
+  it("rejects a confirmation whose visible text is shorter than the minimum", () => {
+    (mockPrismaForGate.confirmationGate.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({ enabled: true });
+
+    const middleware = confirmationGateMiddleware(mockPrismaForGate as any);
+    // 12 raw characters, but only 2 survive the HTML strip.
+    const input = { name: "Jane", confirmation: "<b>ok</b>" };
+    return middleware(input, mockContext, highRiskDefinition, successNext({ success: true, data: "ok" })).then((result) => {
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe("INVALID_CONFIRMATION");
+    });
+  });
+});
+
+describe("Regression: audit middleware never breaks the tool call", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  const auditPrisma = {
+    aiActionLog: { create: vi.fn().mockResolvedValue({}) },
+    idempotencyRecord: { findUnique: vi.fn(), create: vi.fn(), update: vi.fn() },
+  };
+
+  it("does not abort the call when the confirmation is oversized", async () => {
+    // `stripHtmlTags` rejects inputs over 100 KB by THROWING, and the audit
+    // middleware runs OUTSIDE the confirmation gate — so an oversized
+    // confirmation (which no boundary length-validates) aborted the whole
+    // tool call with an opaque INTERNAL_ERROR and wrote NO audit row.
+    const middleware = auditLogMiddleware(auditPrisma as any);
+    const hugeConfirmation = "x".repeat(150_000);
+    const result = await middleware(
+      { name: "Jane" },
+      { ...mockContext, confirmation: hugeConfirmation },
+      mockDefinition,
+      successNext({ success: true, data: "ok" }),
+    );
+    expect(result.success).toBe(true);
+    expect(auditPrisma.aiActionLog.create).toHaveBeenCalled();
+  });
+
+  it("keeps a non-plain-object tool input in the durable audit row", async () => {
+    // The audit row used to be `{ ...{}, confirmation }` for a non-plain-object
+    // input (array / Map / class instance) — the ENTIRE tool input vanished
+    // from the durable trail.
+    const middleware = auditLogMiddleware(auditPrisma as any);
+    await middleware(
+      [1, 2, 3],
+      { ...mockContext, confirmation: "A perfectly reasonable justification" },
+      mockDefinition,
+      successNext({ success: true, data: "ok" }),
+    );
+    const row = auditPrisma.aiActionLog.create.mock.calls[0]![0].data;
+    expect(row.toolInput).toBeDefined();
+    expect(JSON.stringify(row.toolInput)).toContain("1");
+    expect(row.toolInput).toHaveProperty("confirmation");
+  });
+});
+
+describe("Regression: agent-facing error surfaces are length-capped", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("caps a DomainError message at the shared agent-facing bound", async () => {
+    const middleware = errorHandlerMiddleware;
+    const huge = "y".repeat(50_000);
+    const result = await middleware(
+      { name: "Jane" },
+      mockContext,
+      mockDefinition,
+      throwingNext(new DomainError("CUSTOM", huge)),
+    );
+    expect(result.success).toBe(false);
+    expect(result.error!.message!.length).toBeLessThanOrEqual(2_001);
+  });
+});
+
+describe("Regression: idempotency P2002 is contention, not an outage", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("re-reads the row and reports REQUEST_IN_PROGRESS instead of SERVICE_UNAVAILABLE", async () => {
+    // A concurrent request inserted the same (idempotencyKey, tenantId) row
+    // between our findUnique and our create → P2002. That is CONTENTION (the
+    // other request holds the record), not an infrastructure outage. The
+    // agent was told "the operation cannot be retried at this time", which
+    // is the wrong recovery instruction for a duplicate-key race.
+    const idempotencyKey = "race-key";
+    const contextWithKey = { ...mockContext, idempotencyKey };
+
+    mockPrisma.$transaction.mockImplementation(async (fn: (tx: any) => Promise<any>, _opts?: any) => {
+      const tx = {
+        idempotencyRecord: {
+          findUnique: vi.fn().mockResolvedValue(null),
+          create: vi.fn().mockRejectedValue(
+            Object.assign(new Error("Unique constraint failed"), { code: "P2002" }),
+          ),
+        },
+      };
+      return fn(tx);
+    });
+    // The re-read (outside the failed transaction) finds the concurrent row.
+    mockPrisma.idempotencyRecord.findUnique.mockResolvedValue({
+      idempotencyKey,
+      tenantId: "test-tenant",
+      toolName: "test_tool",
+      status: "pending",
+      inputHash: hashInput({ test: "value" }),
+      createdAt: new Date(),
+    });
+
+    const middleware = idempotencyMiddleware(mockPrisma as any);
+    const result = await middleware(
+      { test: "value" },
+      contextWithKey,
+      mockDefinition,
+      successNext({ success: true, data: "created" }),
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe("REQUEST_IN_PROGRESS");
+    expect(result.error?.code).not.toBe("SERVICE_UNAVAILABLE");
   });
 });

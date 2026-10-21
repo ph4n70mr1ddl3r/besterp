@@ -30,6 +30,7 @@ function createMockPrisma() {
     admin: {
       productType: {
         findUnique: vi.fn(),
+        findFirst: vi.fn(),
       },
     },
   };
@@ -70,14 +71,14 @@ describe("ProductService", () => {
     });
 
     it("validates productType exists", async () => {
-      prisma.admin.productType.findUnique.mockResolvedValue(null);
+      prisma.admin.productType.findFirst.mockResolvedValue(null);
       await expect(
         service.createProduct({ tenantId: "t1", productType: "NONEXISTENT", name: "Widget" })
       ).rejects.toThrow(InvalidTypeValueError);
     });
 
     it("uses trimmed tenantId in queries", async () => {
-      prisma.admin.productType.findUnique.mockResolvedValue({ productTypeId: "pt-1" });
+      prisma.admin.productType.findFirst.mockResolvedValue({ productTypeId: "pt-1" });
       prisma.tenantScoped.mockReturnValue({
         $transaction: vi.fn().mockResolvedValue({
           productId: "p1", productTypeId: "pt-1", tenantId: "t1",
@@ -91,7 +92,7 @@ describe("ProductService", () => {
     });
 
     it("rejects empty feature name in createProduct", async () => {
-      prisma.admin.productType.findUnique.mockResolvedValue({ productTypeId: "pt-1" });
+      prisma.admin.productType.findFirst.mockResolvedValue({ productTypeId: "pt-1" });
       prisma.tenantScoped.mockReturnValue({
         $transaction: vi.fn().mockResolvedValue({
           productId: "p1", productTypeId: "pt-1", tenantId: "t1",
@@ -105,7 +106,7 @@ describe("ProductService", () => {
     });
 
     it("rejects empty feature value in createProduct", async () => {
-      prisma.admin.productType.findUnique.mockResolvedValue({ productTypeId: "pt-1" });
+      prisma.admin.productType.findFirst.mockResolvedValue({ productTypeId: "pt-1" });
       prisma.tenantScoped.mockReturnValue({
         $transaction: vi.fn().mockResolvedValue({
           productId: "p1", productTypeId: "pt-1", tenantId: "t1",
@@ -119,7 +120,7 @@ describe("ProductService", () => {
     });
 
     it("rejects feature name exceeding max length in createProduct", async () => {
-      prisma.admin.productType.findUnique.mockResolvedValue({ productTypeId: "pt-1" });
+      prisma.admin.productType.findFirst.mockResolvedValue({ productTypeId: "pt-1" });
       prisma.tenantScoped.mockReturnValue({
         $transaction: vi.fn().mockResolvedValue({
           productId: "p1", productTypeId: "pt-1", tenantId: "t1",
@@ -133,21 +134,21 @@ describe("ProductService", () => {
     });
 
     it("rejects a non-string feature name in createProduct", async () => {
-      prisma.admin.productType.findUnique.mockResolvedValue({ productTypeId: "pt-1" });
+      prisma.admin.productType.findFirst.mockResolvedValue({ productTypeId: "pt-1" });
       await expect(
         service.createProduct({ tenantId: "t1", productType: "GOODS", name: "Widget", features: [{ name: 42 as unknown as string, value: "Red" }] })
       ).rejects.toThrow(InvalidTypeValueError);
     });
 
     it("rejects a non-string feature value in createProduct", async () => {
-      prisma.admin.productType.findUnique.mockResolvedValue({ productTypeId: "pt-1" });
+      prisma.admin.productType.findFirst.mockResolvedValue({ productTypeId: "pt-1" });
       await expect(
         service.createProduct({ tenantId: "t1", productType: "GOODS", name: "Widget", features: [{ name: "Color", value: 42 as unknown as string }] })
       ).rejects.toThrow(InvalidTypeValueError);
     });
 
     it("rejects a categoryId that is not a UUID", async () => {
-      prisma.admin.productType.findUnique.mockResolvedValue({ productTypeId: "pt-1" });
+      prisma.admin.productType.findFirst.mockResolvedValue({ productTypeId: "pt-1" });
       await expect(
         service.createProduct({ tenantId: "t1", productType: "GOODS", name: "Widget", categoryId: "not-a-uuid" })
       ).rejects.toThrow(InvalidTypeValueError);
@@ -157,7 +158,7 @@ describe("ProductService", () => {
       // Postgres runs foreign-key checks with the table owner's rights, which
       // bypass RLS — so the category ownership must be verified explicitly,
       // otherwise a product could be linked to another tenant's category.
-      prisma.admin.productType.findUnique.mockResolvedValue({ productTypeId: "pt-1" });
+      prisma.admin.productType.findFirst.mockResolvedValue({ productTypeId: "pt-1" });
       prisma.tenantScoped.mockReturnValue({
         $transaction: vi.fn().mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => fn({
           productCategory: { findFirst: vi.fn().mockResolvedValue(null) },
@@ -173,7 +174,7 @@ describe("ProductService", () => {
     });
 
     it("links a category that belongs to the tenant", async () => {
-      prisma.admin.productType.findUnique.mockResolvedValue({ productTypeId: "pt-1" });
+      prisma.admin.productType.findFirst.mockResolvedValue({ productTypeId: "pt-1" });
       const create = vi.fn().mockResolvedValue({
         productId: "p1", productTypeId: "pt-1", tenantId: "t1",
         name: "Widget", description: null, sku: null, version: 1,
@@ -201,7 +202,7 @@ describe("ProductService", () => {
     });
 
     it("rejects feature value exceeding max length in createProduct", async () => {
-      prisma.admin.productType.findUnique.mockResolvedValue({ productTypeId: "pt-1" });
+      prisma.admin.productType.findFirst.mockResolvedValue({ productTypeId: "pt-1" });
       prisma.tenantScoped.mockReturnValue({
         $transaction: vi.fn().mockResolvedValue({
           productId: "p1", productTypeId: "pt-1", tenantId: "t1",
@@ -356,7 +357,7 @@ describe("ProductService", () => {
     });
 
     it("validates productType when provided", async () => {
-      prisma.admin.productType.findUnique.mockResolvedValue(null);
+      prisma.admin.productType.findFirst.mockResolvedValue(null);
       await expect(
         service.updateProduct({ tenantId: "t1", productId: "12345678-1234-1234-1234-123456789abc", productType: "BAD" })
       ).rejects.toThrow(InvalidTypeValueError);
@@ -543,6 +544,79 @@ describe("ProductService", () => {
       });
       await expect(
         service.getProduct("t1", "12345678-1234-1234-1234-123456789abc")
+      ).rejects.toThrow(InvalidTypeValueError);
+    });
+
+    it("maps a Prisma Decimal price amount to a number", async () => {
+      // `product_price.amount` is `Decimal @db.Decimal(19, 4)`, which Prisma
+      // returns as a `Prisma.Decimal` OBJECT — never a JS number. The mapper
+      // used `typeof value === "number"`, so the numeric branch was never
+      // taken for a real row: `get_product` threw for EVERY product that had
+      // a price, and `add_product_price` wrote the row and then threw (so the
+      // agent was told the write failed although it had been persisted, and a
+      // retry under the same idempotency key created a DUPLICATE row).
+      // The existing specs missed it because the mocks used plain numbers.
+      class FakeDecimal {
+        constructor(private readonly value: number) {}
+        toNumber(): number { return this.value; }
+        toString(): string { return String(this.value); }
+      }
+      prisma.tenantScoped.mockReturnValue({
+        product: {
+          findUnique: vi.fn().mockResolvedValue({
+            productId: "p1",
+            productTypeId: "pt1",
+            tenantId: "t1",
+            name: "Widget",
+            description: null,
+            sku: null,
+            version: 1,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+            productType: null,
+            features: [],
+            prices: [{ priceType: "LIST", amount: new FakeDecimal(19.99), currencyCode: "USD", fromDate: new Date(), thruDate: null }],
+            category: null,
+          }),
+        },
+      });
+      const result = await service.getProduct("t1", "12345678-1234-1234-1234-123456789abc");
+      expect(result.prices[0]!.amount).toBe(19.99);
+    });
+
+    it("rejects a price whose thruDate is not after its fromDate", async () => {
+      await expect(
+        service.addProductPrice({
+          tenantId: "t1",
+          productId: "12345678-1234-1234-1234-123456789abc",
+          priceType: "LIST",
+          amount: 10,
+          fromDate: "2024-06-15",
+          thruDate: "2024-06-01",
+        })
+      ).rejects.toThrow(InvalidTypeValueError);
+    });
+
+    it("rejects a currency code that is not three letters", async () => {
+      await expect(
+        service.addProductPrice({
+          tenantId: "t1",
+          productId: "12345678-1234-1234-1234-123456789abc",
+          priceType: "LIST",
+          amount: 10,
+          currencyCode: "1US",
+        })
+      ).rejects.toThrow(InvalidTypeValueError);
+    });
+
+    it("rejects a create_product call with too many features", async () => {
+      await expect(
+        service.createProduct({
+          tenantId: "t1",
+          productType: "GOOD",
+          name: "Widget",
+          features: Array.from({ length: 51 }, (_, i) => ({ name: `f${i}`, value: "v" })),
+        })
       ).rejects.toThrow(InvalidTypeValueError);
     });
   });

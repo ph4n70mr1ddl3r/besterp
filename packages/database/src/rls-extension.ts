@@ -18,7 +18,7 @@
 //   because they cannot receive tenant context. Use interactive transactions.
 
 import type { PrismaClient, Prisma } from "@prisma/client";
-import { validateTenantId, InvalidTypeValueError, setTenantContext, TENANT_SCOPE_TX_TIMEOUT_MS } from "@besterp/shared";
+import { validateTenantId, InvalidTypeValueError, setTenantContext, TENANT_SCOPE_TX_TIMEOUT_MS, DEFAULT_MAX_METHOD_CACHE_SIZE, DEFAULT_MAX_DELEGATE_CACHE_SIZE } from "@besterp/shared";
 
 
 // ─── Blocked methods — single source of truth ─────────────────────
@@ -300,8 +300,8 @@ export function createTenantClient(prisma: PrismaClient, tenantId: string, optio
   const normalizedTenantId = validateTenantIdEnhanced(tenantId);
   validatePrismaClientForRls(prisma);
 
-  const maxMethodCacheSize = options.maxMethodCacheSize ?? 1000;
-  const maxDelegateCacheSize = options.maxDelegateCacheSize ?? 50;
+  const maxMethodCacheSize = options.maxMethodCacheSize ?? DEFAULT_MAX_METHOD_CACHE_SIZE;
+  const maxDelegateCacheSize = options.maxDelegateCacheSize ?? DEFAULT_MAX_DELEGATE_CACHE_SIZE;
 
   const methodCache = new LruCache<string, (...args: unknown[]) => Promise<unknown>>(maxMethodCacheSize);
   const delegateCache = new LruCache<string, object>(maxDelegateCacheSize);

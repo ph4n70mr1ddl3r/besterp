@@ -16,7 +16,14 @@ import { JwtModule, type JwtSignOptions } from "@nestjs/jwt";
 import { PassportModule } from "@nestjs/passport";
 import { JwtStrategy, resolveJwtSecret } from "./jwt.strategy.js";
 
-const jwtExpiresIn: JwtSignOptions["expiresIn"] = (process.env.JWT_EXPIRES_IN ?? "24h") as JwtSignOptions["expiresIn"];
+// `||` (not `??`): an EMPTY JWT_EXPIRES_IN is a falsy-but-present value that
+// `??` passes through unchanged, and jsonwebtoken REJECTS `expiresIn: ""`
+// ("expiresIn should be a number of seconds or string representing a
+// timespan") — so every token-signing call threw at runtime. main.ts now also
+// rejects an empty JWT_EXPIRES_IN at boot, but this module must not depend on
+// the boot path having run.
+const configuredExpiresIn = process.env.JWT_EXPIRES_IN?.trim();
+const jwtExpiresIn: JwtSignOptions["expiresIn"] = (configuredExpiresIn && configuredExpiresIn.length > 0 ? configuredExpiresIn : "24h") as JwtSignOptions["expiresIn"];
 
 @Module({
   imports: [

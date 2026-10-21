@@ -3,6 +3,7 @@ import {
   resolveRateLimitConfig,
   resolveHardExitTimeoutMs,
   resolveTrustProxyHops,
+  resolveRequiredEnvVars,
   resolvePort,
   normalizeEnvironmentValue,
   normalizeCacheSize,
@@ -223,5 +224,56 @@ describe("normalizeCacheSize", () => {
 
   it("clamps negative values to 1", () => {
     expect(normalizeCacheSize("-10", 100, "TEST_CACHE", mockLogger())).toBe(1);
+  });
+});
+
+describe("resolveRequiredEnvVars", () => {
+  const complete = {
+    DATABASE_URL: "postgres://app:app@localhost:5432/besterp",
+    DATABASE_ADMIN_URL: "postgres://admin:admin@localhost:5432/besterp",
+    JWT_SECRET: "x".repeat(40),
+  };
+
+  it("is not fatal when every required variable is present", () => {
+    for (const nodeEnv of ["production", "staging", "test", "development"]) {
+      const result = resolveRequiredEnvVars({ ...complete, NODE_ENV: nodeEnv });
+      expect(result.missing).toEqual([]);
+      expect(result.fatal).toBe(false);
+    }
+  });
+
+  it("is fatal for EVERY non-development environment, not only production", () => {
+    // `isDev()` and `isProd()` are not complements: staging / test / an unset
+    // NODE_ENV are neither. A production-only check let those environments
+    // boot without DATABASE_ADMIN_URL and then crash inside NestFactory.create
+    // with a raw stack trace.
+    for (const nodeEnv of ["production", "staging", "test", undefined]) {
+      const env = { ...complete, NODE_ENV: nodeEnv } as NodeJS.ProcessEnv;
+      delete env.DATABASE_ADMIN_URL;
+      const result = resolveRequiredEnvVars(env);
+      expect(result.missing).toContain("DATABASE_ADMIN_URL");
+      expect(result.fatal).toBe(true);
+    }
+  });
+
+  it("is fatal without DATABASE_URL in development too", () => {
+    const env = { NODE_ENV: "development", JWT_SECRET: "x".repeat(40) } as NodeJS.ProcessEnv;
+    const result = resolveRequiredEnvVars(env);
+    expect(result.missing).toContain("DATABASE_URL");
+    expect(result.fatal).toBe(true);
+  });
+
+  it("is not fatal in development when only the optional variables are missing", () => {
+    // JWT_SECRET has a documented ephemeral fallback in development and the
+    // local compose stack does not need DATABASE_ADMIN_URL.
+    const env = { NODE_ENV: "development", DATABASE_URL: complete.DATABASE_URL } as NodeJS.ProcessEnv;
+    const result = resolveRequiredEnvVars(env);
+    expect(result.fatal).toBe(false);
+  });
+
+  it("treats a whitespace-padded NODE_ENV as development", () => {
+    const env = { ...complete, NODE_ENV: "  development  " } as NodeJS.ProcessEnv;
+    delete env.DATABASE_ADMIN_URL;
+    expect(resolveRequiredEnvVars(env).fatal).toBe(false);
   });
 });

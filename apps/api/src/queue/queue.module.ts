@@ -10,7 +10,7 @@
 
 import { DynamicModule, Logger, Module, OnModuleDestroy } from "@nestjs/common";
 import { BullModule } from "@nestjs/bullmq";
-import { resolveRedisTls, sanitizeForLogOutput, isDev, DEFAULT_REDIS_PORT, BULLMQ_RETRY_BASE_DELAY_MS, BULLMQ_RETRY_MAX_DELAY_MS, BULLMQ_RETRY_MAX_JITTER_MS } from "@besterp/shared";
+import { resolveRedisTls, sanitizeForLogOutput, isDev, DEFAULT_REDIS_PORT, BULLMQ_RETRY_BASE_DELAY_MS, BULLMQ_RETRY_MAX_DELAY_MS, BULLMQ_RETRY_MAX_JITTER_MS, REDIS_CONNECT_TIMEOUT_MS, REDIS_MAX_RETRIES } from "@besterp/shared";
 
 export interface QueueModuleOptions {
   redis: {
@@ -19,9 +19,6 @@ export interface QueueModuleOptions {
     password?: string;
   };
 }
-
-/** Default Redis connection timeout in milliseconds. */
-const DEFAULT_REDIS_CONNECT_TIMEOUT_MS = 10_000;
 
 @Module({})
 export class QueueModule implements OnModuleDestroy {
@@ -128,10 +125,9 @@ export class QueueModule implements OnModuleDestroy {
   }
 
   private static redisRetryStrategy(times: number, lastError?: Error): number | undefined {
-    const MAX_RETRIES = 10;
-    if (times > MAX_RETRIES) {
+    if (times > REDIS_MAX_RETRIES) {
       QueueModule.logger.error(
-        `Redis connection failed after ${MAX_RETRIES} retries — aborting. ${lastError ? `Last error: ${sanitizeForLogOutput(lastError.message)}` : ""}`
+        `Redis connection failed after ${REDIS_MAX_RETRIES} retries — aborting. ${lastError ? `Last error: ${sanitizeForLogOutput(lastError.message)}` : ""}`
       );
       return undefined;
     }
@@ -156,7 +152,7 @@ export class QueueModule implements OnModuleDestroy {
       port,
       maxRetriesPerRequest: null,
       retryStrategy: (times: number, lastError?: Error) => QueueModule.redisRetryStrategy(times, lastError),
-      connectTimeout: DEFAULT_REDIS_CONNECT_TIMEOUT_MS,
+      connectTimeout: REDIS_CONNECT_TIMEOUT_MS,
       ...(password ? { password } : {}),
       ...(tls ? { tls } : {}),
     };

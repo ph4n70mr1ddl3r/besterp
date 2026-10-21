@@ -16,7 +16,7 @@ import { Injectable, Logger, UnauthorizedException } from "@nestjs/common";
 import { PassportStrategy } from "@nestjs/passport";
 import { ExtractJwt, Strategy } from "passport-jwt";
 import { randomBytes } from "node:crypto";
-import { MAX_USER_ID_LENGTH, MAX_AGENT_ID_LENGTH, MAX_ROLE_LENGTH, MAX_TENANT_ID_LENGTH, isProd, validateTenantIdEnhancedForAuth, sanitizeForLogOutput, TENANT_ID_PATTERN, OPTIONAL_ID_PATTERN } from "@besterp/shared";
+import { MAX_USER_ID_LENGTH, MAX_AGENT_ID_LENGTH, MAX_ROLE_LENGTH, MAX_TENANT_ID_LENGTH, isProd, validateTenantIdEnhancedForAuth, sanitizeForLogOutput, isValidOptionalId } from "@besterp/shared";
 
 export interface JwtPayload {
   sub: string;      // user ID
@@ -102,7 +102,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     // user IDs and agent IDs may contain dots, plus signs, and other characters
     // valid in real systems (e.g. "john.doe", "user+admin") while tenant IDs are
     // constrained to alphanum+hyphen+underscore for RLS context safety.
-    if (!OPTIONAL_ID_PATTERN.test(userId)) {
+    if (!isValidOptionalId(userId)) {
       throw new UnauthorizedException(
         "Invalid token: user ID contains invalid characters. " +
           "User IDs may only contain printable non-whitespace characters.",
@@ -139,10 +139,18 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     // a malicious sub carries the same trust level as a forged agentId — both
     // become durable sink values (audit rows, idempotency keys). Reject non-
     // conforming values here so they never reach TenantGuard or the MCP layer.
-    if (agentId !== undefined && !TENANT_ID_PATTERN.test(agentId)) {
+    //
+    // The SAME pattern (OPTIONAL_ID_PATTERN) is used for userId and agentId.
+    // agentId previously used the stricter TENANT_ID_PATTERN while the MCP
+    // layer (McpService.buildContext / ToolRegistry.validateContextIdentity)
+    // accepted the permissive one — so an agent whose ID legitimately
+    // contained a dot ("sales.v2") could be minted by the tooling but could
+    // never authenticate with it (401). The permissive pattern still rejects
+    // whitespace, control characters and zero-width/bidi sequences.
+    if (agentId !== undefined && !isValidOptionalId(agentId)) {
       throw new UnauthorizedException(
         "Invalid token: agentId contains invalid characters. " +
-          "Agent IDs may only contain alphanumeric characters, hyphens, and underscores.",
+          "Agent IDs may only contain printable non-whitespace characters.",
       );
     }
     const role = JwtStrategy.validateOptionalField(payload.role, "role", MAX_ROLE_LENGTH);

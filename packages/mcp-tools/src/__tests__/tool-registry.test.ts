@@ -5,6 +5,8 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { ToolRegistry } from "../registry/tool-registry.js";
 import { ToolDefinition, ToolContext, ToolMiddleware } from "../schema/tool-definition.js";
 import { z } from "zod";
+import { InvalidTypeValueError } from "@besterp/shared";
+import { errorHandlerMiddleware } from "../middleware/error-handler.js";
 
 const mockContext: ToolContext = {
   tenantId: "tenant-1",
@@ -821,3 +823,41 @@ function makeTool(name: string): ToolDefinition {
     handler: async () => ({ success: true, data: name }),
   };
 }
+
+// ─── Structured errors thrown from a schema transform ──────────────
+
+describe("ToolRegistry — a DomainError thrown inside a Zod transform", () => {
+  it("surfaces as INVALID_TYPE_VALUE, not INTERNAL_ERROR", async () => {
+    // `stripHtmlTags` is used inside Zod `.transform()` calls. A Zod
+    // transform that THROWS does not produce a ZodIssue — the exception
+    // escapes `safeParse` entirely. `stripHtmlTags` used to throw a plain
+    // `Error` for over-long input, which the error handler reported as an
+    // opaque INTERNAL_ERROR (a server fault) even though the cause was a
+    // client-supplied over-long value. It now throws a structured
+    // InvalidTypeValueError.
+    const registry = new ToolRegistry();
+    registry.addGlobalMiddleware(errorHandlerMiddleware);
+    registry.register({
+      name: "transform_tool",
+      description: "A tool whose schema transform can throw.",
+      inputSchema: z.strictObject({
+        value: z.string().transform((v) => {
+          if (v.length > 10) throw new InvalidTypeValueError("'value' is too long.");
+          return v;
+        }),
+      }),
+      riskLevel: "none",
+      entity: "test",
+      handler: async () => ({ success: true, data: "ok" }),
+    });
+
+    const result = await registry.execute(
+      "transform_tool",
+      { value: "x".repeat(50) },
+      { tenantId: "tenant-1", userId: "user-1", services: {} },
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe("INVALID_TYPE_VALUE");
+  });
+});

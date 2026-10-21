@@ -208,6 +208,25 @@ function redactKey(key: string): string {
   return `id-${token}`;
 }
 
+/**
+ * Read the idempotency record for (key, tenant) outside the failed
+ * transaction. Returns null when the row does not exist or the read itself
+ * fails — the caller then treats the situation as an infrastructure outage.
+ */
+async function readIdempotencyRecord(
+  prisma: PrismaClient,
+  idempotencyKey: string,
+  tenantId: string,
+): Promise<IdempotencyRecord | null> {
+  try {
+    return await prisma.idempotencyRecord.findUnique({
+      where: { idempotencyKey_tenantId: { idempotencyKey, tenantId } },
+    });
+  } catch {
+    return null;
+  }
+}
+
 async function acquireIdempotencyRecord(
   prisma: PrismaClient, idempotencyKey: string, tenantId: string, userId: string,
   agentId: string | undefined, conversationId: string | undefined,
@@ -315,6 +334,18 @@ async function acquireIdempotencyRecord(
       if (code === "P2034" && attempt < MAX_RETRY_ATTEMPT) {
         await delay(retryDelayMs(IDEMPOTENCY_RETRY_BASE_DELAY_MS, attempt));
         continue;
+      }
+      // P2002 (unique violation on the composite key) means a CONCURRENT
+      // request inserted the same (idempotencyKey, tenantId) row between our
+      // findUnique and our create. That is CONTENTION, not an infrastructure
+      // outage: the other request holds the record. Re-read the row and route
+      // it through handleExistingRecord so the agent gets the actionable
+      // REQUEST_IN_PROGRESS / replay semantics instead of a misleading
+      // SERVICE_UNAVAILABLE ("the operation cannot be retried at this time").
+      if (code === "P2002") {
+        const record = await readIdempotencyRecord(prisma, idempotencyKey, tenantId);
+        if (record) return { existingRecord: record, recordCreated: false };
+        return { existingRecord: null, recordCreated: false, unavailable: true };
       }
       // Non-P2034 errors (connection failures, auth errors, schema mismatches)
       // are fatal — log them so operators can distinguish infrastructure issues

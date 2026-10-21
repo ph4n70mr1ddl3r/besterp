@@ -13,7 +13,7 @@ import { Request } from "express";
 import type { JwtValidatedUser } from "./jwt.strategy.js";
 import { IS_PUBLIC_KEY } from "./public.decorator.js";
 import { isPublicAllowedForHandler } from "./public-scope.js";
-import { validateTenantIdEnhancedForAuth, MAX_USER_ID_LENGTH, MAX_AGENT_ID_LENGTH, TENANT_ID_PATTERN, OPTIONAL_ID_PATTERN } from "@besterp/shared";
+import { validateTenantIdEnhancedForAuth, MAX_USER_ID_LENGTH, MAX_AGENT_ID_LENGTH, isValidOptionalId } from "@besterp/shared";
 
 @Injectable()
 export class TenantGuard implements CanActivate {
@@ -51,9 +51,33 @@ export class TenantGuard implements CanActivate {
     const tenantId = TenantGuard.validateTenantId(user);
     const userId = TenantGuard.validateUserId(user);
     const agentId = TenantGuard.validateAgentId(user);
+    // Propagate the (already validated) role claim. It used to be parsed by
+    // JwtStrategy and then dropped here, so the documented JWT contract
+    // (`{ sub, tenantId, role }`) was only half implemented and no consumer
+    // could tell that RBAC existed at all.
+    const role = TenantGuard.validateRole(user);
 
-    request.tenantContext = { tenantId, userId, agentId };
+    request.tenantContext = { tenantId, userId, agentId, role };
     return true;
+  }
+
+  /**
+   * Validate and return the optional `role` claim.
+   *
+   * JwtStrategy already validated the type and length of the claim, so this
+   * is a cheap shape check — it exists so a hand-constructed `req.user`
+   * (which bypasses the strategy) cannot inject a non-string role into the
+   * request context.
+   */
+  private static validateRole(user: JwtValidatedUser): string | undefined {
+    if (user.role == null) return undefined;
+    if (typeof user.role !== "string") {
+      throw new UnauthorizedException(
+        "TenantGuard: role is not a string. JWT payload is malformed."
+      );
+    }
+    const trimmed = user.role.trim();
+    return trimmed.length === 0 ? undefined : trimmed;
   }
 
   private static validateTenantId(user: JwtValidatedUser): string {
@@ -98,7 +122,7 @@ export class TenantGuard implements CanActivate {
     // A stricter TENANT_ID_PATTERN here would reject valid tokens carrying real-world
     // identifiers like "john.doe" or "user+admin". agentId continues to use
     // TENANT_ID_PATTERN because it is generated as a ULID-style string.
-    if (!OPTIONAL_ID_PATTERN.test(userId)) {
+    if (!isValidOptionalId(userId)) {
       throw new UnauthorizedException(
         "TenantGuard: userId contains invalid characters. " +
           "User IDs may only contain printable non-whitespace characters."
@@ -121,10 +145,14 @@ export class TenantGuard implements CanActivate {
         "TenantGuard: agentId exceeds maximum allowed length."
       );
     }
-    if (rawAgentId.length > 0 && !TENANT_ID_PATTERN.test(rawAgentId)) {
+    // agentId uses OPTIONAL_ID_PATTERN — the same pattern JwtStrategy and the
+    // MCP layer use — so an agent ID that the tooling can mint ("sales.v2") is
+    // also one that can authenticate. The stricter TENANT_ID_PATTERN used
+    // here made the auth boundary reject IDs the MCP layer accepted.
+    if (rawAgentId.length > 0 && !isValidOptionalId(rawAgentId)) {
       throw new UnauthorizedException(
         "TenantGuard: agentId contains invalid characters. " +
-          "Agent IDs may only contain alphanumeric characters, hyphens, and underscores."
+          "Agent IDs may only contain printable non-whitespace characters."
       );
     }
     return rawAgentId === "" ? undefined : rawAgentId;

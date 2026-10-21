@@ -3,6 +3,175 @@
 ## Scope
                 Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
                  `mcp-tools`, `apps/api`, plus README/`.env.example`/docker/CI) conducted on
+                   2026-10-21. This is review 271; rounds 1–270 are documented in
+                   earlier revisions of this file and `CHANGES.md`.
+
+## Findings & Actions (round 271)
+
+### Fixed this round
+
+- **`get_product` and `add_product_price` failed for every priced product** —
+  `product_price.amount` is a Prisma `Decimal`, which the driver returns as
+  an OBJECT. The mapper asserted `typeof value === "number"`, so the numeric
+  branch was never taken: `get_product` threw for every product that had a
+  price, and `add_product_price` wrote the row and THEN threw (a retry under
+  the same idempotency key created a duplicate price row). The unit tests
+  missed it because the mocks used plain numbers. A shared `decimalToNumber`
+  helper now backs both the price mapper and the agent transaction-amount
+  mapper.
+- **Two tenant tables had no RLS** — `user` (which stores `password_hash`) and
+  `agent_registry` were added after the original RLS script and were never
+  covered by it, so the application role could read and write every tenant's
+  rows. The boot-time check did not catch it either (it only flags a table
+  that HAS force-RLS but is missing from the list — a table with NO RLS is
+  invisible to it), so the service logged "RLS verified" while the most
+  sensitive tables in the schema were unprotected. `rls-setup.sql` now
+  covers both, and the boot check refuses to start without them.
+- **An unhandled promise rejection exited the process with code 0** — a
+  service-manager (`Restart=on-failure`) would not restart the process, so a
+  single stray rejection left the service down. The path now exits non-zero.
+- **The AppModule dynamic import was unguarded** — the import was introduced
+  to turn a missing Redis env var into a clean one-line error, but the
+  decorator evaluation it triggers still died with a raw stack trace. Both
+  the import and `NestFactory.create` are now wrapped.
+- **Required env vars were enforced only in `production`** — `staging`,
+  `test` and an unset `NODE_ENV` booted without `DATABASE_ADMIN_URL` /
+  `JWT_SECRET` and then crashed inside `NestFactory.create`. The rule now
+  applies to every non-development environment.
+- **An empty `JWT_EXPIRES_IN` broke every token-signing call** — `??` let the
+  empty string through and jsonwebtoken rejects `expiresIn: ""`.
+- **The audit middleware could abort a tool call and lose the audit row** —
+  `stripHtmlTags` throws for inputs over 100 KB and the confirmation is not
+  length-validated at any boundary. The confirmation is now clamped before
+  it is sanitized, and the sanitize call can never throw.
+- **A markup-only confirmation passed the confirmation gate** — the length
+  gate ran on the raw value while the persisted value is the post-strip one,
+  so a high-risk operation could execute with no recorded justification.
+- **The validation-issue array was bounded in count but not in length** — each
+  of the ≤50 issues carried an uncapped message/`received`, so the bounded
+  array could still carry ~5 MB to the agent.
+- **The DomainError path had no agent-facing length cap** — the two error
+  surfaces disagreed (2000 vs 100 000 chars).
+- **A P2002 race was reported as an infrastructure outage** — the agent was
+  told "the operation cannot be retried at this time" for what is really
+  contention. P2002 now re-reads the row and reports `REQUEST_IN_PROGRESS`.
+- **The truncation marker could be larger than the limit it enforced** — a
+  fixed 1024-byte preview against a caller-supplied limit of 100.
+- **The redactor was vulnerable to prototype injection** — a `__proto__` key
+  in the input replaced the prototype of the redacted result (the sibling
+  `crypto.ts` implementation already used `Object.create(null)`).
+- **A shared (non-circular) sub-object was reported as `[Circular]`** — the
+  traversal set behaved as a "visited" set, so the second occurrence of a
+  shared node lost its data in every audit / idempotency / agent payload.
+- **`clientApiKey` was reflected verbatim** — the `api` + `key` compound was
+  not recognised as sensitive, while the semantically identical
+  `clientSecret` was redacted.
+- **Redaction corrupted embedded JSON** — the quoted-value rule dropped the
+  quote characters and rewrote `:` as `=`, so the redacted text no longer
+  parsed.
+- **`stripHtmlTags` and `parseISODateTimeAsUTC` threw plain `Error`s** — both
+  run inside Zod transforms, where a thrown exception escapes `safeParse`
+  and was reported as a 500 `INTERNAL_ERROR` for a client-supplied value.
+- **`create_product` had an unbounded `features` array**, a case-sensitive
+  product-type lookup that contradicted the case-insensitive
+  `search_products`, and `add_product_price` accepted an inverted validity
+  window and a non-alphabetic currency code.
+- **`add_party_role` matched the role type case-sensitively** while
+  `search_parties` matched it case-insensitively; the email length cap ran
+  on the raw value while both boundary layers cap the stripped value; and
+  `requireUuid` had no typeof guard.
+- **`search_across_entities` reported a missing service as "no results"** —
+  the agent could not distinguish an empty tenant from an unavailable
+  service.
+- **`explain_error` did not cover the codes the pipeline emits** — the map
+  held the raw Prisma codes (never surfaced to the agent) and missed
+  `INVALID_INPUT`, `CONFIRMATION_REQUIRED` and the rest.
+- **`get_valid_transitions` advertised state machines that do not exist** —
+  `party` has no status column and `order`/`invoice` are not tables in this
+  schema: a hallucination-guarding tool that itself injected a
+  hallucination.
+- **`product.sku` uniqueness did not match the database** — the Prisma
+  schema declared a global `@unique` while the database enforces
+  `(tenant_id, sku)`, so `prisma migrate dev` would have generated a
+  migration that dropped the tenant-scoped constraint.
+- **`agentId` was validated against two different patterns** — the auth
+  boundary used the strict one, so an ID the tooling could mint could never
+  authenticate.
+- **The JWT `role` claim was parsed and then dropped** — the documented
+  payload contract was only half implemented.
+- **The exception filter did not strip HTML from `context`** and did not
+  sanitize `suggestedTools`, while `message` and `error` were stripped.
+- **The DB health probe had no timeout** and the Redis probe's result was
+  discarded by the controller.
+- **Consistency cleanups** — dead cache-stats API and write-only counters
+  removed; the global route prefix, the Redis connect timeout / retry cap /
+  probe cache TTL, the minimum JWT secret length and the two cache-size
+  defaults consolidated into single sources of truth; the MCP module header
+  corrected; `list_available_tools` now reports a confirmation requirement
+  only for tools the gate actually enforces; the `PARTY_TYPE` error message
+  no longer hardcodes a stale list; the unreachable `REDACTED_PLACEHOLDERS`
+  branch removed; `resolveRedisTls` now trims; `isValidOptionalId` added;
+  `resolveConflictField` no longer produces an ungrammatical message; the
+  duplicate `getPrismaErrorCode` implementation removed; `pluralize("1234")`
+  no longer returns `"1234S"`; the `JWT_EXPIRES_IN_REGEX` doc corrected; the
+  docker-compose Redis comment and the plaintext-vs-TLS mismatch documented.
+
+### Reviewed but NOT changed
+
+- The RLS/tenant-scoping model, the `withTenant` / `createTenantClient`
+  contract and the policy list for the 15 pre-existing tenant tables were
+  re-read in full — unchanged and correct.
+- The idempotency state machine (`pending`/`completed`/`failed`, the stale
+  threshold, the tool-name/hash mismatch branches) was re-traced; only the
+  P2002 classification changed.
+- The `@besterp/shared` sanitizer (HTML stripping, ANSI/control stripping,
+  URL/secret redaction, depth and cycle handling) was re-read — the depth
+  cap, the 100 KB cap and the 20-iteration convergence loop are unchanged.
+- The auth boundary (`JwtStrategy`, `JwtAuthGuard`, `TenantGuard`, the
+  `@Public()` scope verifier) was re-read — the guard order, the public-route
+  allowlist and the secret-strength heuristics are unchanged.
+- `.env.example`, the Docker compose file and the CI workflow were reviewed
+  — the documented boot order, the seed opt-in guard and the
+  RLS-after-migration requirement are consistent with the code (the new
+  `user` / `agent_registry` policies must be applied with the updated
+  `rls-setup.sql`, exactly like the existing ones).
+- `packages/mcp-tools/spikes/server.ts` still contains an older copy of the
+  idempotency state machine. It is excluded from the tsconfig projects and
+  is not part of the shipped package; it was left alone (out of scope for a
+  correctness round).
+
+### Follow-ups (not fixed — outside this round's scope)
+
+- The MCP tool framework is not yet reachable over HTTP: there is no MCP
+  controller, so `ToolRegistry.execute` is only exercised by tests. When one
+  is added, the tenant identity MUST come from the verified principal
+  (`req.tenantContext`), never from the request body.
+- The agent registry's `capabilities`, `rateLimitPerMinute` and `isActive`
+  are stored but not ENFORCED — a deactivated agent can still call every
+  tool.
+- `IDEMPOTENCY_STALE_PENDING_THRESHOLD_MS` (60s) is shorter than a plausible
+  long-running write, so a slow handler could be reclaimed and re-executed.
+  A lease/heartbeat would close that window.
+- The JWT `role` claim is now propagated onto the request context but is not
+  yet used for authorization.
+- The `search_across_entities` / `explain_error` / `get_valid_transitions`
+  surfaces are backed by in-code reference data. Moving the transition
+  registry into the `entity_descriptor` table (or a dedicated table) would
+  let operators extend it without a deploy.
+
+## Test Results (round 271)
+```
+shared:    253 passed (5 files)
+mcp-tools: 213 passed (5 files)
+database:   34 passed, 10 skipped (3 files)
+api:       666 passed (22 files)
+────────────────────────────
+Total:     1166 passed, 10 skipped
+```
+
+## Scope
+                Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
+                 `mcp-tools`, `apps/api`, plus README/`.env.example`/docker/CI) conducted on
                    2026-10-21. This is review 270; rounds 1–269 are documented in
                    earlier revisions of this file and `CHANGES.md`.
 

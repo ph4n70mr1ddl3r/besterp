@@ -34,7 +34,13 @@ function preserveCasing(input: string, plural: string): string {
   // uppercase letter would otherwise be forced to all-caps and lose its
   // Title-case leading capital (e.g. "Y" → "IES" instead of "Yies"). The
   // single-character case falls through to the leading-capital rule below.
-  if (input.length > 1 && input === input.toUpperCase()) return plural.toUpperCase();
+  //
+  // The input must also contain at least one CASE-SENSITIVE character:
+  // `input === input.toUpperCase()` is trivially true for a string with no
+  // cased characters at all (e.g. "1234"), so such an input would have been
+  // force-uppercased ("1234" → "1234S").
+  const hasCasedCharacter = input !== input.toLowerCase();
+  if (input.length > 1 && hasCasedCharacter && input === input.toUpperCase()) return plural.toUpperCase();
   // First-letter-capitalized input (e.g. "Party", "Y") → Title-case plural.
   // A single-character input is excluded from the all-caps branch above,
   // so this condition is equivalent to `first === first.toUpperCase()`

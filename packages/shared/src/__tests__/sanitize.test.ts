@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { stripHtmlTags, sanitizeLogOutput, sanitizeLogMessage, sanitizeForLogOutput, safeFromCodePoint, isSensitiveFieldName, redactSensitiveFieldValues, sanitizePostalAddress, sanitizeTelecomNumber } from "../sanitize.js";
+import { InvalidTypeValueError } from "../errors.js";
 
 describe("stripHtmlTags", () => {
   it("returns empty string for empty input", () => {
@@ -62,9 +63,15 @@ describe("stripHtmlTags", () => {
     expect(stripHtmlTags(deepNested)).toBe("&&&&");
   });
 
-  it("throws on oversized input", () => {
+  it("throws a structured domain error on oversized input", () => {
+    // The guard throws InvalidTypeValueError (not a plain Error) so the REST
+    // filter and the MCP error-handler report an actionable client error
+    // (422 / INVALID_TYPE_VALUE) instead of an opaque 500 INTERNAL_ERROR.
+    // A plain Error thrown from inside a Zod `.transform()` escapes the parse
+    // entirely.
     const long = "a".repeat(100_001);
-    expect(() => stripHtmlTags(long)).toThrow("input exceeds maximum");
+    expect(() => stripHtmlTags(long)).toThrow(InvalidTypeValueError);
+    expect(() => stripHtmlTags(long)).toThrow(/exceeds the maximum allowed length/i);
   });
 
   it("throws on oversized multi-byte input (byte-length guard)", () => {
@@ -72,7 +79,7 @@ describe("stripHtmlTags", () => {
     // larger in UTF-8 bytes. The guard measures bytes, so it must reject.
     const longMultiByte = "中".repeat(99_000);
     expect(Buffer.byteLength(longMultiByte, "utf8")).toBeGreaterThan(100_000);
-    expect(() => stripHtmlTags(longMultiByte)).toThrow("input exceeds maximum");
+    expect(() => stripHtmlTags(longMultiByte)).toThrow(InvalidTypeValueError);
   });
 
   it("handles mixed content safely", () => {
@@ -651,6 +658,19 @@ describe("sanitizeLogOutput — quoted-JSON secrets in free text", () => {
     expect(r).toContain("[REDACTED]");
   });
 
+  it("keeps embedded JSON parseable after redaction", () => {
+    // The quoted-value rule used to drop BOTH quote characters and rewrite the
+    // `:` separator as `=`, so `{"api_key":"sk"}` became `{api_key=[REDACTED]}`
+    // — no longer valid JSON. Any consumer that parses a JSON-in-text payload
+    // after redaction (audit rows, idempotency records, agent-facing errors)
+    // could no longer parse it.
+    const r = sanitizeForLogOutput('{"api_key":"sk_live_abc123","count":2}');
+    expect(r).not.toContain("sk_live_abc123");
+    const parsed = JSON.parse(r) as Record<string, unknown>;
+    expect(parsed.api_key).toBe("[REDACTED]");
+    expect(parsed.count).toBe(2);
+  });
+
   it("redacts a quoted password in free text", () => {
     const r = sanitizeForLogOutput('login failed password="hunter2" retry');
     expect(r).not.toContain("hunter2");
@@ -696,6 +716,18 @@ describe("isSensitiveFieldName", () => {
       expect(isSensitiveFieldName(k)).toBe(false);
     }
   });
+
+  it("flags camelCase / acronym API-KEY compounds", () => {
+    // `key` alone is NOT a sensitive token (it would over-redact
+    // `primaryKey` / `idempotencyKey`), but the `api` + `key` COMPOUND always
+    // names a credential. The regex branch cannot see the compound because
+    // `api` is preceded by an alphanumeric character, so the token-pair rule
+    // has to close the gap — otherwise `clientSecret` was redacted while the
+    // semantically identical `clientApiKey` was reflected verbatim.
+    for (const k of ["clientApiKey", "userAPIKey", "myApiKey", "api_key", "api-key", "service_api_key"]) {
+      expect(isSensitiveFieldName(k)).toBe(true);
+    }
+  });
 });
 
 describe("redactSensitiveFieldValues", () => {
@@ -716,6 +748,31 @@ describe("redactSensitiveFieldValues", () => {
     obj.self = obj;
     const out = redactSensitiveFieldValues(obj) as Record<string, unknown>;
     expect(out.self).toBe("[Circular]");
+  });
+
+  it("does NOT report a shared (non-circular) sub-object as circular", () => {
+    // A DAG (the same node referenced from two siblings) is not a cycle. The
+    // traversal set used to behave as a "visited" set, so the SECOND
+    // occurrence was replaced with "[Circular]" and its data was silently
+    // dropped from the audit/idempotency/error payloads.
+    const shared = { v: 1 };
+    const out = redactSensitiveFieldValues({ a: shared, b: shared }) as Record<string, unknown>;
+    expect(out.a).toEqual({ v: 1 });
+    expect(out.b).toEqual({ v: 1 });
+    expect(out.b).not.toBe("[Circular]");
+  });
+
+  it("does not pollute the prototype via a __proto__ key", () => {
+    // A `__proto__` key in the input must become an ordinary own data
+    // property. With a normal object literal the assignment invoked the
+    // `Object.prototype.__proto__` setter: the key was silently DROPPED and
+    // the prototype of the result was replaced by the attacker-supplied child.
+    const input = JSON.parse('{"__proto__":{"isAdmin":true},"ok":1}') as Record<string, unknown>;
+    const out = redactSensitiveFieldValues(input) as Record<string, unknown>;
+    expect(Object.keys(out)).toContain("__proto__");
+    expect(Object.getPrototypeOf(out)).toBeNull();
+    expect((out as { isAdmin?: unknown }).isAdmin).toBeUndefined();
+    expect(out.ok).toBe(1);
   });
 
   it("redacts sensitive-named Map keys and preserves the data (not {} )", () => {

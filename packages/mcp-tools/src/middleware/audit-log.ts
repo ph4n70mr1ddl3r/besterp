@@ -91,12 +91,17 @@ function createBaseEntry(context: { agentId?: string; conversationId?: string; r
   // `sanitizeForLogOutput` — before the row is written. `stripHtmlTags` is
   // applied first (HTML can hide secret-shaped patterns from the redactor) and
   // the length cap prevents oversized identity fields from bloating the row.
-  const userId = sanitizeForLogOutput(stripHtmlTags(context.userId)).slice(0, MAX_USER_ID_LENGTH);
+  // `stripHtmlTags` rejects inputs over 100 KB by throwing, and
+  // `createBaseEntry` runs OUTSIDE the try/catch in executeAndLog — so a
+  // throw here would abort the tool call (the audit middleware is documented
+  // as fire-and-forget and must never break the tool). Clamp FIRST (these
+  // fields are length-capped anyway) and never throw.
+  const userId = sanitizeIdentityField(context.userId, MAX_USER_ID_LENGTH);
   const agentId = context.agentId !== undefined
-    ? sanitizeForLogOutput(stripHtmlTags(context.agentId)).slice(0, MAX_AGENT_ID_LENGTH)
+    ? sanitizeIdentityField(context.agentId, MAX_AGENT_ID_LENGTH)
     : undefined;
   const conversationId = context.conversationId !== undefined
-    ? sanitizeForLogOutput(stripHtmlTags(context.conversationId)).slice(0, MAX_CONVERSATION_ID_LENGTH)
+    ? sanitizeIdentityField(context.conversationId, MAX_CONVERSATION_ID_LENGTH)
     : undefined;
   return {
     agentId,
@@ -130,12 +135,53 @@ function createBaseEntry(context: { agentId?: string; conversationId?: string; r
  * The value is sanitized + capped exactly like `reasoning`: a confirmation
  * is attacker-influenceable free text that lands in a durable cross-tenant
  * sink.
+ *
+ * This helper MUST NOT throw. The audit middleware is documented as
+ * fire-and-forget ("audit should never break the tool"), but `stripHtmlTags`
+ * rejects inputs over 100 KB by throwing. An oversized confirmation — which
+ * no boundary length-validates — therefore aborted the whole tool call with
+ * an opaque INTERNAL_ERROR and wrote NO audit row. Clamp FIRST (the value is
+ * over the length cap anyway, so the tail is discarded either way) and then
+ * sanitize inside a try/catch so the audit path can never break execution.
  */
 function withConfirmation(toolInput: unknown, confirmation: string | undefined): unknown {
   if (confirmation === undefined) return toolInput;
-  const safeConfirmation = sanitizeForLogOutput(stripHtmlTags(confirmation)).slice(0, MAX_CONFIRMATION_LENGTH);
-  const base = isPlainObjectData(toolInput) ? toolInput : {};
-  return { ...base, confirmation: safeConfirmation };
+  const safeConfirmation = sanitizeConfirmation(confirmation);
+  if (isPlainObjectData(toolInput)) {
+    return { ...(toolInput as Record<string, unknown>), confirmation: safeConfirmation };
+  }
+  // A non-plain-object input (array, Map, class instance) was previously
+  // REPLACED by `{}` — the entire tool input vanished from the durable audit
+  // row. Wrap it instead so both the input and the confirmation survive.
+  return { input: toolInput, confirmation: safeConfirmation };
+}
+
+/**
+ * Sanitize + cap a confirmation string without ever throwing.
+ */
+function sanitizeConfirmation(confirmation: string): string {
+  try {
+    // Clamp before stripping: stripHtmlTags rejects inputs over 100 KB, and
+    // the value is over MAX_CONFIRMATION_LENGTH (500 chars) anyway.
+    const clamped = confirmation.slice(0, MAX_CONFIRMATION_LENGTH);
+    return sanitizeForLogOutput(stripHtmlTags(clamped)).slice(0, MAX_CONFIRMATION_LENGTH);
+  } catch {
+    // Never let the audit path break the tool call.
+    return "";
+  }
+}
+
+/**
+ * Sanitize + cap an identity field (userId / agentId / conversationId)
+ * without ever throwing.
+ */
+function sanitizeIdentityField(value: string, maxLength: number): string {
+  try {
+    const clamped = value.slice(0, maxLength);
+    return sanitizeForLogOutput(stripHtmlTags(clamped)).slice(0, maxLength);
+  } catch {
+    return "";
+  }
 }
 
 /**

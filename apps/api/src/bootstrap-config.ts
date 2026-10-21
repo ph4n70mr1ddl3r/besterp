@@ -6,6 +6,7 @@
 // (logging, process.exit, or falling back to a default).
 
 import type { Logger } from "@nestjs/common";
+import { normalizeEnvironmentValue as normalizeEnvironmentValueShared } from "@besterp/shared";
 
 // Re-export normalizeEnvironmentValue from @besterp/shared so existing
 // @besterp/api import sites (main.ts, health.service.ts) continue to work
@@ -149,7 +150,7 @@ export function normalizeCacheSize(
  */
 export function resolveTrustProxyHops(env: NodeJS.ProcessEnv): number {
   // Trim FIRST so whitespace-only is treated as unset (→ the fail-closed 0
-  // default), mirroring resolveHardExitTimeoutMs. `Number("  ")` is 0 so the
+  // default), mirroring resolveHardExitTimeoutMs. `Number("   ")` is 0 so the
   // result is identical to today, but the intent is explicit.
   const raw = env.TRUST_PROXY_HOPS?.trim();
   if (raw === undefined || raw === "") return DEFAULT_TRUST_PROXY_HOPS;
@@ -161,4 +162,32 @@ export function resolveTrustProxyHops(env: NodeJS.ProcessEnv): number {
     );
   }
   return value;
+}
+
+/** Environment variables that must be present for the API to boot. */
+export const REQUIRED_ENV_VARS = ["DATABASE_URL", "DATABASE_ADMIN_URL", "JWT_SECRET"] as const;
+
+/**
+ * Determine which required environment variables are missing and whether the
+ * process must refuse to start.
+ *
+ * The required set is enforced in EVERY non-development environment —
+ * NOT only in production. `isDev()` and `isProd()` are not complements:
+ * "staging", "test" and an unset NODE_ENV are neither, so a production-only
+ * check silently allowed those environments to boot without
+ * DATABASE_ADMIN_URL / JWT_SECRET and then crash inside NestFactory.create
+ * with a raw stack trace (PrismaService already refuses to boot without
+ * those variables in any non-dev environment).
+ *
+ * In development only DATABASE_URL is fatal: JWT_SECRET has a documented
+ * ephemeral fallback and DATABASE_ADMIN_URL is not needed by the local
+ * compose stack.
+ */
+export function resolveRequiredEnvVars(env: NodeJS.ProcessEnv): { missing: string[]; fatal: boolean } {
+  const missing = REQUIRED_ENV_VARS.filter((v) => !env[v]);
+  const isDevelopment = normalizeEnvironmentValueShared(env.NODE_ENV) === "development";
+  if (isDevelopment) {
+    return { missing, fatal: missing.includes("DATABASE_URL") };
+  }
+  return { missing, fatal: missing.length > 0 };
 }

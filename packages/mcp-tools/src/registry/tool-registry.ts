@@ -12,7 +12,19 @@ import {
   ToolContext,
   RiskLevel,
 } from "../schema/tool-definition.js";
-import { sanitizeForLogOutput, redactSensitiveFieldValues, validateTenantIdEnhancedForAuth, MAX_USER_ID_LENGTH, MAX_AGENT_ID_LENGTH, MAX_CONVERSATION_ID_LENGTH, isSensitiveFieldName, OPTIONAL_ID_PATTERN } from "@besterp/shared";
+import {
+  sanitizeForLogOutput,
+  redactSensitiveFieldValues,
+  validateTenantIdEnhancedForAuth,
+  MAX_USER_ID_LENGTH,
+  MAX_AGENT_ID_LENGTH,
+  MAX_CONVERSATION_ID_LENGTH,
+  MAX_ERROR_MESSAGE_LENGTH,
+  MAX_VALIDATION_ISSUES,
+  MAX_VALIDATION_ISSUE_MESSAGE_LENGTH,
+  isSensitiveFieldName,
+  isValidOptionalId,
+} from "@besterp/shared";
 
 /** Permissive pattern for optional identity fields (userId, agentId, conversationId).
  *  More lenient than TENANT_ID_PATTERN to accommodate real-world identifiers
@@ -23,26 +35,6 @@ import { sanitizeForLogOutput, redactSensitiveFieldValues, validateTenantIdEnhan
  *  by auth boundaries (JwtStrategy) and the MCP tool registry. */
 
 const VALID_RISK_LEVELS: readonly RiskLevel[] = ["none", "low", "medium", "high", "critical"];
-
-/**
- * Cap the length of the joined Zod validation-issue string returned to the
- * agent. The path+message of each issue is derived from user input and could
- * be arbitrarily large (many issues, or long per-issue messages), so the
- * agent-facing error surface is bounded the same way soft-failure log lines
- * are (error-handler.ts MAX_ERROR_LOG_LINE_LENGTH). The full issue list is
- * still available in `context.issues` for programmatic callers.
- */
-const MAX_VALIDATION_MESSAGE_LENGTH = 2000;
-
-/**
- * Maximum number of Zod validation issues echoed back in `context.issues`.
- * Zod emits one issue per invalid element, so a crafted array/object with
- * many failing fields produces an arbitrarily large issues array. Returning
- * it verbatim to the agent is a memory-amplification / DoS vector. The
- * already-capped `message` string preserves a readable summary; only the
- * first N structured issues are retained for programmatic callers.
- */
-const MAX_VALIDATION_ISSUES = 50;
 
 export class ToolRegistry {
   private readonly tools = new Map<string, RegistryEntry>();
@@ -252,8 +244,8 @@ export class ToolRegistry {
             const issueString = parsed.error.issues
               .map((i) => `${i.path.map((p) => String(p)).join(".")}: ${i.message}`)
               .join("; ");
-            const detailRaw = issueString.length > MAX_VALIDATION_MESSAGE_LENGTH
-              ? `${issueString.slice(0, MAX_VALIDATION_MESSAGE_LENGTH)}… [${parsed.error.issues.length} issues, truncated]`
+            const detailRaw = issueString.length > MAX_ERROR_MESSAGE_LENGTH
+              ? `${issueString.slice(0, MAX_ERROR_MESSAGE_LENGTH)}… [${parsed.error.issues.length} issues, truncated]`
               : issueString;
             // Sanitize the joined summary BEFORE embedding it in the agent-facing
             // `message`. `detailRaw` is only length-capped above; a Zod issue's
@@ -413,7 +405,7 @@ export class ToolRegistry {
     // Reject only after trimming so a whitespace-only value is caught by
     // the length/pattern checks below, not by the trim-equality guard.
     const userId = context.userId.trim();
-    if (userId.length === 0 || userId.length > MAX_USER_ID_LENGTH || !OPTIONAL_ID_PATTERN.test(userId)) {
+    if (userId.length === 0 || userId.length > MAX_USER_ID_LENGTH || !isValidOptionalId(userId)) {
       return { error: ToolRegistry.contextIdentityError("INVALID_USER_ID", "user identifier") };
     }
     // `agentId`/`conversationId` are persisted verbatim into the cross-tenant
@@ -487,7 +479,7 @@ export class ToolRegistry {
     // inconsistency between identity fields of the same shape. Whitespace-only
     // values fall through to the length check and are rejected.
     const trimmed = value.trim();
-    if (trimmed.length === 0 || trimmed.length > maxLength || !OPTIONAL_ID_PATTERN.test(trimmed)) {
+    if (trimmed.length === 0 || trimmed.length > maxLength || !isValidOptionalId(trimmed)) {
       return {
         success: false,
         error: {
@@ -625,6 +617,12 @@ export class ToolRegistry {
    * agent-facing surface, so a failed-validation response cannot leak a
    * secret carried under a sensitive-named field or an embedded connection
    * string. Caps to the first `maxIssues` issues for memory safety.
+   *
+   * Each issue's `message` and `received` are length-capped INDEPENDENTLY of
+   * the issue count: a Zod issue message can echo the offending input
+   * verbatim (a custom `errorMap` that interpolates the value), so without a
+   * per-issue cap the bounded issue array could still carry ~50 × 100 KB to
+   * the agent — the aggregate was bounded but the payload was not.
    */
   private static sanitizeIssues(issues: ReadonlyArray<{ path: PropertyKey[]; message: string; code?: string; received?: unknown }>, maxIssues: number): unknown[] {
     return issues.slice(0, maxIssues).map((issue) => {
@@ -639,7 +637,7 @@ export class ToolRegistry {
         // A Zod issue message can echo the offending input verbatim (e.g.
         // "Expected string, received {raw password}"), so run it through the
         // deep redactor as well as the length/char sanitizer.
-        message: redactSensitiveFieldValues(issue.message) as string,
+        message: ToolRegistry.capIssueText(redactSensitiveFieldValues(issue.message)),
         path: sanitizedPath,
       };
       const sensitivePathSegments = path.filter((p) => isSensitiveFieldName(p));
@@ -652,10 +650,38 @@ export class ToolRegistry {
       if (hasReceived && (sensitivePathSegments.length > 0 || isSensitiveFieldName(lastSegment))) {
         redacted.received = "[REDACTED]";
       } else if (hasReceived) {
-        redacted.received = redactSensitiveFieldValues(issue.received);
+        redacted.received = ToolRegistry.capIssueText(redactSensitiveFieldValues(issue.received));
       }
       return redacted;
     });
+  }
+
+  /**
+   * Length-cap a redacted issue message / received value.
+   *
+   * Strings are truncated on a character boundary; non-string values are
+   * serialised and truncated so a huge object cannot ride along inside the
+   * bounded issue array.
+   */
+  private static capIssueText(value: unknown): unknown {
+    if (typeof value === "string") {
+      return value.length > MAX_VALIDATION_ISSUE_MESSAGE_LENGTH
+        ? `${value.slice(0, MAX_VALIDATION_ISSUE_MESSAGE_LENGTH)}…`
+        : value;
+    }
+    if (value === null || value === undefined) return value;
+    if (typeof value === "object") {
+      try {
+        const serialized = JSON.stringify(value);
+        if (typeof serialized !== "string") return "[Unserializable]";
+        return serialized.length > MAX_VALIDATION_ISSUE_MESSAGE_LENGTH
+          ? `${serialized.slice(0, MAX_VALIDATION_ISSUE_MESSAGE_LENGTH)}…`
+          : serialized;
+      } catch {
+        return "[Unserializable]";
+      }
+    }
+    return value;
   }
 }
 

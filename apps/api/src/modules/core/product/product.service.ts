@@ -29,10 +29,12 @@ import {
   MAX_SKU_LENGTH,
   MAX_FEATURE_NAME_LENGTH,
   MAX_FEATURE_VALUE_LENGTH,
+  MAX_PRODUCT_FEATURES_LENGTH,
   DEFAULT_CURRENCY_CODE,
   MAX_CURRENCY_CODE_LENGTH,
   computeHasMore,
   handleTransactionError as mapPrismaError,
+  decimalToNumber,
   TX_TIMEOUT_MS,
 } from "@besterp/shared";
 import {
@@ -66,10 +68,16 @@ export class ProductService {
   async createProduct(input: CreateProductInput): Promise<ProductResult> {
     const { trimmedTenantId, trimmedName, trimmedDescription, trimmedSku, trimmedProductType, validatedFeatures } = ProductService.validateCreateProductInput(input);
 
-    // Validate product type exists
+    // Validate product type exists. The lookup is case-INSENSITIVE so
+    // "good", "Good" and "GOOD" all resolve to the same type-table row —
+    // `searchProducts` already matched the type case-insensitively, so an
+    // exact-match lookup here made the search result unusable for the
+    // follow-up write.
     let productTypeRecord;
     try {
-      productTypeRecord = await this.prisma.admin.productType.findUnique({ where: { name: trimmedProductType } });
+      productTypeRecord = await this.prisma.admin.productType.findFirst({
+        where: { name: { equals: trimmedProductType, mode: "insensitive" } },
+      });
     } catch (err) {
       throw mapPrismaError(err, "create_product", "create_product", "product");
     }
@@ -155,35 +163,55 @@ export class ProductService {
     }
     const trimmedSku = sku !== undefined && sku !== null ? ProductService.requireOptionalString(stripHtmlTags(sku.trim()), "sku", MAX_SKU_LENGTH, "create_product") : null;
     const rawProductType = ProductService.requireStringField(productType, "productType", MAX_PRODUCT_TYPE_LENGTH, "create_product");
-    const trimmedProductType = stripHtmlTags(rawProductType);
+    // Normalise to upper case HERE (the service is the single source of
+    // truth): the MCP tool uppercased the value before calling, but a REST or
+    // internal caller did not — so the same type table entry was reachable
+    // through one path and not the other. The lookup is case-insensitive
+    // (see below) so both spellings resolve to the same row.
+    const trimmedProductType = stripHtmlTags(rawProductType).toUpperCase();
     if (trimmedProductType.length === 0) {
       throw new InvalidTypeValueError("'productType' must contain visible characters after HTML sanitization.", { suggestedTools: ["create_product"], context: { field: "productType" } });
     }
 
-    let validatedFeatures = undefined;
-    if (features && features.length > 0) {
-      validatedFeatures = features.map((f) => {
-        // Type-check before .trim(): a direct/internal caller bypassing the
-        // DTO/Zod bounds could pass a non-string feature, and `f.name.trim`
-        // throws a raw TypeError that surfaces as a 500 INTERNAL_ERROR instead
-        // of the documented InvalidTypeValueError (the same class the party
-        // service fixed in round 151).
-        if (!f || typeof f !== "object") {
-          throw new InvalidTypeValueError("'features' must be an array of { name, value } objects.", { suggestedTools: ["create_product"], context: { field: "features", received: typeof f } });
-        }
-        if (typeof f.name !== "string") {
-          throw new InvalidTypeValueError("'featureName' must be a string.", { suggestedTools: ["create_product"], context: { field: "featureName", received: typeof f.name } });
-        }
-        if (typeof f.value !== "string") {
-          throw new InvalidTypeValueError("'featureValue' must be a string.", { suggestedTools: ["create_product"], context: { field: "featureValue", received: typeof f.value } });
-        }
-        const trimmedName = ProductService.requireNonEmptyString(f.name.trim(), "featureName", MAX_FEATURE_NAME_LENGTH, "create_product");
-        const trimmedValue = ProductService.requireNonEmptyString(f.value.trim(), "featureValue", MAX_FEATURE_VALUE_LENGTH, "create_product");
-        return { name: trimmedName, value: trimmedValue };
-      });
-    }
-
+    const validatedFeatures = ProductService.validateProductFeatures(features);
     return { trimmedTenantId, trimmedName, trimmedDescription, trimmedSku, trimmedProductType, validatedFeatures };
+  }
+
+  /**
+   * Validate and normalise the optional `features` array of create_product.
+   *
+   * The array LENGTH is bounded here as well as in the Zod schema: without a
+   * service-level bound a direct/internal caller could create an unbounded
+   * number of `product_feature` rows (and an unbounded audit-log payload).
+   * The sibling agent arrays are capped at BOTH layers.
+   */
+  private static validateProductFeatures(features: CreateProductInput["features"]): Array<{ name: string; value: string }> | undefined {
+    if (!features || features.length === 0) return undefined;
+    if (features.length > MAX_PRODUCT_FEATURES_LENGTH) {
+      throw new InvalidTypeValueError(
+        `'features' must contain at most ${MAX_PRODUCT_FEATURES_LENGTH} entries.`,
+        { suggestedTools: ["create_product"], context: { field: "features", length: features.length } }
+      );
+    }
+    return features.map((f) => {
+      // Type-check before .trim(): a direct/internal caller bypassing the
+      // DTO/Zod bounds could pass a non-string feature, and `f.name.trim`
+      // throws a raw TypeError that surfaces as a 500 INTERNAL_ERROR instead
+      // of the documented InvalidTypeValueError (the same class the party
+      // service fixed in round 151).
+      if (!f || typeof f !== "object") {
+        throw new InvalidTypeValueError("'features' must be an array of { name, value } objects.", { suggestedTools: ["create_product"], context: { field: "features", received: typeof f } });
+      }
+      if (typeof f.name !== "string") {
+        throw new InvalidTypeValueError("'featureName' must be a string.", { suggestedTools: ["create_product"], context: { field: "featureName", received: typeof f.name } });
+      }
+      if (typeof f.value !== "string") {
+        throw new InvalidTypeValueError("'featureValue' must be a string.", { suggestedTools: ["create_product"], context: { field: "featureValue", received: typeof f.value } });
+      }
+      const trimmedName = ProductService.requireNonEmptyString(f.name.trim(), "featureName", MAX_FEATURE_NAME_LENGTH, "create_product");
+      const trimmedValue = ProductService.requireNonEmptyString(f.value.trim(), "featureValue", MAX_FEATURE_VALUE_LENGTH, "create_product");
+      return { name: trimmedName, value: trimmedValue };
+    });
   }
 
   // ─── Get Product ──────────────────────────────────────────────
@@ -321,7 +349,9 @@ export class ProductService {
       throw new InvalidTypeValueError("'productType' must be a string.", { suggestedTools: [tool], context: { field: "productType", received: typeof productType } });
     }
     if (productType !== undefined) {
-      const trimmedProductType = stripHtmlTags(productType.trim());
+      // Normalise to upper case (same rule as createProduct) and look the type
+      // up case-insensitively so "good" resolves to "GOOD".
+      const trimmedProductType = stripHtmlTags(productType.trim()).toUpperCase();
       if (trimmedProductType.length === 0) {
         throw new InvalidTypeValueError("'productType' must contain visible characters after HTML sanitization.", { suggestedTools: [tool], context: { field: "productType" } });
       }
@@ -330,7 +360,9 @@ export class ProductService {
       }
       let pt;
       try {
-        pt = await prisma.admin.productType.findUnique({ where: { name: trimmedProductType } });
+        pt = await prisma.admin.productType.findFirst({
+          where: { name: { equals: trimmedProductType, mode: "insensitive" } },
+        });
       } catch (err) {
         throw mapPrismaError(err, tool, tool, "product");
       }
@@ -490,6 +522,15 @@ export class ProductService {
     ProductService.validatePriceCurrencyCode(trimmedCurrencyCode, tool);
     const parsedFromDate = ProductService.parseOptionalDate(fromDate, "fromDate", tool) ?? new Date();
     const parsedThruDate = ProductService.parseOptionalDate(thruDate, "thruDate", tool);
+    // A price window that expires BEFORE it starts is nonsense and was
+    // silently accepted: the row was stored with thruDate < fromDate, so no
+    // point in time was covered by the price.
+    if (parsedThruDate !== null && parsedThruDate.getTime() <= parsedFromDate.getTime()) {
+      throw new InvalidTypeValueError(
+        "'thruDate' must be later than 'fromDate'.",
+        { suggestedTools: [tool], context: { field: "thruDate" } }
+      );
+    }
     return { priceType: trimmedPriceType.toUpperCase(), amount, currencyCode: trimmedCurrencyCode, fromDate: parsedFromDate, thruDate: parsedThruDate };
   }
 
@@ -553,6 +594,15 @@ export class ProductService {
     if (currencyCode.length !== MAX_CURRENCY_CODE_LENGTH) {
       throw new InvalidTypeValueError(`'currencyCode' must be ${MAX_CURRENCY_CODE_LENGTH} characters.`, { suggestedTools: [tool], context: { field: "currencyCode", length: currencyCode.length } });
     }
+    // An ISO 4217 code is three ASCII LETTERS. The length check alone
+    // accepted "1US" / "US$" / "12A", which were then stored as a currency
+    // code and returned to the agent as such.
+    if (!/^[A-Z]{3}$/.test(currencyCode)) {
+      throw new InvalidTypeValueError(
+        "'currencyCode' must be a 3-letter ISO 4217 code (e.g. 'USD', 'EUR').",
+        { suggestedTools: [tool], context: { field: "currencyCode", invalidValue: sanitizeForLogOutput(currencyCode) } }
+      );
+    }
   }
 
   private static requireNonEmptyString(value: string, field: string, maxLength: number, tool: string): string {
@@ -581,6 +631,13 @@ export class ProductService {
   }
 
   private static requireUuid(value: string, field: string, suggestedTools: string[]): string {
+    // Type-check before .trim(): a direct/internal caller bypassing the
+    // DTO/Zod bounds could pass a non-string id, and `value.trim` throws a
+    // raw TypeError that surfaces as a 500 INTERNAL_ERROR instead of the
+    // documented InvalidTypeValueError. Mirrors SecurityService.requireUuid.
+    if (typeof value !== "string") {
+      throw new InvalidTypeValueError(`'${field}' must be a valid UUID.`, { suggestedTools, context: { field, received: typeof value } });
+    }
     const trimmed = stripHtmlTags(value.trim());
     if (!UUID_REGEX.test(trimmed)) {
       const safeValue = sanitizeForLogOutput(trimmed);
@@ -628,7 +685,7 @@ export class ProductService {
       features: p.features.map((f) => ({ name: f.name, value: f.value })),
       prices: p.prices.map((pr) => ({
         priceType: pr.priceType,
-        amount: ProductService.assertIsNumber(pr.amount, "product price amount"),
+        amount: ProductService.toPriceAmount(pr.amount),
         currencyCode: pr.currencyCode,
         fromDate: pr.fromDate.toISOString(),
         thruDate: pr.thruDate?.toISOString() ?? null,
@@ -652,7 +709,7 @@ export class ProductService {
       productPriceId: p.productPriceId,
       productId: p.productId,
       priceType: p.priceType,
-      amount: ProductService.assertIsNumber(p.amount, "product price amount"),
+      amount: ProductService.toPriceAmount(p.amount),
       currencyCode: p.currencyCode,
       fromDate: p.fromDate.toISOString(),
       thruDate: p.thruDate?.toISOString() ?? null,
@@ -675,18 +732,31 @@ export class ProductService {
   }
 
   /**
-   * Assert that a value is a number at runtime. Extracted from toGetProductResult
-   * and toPriceResult to avoid the IIFE-throw anti-pattern that made those
-   * branches unreadable. Mirrors the belt-and-suspenders numeric-type guard
-   * already used for product amounts in addProductPrice.
+   * Convert a stored `product_price.amount` into a plain number.
+   *
+   * The column is `Decimal @db.Decimal(19, 4)`, which Prisma returns as a
+   * `Prisma.Decimal` OBJECT — never a JS `number`. The previous
+   * implementation asserted `typeof value === "number"`, so the branch was
+   * never taken for a real database row:
+   *   - `get_product` threw `INVALID_TYPE_VALUE: Internal data error:
+   *     product price amount has unexpected type 'object'` for EVERY product
+   *     that had at least one price;
+   *   - `add_product_price` wrote the row and THEN threw, so the agent was told
+   *     the write failed although it had been persisted — and a retry under
+   *     the same idempotency key created a DUPLICATE price row.
+   *
+   * The unit tests missed it because the mocks used plain numbers.
+   * `decimalToNumber` (shared with the agent transaction-amount mapper) is the
+   * single source of truth for this conversion.
    */
-  private static assertIsNumber(value: unknown, label: string): number {
-    if (typeof value !== "number") {
+  private static toPriceAmount(value: unknown): number {
+    const amount = decimalToNumber(value);
+    if (amount === null) {
       throw new InvalidTypeValueError(
-        `Internal data error: ${label} has unexpected type '${typeof value}'.`,
-        { context: { field: label, received: typeof value } }
+        "Internal data error: product price amount could not be read as a number.",
+        { context: { field: "product price amount" } }
       );
     }
-    return value;
+    return amount;
   }
 }

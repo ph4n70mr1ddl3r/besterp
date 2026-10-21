@@ -54,6 +54,13 @@ function createMockPrisma() {
     },
     confirmationGate: {
       findMany: vi.fn().mockResolvedValue([
+        // `create_party` is a HIGH-risk tool (the gate middleware only
+        // enforces high/critical risk levels), so it is reported as
+        // requiring a confirmation.
+        { toolName: "create_party" },
+        // `describe_entity` is a NONE-risk read-only tool. A gate row for it
+        // is NOT enforced by the middleware, so it must NOT be advertised as
+        // requiring a confirmation.
         { toolName: "describe_entity" },
       ]),
     },
@@ -91,8 +98,15 @@ describe("Discovery MCP Tools", () => {
       expect(result.success).toBe(true);
       const data = result.data as { tools: Array<{ name: string; confirmationRequired: boolean }> };
       const gated = data.tools.filter((t) => t.confirmationRequired);
-      expect(gated.map((t) => t.name)).toEqual(["describe_entity"]);
+      // Only HIGH/CRITICAL-risk gated tools are reported: the gate middleware
+      // does not enforce medium/low-risk tools, so advertising them would
+      // promise a requirement the pipeline does not apply. Every tool
+      // registered in this spec is a read-only discovery tool (risk "none"),
+      // so NONE of them is reported — even `describe_entity`, which HAS a
+      // gate row.
+      expect(gated).toEqual([]);
       expect(data.tools.every((t) => typeof t.confirmationRequired === "boolean")).toBe(true);
+      expect(data.tools.find((t) => t.name === "describe_entity")?.confirmationRequired).toBe(false);
     });
 
     it("should report no confirmation requirement when the gate table is unavailable", async () => {
@@ -355,32 +369,23 @@ describe("Discovery MCP Tools", () => {
   });
 
   describe("get_valid_transitions", () => {
-    it("should return transitions for party", async () => {
-      const result = await registry.execute(
-        "get_valid_transitions",
-        { entity: "party" },
-        mockContext,
-      );
+    it("should NOT advertise transitions for entities without a status field", async () => {
+      // The transition registry used to list `party` (whose model has NO
+      // status column) and `order`/`invoice` (tables that do not exist in
+      // this schema at all). A hallucination-guarding tool that itself
+      // injected a hallucination: the agent was told a status-transition API
+      // existed for entities that have no status field and no transition tool.
+      for (const entity of ["party", "order", "invoice"]) {
+        const result = await registry.execute(
+          "get_valid_transitions",
+          { entity },
+          mockContext,
+        );
 
-      expect(result.success).toBe(true);
-      const data = result.data as { entity: string; transitions: Record<string, string[]> };
-      expect(data.entity).toBe("party");
-      expect(data.transitions.active).toEqual(["inactive", "suspended"]);
-      expect(data.transitions.cancelled).toBeUndefined();
-    });
-
-    it("should return transitions for order", async () => {
-      const result = await registry.execute(
-        "get_valid_transitions",
-        { entity: "order" },
-        mockContext,
-      );
-
-      expect(result.success).toBe(true);
-      const data = result.data as { entity: string; transitions: Record<string, string[]> };
-      expect(data.entity).toBe("order");
-      expect(data.transitions.draft).toEqual(["pending", "cancelled"]);
-      expect(data.transitions.completed).toEqual([]);
+        expect(result.success).toBe(false);
+        expect(result.error?.code).toBe("ENTITY_NOT_FOUND");
+        expect(result.error?.message).toContain(entity);
+      }
     });
 
     it("should return ENTITY_NOT_FOUND for unknown entity", async () => {
@@ -403,9 +408,11 @@ describe("Discovery MCP Tools", () => {
         mockContext,
       );
 
-      expect(result.success).toBe(true);
-      const data = result.data as { entity: string };
-      expect(data.entity).toBe("party");
+      // Normalisation still happens (the error message echoes the lower-cased
+      // entity), but `party` has no registered transitions.
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe("ENTITY_NOT_FOUND");
+      expect(result.error?.message).toContain("party");
     });
 
     it("should reject entity exceeding max length", async () => {
@@ -496,6 +503,22 @@ describe("Discovery MCP Tools", () => {
       expect(result.error?.context?.failures).toHaveLength(2);
     });
 
+    it("should report a failure when a search service is NOT wired in", async () => {
+      // A missing service used to resolve to `null`, which the caller read as
+      // "no results" — the agent could not distinguish "this tenant has no
+      // parties named Acme" from "the party search service is unavailable",
+      // and the tool reported `success: true` with no failure marker.
+      const result = await registry.execute(
+        "search_across_entities",
+        { query: "Acme" },
+        { ...mockContext, services: {} },
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe("SERVICE_UNAVAILABLE");
+      expect(result.error?.context?.failures).toHaveLength(2);
+    });
+
     it("should report a partial failure when one entity search fails", async () => {
       const result = await registry.execute(
         "search_across_entities",
@@ -531,6 +554,36 @@ describe("Discovery MCP Tools", () => {
       expect(data.errorCode).toBe("INVALID_TYPE_VALUE");
       expect(data.message).toContain("does not match any valid option");
       expect(data.suggestedTools).toContain("get_type_table_values");
+    });
+
+    it("should explain the error codes the MCP pipeline actually emits", async () => {
+      // The map used to contain only the domain codes and the raw Prisma
+      // codes — but the Prisma codes are NEVER surfaced to the agent (the
+      // error handler translates P2002 → DUPLICATE_ENTITY, P2025 →
+      // ENTITY_NOT_FOUND, P2034 → CONCURRENCY_CONFLICT). The codes agents
+      // actually see — INVALID_INPUT (the most frequent failure of all),
+      // CONFIRMATION_REQUIRED, REFERENCE_ERROR, … — were missing, so
+      // `explain_error({ errorCode: "INVALID_INPUT" })` returned
+      // UNKNOWN_ERROR_CODE for the tool whose whole purpose is to explain
+      // unfamiliar error codes.
+      for (const code of [
+        "INVALID_INPUT",
+        "CONFIRMATION_REQUIRED",
+        "INVALID_CONFIRMATION",
+        "IDEMPOTENCY_KEY_MISMATCH",
+        "REQUEST_IN_PROGRESS",
+        "SERVICE_UNAVAILABLE",
+        "REFERENCE_ERROR",
+        "DATABASE_ERROR",
+        "INTERNAL_ERROR",
+        "UNKNOWN_TOOL",
+      ]) {
+        const result = await registry.execute("explain_error", { errorCode: code }, mockContext);
+        expect(result.success, `expected an explanation for ${code}`).toBe(true);
+        const data = result.data as { errorCode: string; message: string };
+        expect(data.errorCode).toBe(code);
+        expect(data.message.length).toBeGreaterThan(0);
+      }
     });
 
     it("should explain a Prisma error code", async () => {
@@ -650,5 +703,31 @@ describe("Discovery MCP Tools", () => {
       expect(result.error?.code).toBe("SERVICE_UNAVAILABLE");
       expect(result.error?.context?.reason).toBe("entityDescriptor delegate missing or malformed");
     });
+  });
+});
+
+describe("list_available_tools — confirmation gate reporting", () => {
+  it("reports a HIGH-risk gated tool as requiring confirmation", async () => {
+    // The gate middleware enforces only high/critical-risk tools, so a gate
+    // row for such a tool must be advertised to the agent.
+    const registry = new ToolRegistry();
+    const mockPrisma = createMockPrisma();
+    (mockPrisma as unknown as { confirmationGate: { findMany: { mockResolvedValue: (v: unknown) => void } } })
+      .confirmationGate.findMany.mockResolvedValue([{ toolName: "risky_write" }]);
+    registerDiscoveryTools(registry, mockPrisma);
+    registry.register({
+      name: "risky_write",
+      description: "A high-risk write tool used to verify gate reporting.",
+      inputSchema: { safeParse: (input: unknown) => ({ success: true, data: input }) } as never,
+      riskLevel: "high",
+      entity: "test",
+      handler: async () => ({ success: true, data: "ok" }),
+    });
+
+    const result = await registry.execute("list_available_tools", {}, mockContext);
+    expect(result.success).toBe(true);
+    const data = result.data as { tools: Array<{ name: string; confirmationRequired: boolean }> };
+    expect(data.tools.find((t) => t.name === "risky_write")?.confirmationRequired).toBe(true);
+    expect(data.tools.find((t) => t.name === "describe_entity")?.confirmationRequired).toBe(false);
   });
 });

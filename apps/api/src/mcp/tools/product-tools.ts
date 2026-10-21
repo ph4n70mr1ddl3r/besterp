@@ -23,6 +23,7 @@ import {
   MAX_SKU_LENGTH,
   MAX_FEATURE_NAME_LENGTH,
   MAX_FEATURE_VALUE_LENGTH,
+  MAX_PRODUCT_FEATURES_LENGTH,
   MAX_CURRENCY_CODE_LENGTH,
   DEFAULT_CURRENCY_CODE,
   DEFAULT_SEARCH_LIMIT,
@@ -91,7 +92,7 @@ const createProductSchema = z.strictObject({
   features: z.array(z.strictObject({
     name: sanitizedString(1, MAX_FEATURE_NAME_LENGTH).describe("Feature name (e.g., 'color', 'size')"),
     value: sanitizedString(1, MAX_FEATURE_VALUE_LENGTH).describe("Feature value"),
-  })).optional().describe("Optional product features"),
+  })).max(MAX_PRODUCT_FEATURES_LENGTH).optional().describe("Optional product features"),
 });
 
 type CreateProductInput_z = z.infer<typeof createProductSchema>;

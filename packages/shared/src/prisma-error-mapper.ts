@@ -11,19 +11,20 @@ import {
   EntityNotFoundError,
   ConcurrencyConflictError,
   InvalidTypeValueError,
+  getErrorCode,
 } from "./errors.js";
 import { MAX_SEARCH_OFFSET } from "./constants.js";
 
 /**
  * Extract the error code from a Prisma-like error or return undefined.
- * Uses duck-typing instead of instanceof to survive Proxy-wrapped tenant
- * clients (rls-extension.ts) that break Symbol.hasInstance checks.
+ *
+ * Delegates to the shared `getErrorCode` helper so there is exactly ONE
+ * implementation of "read a machine-readable error code" in the package. The
+ * two copies (this one and `getErrorCode` in errors.ts) had drifted apart in
+ * style while doing the same thing.
  */
 export function getPrismaErrorCode(err: unknown): string | undefined {
-  if (err && typeof err === "object" && "code" in err && typeof (err as { code: unknown }).code === "string") {
-    return (err as { code: string }).code;
-  }
-  return undefined;
+  return getErrorCode(err);
 }
 
 /**
@@ -39,6 +40,12 @@ export function getPrismaErrorCode(err: unknown): string | undefined {
  * boundary is the correct ceiling.
  */
 export function computeHasMore(offset: number, limit: number, total: number): boolean {
+  // Guard the inputs: a non-finite or negative limit/offset/total would make
+  // the comparison below meaningless (e.g. limit = 0 yields
+  // `nextOffset === offset`, so `offset < total` advertised a next page that
+  // returned the SAME rows forever).
+  if (!Number.isFinite(offset) || !Number.isFinite(limit) || !Number.isFinite(total)) return false;
+  if (offset < 0 || limit <= 0 || total < 0) return false;
   const nextOffset = offset + limit;
   return nextOffset < total && nextOffset <= MAX_SEARCH_OFFSET;
 }
@@ -48,13 +55,22 @@ export function computeHasMore(offset: number, limit: number, total: number): bo
  * For compound unique constraints `meta.target` is an array of field names;
  * join them so the error message is accurate (e.g. "same tenantId and email"
  * rather than just "same tenantId").
+ *
+ * Returns `null` when the metadata carries no usable field name. The caller
+ * must then phrase the message without a field reference — the previous
+ * fallback string ("this record") produced the ungrammatical
+ * "A party with the same this record already exists in this tenant."
  */
-export function resolveConflictField(err: { meta?: Record<string, unknown> }): string {
+export function resolveConflictField(err: { meta?: Record<string, unknown> }): string | null {
   const target = err.meta?.target;
   if (Array.isArray(target) && target.length > 0 && typeof target[0] === "string") {
     return target.join(" and ");
   }
-  return "this record";
+  // Some Prisma/driver versions report `meta.target` as a bare string.
+  if (typeof target === "string" && target.length > 0) {
+    return target;
+  }
+  return null;
 }
 
 /**
@@ -80,8 +96,10 @@ export function throwMappedPrismaError(
     case "P2002": {
       const field = resolveConflictField(err);
       throw new DuplicateEntityError(
-        `A ${entityName} with the same ${field} already exists in this tenant.`,
-        { suggestedTools: [suggestTool], context: { prismaCode: "P2002", conflictingField: field } }
+        field
+          ? `A ${entityName} with the same ${field} already exists in this tenant.`
+          : `A ${entityName} with the same unique key already exists in this tenant.`,
+        { suggestedTools: [suggestTool], context: { prismaCode: "P2002", conflictingField: field ?? "unknown" } }
       );
     }
     case "P2003": {

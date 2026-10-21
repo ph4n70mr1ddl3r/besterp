@@ -41,7 +41,7 @@ function mockParty(overrides: Record<string, any> = {}) {
 const mockPrismaService = {
   admin: {
     partyType: { findUnique: vi.fn() },
-    roleType: { findUnique: vi.fn() },
+    roleType: { findUnique: vi.fn(), findFirst: vi.fn() },
     contactMechanismType: { findUnique: vi.fn() },
   },
   tenantScoped: vi.fn(),
@@ -74,8 +74,10 @@ describe("PartyService", () => {
     }
     if (!overrides.roleTypeNull) {
       mockPrismaService.admin.roleType.findUnique.mockResolvedValue({ roleTypeId: overrides.roleTypeId ?? "rt-customer" });
+      mockPrismaService.admin.roleType.findFirst.mockResolvedValue({ roleTypeId: overrides.roleTypeId ?? "rt-customer" });
     } else {
       mockPrismaService.admin.roleType.findUnique.mockResolvedValue(null);
+      mockPrismaService.admin.roleType.findFirst.mockResolvedValue(null);
     }
     if (!overrides.cmTypeNull) {
       mockPrismaService.admin.contactMechanismType.findUnique.mockResolvedValue({ contactMechanismTypeId: overrides.contactMechanismTypeId ?? "cmt-postal" });
@@ -1456,9 +1458,11 @@ describe("PartyService", () => {
 
       const result = await partyService.addPartyRole(input);
 
-      // Verify the trimmed value was used for the lookup (admin client, not tenant-scoped)
-      expect(mockPrismaService.admin.roleType.findUnique).toHaveBeenCalledWith(
-        expect.objectContaining({ where: { name: "Customer" } })
+      // Verify the trimmed value was used for the lookup (admin client, not tenant-scoped).
+      // The lookup is case-INSENSITIVE so an agent that searched with
+      // roleType "customer" can add the role with the same spelling.
+      expect(mockPrismaService.admin.roleType.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { name: { equals: "Customer", mode: "insensitive" } } })
       );
       expect(result.roleTypeName).toBe("Customer");
     });

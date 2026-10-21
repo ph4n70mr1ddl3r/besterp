@@ -105,15 +105,6 @@ function validateConfirmation(rawConfirmation: unknown, toolName: string):
     };
   }
 
-  if (confirmation.length < MIN_CONFIRMATION_LENGTH) {
-    return {
-      ok: false,
-      error: invalidConfirmationError(
-        `Tool '${toolName}' requires a confirmation of at least ${MIN_CONFIRMATION_LENGTH} characters.`,
-      ),
-    };
-  }
-
   if (confirmation.length > MAX_CONFIRMATION_LENGTH) {
     return {
       ok: false,
@@ -126,6 +117,23 @@ function validateConfirmation(rawConfirmation: unknown, toolName: string):
   // Sanitize before propagating: a confirmation can carry connection-string
   // / API-key payloads if the agent echoes attacker-supplied text back.
   const sanitized = sanitizeForLogOutput(stripHtmlTags(confirmation)).slice(0, MAX_CONFIRMATION_LENGTH);
+
+  // Validate the SANITIZED value, not the raw one. The value that is
+  // propagated on the context and persisted to `ai_action_log.toolInput` is
+  // the post-strip one, and `stripHtmlTags` deletes HTML comments and tags —
+  // so a markup-only confirmation (e.g. `<!--` + justification + `-->`)
+  // passed the length check on the RAW value but collapsed to an EMPTY string,
+  // and the high-risk operation then executed with no recorded justification
+  // at all.
+  if (sanitized.trim().length < MIN_CONFIRMATION_LENGTH) {
+    return {
+      ok: false,
+      error: invalidConfirmationError(
+        `Tool '${toolName}' requires a confirmation of at least ${MIN_CONFIRMATION_LENGTH} characters of visible text.`,
+      ),
+    };
+  }
+
   return { ok: true, confirmation: sanitized };
 }
 
