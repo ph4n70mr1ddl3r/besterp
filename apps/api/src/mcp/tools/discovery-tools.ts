@@ -76,6 +76,69 @@ async function listGatedToolNames(prisma: PrismaClient): Promise<Set<string>> {
   }
 }
 
+/**
+ * The discovery payload: every registered tool plus whether it requires an
+ * agent confirmation.
+ *
+ * This is the SINGLE implementation of the discovery surface, shared by the
+ * `list_available_tools` MCP tool and the `GET /api/mcp/tools` HTTP
+ * endpoint. The HTTP endpoint used to return the bare
+ * `registry.getDiscoveryInfo()` — no `confirmationRequired` flag — while its
+ * own doc comment claimed it was "the same discovery payload the
+ * `list_available_tools` MCP tool returns". An HTTP client therefore could
+ * not learn that a write tool needs a `confirmation` until it got a
+ * `CONFIRMATION_REQUIRED` rejection on its first write.
+ */
+export interface ToolDiscoveryEntry extends Record<string, unknown> {
+  name: string;
+  riskLevel: string;
+  confirmationRequired: boolean;
+}
+
+export interface ToolDiscoveryPayload {
+  tools: ToolDiscoveryEntry[];
+  totalAvailable: number;
+  note: string;
+}
+
+/**
+ * Build the discovery payload for the given registry.
+ *
+ * The gate configuration lives in the `confirmation_gate` table, so the
+ * discovery surface reads it from the database instead of hardcoding a risk
+ * level heuristic — the gate can be enabled or disabled per tool at
+ * runtime. A database failure degrades to an EMPTY set (no tool is reported
+ * as gated) rather than failing the whole discovery call: the gate itself
+ * also fails open when the database is unreachable, so the two surfaces
+ * agree.
+ */
+export async function buildToolDiscoveryPayload(
+  registry: ToolRegistry,
+  prisma: PrismaClient,
+  entityFilter?: string,
+): Promise<ToolDiscoveryPayload> {
+  let tools = registry.getDiscoveryInfo();
+  if (entityFilter) {
+    const filter = entityFilter.toLowerCase();
+    tools = tools.filter((t) => (t.entity ?? "").toLowerCase() === filter);
+  }
+  const gatedTools = await listGatedToolNames(prisma);
+  const withConfirmation = tools.map((t) => ({
+    ...t,
+    // The gate middleware only enforces tools whose risk level is "high" or
+    // "critical" (see confirmation-gate.ts), so a gate row for a
+    // medium/low-risk tool is NOT enforced. Reporting it as
+    // `confirmationRequired` would advertise a requirement the pipeline
+    // does not apply — the same class of drift as a stale type table.
+    confirmationRequired: gatedTools.has(t.name) && (t.riskLevel === "high" || t.riskLevel === "critical"),
+  }));
+  return {
+    tools: withConfirmation as ToolDiscoveryEntry[],
+    totalAvailable: withConfirmation.length,
+    note: "Use 'get_type_table_values' with a typeName to see valid values for type tables.",
+  };
+}
+
 function createListAvailableTools(registry: ToolRegistry, prisma: PrismaClient): ToolDefinition {
   return {
     name: "list_available_tools",
@@ -110,34 +173,19 @@ confirmation.`,
       // inputRaw is pre-validated by the registry's Zod schema before the
       // handler runs, so this cast is safe at runtime.
       const input = inputRaw as { entity?: string };
-      let tools = registry.getDiscoveryInfo();
-      if (input.entity) {
-        const filter = input.entity.toLowerCase();
-        tools = tools.filter((t) => (t.entity ?? "").toLowerCase() === filter);
-      }
       // Report which tools require an agent confirmation. The gate is
       // database-backed (`confirmation_gate`), so this reflects the deployed
       // configuration rather than a hardcoded guess — the agent can then
       // supply the `confirmation` field up front instead of discovering the
       // requirement through a CONFIRMATION_REQUIRED rejection.
       //
-      // The gate middleware only enforces tools whose risk level is "high" or
-      // "critical" (see confirmation-gate.ts), so a gate row for a
-      // medium/low-risk tool is NOT enforced. Reporting it as
-      // `confirmationRequired` would advertise a requirement the pipeline
-      // does not apply — the same class of drift as a stale type table.
-      const gatedTools = await listGatedToolNames(prisma);
-      const withConfirmation = tools.map((t) => ({
-        ...t,
-        confirmationRequired: gatedTools.has(t.name) && (t.riskLevel === "high" || t.riskLevel === "critical"),
-      }));
+      // The payload is built by the shared `buildToolDiscoveryPayload`, which
+      // the `GET /api/mcp/tools` HTTP endpoint uses too, so the two
+      // discovery surfaces cannot drift apart.
+      const payload = await buildToolDiscoveryPayload(registry, prisma, input.entity);
       return {
         success: true,
-        data: {
-          tools: withConfirmation,
-          totalAvailable: withConfirmation.length,
-          note: "Use 'get_type_table_values' with a typeName to see valid values for type tables.",
-        },
+        data: payload,
       };
     },
   };
@@ -721,7 +769,7 @@ const ERROR_EXPLANATIONS: Record<string, { message: string; suggestedTools: stri
   },
 };
 
-function createExplainError(_prisma: PrismaClient): ToolDefinition {
+function createExplainError(): ToolDefinition {
   return {
     name: "explain_error",
     description: `Explain an error code and suggest how to recover.
@@ -779,5 +827,5 @@ export function registerDiscoveryTools(registry: ToolRegistry, prisma: PrismaCli
   registry.register(createDescribeEntity(prisma));
   registry.register(createGetValidTransitions());
   registry.register(createSearchAcrossEntities());
-  registry.register(createExplainError(prisma));
+  registry.register(createExplainError());
 }

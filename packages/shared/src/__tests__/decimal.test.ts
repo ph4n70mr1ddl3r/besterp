@@ -55,6 +55,21 @@ describe("decimalToNumber", () => {
     };
     expect(decimalToNumber(broken)).toBeNull();
   });
+
+  it("returns null — not 0 — for an object whose string form is blank", () => {
+    // The string branch trims and rejects an empty value BEFORE parsing it.
+    // The object branch must apply the same rule: `Number("")` and
+    // `Number("  ")` are both 0 and `Number.isFinite(0)` is true, so a
+    // decimal with a blank string form was reported to the agent as a money
+    // value of ZERO instead of "no amount stored" — the two branches of the
+    // same helper disagreed about the same input shape.
+    expect(decimalToNumber({ toString: () => "" })).toBeNull();
+    expect(decimalToNumber({ toString: () => "   " })).toBeNull();
+    expect(decimalToNumber({ toString: () => "\n\t " })).toBeNull();
+    expect(decimalToNumber([])).toBeNull();
+    // A real zero is still a real zero.
+    expect(decimalToNumber({ toString: () => "0" })).toBe(0);
+  });
 });
 
 describe("decimalToNumber — non-finite toNumber() falls back to toString()", () => {

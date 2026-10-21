@@ -23,6 +23,50 @@ describe("stripHtmlTags", () => {
     expect(stripHtmlTags("<style>body{background:red}</style>text")).toBe("text");
   });
 
+  it("does not backtrack quadratically on tag-shaped input (ReDoS)", () => {
+    // Regression guard (round 273): the four HTML-stripping helpers used to
+    // be regular expressions that combined a GREEDY `[^>]*` (or a lazy
+    // `[\s\S]*?`) with a REQUIRED trailing literal. On input containing
+    // many `<` starts and no `>` after them, the engine consumed the rest
+    // of the string and then backtracked one character at a time, once per
+    // start position — O(n²). A single 100 KB request body of "<a" repeated
+    // blocked the Node event loop for 2.6 SECONDS, and `stripHtmlTags` runs
+    // on every user-supplied name/description/contact field.
+    //
+    // The helpers are now linear scanners, so the worst case is bounded.
+    // The budget is deliberately generous (1s) — it only needs to be far
+    // below the 2.6s the old implementation took on the SAME input.
+    const payloads: Array<[string, string]> = [
+      ["<a", "<a".repeat(50_000)],
+      ["<!--", "<!--".repeat(25_000)],
+      ["<script ", "<script ".repeat(12_500)],
+      ["<style ", "<style ".repeat(12_500)],
+    ];
+    for (const [label, payload] of payloads) {
+      const start = performance.now();
+      stripHtmlTags(payload);
+      const elapsed = performance.now() - start;
+      expect(elapsed, `stripHtmlTags was slow for ${label} (${elapsed}ms)`).toBeLessThan(1000);
+    }
+  });
+
+  it("strips the same content as the previous regex-based implementation", () => {
+    // The scanners replaced the regexes; these cases pin the removal spans
+    // that the old patterns produced, including the edge cases where the
+    // two could have diverged (a tag name that is a prefix of another,
+    // an unterminated comment, a tag whose attributes contain '<').
+    expect(stripHtmlTags("<!-- a comment -->keep")).toBe("keep");
+    expect(stripHtmlTags("<!-- unterminated")).toBe("<!-- unterminated");
+    expect(stripHtmlTags("<scriptx>keep")).toBe("keep");
+    expect(stripHtmlTags("<SCRIPT>bad()</SCRIPT>keep")).toBe("keep");
+    // A closing tag with a space before `>` does not match the block
+    // pattern (the content stays as text, but the tags are still removed).
+    expect(stripHtmlTags("<script src=x>bad()</script >keep")).toBe("bad()keep");
+    expect(stripHtmlTags("text <div more")).toBe("text  more");
+    expect(stripHtmlTags("a <b c")).toBe("a <b c");
+    expect(stripHtmlTags("</script>keep")).toBe("keep");
+  });
+
   it("removes nested/encoded HTML entities", () => {
     expect(stripHtmlTags("&lt;script&gt;alert(1)&lt;/script&gt;")).toBe("");
     expect(stripHtmlTags("&#60;script&#62;alert(1)&#60;/script&#62;")).toBe("");
@@ -871,6 +915,29 @@ describe("sanitizeForLogOutput — bare high-entropy tokens", () => {
     expect(sanitizeForLogOutput("secret a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6 leaked")).toContain("[REDACTED_TOKEN]");
   });
 
+  it("redacts a token LONGER than 128 characters without leaking its tail", () => {
+    // Regression guard (round 273): the candidate pattern was
+    // `/[A-Za-z0-9_./=+-]{20,128}/g`, so a run longer than 128 characters was
+    // split into a 128-character chunk plus a remainder. When the remainder
+    // was shorter than the 20-character minimum it was not matched at all
+    // and survived VERBATIM — a 141-character opaque secret was redacted to
+    // "[REDACTED_TOKEN]" plus its last 13 characters, straight into the
+    // durable audit/idempotency sinks.
+    for (const length of [129, 130, 135, 141, 145, 149, 200, 300]) {
+      const secret = "Z1".repeat(Math.ceil(length / 2)).slice(0, length);
+      const out = sanitizeForLogOutput(`key ${secret} tail`);
+      expect(out, `length ${length} leaked a tail`).not.toContain(secret.slice(20));
+      expect(out, `length ${length} was not redacted`).toContain("[REDACTED_TOKEN]");
+    }
+  });
+
+  it("still preserves benign identifiers that are longer than 128 characters", () => {
+    // The maximal-run candidate must not turn a long DOTTED identifier (a
+    // hostname, a package coordinate) into a redaction.
+    const host = `${"a".repeat(60)}.${"b".repeat(60)}.example.com`;
+    expect(sanitizeForLogOutput(`host ${host} end`)).toContain(host);
+  });
+
   it("does not redact bare code=/session= free-text (HTTP status, benign session id)", () => {
     expect(sanitizeForLogOutput("status code=200 ok")).toBe("status code=200 ok");
     expect(sanitizeForLogOutput("HTTP session=abc123xyz active")).toBe("HTTP session=abc123xyz active");
@@ -1126,5 +1193,38 @@ describe("sanitizePostalAddress / sanitizeTelecomNumber — required fields", ()
     // A missing field used to be silently persisted as an EMPTY STRING.
     expect(() => sanitizeTelecomNumber({ lineNumber: "5551234" } as never)).toThrow(/areaCode/);
     expect(() => sanitizeTelecomNumber({ areaCode: "212" } as never)).toThrow(/lineNumber/);
+  });
+
+  it("throws a structured error for a NON-STRING optional field", () => {
+    // The optional fields used to be read with `field?.trim()`, which only
+    // short-circuits on null/undefined — a non-string value (a number, an
+    // object) reached `.trim()` and produced a raw `TypeError`, so the REST
+    // filter answered 500 INTERNAL_ERROR instead of 422 INVALID_TYPE_VALUE
+    // and the MCP error-handler reported an opaque server fault. The
+    // optional fields are now validated exactly like the required ones.
+    expect(() => sanitizePostalAddress({ addressLine1: "1 A St", city: "X", country: "US", addressLine2: 123 } as never))
+      .toThrow(/addressLine2/);
+    expect(() => sanitizePostalAddress({ addressLine1: "1 A St", city: "X", country: "US", stateProvince: {} } as never))
+      .toThrow(/stateProvince/);
+    expect(() => sanitizePostalAddress({ addressLine1: "1 A St", city: "X", country: "US", postalCode: true } as never))
+      .toThrow(/postalCode/);
+    expect(() => sanitizeTelecomNumber({ areaCode: "212", lineNumber: "5551234", extension: 7 } as never))
+      .toThrow(/extension/);
+    expect(() => sanitizeTelecomNumber({ areaCode: "212", lineNumber: "5551234", countryCode: 7 } as never))
+      .toThrow(/countryCode/);
+  });
+
+  it("still accepts null/undefined optional fields", () => {
+    expect(sanitizePostalAddress({ addressLine1: "1 A St", city: "X", country: "US", addressLine2: null } as never))
+      .toEqual({
+        addressLine1: "1 A St",
+        addressLine2: null,
+        city: "X",
+        stateProvince: null,
+        postalCode: null,
+        country: "US",
+      });
+    expect(sanitizeTelecomNumber({ areaCode: "212", lineNumber: "5551234", extension: null } as never))
+      .toEqual({ countryCode: "+1", areaCode: "212", lineNumber: "5551234", extension: null });
   });
 });

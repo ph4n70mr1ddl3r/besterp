@@ -224,13 +224,21 @@ reachable over HTTP at:
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| `GET`  | `/api/mcp/tools` | List the registered tools (name, description, risk level, entity, tags) |
+| `GET`  | `/api/mcp/tools` | List the registered tools (name, description, risk level, entity, tags, `confirmationRequired`) |
 | `POST` | `/api/mcp/tools/call` | Invoke a tool — the MCP `tools/call` request shape |
 | `POST` | `/api/mcp/tools/:name` | Invoke a tool with the name in the path |
 
 All three endpoints require a JWT (the global `JwtAuthGuard` +
 `TenantGuard` apply); the tenant and user identity come from the validated
 token, never from the request body.
+
+`GET /api/mcp/tools` returns the SAME payload as the `list_available_tools`
+MCP tool, including the `confirmationRequired` flag for each tool.
+
+For `POST /api/mcp/tools/:name` the tool name comes from the URL, so the
+request body does NOT need a `name` field. If the body carries one, it must
+match the path — a mismatch is rejected with HTTP 400 rather than silently
+resolved in favour of one of the two.
 
 ```bash
 curl -X POST http://localhost:3000/api/mcp/tools/call \
@@ -284,9 +292,24 @@ convention.
 - `deactivate_agent` - Deactivate an agent (soft delete)
 - `delete_agent` - Permanently delete an agent
 
+An agent identity is ENFORCED on every tool call. When the JWT carries an
+`agentId`, the call is rejected unless the agent is registered in the
+tenant, is active, and lists the tool in its `capabilities` (the schema
+documents that field as "List of tool names this agent is allowed to call").
+A rejected call is still recorded in the durable audit trail.
+
+The per-minute rate limit, the per-conversation tool-call cap and the
+per-operation transaction amount are RECORDED on the agent but are not yet
+enforced — they need a durable per-agent usage counter that the schema does
+not have yet.
+
 **User**
 - `get_user` - Read the user account linked to a party (never returns the password hash)
 - `create_user` - Create a user account for an existing party
+
+`create_user` is the only write path to the `user` table — the table that
+stores the system's only credentials — so it validates that `passwordHash`
+is a **bcrypt or argon2 digest**. A plaintext password is rejected.
 
 #### Envelope fields
 

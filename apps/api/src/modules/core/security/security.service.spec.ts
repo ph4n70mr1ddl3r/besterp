@@ -13,6 +13,13 @@ import {
 /** A canonical party UUID — `partyId` is `Party`'s UUID primary key. */
 const PARTY_ID = "12345678-1234-1234-1234-123456789abc";
 
+// A syntactically valid bcrypt digest ($2b$ + cost + 53 base64 chars).
+// `create_user` validates the SHAPE of the hash, so the fixtures must use a
+// real digest rather than an arbitrary string.
+const BCRYPT_HASH = "$2b$12$01234567890123456789012345678901234567890123456789012";
+// A syntactically valid argon2id digest.
+const ARGON2_HASH = "$argon2id$v=19$m=65536,t=3,p=4$c29tZXNhbHQ$RdescudvJCsgt3ub+b+dWRWJTmaaJObG";
+
 function createMockPrisma() {
   // The agent registry is a TENANT-SCOPED table with RLS enabled, so it is
   // accessed through the tenant-scoped client — the SAME delegate instances
@@ -83,10 +90,40 @@ describe("SecurityService", () => {
       };
       prisma.tenantScoped.mockReturnValue(mockTenantClient);
 
-      await service.createUser({ tenantId: "t1", partyId: ` ${PARTY_ID} `, passwordHash: "hash" });
+      await service.createUser({ tenantId: "t1", partyId: ` ${PARTY_ID} `, passwordHash: BCRYPT_HASH });
       expect(mockTenantClient.party.findUnique).toHaveBeenCalledWith(
         expect.objectContaining({ where: { partyId: PARTY_ID } })
       );
+    });
+
+    it("rejects a PLAINTEXT password instead of persisting it as the hash", async () => {
+      // `create_user` is the ONLY write path to `user.password_hash` — the
+      // only credential store in the schema — and it accepted any non-empty
+      // string up to 255 characters. A mistaken or prompt-injected agent
+      // could therefore persist "hunter2" verbatim into the credential
+      // column and the tool still reported `success: true`.
+      const mockTenantClient = {
+        party: { findUnique: vi.fn().mockResolvedValue({ tenantId: "t1" }) },
+        user: { create: vi.fn() },
+      };
+      prisma.tenantScoped.mockReturnValue(mockTenantClient);
+
+      await expect(
+        service.createUser({ tenantId: "t1", partyId: PARTY_ID, passwordHash: "hunter2" })
+      ).rejects.toThrow(InvalidTypeValueError);
+      expect(mockTenantClient.user.create).not.toHaveBeenCalled();
+    });
+
+    it("accepts an argon2 digest", async () => {
+      const mockTenantClient = {
+        party: { findUnique: vi.fn().mockResolvedValue({ tenantId: "t1" }) },
+        user: { create: vi.fn().mockResolvedValue({ userId: "u1", partyId: PARTY_ID, tenantId: "t1", lastLoginAt: null, createdAt: new Date(), updatedAt: new Date() }) },
+      };
+      prisma.tenantScoped.mockReturnValue(mockTenantClient);
+
+      await expect(
+        service.createUser({ tenantId: "t1", partyId: PARTY_ID, passwordHash: ARGON2_HASH })
+      ).resolves.toBeDefined();
     });
 
     it("maps P2002 to appropriate error", async () => {
@@ -97,7 +134,7 @@ describe("SecurityService", () => {
       });
 
       await expect(
-        service.createUser({ tenantId: "t1", partyId: PARTY_ID, passwordHash: "hash" })
+        service.createUser({ tenantId: "t1", partyId: PARTY_ID, passwordHash: BCRYPT_HASH })
       ).rejects.toThrow();
     });
   });

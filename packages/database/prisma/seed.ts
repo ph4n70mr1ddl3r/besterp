@@ -298,7 +298,7 @@ async function seedEntityDescriptors(prisma: PrismaClient): Promise<number> {
       update: {},
       create: {
         entityName: "agent_registry",
-        description: "AI agent identity registry per tenant. Each agent has capabilities, rate limits, and financial restrictions.",
+        description: "AI agent identity registry per tenant. Each agent has capabilities, rate limits, and financial restrictions. The capabilities and the active flag are enforced on every tool call; the rate limits and the transaction amount are recorded but not yet enforced.",
         aiPromptHint: "Use register_agent to create agents. Use list_agents to discover available agents. Agents inherit user permissions but may have additional restrictions.",
         keyFields: { agentId: "string slug", tenantId: "tenant-slug" },
       },
@@ -433,7 +433,7 @@ async function seedConfirmationGates(prisma: PrismaClient): Promise<number> {
       create: {
         toolName: "deactivate_agent",
         enabled: true,
-        description: "Deactivating an agent, preventing it from making tool calls.",
+        description: "Deactivating an agent, preventing it from making tool calls. Requests carrying the deactivated agent's id are rejected with AGENT_INACTIVE.",
         reason: "Disables an agent's access — affects all conversations using this agent identity.",
       },
     }),

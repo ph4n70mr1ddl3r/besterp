@@ -118,6 +118,38 @@ export class HealthService implements OnModuleInit, OnModuleDestroy {
    */
   private redisProbeInflight: Promise<"connected" | "disconnected" | "not_configured"> | undefined;
 
+  /**
+   * Short-TTL cache for the PostgreSQL probe.
+   *
+   * `/api/health` is @Public() and deliberately bypasses the general rate
+   * limiter (load balancers poll it frequently). The Redis probe was
+   * hardened against exactly that — a result cache plus an in-flight dedup,
+   * so an anonymous flood cannot open one outbound socket per request.
+   *
+   * The DATABASE probe had neither. Every anonymous request (and every
+   * `/api/health/ready`) issued a real `SELECT 1` round-trip on the RLS
+   * app client, so an unauthenticated caller could drive unbounded query
+   * load and exhaust the Prisma connection pool through a route that is
+   * deliberately outside the rate limiter — the same exposure the Redis
+   * probe was protected against.
+   *
+   * The cache TTL is the same {@link REDIS_PROBE_CACHE_TTL_MS} the Redis
+   * probe uses, so the two probes share one staleness budget and the
+   * constant cannot drift into two values with the same name.
+   */
+  private dbProbeCache: { timestamp: number; status: "connected" | "disconnected" } | undefined;
+  /**
+   * The currently-running database probe (if any).
+   *
+   * A result cache alone does NOT bound the load under a concurrent burst:
+   * N requests arriving before the first probe resolves each miss the empty
+   * cache and each issue their own query. Awaiting the same in-flight
+   * Promise collapses the burst into ONE probe. The probe never rejects (it
+   * maps every failure to "disconnected"), so the `finally` is guaranteed to
+   * run and clear the slot.
+   */
+  private dbProbeInflight: Promise<"connected" | "disconnected"> | undefined;
+
   constructor(private readonly prisma: PrismaService) {}
 
   async onModuleDestroy(): Promise<void> {
@@ -181,27 +213,7 @@ export class HealthService implements OnModuleInit, OnModuleDestroy {
     // `SELECT 1` does not access any tenant-scoped table, so RLS policies
     // do not interfere. Using the app client avoids exercising the admin
     // (superuser) connection for a non-admin purpose.
-    let databaseStatus: "connected" | "disconnected";
-    try {
-      // Bound the DB probe with the SAME timeout `/ready` applies. Without it
-      // a hung driver/pool (network partition, exhausted pool) left the
-      // ANONYMOUS liveness endpoint hanging until the load balancer's own
-      // probe timeout — the health check itself became the outage.
-      await this.withTimeout(
-        this.prisma.appClient.$queryRaw`SELECT 1`,
-        READY_CHECK_TIMEOUT_MS,
-        "database health check",
-      );
-      databaseStatus = "connected";
-    } catch (error) {
-      // Dedupe like the Redis probes: load balancers poll /api/health every
-      // few seconds, and without this an outage floods `error` logs on every
-      // poll for the duration. The first failure carries the full sanitized
-      // message for diagnosis; subsequent polls stay silent (status flips to
-      // "disconnected" in the response body, which is what monitors consume).
-      this.logDbHealthCheckFailed(error);
-      databaseStatus = "disconnected";
-    }
+    const databaseStatus = await this.probeDatabase();
 
     // Check Redis connectivity if configured
     const redisStatus = await this.probeRedis();
@@ -258,6 +270,65 @@ export class HealthService implements OnModuleInit, OnModuleDestroy {
       return await Promise.race([promise, timeoutPromise]);
     } finally {
       if (timer) clearTimeout(timer);
+    }
+  }
+
+  /**
+   * Probe the database and return its status.
+   *
+   * Mirrors {@link probeRedis}: a short-TTL result cache plus an in-flight
+   * dedup, so the ANONYMOUS (and deliberately rate-limit-exempt) `/api/health`
+   * endpoint cannot be used to drive unbounded query load onto the Prisma
+   * connection pool. Never throws — every failure maps to "disconnected".
+   */
+  private async probeDatabase(): Promise<"connected" | "disconnected"> {
+    const now = Date.now();
+    if (this.dbProbeCache && now - this.dbProbeCache.timestamp < REDIS_PROBE_CACHE_TTL_MS) {
+      return this.dbProbeCache.status;
+    }
+    // Dedupe CONCURRENT probes: a burst of N requests arriving before the
+    // first probe resolves would each miss the empty cache and each issue
+    // their own query. Awaiting the same in-flight Promise collapses the
+    // burst into ONE probe.
+    if (this.dbProbeInflight) {
+      return this.dbProbeInflight;
+    }
+    const probe = this.runDatabaseProbe();
+    this.dbProbeInflight = probe;
+    try {
+      const status = await probe;
+      this.dbProbeCache = { timestamp: Date.now(), status };
+      return status;
+    } finally {
+      this.dbProbeInflight = undefined;
+    }
+  }
+
+  /**
+   * Execute one database probe and return its status WITHOUT touching the
+   * cache or the in-flight tracking — {@link probeDatabase} owns those.
+   * Never throws: every failure path maps to a status string.
+   */
+  private async runDatabaseProbe(): Promise<"connected" | "disconnected"> {
+    try {
+      // Bound the DB probe with the SAME timeout `/ready` applies. Without it
+      // a hung driver/pool (network partition, exhausted pool) left the
+      // ANONYMOUS liveness endpoint hanging until the load balancer's own
+      // probe timeout — the health check itself became the outage.
+      await this.withTimeout(
+        this.prisma.appClient.$queryRaw`SELECT 1`,
+        READY_CHECK_TIMEOUT_MS,
+        "database health check",
+      );
+      return "connected";
+    } catch (error) {
+      // Dedupe like the Redis probes: load balancers poll /api/health every
+      // few seconds, and without this an outage floods `error` logs on every
+      // poll for the duration. The first failure carries the full sanitized
+      // message for diagnosis; subsequent polls stay silent (status flips to
+      // "disconnected" in the response body, which is what monitors consume).
+      this.logDbHealthCheckFailed(error);
+      return "disconnected";
     }
   }
 

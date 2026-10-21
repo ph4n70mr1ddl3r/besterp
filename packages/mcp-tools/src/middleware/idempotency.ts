@@ -283,12 +283,23 @@ async function acquireIdempotencyRecord(
           // `?api_key=…`); the raw values were already format-validated by
           // `buildContext` and `validateContextIdentity`, but sanitization is
           // still required so the durable sink never stores a raw secret.
-          const safeUserId = sanitizeForLogOutput(stripHtmlTags(userId)).slice(0, MAX_USER_ID_LENGTH);
+          //
+          // `keepOpaqueTokens: true` matches the AUDIT sink exactly (see
+          // audit-log.ts's `sanitizeIdentityField`). Without it the generic
+          // long-token rule rewrote every 20-128 character id that mixed
+          // letters and digits to "[REDACTED_TOKEN]" — so the SAME
+          // conversationId was stored verbatim in `ai_action_log` and
+          // destroyed in `idempotency_record`. The two durable sinks
+          // disagreed about who performed the operation, and the idempotency
+          // row could no longer be correlated to the audit row, to the user
+          // or to the agent. The recognised-secret rules still apply, so a
+          // secret embedded in an identity field is still scrubbed.
+          const safeUserId = sanitizeForLogOutput(stripHtmlTags(userId), { keepOpaqueTokens: true }).slice(0, MAX_USER_ID_LENGTH);
           const safeAgentId = agentId !== undefined
-            ? sanitizeForLogOutput(stripHtmlTags(agentId)).slice(0, MAX_AGENT_ID_LENGTH)
+            ? sanitizeForLogOutput(stripHtmlTags(agentId), { keepOpaqueTokens: true }).slice(0, MAX_AGENT_ID_LENGTH)
             : undefined;
           const safeConversationId = conversationId !== undefined
-            ? sanitizeForLogOutput(stripHtmlTags(conversationId)).slice(0, MAX_CONVERSATION_ID_LENGTH)
+            ? sanitizeForLogOutput(stripHtmlTags(conversationId), { keepOpaqueTokens: true }).slice(0, MAX_CONVERSATION_ID_LENGTH)
             : undefined;
           await tx.idempotencyRecord.create({
             data: {

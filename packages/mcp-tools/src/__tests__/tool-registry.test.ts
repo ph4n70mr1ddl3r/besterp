@@ -5,7 +5,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { ToolRegistry } from "../registry/tool-registry.js";
 import { ToolDefinition, ToolContext, ToolMiddleware } from "../schema/tool-definition.js";
 import { z } from "zod";
-import { InvalidTypeValueError } from "@besterp/shared";
+import { InvalidTypeValueError, MAX_ERROR_MESSAGE_LENGTH } from "@besterp/shared";
 import { errorHandlerMiddleware } from "../middleware/error-handler.js";
 
 const mockContext: ToolContext = {
@@ -140,6 +140,68 @@ describe("ToolRegistry", () => {
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe("UNKNOWN_TOOL");
       expect(result.error?.suggestedTools).toContain("list_available_tools");
+    });
+
+    it("returns a structured error for a NON-STRING tool name instead of throwing", async () => {
+      // `name` is typed `string`, but `execute` is an exported entry point
+      // and the value can come from a caller that does not honour the type.
+      // The old code reached `name.toLowerCase()` inside findSimilarNames()
+      // and threw a raw TypeError that ESCAPED execute() entirely — the
+      // errorHandlerMiddleware sits inside the pipeline and can only convert
+      // errors raised by a middleware or the handler.
+      for (const bad of [123, null, undefined, {}, []]) {
+        const result = await registry.execute(bad as never, {}, mockContext);
+        expect(result.success).toBe(false);
+        expect(result.error?.code).toBe("UNKNOWN_TOOL");
+      }
+    });
+
+    it("caps the UNKNOWN_TOOL message and context at the agent-facing bound", async () => {
+      // `sanitizeForLogOutput` only truncates at its own 100 KB internal
+      // guard, so a 120 KB tool name produced a 100 KB agent-facing response
+      // — 50x the documented MAX_ERROR_MESSAGE_LENGTH bound that every other
+      // agent-facing error surface honours.
+      const huge = "x".repeat(120_000);
+      const result = await registry.execute(huge, {}, mockContext);
+      expect(result.success).toBe(false);
+      expect(result.error?.message!.length).toBeLessThanOrEqual(MAX_ERROR_MESSAGE_LENGTH + 1);
+      expect(String(result.error?.context?.requestedTool).length).toBeLessThanOrEqual(MAX_ERROR_MESSAGE_LENGTH + 1);
+    });
+
+    it("passes a NON-OBJECT input through to the tool's own schema", async () => {
+      // The raw input was nulled for every non-object input before
+      // validation, so a tool whose schema is not an object was uncallable
+      // and the agent got a misleading "expected array, received null".
+      const arrayRegistry = new ToolRegistry();
+      const handler = vi.fn().mockResolvedValue({ success: true, data: "ok" });
+      arrayRegistry.register({
+        name: "list_things",
+        description: "takes an array",
+        inputSchema: z.array(z.string()),
+        riskLevel: "none",
+        entity: "thing",
+        tags: ["test"],
+        handler,
+      });
+      const result = await arrayRegistry.execute("list_things", ["a", "b"], mockContext);
+      expect(result.success).toBe(true);
+      expect(handler).toHaveBeenCalledWith(["a", "b"], expect.anything());
+    });
+
+    it("reports the ACTUAL input in the validation error for a non-object input", async () => {
+      const arrayRegistry = new ToolRegistry();
+      arrayRegistry.register({
+        name: "list_things",
+        description: "takes an array",
+        inputSchema: z.array(z.string()),
+        riskLevel: "none",
+        entity: "thing",
+        tags: ["test"],
+        handler: vi.fn().mockResolvedValue({ success: true, data: "ok" }),
+      });
+      const result = await arrayRegistry.execute("list_things", 42, mockContext);
+      expect(result.success).toBe(false);
+      expect(result.error?.message).not.toContain("received null");
     });
 
     it("should sanitize a crafted unknown tool name before reflecting it", async () => {

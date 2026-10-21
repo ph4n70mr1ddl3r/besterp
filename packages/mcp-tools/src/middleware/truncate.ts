@@ -52,6 +52,15 @@ function safeSliceUtf8(encoded: Uint8Array, byteLimit: number): string {
  */
 const TRUNCATION_MARKER_KEY = "__besterp_trunc";
 
+/**
+ * The smallest value that still identifies a payload as truncated.
+ *
+ * `{"__besterp_trunc":true}` serialises to 24 bytes — the floor for the
+ * truncation marker. It is used when the requested limit cannot hold the
+ * full marker (with its `_preview` and `_originalSize`).
+ */
+const MINIMAL_TRUNCATION_MARKER: { __besterp_trunc: true } = { [TRUNCATION_MARKER_KEY]: true };
+
 /** Structured marker stored in place of an oversized payload.
  *
  * Note: Symbol/Function normalisation returns `{ _error: "..." }` which is
@@ -62,8 +71,8 @@ const TRUNCATION_MARKER_KEY = "__besterp_trunc";
  */
 function truncationMarker(encoded: Uint8Array, effectiveMax: number = MAX_STORED_PAYLOAD_SIZE): {
   __besterp_trunc: true;
-  _truncated: true;
-  _originalSize: number;
+  _truncated?: true;
+  _originalSize?: number;
   _preview?: string;
 } {
   // The marker itself is stored, so it must fit inside `effectiveMax`. The
@@ -101,7 +110,29 @@ function truncationMarker(encoded: Uint8Array, effectiveMax: number = MAX_STORED
   // optional `_preview` field rather than exceeding the bound.
   if (textEncoder.encode(JSON.stringify(marker)).byteLength > effectiveMax) {
     const { _preview: _dropped, ...rest } = marker;
-    return rest;
+    if (textEncoder.encode(JSON.stringify(rest)).byteLength <= effectiveMax) {
+      return rest;
+    }
+    // Even the preview-less marker does not fit: its fixed skeleton
+    // (`{"__besterp_trunc":true,"_truncated":true,"_originalSize":N}`) is 64
+    // bytes, so any limit below that was silently violated — the comment
+    // above ("rather than exceeding the bound") was false and the module's
+    // documented promise ("never returns a stored form larger than the
+    // requested limit") did not hold.
+    //
+    // The MINIMAL marker (`{"__besterp_trunc":true}`, 24 bytes) is used next.
+    // It keeps `isTruncationMarker` working, which matters: a consumer that
+    // cannot recognise the marker would report a truncated payload as an
+    // original result.
+    if (textEncoder.encode(JSON.stringify(MINIMAL_TRUNCATION_MARKER)).byteLength <= effectiveMax) {
+      return MINIMAL_TRUNCATION_MARKER;
+    }
+    // A limit this small cannot hold even the minimal marker. The marker is
+    // returned anyway: losing the truncation signal would be a SILENT data-
+    // integrity bug (the idempotency replay path would hand a truncated
+    // payload back as if it were the original result), which is worse than
+    // overshooting a limit that no production caller uses.
+    return MINIMAL_TRUNCATION_MARKER;
   }
   return marker;
 }

@@ -252,3 +252,44 @@ export function isValidISODate(value: string): boolean {
   }
   return true;
 }
+
+// ─── Password hash format ─────────────────────────────────────────
+
+/**
+ * bcrypt digest: `$2<variant>$<cost>$<22-char salt><31-char digest>`.
+ *
+ * The variant is one of `a` (the original), `b` (the current) or `y` (the
+ * PHP-compatibility variant). The salt and digest are bcrypt's own base64
+ * alphabet (`.` and `/` included), 53 characters in total.
+ */
+const BCRYPT_HASH_PATTERN = /^\$2[aby]\$\d{2}\$[./A-Za-z0-9]{53}$/;
+
+/**
+ * argon2 digest: `$argon2<variant>$v=<version>$m=<mem>,t=<time>,p=<lanes>$<salt>$<digest>`.
+ *
+ * The variant is `id` (the recommended one), `i` or `d`. The salt and digest
+ * are unpadded base64.
+ */
+const ARGON2_HASH_PATTERN = /^\$argon2(?:id|i|d)\$v=\d+\$m=\d+,t=\d+,p=\d+\$[A-Za-z0-9+/]+\$[A-Za-z0-9+/]+$/;
+
+/**
+ * True when `value` has the shape of a supported password HASH.
+ *
+ * The `user.password_hash` column is the only credential store in the
+ * schema, and `create_user` is the only write path to it. That path used to
+ * accept ANY non-empty string up to 255 characters, so a mistaken or
+ * prompt-injected agent could persist `"hunter2"` verbatim into a column
+ * meant to hold a bcrypt/argon2 digest — and nothing downstream in the
+ * system would detect it, because there is no login path yet to fail.
+ *
+ * This validator is a SHAPE check, not a correctness check: it cannot tell
+ * whether a digest matches a given password (that needs the salt and the
+ * KDF), but it does reject the plaintext case, which is the failure that
+ * matters. It is applied at the service boundary (the authoritative write
+ * path) AND in the MCP tool schema (so the agent gets an actionable error
+ * instead of a persisted plaintext credential).
+ */
+export function isSupportedPasswordHash(value: unknown): boolean {
+  if (typeof value !== "string") return false;
+  return BCRYPT_HASH_PATTERN.test(value) || ARGON2_HASH_PATTERN.test(value);
+}

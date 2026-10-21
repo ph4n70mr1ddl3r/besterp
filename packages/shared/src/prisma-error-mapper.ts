@@ -80,11 +80,21 @@ export function resolveConflictField(err: { meta?: Record<string, unknown> }): s
 
 /**
  * Extract the constraint name from a Prisma error's metadata.
+ *
+ * Every candidate value is TYPE-CHECKED before it is used. The previous
+ * implementation cast the raw metadata values to `string` without checking
+ * them, so a `meta.field_name` of `42` was returned as the number 42 and
+ * then interpolated into the user-facing message
+ * ("Referenced party does not exist (constraint: 42)."). The sibling
+ * extractor `resolveConflictField` already validated every element's type
+ * for exactly this reason — the two must not disagree.
  */
 export function resolveConstraintName(err: { meta?: Record<string, unknown> }): string {
-  return (err.meta?.field_name as string | undefined)
-    ?? (err.meta?.constraint as string | undefined)
-    ?? "unknown";
+  const fieldName = err.meta?.field_name;
+  if (typeof fieldName === "string" && fieldName.length > 0) return fieldName;
+  const constraint = err.meta?.constraint;
+  if (typeof constraint === "string" && constraint.length > 0) return constraint;
+  return "unknown";
 }
 
 /**
@@ -153,6 +163,27 @@ export function throwMappedPrismaError(
 }
 
 /**
+ * Re-throw a database failure, guaranteeing the thrown value is an Error.
+ *
+ * `handleTransactionError` re-throws the original error for failures it
+ * cannot map (an unrecognised Prisma code, a P1xxx connection failure, an
+ * error with no code at all) so the REST filter answers a generic 500
+ * instead of misreporting an infrastructure failure as a caller-input 422.
+ *
+ * The original value could be a plain OBJECT rather than an Error (the
+ * parameter is typed `unknown`, and a driver CAN reject with a
+ * non-Error value). Throwing a non-Error breaks every downstream
+ * `instanceof Error` check — the REST filter's `isDomainError` /
+ * `instanceof HttpException` dispatch and the MCP error-handler's
+ * `getErrorCode` extraction both rely on it — so the value is wrapped.
+ * The original is preserved as the `cause` for diagnostics.
+ */
+function rethrowAsError(err: unknown): never {
+  if (err instanceof Error) throw err;
+  throw new Error("Unexpected database error.", { cause: err });
+}
+
+/**
  * Map Prisma transaction errors to DomainErrors. Throws the mapped error.
  *
  * Belt-and-suspenders: if err is null/undefined/non-object, wrap it so
@@ -177,16 +208,23 @@ export function handleTransactionError(
   entityName = "record",
 ): never {
   if (err == null || typeof err !== "object") {
-    throw new InvalidTypeValueError(
-      "Database operation failed with an unexpected error type.",
-      { context: { type: err === null ? "null" : typeof err } }
+    // A null/primitive failure is an INTERNAL fault (the database layer
+    // rejected with a value that is not an error at all), NOT a malformed
+    // request. It used to be reported as InvalidTypeValueError, which the
+    // REST filter maps to 422 — "your input was wrong" — for a failure the
+    // caller could not possibly have caused, and which the same function
+    // deliberately avoids for P1xxx outages twenty lines below. A plain
+    // Error is reported as a generic 500, consistent with that policy.
+    throw new Error(
+      `Database operation failed with an unexpected error type while processing ${entityName}.`,
+      { cause: err },
     );
   }
 
   const code = getPrismaErrorCode(err);
-  if (!code) throw err;
-  if (!/^P\d{4}$/.test(code)) throw err;
-  if (/^P1\d{3}$/.test(code)) throw err;
+  if (!code) rethrowAsError(err);
+  if (!/^P\d{4}$/.test(code)) rethrowAsError(err);
+  if (/^P1\d{3}$/.test(code)) rethrowAsError(err);
 
   return throwMappedPrismaError(code, err as Error & { code: string; meta?: Record<string, unknown> }, retryTool, suggestTool, entityName);
 }

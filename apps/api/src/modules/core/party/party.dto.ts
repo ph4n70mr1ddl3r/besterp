@@ -69,6 +69,31 @@ function sanitizeTransform(): PropertyDecorator {
 }
 
 /**
+ * Canonicalise a party-type value to its UPPER-CASE form.
+ *
+ * The seeded party types are upper case ("PERSON", "ORGANIZATION",
+ * "TENANT"), and every rule that compares a party type — the service layer
+ * (`canonicalPartyType`) and the MCP tools (`create_party`'s
+ * `.transform((s) => stripHtmlTags(s.trim()).toUpperCase())`) — compares
+ * against the upper-case spelling.
+ *
+ * The REST DTOs used a bare `@IsEnum(["PERSON", "ORGANIZATION"])`, so the
+ * SAME request that succeeded over MCP ("person") was rejected with an
+ * opaque 400 over REST ("partyType must be one of the following values").
+ * The service layer would have accepted it, so the rejection was purely a
+ * DTO artefact. The transform runs BEFORE the enum check (class-transformer
+ * runs `@Transform` before class-validator validates), so the enum sees the
+ * canonical value.
+ */
+function partyTypeTransform(): PropertyDecorator {
+  return Transform(({ value }: TransformFnParams) => {
+    if (typeof value !== "string") return value;
+    const stripped = stripHtmlTags(value.trim());
+    return stripped.length === 0 ? stripped : stripped.toUpperCase();
+  });
+}
+
+/**
  * Optional-string variant of sanitizeTransform: a value that sanitizes to
  * empty (whitespace-only or HTML-only like "<script>") is normalised to
  * undefined so @IsOptional() skips it — matching the MCP boundary's
@@ -261,6 +286,7 @@ export class CreateOrganizationDto {
 // ─── Create Party ────────────────────────────────────────────────
 
 export class CreatePartyDto {
+  @partyTypeTransform()
   @IsEnum(["PERSON", "ORGANIZATION"])
   partyType!: "PERSON" | "ORGANIZATION";
 
@@ -304,6 +330,7 @@ export class SearchPartiesDto {
   name?: string;
 
   @IsOptional()
+  @partyTypeTransform()
   @IsEnum(["PERSON", "ORGANIZATION"])
   partyType?: "PERSON" | "ORGANIZATION";
 

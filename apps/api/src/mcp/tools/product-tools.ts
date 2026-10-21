@@ -24,7 +24,6 @@ import {
   MAX_FEATURE_NAME_LENGTH,
   MAX_FEATURE_VALUE_LENGTH,
   MAX_PRODUCT_FEATURES_LENGTH,
-  MAX_CURRENCY_CODE_LENGTH,
   DEFAULT_CURRENCY_CODE,
   DEFAULT_SEARCH_LIMIT,
   MIN_SEARCH_LIMIT,
@@ -282,7 +281,12 @@ const addProductPriceSchema = z.strictObject({
   currencyCode: z.string()
     .optional()
     .transform((s) => s === undefined ? undefined : stripHtmlTags(s.trim()).toUpperCase())
-    .pipe(z.string().length(MAX_CURRENCY_CODE_LENGTH))
+    // An ISO 4217 code is three ASCII LETTERS. The length check alone
+    // accepted "1US" / "US$" / "12A", which were only rejected later by the
+    // service layer — so the tool's own description ("ISO 4217 currency
+    // code") and its schema disagreed, and the agent got the rejection from
+    // a different layer than the one it was validating against.
+    .pipe(z.string().regex(/^[A-Z]{3}$/, "currencyCode must be a 3-letter ISO 4217 code (e.g. 'USD', 'EUR')"))
     .default(DEFAULT_CURRENCY_CODE)
     .describe(`ISO 4217 currency code (default: ${DEFAULT_CURRENCY_CODE})`),
   fromDate: optionalIsoDate(MAX_DATE_STRING_LENGTH).describe(`Start date (ISO 8601, max ${MAX_DATE_STRING_LENGTH} chars, default: now)`),

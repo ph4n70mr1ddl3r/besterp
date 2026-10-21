@@ -20,6 +20,7 @@ import {
 import {
   InvalidTypeValueError,
   MAX_PASSWORD_HASH_LENGTH,
+  isSupportedPasswordHash,
 } from "@besterp/shared";
 import type {
   CreateUserInput,
@@ -109,7 +110,18 @@ durable audit trail.`,
     passwordHash: z.string()
       .min(1)
       .max(MAX_PASSWORD_HASH_LENGTH)
-      .describe("The already-hashed password (never a plaintext password)"),
+      // The hash must LOOK like a hash. Without this check the tool accepted
+      // any non-empty string up to 255 characters, so a plaintext password
+      // was persisted verbatim into `user.password_hash` — the only
+      // credential store in the schema — and the tool still reported
+      // `success: true`. The check is a SHAPE check (bcrypt / argon2), so
+      // the agent gets an actionable error at the call site instead of a
+      // silently-stored plaintext credential.
+      .refine(isSupportedPasswordHash, {
+        message:
+          "passwordHash must be a bcrypt ($2a$/$2b$/$2y$...) or argon2 ($argon2id$...) digest — never a plaintext password.",
+      })
+      .describe("The already-hashed password (bcrypt or argon2 digest; never a plaintext password)"),
   }),
 
   riskLevel: "high",

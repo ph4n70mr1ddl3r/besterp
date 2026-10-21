@@ -704,3 +704,148 @@ describe("McpService", () => {
     });
   });
 });
+
+describe("McpService.onModuleInit — the production tool registration", () => {
+  // Every other McpService test MOCKS OUT `onModuleInit` — the very method
+  // that performs the production wiring. That made the following
+  // regressions undetectable by the suite:
+  //   * deleting `registerUserTools(this.registry)` silently removes
+  //     `create_user` / `get_user` from production — the ONLY write path to
+  //     the table that stores `password_hash`;
+  //   * reordering the middleware chain (which the source comments say is
+  //     semantically critical);
+  //   * a tool-name typo or duplicate — `ToolRegistry.register` THROWS on
+  //     both, so the app would fail to boot in production.
+  //
+  // These tests call the real method.
+  function createService() {
+    const mockPrisma = {
+      admin: {
+        aiActionLog: { create: vi.fn().mockResolvedValue({}) },
+        idempotencyRecord: { findUnique: vi.fn(), create: vi.fn(), update: vi.fn() },
+        confirmationGate: {
+          findMany: vi.fn().mockResolvedValue([]),
+          // The gate middleware reads the row for the tool being called.
+          findUnique: vi.fn().mockResolvedValue({ toolName: "test_tool", enabled: true, description: "gated" }),
+        },
+        agentRegistry: { findUnique: vi.fn().mockResolvedValue(null) },
+      },
+      tenantScoped: vi.fn(),
+    } as any;
+    return new McpService(mockPrisma, {} as any, {} as any, {} as any);
+  }
+
+  beforeEach(() => {
+    // The suite above installs a spy on `McpService.prototype.onModuleInit`
+    // (to skip the wiring in the buildContext tests). That spy lives on the
+    // PROTOTYPE and is not restored between tests, so it would still be in
+    // place here and the real wiring would never run. Restore every spy so
+    // the REAL method executes.
+    vi.restoreAllMocks();
+  });
+
+  it("registers every production tool", async () => {
+    const service = createService();
+    await service.onModuleInit();
+
+    const names = service.getRegistry().names;
+    expect(names).toHaveLength(25);
+    // The user tools are the only write path to `user.password_hash`.
+    expect(names).toContain("create_user");
+    expect(names).toContain("get_user");
+    // The agent registry tools are the enforcement surface.
+    expect(names).toContain("register_agent");
+    expect(names).toContain("deactivate_agent");
+    // The discovery tools back the `GET /api/mcp/tools` payload.
+    expect(names).toContain("list_available_tools");
+    expect(names).toContain("explain_error");
+  });
+
+  it("registers the middlewares in the documented order", async () => {
+    // errorHandler → auditLog → agentPolicy → confirmationGate → idempotency
+    //
+    // The order is semantically critical:
+    //   * errorHandler must be OUTERMOST so every thrown error becomes a
+    //     structured ToolResult;
+    //   * auditLog must wrap the guards so a rejected call is still audited;
+    //   * agentPolicy must run before confirmationGate so an agent that may
+    //     not call a tool at all cannot "unlock" it with a confirmation;
+    //   * confirmationGate must run before idempotency so a confirmation
+    //     rejection does not consume the caller's idempotency key.
+    //
+    // The middleware factories return anonymous closures, so the order is
+    // asserted BEHAVIOURALLY: each captured middleware is invoked on its own
+    // and identified by what it does.
+    const service = createService();
+    const registry = service.getRegistry();
+    const captured: any[] = [];
+    const originalAdd = registry.addGlobalMiddleware.bind(registry);
+    vi.spyOn(registry, "addGlobalMiddleware").mockImplementation((mw: any) => {
+      captured.push(mw);
+      return originalAdd(mw);
+    });
+
+    await service.onModuleInit();
+
+    expect(captured).toHaveLength(5);
+
+    const definition = { name: "test_tool", riskLevel: "high" } as any;
+    const baseContext = { tenantId: "tenant-1", userId: "user-1", services: {} } as any;
+
+    // 1) errorHandler: converts a thrown error into a structured result.
+    const thrown = new Error("boom");
+    const errorHandlerResult = await captured[0]({}, baseContext, definition, () => { throw thrown; });
+    expect(errorHandlerResult.success).toBe(false);
+    expect(errorHandlerResult.error?.code).toBeDefined();
+
+    // 2) auditLog: passes the call through AND records an audit row.
+    const auditNext = vi.fn().mockResolvedValue({ success: true, data: "ok" });
+    const auditResult = await captured[1]({}, baseContext, definition, auditNext);
+    expect(auditResult.success).toBe(true);
+    expect(auditNext).toHaveBeenCalled();
+
+    // 3) agentPolicy: rejects an agent that is not registered.
+    const policyNext = vi.fn().mockResolvedValue({ success: true, data: "ok" });
+    const policyResult = await captured[2](
+      {},
+      { ...baseContext, agentId: "not-registered" },
+      definition,
+      policyNext,
+    );
+    expect(policyResult.success).toBe(false);
+    expect(policyResult.error?.code).toBe("AGENT_NOT_REGISTERED");
+    expect(policyNext).not.toHaveBeenCalled();
+
+    // 4) confirmationGate: rejects a gated tool with no confirmation.
+    const gateNext = vi.fn().mockResolvedValue({ success: true, data: "ok" });
+    const gateResult = await captured[3]({}, baseContext, definition, gateNext);
+    expect(gateResult.success).toBe(false);
+    expect(gateResult.error?.code).toBe("CONFIRMATION_REQUIRED");
+    expect(gateNext).not.toHaveBeenCalled();
+
+    // 5) idempotency: rejects a malformed idempotency key.
+    const idemNext = vi.fn().mockResolvedValue({ success: true, data: "ok" });
+    const idemResult = await captured[4](
+      {},
+      { ...baseContext, idempotencyKey: "" },
+      definition,
+      idemNext,
+    );
+    expect(idemResult.success).toBe(false);
+    expect(idemResult.error?.code).toBe("INVALID_IDEMPOTENCY_KEY");
+    expect(idemNext).not.toHaveBeenCalled();
+  });
+
+  it("builds the discovery payload with the confirmation flags", async () => {
+    const service = createService();
+    await service.onModuleInit();
+
+    const payload = await service.getDiscoveryPayload();
+    expect(payload.totalAvailable).toBe(25);
+    expect(payload.tools.length).toBe(25);
+    for (const tool of payload.tools) {
+      expect(tool).toHaveProperty("confirmationRequired");
+      expect(typeof tool.confirmationRequired).toBe("boolean");
+    }
+  });
+});

@@ -25,7 +25,7 @@ import {
   isSensitiveFieldName,
   isValidOptionalId,
 } from "@besterp/shared";
-import { sanitizeAgentFacingResult } from "../agent-result.js";
+import { sanitizeAgentFacingResult, capAgentErrorText } from "../agent-result.js";
 
 /** Permissive pattern for optional identity fields (userId, agentId, conversationId).
  *  More lenient than TENANT_ID_PATTERN to accommodate real-world identifiers
@@ -185,6 +185,27 @@ export class ToolRegistry {
    *   global[0](global[1](...tool[0](tool[1](handler))))
    */
   async execute(name: string, rawInput: unknown, context: ToolContext): Promise<ToolResult> {
+    // Guard the tool name BEFORE anything else touches it. `name` is typed
+    // `string`, but this is an exported entry point and the value can come
+    // from a caller that does not honour the type. Without this guard the
+    // name reached `findSimilarNames()` → `name.toLowerCase()` and threw a
+    // raw `TypeError: name.toLowerCase is not a function` — which escapes
+    // `execute()` entirely, because the errorHandlerMiddleware sits INSIDE
+    // the pipeline and can only convert errors raised by a middleware or the
+    // handler. The agent got an unstructured HTTP 500 instead of the
+    // structured UNKNOWN_TOOL result every other bad-name path produces.
+    if (typeof name !== "string") {
+      return {
+        success: false,
+        error: {
+          code: "UNKNOWN_TOOL",
+          message: "A tool name must be a string.",
+          suggestedTools: ["list_available_tools"],
+          context: { received: name === null ? "null" : typeof name },
+        },
+      };
+    }
+
     // Auth-boundary guard: `context.tenantId` / `context.userId` are the values
     // used to scope idempotency records, tag the durable `ai_action_log` row,
     // and (inside handlers) set the RLS tenant context via `withTenant(...)`.
@@ -205,15 +226,27 @@ export class ToolRegistry {
       // bypasses errorHandlerMiddleware, so a crafted name embedding a secret
       // (e.g. `foo?api_key=sk_live_abc`) would otherwise reach the agent
       // unsanitized.
+      //
+      // The message and the context are ALSO capped at MAX_ERROR_MESSAGE_LENGTH.
+      // `sanitizeForLogOutput` only truncates at its own 100 KB internal
+      // guard, so an uncapped 120 KB tool name produced a 100 KB agent-facing
+      // response — 50x the documented bound that every other agent-facing
+      // error surface honours. The cap is applied AFTER sanitization, so the
+      // secret-redaction pass sees the whole value, and it is applied to the
+      // ASSEMBLED message (not just the name) so the wrapper text cannot
+      // push the result back over the bound.
       const safeName = sanitizeForLogOutput(name);
       const safeSimilar = similar.map((s) => sanitizeForLogOutput(s));
+      const message =
+        `Tool '${safeName}' does not exist.${safeSimilar.length > 0 ? ` Similar tools: [${safeSimilar.map((s) => `'${s}'`).join(", ")}].` : ""} ` +
+        `Use 'list_available_tools' to see all available tools.`;
       return {
         success: false,
         error: {
           code: "UNKNOWN_TOOL",
-          message: `Tool '${safeName}' does not exist.${safeSimilar.length > 0 ? ` Similar tools: [${safeSimilar.map((s) => `'${s}'`).join(", ")}].` : ""} Use 'list_available_tools' to see all available tools.`,
+          message: capAgentErrorText(message),
           suggestedTools: ["list_available_tools", ...safeSimilar],
-          context: { requestedTool: safeName, similarTools: safeSimilar },
+          context: { requestedTool: capAgentErrorText(safeName), similarTools: safeSimilar },
         },
       };
     }
@@ -264,7 +297,16 @@ export class ToolRegistry {
     // validation step see schema-conformant input. The final handler's own
     // strip remains as belt-and-suspenders in case a pipeline is invoked
     // through a path that bypasses execute().
-    const pipelineInput = ToolRegistry.stripEnvelopeKeys(raw);
+    //
+    // `rawInput` — NOT the `raw` object above — is what gets stripped.
+    // `raw` is null for every NON-OBJECT input (an array, a string, a
+    // number), and `stripEnvelopeKeys` is documented to pass non-objects
+    // through untouched. Passing `raw` therefore REPLACED the caller's input
+    // with `null` before validation, so a tool whose schema is not an
+    // object (an array / union / scalar schema) was uncallable and the
+    // agent got a misleading "expected array, received null" instead of an
+    // error about its actual input.
+    const pipelineInput = ToolRegistry.stripEnvelopeKeys(rawInput);
 
     // Check pipeline cache — rebuilt only on register() or addGlobalMiddleware()
     let pipeline = this.pipelineCache.get(name);

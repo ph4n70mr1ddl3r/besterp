@@ -8,6 +8,7 @@
 
 import {
   isDomainError,
+  getErrorCode,
   sanitizeLogMessage,
   sanitizeForLogOutput,
   pluralize,
@@ -24,10 +25,14 @@ import { sanitizeAgentFacingResult } from "../agent-result.js";
 // truth so this agent-facing surface cannot diverge from the audit-log surface.
 
 function extractPrismaError(error: unknown): { code: string | undefined; meta: { target?: string | string[] } | undefined } {
+  // The code extraction is delegated to the shared `getErrorCode` helper, so
+  // there is exactly ONE implementation of "read a machine-readable error
+  // code" in the codebase. This function used to re-implement the same
+  // `typeof raw.code === "string"` check that `audit-log.ts` and
+  // `idempotency.ts` both import — three call sites, one canonical helper.
+  const code = getErrorCode(error);
   if (error != null && typeof error === "object") {
-    const raw = error as Record<string, unknown>;
-    const code = typeof raw.code === "string" ? raw.code : undefined;
-    const rawMeta = raw.meta;
+    const rawMeta = (error as Record<string, unknown>).meta;
     if (rawMeta != null && typeof rawMeta === "object" && !Array.isArray(rawMeta)) {
       const metaObj = rawMeta as Record<string, unknown>;
       const target = metaObj.target;
@@ -40,9 +45,8 @@ function extractPrismaError(error: unknown): { code: string | undefined; meta: {
           : undefined;
       return { code, meta: validatedTarget !== undefined ? { target: validatedTarget } : undefined };
     }
-    return { code, meta: undefined };
   }
-  return { code: undefined, meta: undefined };
+  return { code, meta: undefined };
 }
 
 function handleDomainError(error: DomainError, definition: { name: string }): ToolResult {

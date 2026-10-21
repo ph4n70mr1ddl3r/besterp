@@ -33,28 +33,51 @@ export function decimalToNumber(value: unknown): number | null {
     return Number.isFinite(parsed) ? parsed : null;
   }
   if (typeof value === "object") {
-    const decimal = value as { toNumber?: () => number; toString?: () => string };
-    if (typeof decimal.toNumber === "function") {
-      try {
-        const parsed = decimal.toNumber();
-        // A non-finite result (NaN/Infinity) means the numeric conversion did
-        // not succeed — fall through to the string representation rather than
-        // returning null. decimal.js can overflow to Infinity for values
-        // beyond Number.MAX_VALUE while its toString() still yields a
-        // parseable literal, so the previous immediate `return null` threw
-        // away a recoverable value.
-        if (Number.isFinite(parsed)) return parsed;
-      } catch {
-        // Fall through to the string representation below.
-      }
+    return decimalObjectToNumber(value as { toNumber?: () => number; toString?: () => string });
+  }
+  return null;
+}
+
+/**
+ * Convert the OBJECT form of a decimal (a `Prisma.Decimal` / decimal.js
+ * instance) into a plain number.
+ *
+ * Split out of {@link decimalToNumber} to keep each function under the
+ * lint complexity cap.
+ */
+function decimalObjectToNumber(decimal: { toNumber?: () => number; toString?: () => string }): number | null {
+  if (typeof decimal.toNumber === "function") {
+    try {
+      const parsed = decimal.toNumber();
+      // A non-finite result (NaN/Infinity) means the numeric conversion did
+      // not succeed — fall through to the string representation rather than
+      // returning null. decimal.js can overflow to Infinity for values
+      // beyond Number.MAX_VALUE while its toString() still yields a
+      // parseable literal, so the previous immediate `return null` threw
+      // away a recoverable value.
+      if (Number.isFinite(parsed)) return parsed;
+    } catch {
+      // Fall through to the string representation below.
     }
-    if (typeof decimal.toString === "function") {
-      try {
-        const parsed = Number(decimal.toString());
-        return Number.isFinite(parsed) ? parsed : null;
-      } catch {
-        return null;
-      }
+  }
+  if (typeof decimal.toString === "function") {
+    try {
+      const literal = decimal.toString();
+      // The string branch above trims and rejects an EMPTY value before
+      // parsing it. The object branch must apply the SAME rule: `Number("")`
+      // and `Number("  ")` are both 0, and `Number.isFinite(0)` is true, so
+      // a decimal whose string form is blank was reported as an amount of
+      // ZERO — a money value — instead of "no amount stored". That
+      // contradicted this module's documented contract ("so a caller can
+      // distinguish 'no amount stored' from 'an amount that could not be
+      // parsed'") and made the two branches of the same helper disagree
+      // about the same input shape.
+      const trimmed = typeof literal === "string" ? literal.trim() : "";
+      if (trimmed.length === 0) return null;
+      const parsed = Number(trimmed);
+      return Number.isFinite(parsed) ? parsed : null;
+    } catch {
+      return null;
     }
   }
   return null;

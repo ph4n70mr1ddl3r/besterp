@@ -82,9 +82,30 @@ function createBaseEntry(context: { agentId?: string; conversationId?: string; r
   // surface is sanitized. Sanitize FIRST, then trim to the length cap so a
   // secret in the tail is still scrubbed (sanitizeForLogOutput collapses
   // URLs/secrets regardless of position). Mirrors the toolInput handling.
-  const reasoning = context.reasoning
-    ? sanitizeForLogOutput(context.reasoning).slice(0, MAX_REASONING_LENGTH)
-    : null;
+  //
+  // This helper MUST NOT throw. The audit middleware is documented as
+  // fire-and-forget and must never break the tool — and `createBaseEntry`
+  // runs OUTSIDE the try/catch in `executeAndLog`, so a throw here aborts
+  // the whole tool call before the handler even runs.
+  //
+  // It used to throw in two ways:
+  //   * `sanitizeForLogOutput` calls `sanitizeLogMessage`, which does
+  //     `message.replace(...)` — on a NON-STRING `reasoning` that is a
+  //     `TypeError: message.replace is not a function`. `ToolContext` is a
+  //     public, hand-constructible type and the registry validates
+  //     tenantId/userId/agentId/conversationId but NOT `reasoning`, so a
+  //     directly-constructed context could abort the tool call.
+  //   * `stripHtmlTags` rejects inputs over 100 KB by throwing, and
+  //     `reasoning` has no boundary length-validates.
+  // The two sibling helpers in this file (`sanitizeIdentityField`,
+  // `sanitizeConfirmation`) each wrap their body in try/catch for exactly
+  // this reason — `reasoning` was the one field that was missed.
+  //
+  // `reasoning` is also the only field that was NOT passed through
+  // `stripHtmlTags`, so raw HTML could be persisted into the durable
+  // `ai_action_log.reasoning` column. It is stripped here, like every other
+  // free-text field.
+  const reasoning = sanitizeReasoning(context.reasoning);
   // `userId`/`agentId`/`conversationId` originate from the caller's MCP request
   // and are persisted verbatim to the cross-tenant `ai_action_log` durable sink.
   // A caller could embed a secret (connection string, `?api_key=…`) in any of
@@ -196,6 +217,31 @@ function sanitizeIdentityField(value: string, maxLength: number): string {
     return sanitizeForLogOutput(stripHtmlTags(clamped), { keepOpaqueTokens: true }).slice(0, maxLength);
   } catch {
     return "";
+  }
+}
+
+/**
+ * Sanitize + cap the agent's `reasoning` without ever throwing.
+ *
+ * Returns `null` when there is no usable reasoning. The value is clamped
+ * BEFORE sanitization (it is over the length cap anyway, so the tail is
+ * discarded either way) and every step is guarded: `stripHtmlTags` rejects
+ * inputs over 100 KB by throwing, and `sanitizeForLogOutput` throws on a
+ * non-string input. Either would abort the tool call, because
+ * `createBaseEntry` runs outside the audit middleware's try/catch.
+ */
+function sanitizeReasoning(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (trimmed.length === 0) return null;
+  try {
+    const clamped = trimmed.slice(0, MAX_REASONING_LENGTH);
+    const sanitized = sanitizeForLogOutput(stripHtmlTags(clamped)).slice(0, MAX_REASONING_LENGTH);
+    return sanitized.length === 0 ? null : sanitized;
+  } catch {
+    // Never let the audit path break the tool call. The reasoning is
+    // advisory, so dropping it is preferable to failing the operation.
+    return null;
   }
 }
 

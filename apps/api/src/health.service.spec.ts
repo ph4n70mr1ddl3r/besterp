@@ -119,6 +119,48 @@ describe("HealthService", () => {
       expect(result.database).toBe("disconnected");
     });
 
+    it("serves a CACHED database probe so a second poll issues no query (DoS bound)", async () => {
+      // Regression (round 273): `/api/health` is @Public() and deliberately
+      // bypasses the general rate limiter. The Redis probe was hardened
+      // against exactly that (a result cache + an in-flight dedup), but the
+      // DATABASE probe had neither — every anonymous request issued a real
+      // `SELECT 1` round-trip on the RLS app client, so an unauthenticated
+      // caller could drive unbounded query load and exhaust the Prisma
+      // connection pool through a route that is outside the rate limiter.
+      const mockPrisma = createMockPrisma();
+      const service = new HealthService(mockPrisma);
+
+      const p1 = service.getHealth();
+      await p1;
+      const p2 = service.getHealth();
+      await p2;
+
+      expect(mockPrisma.appClient.$queryRaw).toHaveBeenCalledTimes(1);
+      expect((await p2).database).toBe("connected");
+    });
+
+    it("dedupes a CONCURRENT burst to a single database query (in-flight Promise)", async () => {
+      // A result cache alone does NOT bound the load under a concurrent
+      // burst: N requests arriving before the first probe resolves each miss
+      // the empty cache and each issue their own query.
+      const mockPrisma = createMockPrisma();
+      let release: (() => void) | undefined;
+      const gate = new Promise<void>((resolve) => { release = resolve; });
+      mockPrisma.appClient.$queryRaw.mockImplementation(async () => {
+        await gate;
+        return [{ "?column?": 1 }];
+      });
+      const service = new HealthService(mockPrisma);
+
+      const polls = Array.from({ length: 5 }, () => service.getHealth());
+      await vi.waitFor(() => expect(mockPrisma.appClient.$queryRaw).toHaveBeenCalledTimes(1));
+      release?.();
+
+      const results = await Promise.all(polls);
+      for (const r of results) expect(r.database).toBe("connected");
+      expect(mockPrisma.appClient.$queryRaw).toHaveBeenCalledTimes(1);
+    });
+
     it("should report NODE_ENV as environment", async () => {
       vi.stubEnv("NODE_ENV", "staging");
       const service = new HealthService(createMockPrisma());

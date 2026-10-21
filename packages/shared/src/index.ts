@@ -44,6 +44,7 @@ export {
   validateOptionalString,
   OPTIONAL_ID_PATTERN,
   isValidOptionalId,
+  isSupportedPasswordHash,
 } from "./validation.js";
 
 export {
@@ -52,6 +53,13 @@ export {
   MAX_REDACTION_DEPTH, splitFieldNameTokens, sanitizePostalAddress,
   sanitizeTelecomNumber,
 } from "./sanitize.js";
+
+// The options type of `sanitizeForLogOutput` is part of the public API: the
+// `keepOpaqueTokens` option changes the whole redaction pipeline and is used
+// in production (packages/mcp-tools/src/middleware/audit-log.ts). Without the
+// type export, a consumer of @besterp/shared cannot name the type of the
+// options object it must pass.
+export type { SanitizeForLogOutputOptions } from "./sanitize.js";
 
 export {
   MAX_PARTY_NAME_LENGTH,

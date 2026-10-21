@@ -39,6 +39,7 @@ import {
   DEFAULT_RATE_LIMIT_PER_MINUTE,
   MIN_RATE_LIMIT_PER_MINUTE,
   MAX_RATE_LIMIT_PER_MINUTE,
+  isSupportedPasswordHash,
 } from "@besterp/shared";
 import {
   CreateUserInput,
@@ -64,6 +65,23 @@ export class SecurityService {
     const trimmedTenantId = SecurityService.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "create_user");
     const validatedPartyId = SecurityService.requireUuid(partyId, "partyId", ["create_user"]);
     const trimmedPasswordHash = SecurityService.requireStringField(passwordHash, "passwordHash", MAX_PASSWORD_HASH_LENGTH, "create_user");
+
+    // The hash must LOOK like a hash. This is the authoritative write path
+    // to `user.password_hash` — the only credential store in the schema —
+    // and it used to accept any non-empty string up to 255 characters, so a
+    // mistaken or prompt-injected agent could persist a PLAINTEXT password
+    // verbatim into the credential column and the tool would still report
+    // `success: true`. The shape check cannot verify that a digest matches a
+    // password, but it does reject the plaintext case.
+    if (!isSupportedPasswordHash(trimmedPasswordHash)) {
+      throw new InvalidTypeValueError(
+        "'passwordHash' must be a bcrypt or argon2 digest, not a plaintext password.",
+        {
+          suggestedTools: ["get_user"],
+          context: { field: "passwordHash", expectedFormat: "bcrypt or argon2" },
+        },
+      );
+    }
 
     // Verify the party exists in this tenant before linking
     let party;
@@ -140,6 +158,19 @@ export class SecurityService {
     }
   }
 
+  /**
+   * Record a successful login for a user account.
+   *
+   * NOT YET WIRED TO A CALLER: there is no authentication endpoint in this
+   * service — the JWT is issued by an external identity provider — so no
+   * production path calls this yet. It is kept (rather than deleted) because
+   * it is the only write path to `user.last_login_at`, and the column is
+   * part of the user record's contract. A future login flow (or an MCP tool
+   * that records the login of the user an agent acts for) is its caller.
+   *
+   * The failure is deliberately NON-FATAL: a login-tracking write must
+   * never block authentication.
+   */
   async updateLastLogin(tenantId: string, partyId: string): Promise<void> {
     const trimmedTenantId = SecurityService.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "update_last_login");
     const validatedPartyId = SecurityService.requireUuid(partyId, "partyId", ["update_last_login"]);

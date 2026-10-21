@@ -89,12 +89,26 @@ export function sanitizeAgentFacingResult(result: ToolResult): ToolResult {
     };
   }
 
+  // A FAILURE result may still carry `data` — `ToolResult` does not gate
+  // `data` on `success`. That payload used to be returned to the agent
+  // VERBATIM, while the identical value on a SUCCESSFUL result was
+  // redacted. The asymmetry is exactly the leak class this module exists to
+  // close: a handler that returns "the record I could not create, but here
+  // is its password field" would expose a secret on the failure path and
+  // not on the success path. The success branch above already redacts
+  // unconditionally, so the failure branch must do the same.
+  const redactedData = result.data == null
+    ? result.data
+    : redactSensitiveFieldValues(result.data);
+
   const error = result.error;
   if (!error) {
-    return nextActions === result.nextActions ? result : { ...result, nextActions };
+    const base = redactedData === result.data ? result : { ...result, data: redactedData };
+    return nextActions === result.nextActions ? base : { ...base, nextActions };
   }
   return {
     ...result,
+    data: redactedData,
     nextActions,
     error: {
       code: capAgentErrorText(sanitizeAgentText(error.code)),

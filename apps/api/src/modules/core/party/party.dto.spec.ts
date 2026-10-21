@@ -164,3 +164,47 @@ describe("optional date fields trim whitespace (round 166)", () => {
     expect(dto.fromDate).toBeUndefined();
   });
 });
+
+describe("partyType is case-insensitive (REST matches MCP and the service)", () => {
+  // Regression (round 273): the REST DTOs used a bare
+  // `@IsEnum(["PERSON", "ORGANIZATION"])`, so the SAME request that
+  // succeeded over MCP ("person") was rejected with an opaque 400 over
+  // REST ("partyType must be one of the following values"). The MCP tool
+  // upper-cases the value (`create_party`) and the service layer upper-cases
+  // it too (`canonicalPartyType`), so the rejection was purely a DTO
+  // artefact.
+  it("accepts a lower-case partyType on create and canonicalises it", async () => {
+    const dto = plainToInstance(CreatePartyDto, {
+      partyType: "person",
+      name: "Jane Doe",
+      person: { firstName: "Jane", lastName: "Doe" },
+    });
+    expect(await errors(dto)).toHaveLength(0);
+    expect(dto.partyType).toBe("PERSON");
+  });
+
+  it("accepts a mixed-case partyType on create", async () => {
+    const dto = plainToInstance(CreatePartyDto, {
+      partyType: "Organization",
+      name: "Acme Corp",
+      organization: { legalName: "Acme Corporation Ltd." },
+    });
+    expect(await errors(dto)).toHaveLength(0);
+    expect(dto.partyType).toBe("ORGANIZATION");
+  });
+
+  it("accepts a lower-case partyType on search and canonicalises it", async () => {
+    const dto = plainToInstance(SearchPartiesDto, { partyType: "person" });
+    expect(await errors(dto)).toHaveLength(0);
+    expect(dto.partyType).toBe("PERSON");
+  });
+
+  it("still rejects a value that is not a party type at all", async () => {
+    const dto = plainToInstance(CreatePartyDto, {
+      partyType: "TENANT",
+      name: "Jane Doe",
+      person: { firstName: "Jane", lastName: "Doe" },
+    });
+    expect((await errors(dto)).length).toBeGreaterThan(0);
+  });
+});

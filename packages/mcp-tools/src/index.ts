@@ -28,6 +28,7 @@ export {
   auditLogMiddleware,
   errorHandlerMiddleware,
   confirmationGateMiddleware,
+  agentPolicyMiddleware,
 } from "./middleware/index.js";
 
 // Truncation utilities (re-exported for custom middleware authors)

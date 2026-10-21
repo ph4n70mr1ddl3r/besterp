@@ -43,3 +43,50 @@ export class McpToolCallDto {
   @MaxLength(MAX_REASONING_LENGTH)
   reasoning?: string;
 }
+
+/**
+ * The body shape of the PATH-NAME route (`POST /api/mcp/tools/:name`).
+ *
+ * This route existed to serve "clients that cannot send a body" — but it
+ * reused {@link McpToolCallDto}, whose `name` is a REQUIRED property. The
+ * global ValidationPipe (`whitelist` + `forbidNonWhitelisted`) therefore
+ * rejected EVERY request to the route with "name must be a string" (HTTP
+ * 400) before the controller ever ran: the tool name is in the URL, so a
+ * body that omits it is exactly the intended request shape. One of the three
+ * documented MCP entry points was dead in production.
+ *
+ * `name` is OPTIONAL here because the path parameter supplies it. A body that
+ * DOES carry a `name` is still accepted (and declared, so `forbidNonWhitelisted`
+ * does not reject it) — the controller then requires it to MATCH the path
+ * parameter, so an ambiguous request is rejected rather than silently
+ * resolved.
+ */
+export class McpToolCallPathDto {
+  /**
+   * The tool name, when it is ALSO supplied in the body.
+   *
+   * Must match the `:name` path parameter — the controller rejects a
+   * mismatch instead of silently preferring one of the two.
+   */
+  @IsOptional()
+  @IsString()
+  @MaxLength(MAX_ENTITY_LENGTH)
+  name?: string;
+
+  /**
+   * The tool arguments. Same contract as {@link McpToolCallDto.arguments}.
+   */
+  @IsOptional()
+  @IsObject()
+  arguments?: Record<string, unknown>;
+
+  /**
+   * The agent's stated reason for the call.
+   *
+   * Recorded in the durable audit trail (`ai_action_log.reasoning`).
+   */
+  @IsOptional()
+  @IsString()
+  @MaxLength(MAX_REASONING_LENGTH)
+  reasoning?: string;
+}

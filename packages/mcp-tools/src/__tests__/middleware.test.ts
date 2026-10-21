@@ -988,8 +988,51 @@ describe("Idempotency Middleware", () => {
     expect(stored.userId).toContain("[REDACTED_API_KEY]");
     // agentId without secret patterns passes through unchanged
     expect(stored.agentId).toBe("agent-a-password-hidden");
-    // conversationId with generic long token pattern should be redacted
-    expect(stored.conversationId).toContain("[REDACTED_TOKEN]");
+    // conversationId is an IDENTIFIER, not a secret: the generic
+    // long-token rule must not rewrite it.
+    //
+    // It used to be redacted to "[REDACTED_TOKEN]" here while the AUDIT sink
+    // (audit-log.ts) kept the SAME value verbatim — the two durable sinks
+    // disagreed about who performed the operation, and the idempotency row
+    // could no longer be correlated to the audit row, to the user or to the
+    // agent. The recognised-secret rules still apply: the `userId` above
+    // (which embeds a provider key) IS still redacted.
+    expect(stored.conversationId).toBe("conv_123_session-token");
+  });
+
+  it("stores the SAME identity values as the audit sink", async () => {
+    // The two durable sinks must never disagree about an identity field.
+    // This test pins that contract directly so a future change to either
+    // side fails loudly instead of silently re-introducing the divergence.
+    const input = { test: "value" };
+    const idempotencyKey = "test-key";
+    const sharedIdentity = {
+      ...mockContext,
+      idempotencyKey,
+      userId: "ServiceAccount12345678",
+      agentId: "agent-a-password-hidden",
+      conversationId: "conv_123_session-token",
+    };
+
+    mockFindInTransaction(null);
+    mockPrisma.idempotencyRecord.create.mockResolvedValue({
+      idempotencyKey,
+      status: "pending",
+    });
+    mockPrisma.idempotencyRecord.update.mockResolvedValue({});
+    mockPrisma.aiActionLog.create.mockResolvedValue({});
+
+    const idemMiddleware = idempotencyMiddleware(mockPrisma as any);
+    await idemMiddleware(input, sharedIdentity as any, mockDefinition, successNext({ success: true, data: "created" }));
+    const idemStored = mockPrisma.idempotencyRecord.create.mock.calls[0][0].data;
+
+    const auditMiddleware = auditLogMiddleware(mockPrisma as any);
+    await auditMiddleware(input, sharedIdentity as any, mockDefinition, successNext({ success: true, data: "created" }));
+    const auditStored = mockPrisma.aiActionLog.create.mock.calls[0][0].data;
+
+    expect(idemStored.userId).toBe(auditStored.userId);
+    expect(idemStored.agentId).toBe(auditStored.agentId);
+    expect(idemStored.conversationId).toBe(auditStored.conversationId);
   });
 });
 
@@ -2584,6 +2627,59 @@ describe("Regression: audit middleware never breaks the tool call", () => {
     );
     expect(result.success).toBe(true);
     expect(auditPrisma.aiActionLog.create).toHaveBeenCalled();
+  });
+
+  it("does not abort the call when the reasoning is a NON-STRING", async () => {
+    // `reasoning` was sanitized with `sanitizeForLogOutput(context.reasoning)`
+    // and NO try/catch, while `createBaseEntry` runs OUTSIDE the audit
+    // middleware's try/catch. `sanitizeForLogOutput` calls
+    // `sanitizeLogMessage`, which does `message.replace(...)` — on a
+    // non-string that is a TypeError, so the whole tool call aborted BEFORE
+    // the handler ran and the agent was told INTERNAL_ERROR.
+    //
+    // `ToolContext` is a public, hand-constructible type and the registry
+    // validates tenantId/userId/agentId/conversationId but NOT `reasoning`.
+    const middleware = auditLogMiddleware(auditPrisma as any);
+    for (const badReasoning of [123, {}, [], true]) {
+      const result = await middleware(
+        { name: "Jane" },
+        { ...mockContext, reasoning: badReasoning } as never,
+        mockDefinition,
+        successNext({ success: true, data: "ok" }),
+      );
+      expect(result.success).toBe(true);
+    }
+    expect(auditPrisma.aiActionLog.create).toHaveBeenCalled();
+  });
+
+  it("does not abort the call when the reasoning is oversized", async () => {
+    // `stripHtmlTags` rejects inputs over 100 KB by throwing.
+    const middleware = auditLogMiddleware(auditPrisma as any);
+    const result = await middleware(
+      { name: "Jane" },
+      { ...mockContext, reasoning: "x".repeat(150_000) },
+      mockDefinition,
+      successNext({ success: true, data: "ok" }),
+    );
+    expect(result.success).toBe(true);
+    expect(auditPrisma.aiActionLog.create).toHaveBeenCalled();
+  });
+
+  it("strips HTML from the reasoning before it reaches the durable audit row", async () => {
+    // `reasoning` was the only free-text field that was NOT passed through
+    // `stripHtmlTags` (both identity fields and the confirmation are), so raw
+    // HTML could be persisted into the durable `ai_action_log.reasoning`
+    // column.
+    const middleware = auditLogMiddleware(auditPrisma as any);
+    await middleware(
+      { name: "Jane" },
+      { ...mockContext, reasoning: "<img src=x onerror=alert(1)>reason" },
+      mockDefinition,
+      successNext({ success: true, data: "ok" }),
+    );
+    const row = auditPrisma.aiActionLog.create.mock.calls[0]![0].data;
+    expect(row.reasoning).not.toContain("<img");
+    expect(row.reasoning).toContain("reason");
   });
 });
 

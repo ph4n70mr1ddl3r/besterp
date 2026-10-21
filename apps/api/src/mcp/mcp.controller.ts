@@ -2,7 +2,7 @@
 //
 // The MCP tool registry is the documented PRIMARY agent interface
 // (ADR-001: "Every business operation is an MCP tool"), and the README
-// lists the 21 registered tools as the way an agent talks to the system.
+// lists the 25 registered tools as the way an agent talks to the system.
 //
 // Until now NOTHING could invoke them: `McpModule` provided and exported
 // the `TOOL_REGISTRY` token and nothing ever injected it, and
@@ -46,12 +46,14 @@ import {
   Inject,
   HttpCode,
   UnauthorizedException,
+  BadRequestException,
 } from "@nestjs/common";
 import type { Request as ExpressRequest } from "express";
 import { ToolRegistry, type ToolResult } from "@besterp/mcp-tools";
 import { McpService } from "./mcp.service.js";
 import { TOOL_REGISTRY } from "./mcp.tokens.js";
-import { McpToolCallDto } from "./mcp.dto.js";
+import { McpToolCallDto, McpToolCallPathDto } from "./mcp.dto.js";
+import type { ToolDiscoveryPayload } from "./tools/discovery-tools.js";
 
 @Controller("mcp")
 export class McpController {
@@ -66,10 +68,15 @@ export class McpController {
    * The same discovery payload the `list_available_tools` MCP tool returns,
    * exposed over HTTP for clients that want to enumerate the surface before
    * authenticating a conversation.
+   *
+   * The payload is built by the SAME helper the MCP tool uses, so the two
+   * discovery surfaces cannot drift apart. It used to return the bare
+   * `registry.getDiscoveryInfo()` — without the `confirmationRequired`
+   * flag — while this doc comment claimed the two were the same.
    */
   @Get("tools")
-  listTools(): { tools: ReturnType<ToolRegistry["getDiscoveryInfo"]> } {
-    return { tools: this.registry.getDiscoveryInfo() };
+  async listTools(): Promise<ToolDiscoveryPayload> {
+    return this.mcpService.getDiscoveryPayload();
   }
 
   /**
@@ -89,24 +96,43 @@ export class McpController {
   /**
    * Invoke a tool using the tool name in the path — a convenience for
    * clients that cannot send a body.
+   *
+   * The body uses {@link McpToolCallPathDto}, whose `name` is OPTIONAL: the
+   * tool name comes from the path. Using the body DTO here made the route
+   * unusable — the global ValidationPipe rejected every request with "name
+   * must be a string" (HTTP 400) because `name` is a required property of
+   * {@link McpToolCallDto}, so a body that omits it (the whole point of this
+   * route) was refused before the controller ran.
    */
   @Post("tools/:name")
   @HttpCode(200)
   async callWithPathName(
     @Request() req: ExpressRequest,
     @Param("name") name: string,
-    @Body() body: McpToolCallDto,
+    @Body() body: McpToolCallPathDto,
   ): Promise<ToolResult> {
+    // A body that also carries a `name` must AGREE with the path. The
+    // previous behaviour silently preferred the path and ignored the body,
+    // so a client that disagreed with itself got a different tool executed
+    // than the one it asked for in the body.
+    if (body?.name !== undefined && body.name !== name) {
+      throw new BadRequestException(
+        "The tool name in the request body does not match the tool name in the URL path.",
+      );
+    }
     return this.invoke(req, name, body);
   }
 
   private async invoke(
     req: ExpressRequest,
     name: string | undefined,
-    body: McpToolCallDto | undefined,
+    body: McpToolCallDto | McpToolCallPathDto | undefined,
   ): Promise<ToolResult> {
     if (!name) {
-      throw new UnauthorizedException("MCP tool name is required.");
+      // A missing tool name is a MALFORMED REQUEST, not an authentication
+      // failure — the caller IS authenticated at this point. Answering 401
+      // sent the client looking for a credential problem that did not exist.
+      throw new BadRequestException("MCP tool name is required.");
     }
 
     const tenantContext = req.tenantContext;

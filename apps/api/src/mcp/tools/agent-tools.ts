@@ -126,7 +126,14 @@ const registerAgent: ToolDefinition = {
   description: `Register a new AI agent in the tenant's agent registry.
 
 Use this to create an agent identity that can be used with MCP tools.
-The agent registry enforces capabilities, rate limits, and financial restrictions.
+The agent registry ENFORCES the agent's capabilities: an agent can only call
+the tools listed in its 'capabilities' array, a deactivated agent cannot call
+any tool, and an unregistered agent id cannot call any tool.
+
+The per-minute rate limit, the per-conversation tool-call cap and the
+per-operation transaction amount are RECORDED on the agent but are not yet
+enforced — they need a durable per-agent usage counter that the schema does
+not have yet.
 
 Example: Register a sales assistant agent
   register_agent({
@@ -356,7 +363,10 @@ const deactivateAgent: ToolDefinition = {
   description: `Deactivate an agent, preventing it from making tool calls.
 
 The agent record is preserved (soft delete) so it can be reactivated later.
-Use this instead of delete_agent when you want to temporarily disable an agent.`,
+Use this instead of delete_agent when you want to temporarily disable an agent.
+
+Once deactivated, any request whose JWT carries this agent's id is rejected
+with AGENT_INACTIVE before the tool runs.`,
 
   inputSchema: deactivateAgentSchema,
 

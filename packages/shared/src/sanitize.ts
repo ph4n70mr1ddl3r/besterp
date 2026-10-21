@@ -122,29 +122,230 @@ function decodeCommonEntities(input: string): string {
     .replace(/&quot;/gi, '"');
 }
 
+// ─── Linear-time HTML scanners ────────────────────────────────────
+//
+// The four helpers below used to be regular expressions. Every one of them
+// combined a GREEDY `[^>]*` (or a lazy `[\s\S]*?`) with a REQUIRED trailing
+// literal, which is the textbook shape for catastrophic backtracking:
+//
+//   /<script\b[^>]*>[\s\S]*?<\/script>/gi   — `[^>]*` + required `>`
+//   /<!--[\s\S]*?-->/g                      — lazy run + required `-->`
+//   /<[^\s>][^>]*>/g                        — `[^>]*` + required `>`
+//
+// When the input contains many `<` starts but NO `>` after them, the engine
+// consumes the whole remaining string with `[^>]*` and then backtracks one
+// character at a time looking for the missing `>` — once per start position.
+// That is O(n²) and it is a REAL denial-of-service, not a theoretical one:
+// a single 100 KB request body of "<a" repeated blocked the Node event loop
+// for 2.6 SECONDS (measured), and `stripHtmlTags` runs on every user-supplied
+// party/product name, description and contact field — in the REST DTOs, in
+// every MCP tool's Zod `.transform()`, and in the service layer. The 100 KB
+// `MAX_INPUT_LENGTH` guard is exactly the size that made it reachable.
+//
+// The replacements below are hand-written SCANNERS: each one advances a
+// monotonically increasing cursor, so the total work is O(n) regardless of
+// the input's shape. They are semantically equivalent to the regexes they
+// replace — same matches, same removal spans — and the behaviour is pinned
+// by the regression tests in __tests__/sanitize.test.ts.
+
+/** ASCII whitespace, matching the JS `\s` class used by the original regexes. */
+function isAsciiOrUnicodeWhitespace(ch: string): boolean {
+  return /\s/.test(ch);
+}
+
+/** True for the characters JavaScript's `\w` matches (letters, digits, `_`). */
+function isWordCharacter(ch: string): boolean {
+  return /[A-Za-z0-9_]/.test(ch);
+}
+
+/**
+ * ASCII-only case-insensitive comparison of `text` against `needle`
+ * (which must already be lower-case) starting at `at`.
+ */
+function matchesLowerAsciiAt(text: string, lowerNeedle: string, at: number): boolean {
+  if (at + lowerNeedle.length > text.length) return false;
+  for (let i = 0; i < lowerNeedle.length; i++) {
+    let code = text.charCodeAt(at + i);
+    // ASCII fold: 'A'..'Z' -> 'a'..'z'. Non-ASCII characters are compared
+    // verbatim, which is correct for every tag name we match.
+    if (code >= 65 && code <= 90) code += 32;
+    if (code !== lowerNeedle.charCodeAt(i)) return false;
+  }
+  return true;
+}
+
+/**
+ * Index of the first case-insensitive occurrence of `lowerNeedle` at or
+ * after `from`, or -1.
+ *
+ * The scan advances monotonically, so a chain of calls that each start
+ * where the previous one stopped costs O(n) in total.
+ */
+function indexOfLowerAscii(text: string, lowerNeedle: string, from: number): number {
+  for (let i = Math.max(0, from); i + lowerNeedle.length <= text.length; i++) {
+    if (matchesLowerAsciiAt(text, lowerNeedle, i)) return i;
+  }
+  return -1;
+}
+
+/**
+ * Index of the next `<tag` opening at or after `from`, honouring the `\b`
+ * word-boundary that the original regexes applied after the tag name
+ * (`<scriptx>` is NOT a script tag — `x` is a word character).
+ *
+ * Returns -1 when no such opening exists.
+ */
+function findTagOpening(text: string, lowerTag: string, from: number): number {
+  let i = text.indexOf("<", Math.max(0, from));
+  while (i !== -1) {
+    const nameStart = i + 1;
+    if (matchesLowerAsciiAt(text, lowerTag, nameStart)) {
+      const afterName = nameStart + lowerTag.length;
+      // `\b` after a word character holds when the next character is NOT a
+      // word character, or when the tag name ends the string.
+      if (afterName >= text.length || !isWordCharacter(text.charAt(afterName))) {
+        return i;
+      }
+    }
+    i = text.indexOf("<", i + 1);
+  }
+  return -1;
+}
+
+/**
+ * Remove `<tag ...>` blocks, INCLUDING the closing `>`.
+ *
+ * Equivalent to the old `/<tag\b[^>]*\/?>/gi`: the attribute run cannot
+ * contain `>`, so the match always ends at the FIRST `>` after the tag name.
+ */
+function stripTagsWithClosing(input: string, lowerTag: string): string {
+  let result = "";
+  let pos = 0;
+  for (;;) {
+    const start = findTagOpening(input, lowerTag, pos);
+    if (start === -1) {
+      result += input.slice(pos);
+      return result;
+    }
+    const nameEnd = start + 1 + lowerTag.length;
+    const gt = input.indexOf(">", nameEnd);
+    if (gt === -1) {
+      // No `>` anywhere after this opening: neither this occurrence nor any
+      // later one can match, so the rest of the string is kept verbatim.
+      result += input.slice(pos);
+      return result;
+    }
+    result += input.slice(pos, start);
+    pos = gt + 1;
+  }
+}
+
+/**
+ * Remove `<tag ...` runs WITHOUT a closing `>`, i.e. up to (but not
+ * including) the next `>` or the end of the string.
+ *
+ * Equivalent to the old `/<tag\b[^>]*` + `/gi` pattern.
+ */
+function stripTagsWithoutClosing(input: string, lowerTag: string): string {
+  let result = "";
+  let pos = 0;
+  for (;;) {
+    const start = findTagOpening(input, lowerTag, pos);
+    if (start === -1) {
+      result += input.slice(pos);
+      return result;
+    }
+    const nameEnd = start + 1 + lowerTag.length;
+    const gt = input.indexOf(">", nameEnd);
+    const end = gt === -1 ? input.length : gt;
+    result += input.slice(pos, start);
+    pos = end;
+  }
+}
+
 /** Remove script/style content including tags, and orphaned opening tags. */
 function stripScriptStyleContent(input: string): string {
-  return input
-    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, "")
-    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, "");
+  // Equivalent to /<script\b[^>]*>[\s\S]*?<\/script>/gi and its <style>
+  // twin: the opening tag ends at the first `>`, and the content runs to the
+  // FIRST closing tag (the old `[\s\S]*?` was lazy). The <style> pass runs on
+  // the OUTPUT of the <script> pass, exactly as the chained `.replace()` did.
+  return stripScriptStyleBlocks(
+    stripScriptStyleBlocks(input, "script", "</script>"),
+    "style",
+    "</style>",
+  );
+}
+
+/**
+ * Remove every `<tag ...>content</tag>` block.
+ *
+ * `lowerTag` is the lower-cased tag name and `lowerCloseTag` the lower-cased
+ * closing tag (with its `>`), both matched case-insensitively.
+ */
+function stripScriptStyleBlocks(input: string, lowerTag: string, lowerCloseTag: string): string {
+  let result = "";
+  let pos = 0;
+  for (;;) {
+    const start = findTagOpening(input, lowerTag, pos);
+    if (start === -1) {
+      result += input.slice(pos);
+      return result;
+    }
+    const nameEnd = start + 1 + lowerTag.length;
+    const gt = input.indexOf(">", nameEnd);
+    if (gt === -1) {
+      // The opening tag is never closed: no block can be matched here, and no
+      // later opening can be closed either (a closing tag would need a `>`).
+      result += input.slice(pos);
+      return result;
+    }
+    const close = indexOfLowerAscii(input, lowerCloseTag, gt + 1);
+    if (close === -1) {
+      result += input.slice(pos);
+      return result;
+    }
+    result += input.slice(pos, start);
+    pos = close + lowerCloseTag.length;
+  }
 }
 
 /** Handle orphaned <script>/<style> opening tags without proper closing tags. */
 function stripOrphanedScriptStyleTags(input: string): string {
-  return input
-    .replace(/<script\b[^>]*\/?>/gi, "")
-    .replace(/<style\b[^>]*\/?>/gi, "")
-    // Also strip bare <script>/<style> that lack a closing > entirely
-    // (e.g. "<script malicious") — the generic incomplete-tag rule below
-    // only matches when followed by whitespace or end-of-string, so these
-    // must be caught here to avoid leaking script/style content.
-    .replace(/<script\b[^>]*/gi, "")
-    .replace(/<style\b[^>]*/gi, "");
+  // Pass 1 — openings that DO have a closing `>`: `<script ...>`.
+  const withClosing = stripTagsWithClosing(
+    stripTagsWithClosing(input, "script"),
+    "style",
+  );
+  // Pass 2 — bare <script>/<style> that lack a closing > entirely
+  // (e.g. "<script malicious") — the generic incomplete-tag rule below
+  // only matches when followed by whitespace or end-of-string, so these
+  // must be caught here to avoid leaking script/style content.
+  return stripTagsWithoutClosing(
+    stripTagsWithoutClosing(withClosing, "script"),
+    "style",
+  );
 }
 
 /** Remove HTML comments. */
 function stripHtmlComments(input: string): string {
-  return input.replace(/<!--[\s\S]*?-->/g, "");
+  // Equivalent to /<!--[\s\S]*?-->/g: only COMPLETE comments are removed,
+  // and the content runs to the FIRST `-->` after the opening marker.
+  let result = "";
+  let pos = 0;
+  for (;;) {
+    const start = input.indexOf("<!--", pos);
+    if (start === -1) {
+      result += input.slice(pos);
+      return result;
+    }
+    const end = input.indexOf("-->", start + 4);
+    if (end === -1) {
+      result += input.slice(pos);
+      return result;
+    }
+    result += input.slice(pos, start);
+    pos = end + 3;
+  }
 }
 
 /**
@@ -152,7 +353,41 @@ function stripHtmlComments(input: string): string {
  * after < to avoid treating plain text like "< >" as a tag).
  */
 function stripRemainingHtmlTags(input: string): string {
-  return input.replace(/<[^\s>][^>]*>/g, "");
+  // Equivalent to /<[^\s>][^>]*>/g. The attribute run cannot contain `>`, so
+  // a match always ends at the FIRST `>` after the tag name; when there is no
+  // `>` at all the opening cannot match and the scan moves on by one
+  // character, exactly like the regex engine does.
+  let result = "";
+  let pos = 0;
+  for (;;) {
+    const lt = input.indexOf("<", pos);
+    if (lt === -1) {
+      result += input.slice(pos);
+      return result;
+    }
+    const nameStart = lt + 1;
+    if (nameStart >= input.length) {
+      // A trailing `<` has no character after it, so `[^\s>]` cannot match.
+      result += input.slice(pos);
+      return result;
+    }
+    const ch = input.charAt(nameStart);
+    if (ch === ">" || isAsciiOrUnicodeWhitespace(ch)) {
+      // `[^\s>]` rejects whitespace and `>` — no match at this position.
+      result += input.slice(pos, nameStart);
+      pos = nameStart;
+      continue;
+    }
+    const gt = input.indexOf(">", nameStart + 1);
+    if (gt === -1) {
+      // No `>` anywhere after — the match cannot complete here.
+      result += input.slice(pos, nameStart);
+      pos = nameStart;
+      continue;
+    }
+    result += input.slice(pos, lt);
+    pos = gt + 1;
+  }
 }
 
 /** Strip incomplete/orphaned opening tags (missing closing >). */
@@ -502,7 +737,23 @@ function replaceGenericLongToken(input: string): string {
   // candidate ONCE and never backtracks.
   const result: string[] = [];
   let pos = 0;
-  const candidateRe = /[A-Za-z0-9_./=+-]{20,128}/g;
+  // The candidate is a MAXIMAL run of token characters, and the whole run is
+  // consumed as ONE candidate.
+  //
+  // The upper bound of 128 used to be part of the pattern, which meant a run
+  // LONGER than 128 characters was split into a 128-character chunk plus a
+  // remainder. When the remainder was shorter than the 20-character minimum
+  // it was not matched at all and survived VERBATIM: a 141-character opaque
+  // secret was redacted down to "[REDACTED_TOKEN]" plus its last 13
+  // characters — the exact durable-sink leak this module exists to prevent.
+  // Matching the maximal run fixes that, and the shape checks below then see
+  // the whole token (which can only make them redact MORE of a secret, never
+  // less).
+  //
+  // `{20,}` on a plain character class is linear: the engine consumes the
+  // maximal run in one pass and never backtracks (there is no trailing
+  // requirement for it to give back characters for).
+  const candidateRe = /[A-Za-z0-9_./=+-]{20,}/g;
   let match: RegExpExecArray | null;
   while ((match = candidateRe.exec(input)) !== null) {
     const matchStart = match.index;
@@ -984,9 +1235,9 @@ export function sanitizePostalAddress(addr: {
   const addressLine1 = requireStringField(addr.addressLine1, "addressLine1");
   const city = requireStringField(addr.city, "city");
   const country = requireStringField(addr.country, "country");
-  const addressLine2 = addr.addressLine2?.trim();
-  const stateProvince = addr.stateProvince?.trim();
-  const postalCode = addr.postalCode?.trim();
+  const addressLine2 = optionalStringField(addr.addressLine2, "addressLine2");
+  const stateProvince = optionalStringField(addr.stateProvince, "stateProvince");
+  const postalCode = optionalStringField(addr.postalCode, "postalCode");
   return {
     addressLine1: stripHtmlTags(addressLine1),
     addressLine2: addressLine2 ? (stripHtmlTags(addressLine2) || null) : null,
@@ -1021,8 +1272,8 @@ export function sanitizeTelecomNumber(tel: {
 } {
   const areaCode = requireStringField(tel.areaCode, "areaCode");
   const lineNumber = requireStringField(tel.lineNumber, "lineNumber");
-  const countryCode = tel.countryCode?.trim();
-  const extension = tel.extension?.trim();
+  const countryCode = optionalStringField(tel.countryCode, "countryCode");
+  const extension = optionalStringField(tel.extension, "extension");
   return {
     // The default country code is sanitized as well, so a caller-supplied
     // default cannot smuggle HTML into the persisted row.
@@ -1051,4 +1302,30 @@ function requireStringField(value: unknown, field: string): string {
     });
   }
   return trimmed;
+}
+
+/**
+ * Read an OPTIONAL string field, returning `undefined` for null/undefined.
+ *
+ * The optional fields used to be read with `field?.trim()`, which only
+ * short-circuits on null/undefined. A non-string value (a number, an
+ * object, a boolean) therefore reached `.trim()` and produced a raw
+ * `TypeError: field?.trim is not a function` — NOT a DomainError — so the
+ * REST filter answered with a generic 500 INTERNAL_ERROR instead of an
+ * actionable 422 INVALID_TYPE_VALUE, and the MCP error-handler reported an
+ * opaque server fault for what is plainly a malformed client payload.
+ *
+ * The optional fields are now validated exactly like the required ones; a
+ * present-but-not-a-string value is a client error, and an absent one is
+ * still legitimately absent.
+ */
+function optionalStringField(value: unknown, field: string): string | undefined {
+  if (value === null || value === undefined) return undefined;
+  if (typeof value !== "string") {
+    throw new InvalidTypeValueError(`'${field}' must be a string.`, {
+      context: { field, received: typeof value },
+    });
+  }
+  const trimmed = value.trim();
+  return trimmed.length === 0 ? undefined : trimmed;
 }

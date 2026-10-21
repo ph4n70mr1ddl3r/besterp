@@ -16,7 +16,7 @@ import { Injectable, Logger, UnauthorizedException } from "@nestjs/common";
 import { PassportStrategy } from "@nestjs/passport";
 import { ExtractJwt, Strategy } from "passport-jwt";
 import { randomBytes } from "node:crypto";
-import { MAX_USER_ID_LENGTH, MAX_AGENT_ID_LENGTH, MAX_ROLE_LENGTH, MAX_TENANT_ID_LENGTH, isProd, validateTenantIdEnhancedForAuth, sanitizeForLogOutput, isValidOptionalId } from "@besterp/shared";
+import { MAX_USER_ID_LENGTH, MAX_AGENT_ID_LENGTH, MAX_ROLE_LENGTH, MAX_TENANT_ID_LENGTH, isDev, validateTenantIdEnhancedForAuth, sanitizeForLogOutput, isValidOptionalId } from "@besterp/shared";
 
 export interface JwtPayload {
   sub: string;      // user ID
@@ -45,6 +45,15 @@ const _logger = new Logger("JwtSecret");
  * (verification) share the same secret. Thread-safe: concurrent callers
  * may compute the same value, but the result is idempotent (env var or
  * random bytes) so there is no correctness issue.
+ *
+ * The guard is `!isDev()` — NOT `isProd()`. `isDev()` and `isProd()` are
+ * not complements: "staging", "preview", "uat" and an unset NODE_ENV are
+ * NEITHER, so an `isProd()` guard silently minted an ephemeral secret in
+ * every non-development, non-production environment. Every other
+ * fail-closed check in the codebase (main.ts's required-env check, the
+ * health service's Redis check, QueueModule's) uses `!isDev()` for exactly
+ * this reason — the deployed-environment posture is "anything that is not
+ * development".
  */
 export function resolveJwtSecret(): string {
   if (_jwtSecretCache.value !== undefined) return _jwtSecretCache.value;
@@ -54,7 +63,7 @@ export function resolveJwtSecret(): string {
     _jwtSecretCache.value = secret;
     return secret;
   }
-  if (isProd()) {
+  if (!isDev()) {
     throw new Error("JWT_SECRET must be set in production. Refusing to start with insecure default.");
   }
   _logger.warn(

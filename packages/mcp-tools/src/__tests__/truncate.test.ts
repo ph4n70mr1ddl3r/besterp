@@ -273,6 +273,26 @@ describe("truncateValue respects a caller-supplied limit", () => {
     }
   });
 
+  it("never returns a stored form larger than the requested limit BELOW the marker size", () => {
+    // The marker's fixed skeleton
+    // (`{"__besterp_trunc":true,"_truncated":true,"_originalSize":N}`) is 64
+    // bytes, so ANY limit below that was silently violated: the preview was
+    // dropped but the remaining skeleton still did not fit, and the stored
+    // form was 64 bytes regardless of the requested limit.
+    for (const limit of [24, 30, 40, 59, 63]) {
+      const out = truncateValue({ data: "z".repeat(10_000) }, limit);
+      const stored = new TextEncoder().encode(JSON.stringify(out)).length;
+      expect(stored, `limit ${limit} produced a ${stored}-byte payload`).toBeLessThanOrEqual(limit);
+    }
+  });
+
+  it("keeps the truncation signal recognisable for a small limit", () => {
+    // A consumer that cannot recognise the marker would report a truncated
+    // payload back as if it were the original result.
+    const out = truncateValue({ data: "z".repeat(10_000) }, 32);
+    expect(isTruncationMarker(out)).toBe(true);
+  });
+
   it("still reports the original size", () => {
     const out = truncateValue({ data: "z".repeat(10_000) }, 100) as { _originalSize: number };
     expect(out._originalSize).toBeGreaterThan(100);

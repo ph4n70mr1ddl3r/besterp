@@ -9,11 +9,12 @@ import {
   errorHandlerMiddleware,
   idempotencyMiddleware,
   auditLogMiddleware,
+  agentPolicyMiddleware,
   confirmationGateMiddleware,
   type ToolContext,
 } from "@besterp/mcp-tools";
 import { registerPartyTools } from "./tools/party-tools.js";
-import { registerDiscoveryTools } from "./tools/discovery-tools.js";
+import { registerDiscoveryTools, buildToolDiscoveryPayload, type ToolDiscoveryPayload } from "./tools/discovery-tools.js";
 import { registerAgentTools } from "./tools/agent-tools.js";
 import { registerUserTools } from "./tools/user-tools.js";
 import { registerProductTools } from "./tools/product-tools.js";
@@ -33,17 +34,22 @@ export class McpService implements OnModuleInit {
   async onModuleInit(): Promise<void> {
     // Middleware order matters (outermost → innermost):
     //
-    //   errorHandler → auditLog → confirmationGate → idempotency → handler
+    //   errorHandler → auditLog → agentPolicy → confirmationGate → idempotency → handler
     //
     // - errorHandler must be outermost so it converts every thrown error
     //   (from any middleware or the handler) into a structured ToolResult.
-    // - auditLog wraps the rest so failures AT ANY INNER LAYER (the
-    //   confirmation gate, the idempotency middleware, the handler) are
-    //   recorded in the durable audit trail. The registry's own PRE-pipeline
-    //   rejections (an unknown tool name, an invalid tenant/user identity, a
-    //   conflicting idempotency key) are returned before the pipeline is
-    //   built and are therefore NOT audited — they carry no validated
-    //   identity to attribute the attempt to.
+    // - auditLog wraps the rest so failures AT ANY INNER LAYER (the agent
+    //   policy, the confirmation gate, the idempotency middleware, the
+    //   handler) are recorded in the durable audit trail. The registry's own
+    //   PRE-pipeline rejections (an unknown tool name, an invalid tenant/user
+    //   identity, a conflicting idempotency key) are returned before the
+    //   pipeline is built and are therefore NOT audited — they carry no
+    //   validated identity to attribute the attempt to.
+    // - agentPolicy runs after auditLog so a REJECTED agent call is still
+    //   recorded: the attempt has a validated identity, so it must be
+    //   auditable. It runs before the confirmation gate because an agent
+    //   that is not permitted to call a tool at all must not be able to
+    //   "unlock" it by supplying a confirmation.
     // - confirmationGate runs BEFORE idempotency: a request rejected for a
     //   missing/invalid confirmation never reaches the handler, so it must not
     //   consume the caller's idempotency key — otherwise the agent's next
@@ -54,6 +60,7 @@ export class McpService implements OnModuleInit {
     //   validated input and hashes exactly what the handler will execute.
     this.registry.addGlobalMiddleware(errorHandlerMiddleware);
     this.registry.addGlobalMiddleware(auditLogMiddleware(this.prisma.admin));
+    this.registry.addGlobalMiddleware(agentPolicyMiddleware(this.prisma.admin));
     this.registry.addGlobalMiddleware(confirmationGateMiddleware(this.prisma.admin));
     this.registry.addGlobalMiddleware(idempotencyMiddleware(this.prisma.admin));
 
@@ -192,5 +199,19 @@ export class McpService implements OnModuleInit {
 
   getRegistry(): ToolRegistry {
     return this.registry;
+  }
+
+  /**
+   * Build the discovery payload for the registered tools.
+   *
+   * The SAME builder backs the `list_available_tools` MCP tool and the
+   * `GET /api/mcp/tools` HTTP endpoint, so the two discovery surfaces cannot
+   * drift apart. In particular the HTTP endpoint used to omit the
+   * `confirmationRequired` flag that the MCP tool reports, so an HTTP client
+   * could not learn that a write tool needs a `confirmation` until it was
+   * rejected with CONFIRMATION_REQUIRED on its first write.
+   */
+  async getDiscoveryPayload(): Promise<ToolDiscoveryPayload> {
+    return buildToolDiscoveryPayload(this.registry, this.prisma.admin);
   }
 }

@@ -3,6 +3,295 @@
 ## Scope
                 Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
                  `mcp-tools`, `apps/api`, plus README/`.env.example`/docker/CI) conducted on
+                   2026-10-22. This is review 273; rounds 1–272 are documented in
+                 earlier revisions of this file and `CHANGES.md`.
+
+## Findings & Actions (round 273)
+
+The review was run against a live PostgreSQL 16 instance (migrations, the RLS
+script, the seed) and the API was BOOTED and driven end-to-end through the
+MCP HTTP surface, exactly as round 272 established. The API was then re-run
+after every fix and every finding below was re-verified against the live
+database. Three parallel review agents covered `packages/shared`,
+`packages/mcp-tools` and `apps/api`; every candidate finding was reproduced
+before it was accepted, and several candidates were REJECTED as
+false positives once traced.
+
+### Fixed this round — the HTTP transport (found by RUNNING the API)
+
+- **`POST /api/mcp/tools/:name` returned HTTP 400 for EVERY request.** The
+  route reused the body DTO, whose `name` is a REQUIRED property. The global
+  `ValidationPipe` (`whitelist` + `forbidNonWhitelisted`) therefore rejected
+  every request with *"name must be a string"* before the controller ran —
+  but the tool name is in the URL, so a body that omits it is exactly the
+  intended request shape. One of the three documented MCP entry points was
+  dead in production. The route now uses a dedicated DTO whose `name` is
+  optional; a body that DOES carry a name must MATCH the path (a mismatch is
+  rejected with 400 instead of being silently resolved in favour of one of
+  the two).
+- **A missing tool name answered 401.** The caller IS authenticated at that
+  point — a missing name is a malformed request, so it is now 400.
+- **`GET /api/mcp/tools` did not report `confirmationRequired`.** Its doc
+  comment claimed it returned "the same discovery payload the
+  `list_available_tools` MCP tool returns", but it returned the bare
+  `registry.getDiscoveryInfo()`. An HTTP client could not learn that ten
+  write tools need a `confirmation` until it was rejected with
+  `CONFIRMATION_REQUIRED` on its first write. Both surfaces now share ONE
+  builder, so they cannot drift apart again.
+
+### Fixed this round — the agent registry's restrictions were decorative
+
+The registry stored `capabilities`, `isActive` and the rate/limit fields,
+and three user-facing strings PROMISED they were enforced — `register_agent`
+("The agent registry enforces capabilities, rate limits, and financial
+restrictions"), `deactivate_agent` ("Deactivate an agent, preventing it from
+making tool calls") and the seeded `entity_descriptor`. Nothing read them
+back. Verified against the live database: an agent registered with
+`capabilities: ["search_parties"]` could still call `create_party`, and a
+JWT carrying a DEACTIVATED agent's id still executed every tool, including
+the destructive ones.
+
+A new `agentPolicyMiddleware` now enforces, on every call whose JWT carries
+an `agentId`:
+
+  * **registration** — an unregistered agent id cannot call any tool
+    (`AGENT_NOT_REGISTERED`),
+  * **activity** — a deactivated agent cannot call any tool
+    (`AGENT_INACTIVE`),
+  * **capabilities** — the tool must be listed in the agent's `capabilities`,
+    which the schema documents as "List of tool names this agent is allowed
+    to call" (`AGENT_CAPABILITY_DENIED`).
+
+The middleware fails CLOSED: a lookup failure rejects the call rather than
+allowing it, because the control would otherwise be bypassable by making the
+database unavailable. It runs inside the audit middleware, so a rejected call
+is still recorded in the durable audit trail, and BEFORE the confirmation
+gate, so an agent that may not call a tool at all cannot "unlock" it by
+supplying a confirmation.
+
+`rateLimitPerMinute`, `maxToolCallsPerConversation` and
+`maxTransactionAmount` are RECORDED but still not enforced: they need the
+durable per-agent usage counter (`agent_usage`) that AGENTIC_AI_DESIGN.md
+§8.2 specifies and the schema does not have. An in-process counter would not
+survive a restart or be shared across replicas, so it would give a false
+sense of control. The three descriptions that claimed enforcement now say
+exactly what is and is not enforced.
+
+### Fixed this round — `packages/shared`
+
+- **`stripHtmlTags` was a denial-of-service (quadratic backtracking).** The
+  four HTML-stripping helpers combined a GREEDY `[^>]*` (or a lazy
+  `[\s\S]*?`) with a REQUIRED trailing literal. On input with many `<`
+  starts and no `>` after them, the engine consumed the rest of the string
+  and then backtracked one character at a time, once per start position —
+  O(n²). **Measured: a single 100 KB request body of `"<a"` repeated blocked
+  the Node event loop for 2.6 SECONDS**, and `stripHtmlTags` runs on every
+  user-supplied name, description and contact field (REST DTOs, every MCP
+  tool's Zod `.transform()`, the service layer). The 100 KB `MAX_INPUT_LENGTH`
+  guard is exactly the size that made it reachable. The four helpers are now
+  hand-written linear scanners: `"<a"`×50 000 went 2 612 ms → **31 ms**
+  (84×), `"<!--"`×25 000 1 693 ms → **14 ms** (120×), `"<script "`×12 500
+  1 346 ms → **1 ms** (1346×). Equivalence was proven by a differential
+  fuzz over 60 000 random inputs: the old and the new implementation produce
+  byte-identical output.
+- **The optional address/telecom fields threw a raw `TypeError`.**
+  `sanitizePostalAddress` and `sanitizeTelecomNumber` validated their
+  REQUIRED fields with a structured `InvalidTypeValueError` but read their
+  OPTIONAL ones with `field?.trim()`, which only short-circuits on
+  null/undefined. A non-string optional field (`addressLine2: 123`) reached
+  `.trim()` and produced `TypeError: addr.addressLine2?.trim is not a
+  function` — not a DomainError, so the REST filter answered 500
+  INTERNAL_ERROR instead of an actionable 422, and the MCP error-handler
+  reported an opaque server fault. The optional fields are now validated
+  exactly like the required ones.
+- **A long secret leaked its tail.** The generic long-token rule matched
+  `/[A-Za-z0-9_./=+-]{20,128}/g`, so a run LONGER than 128 characters was
+  split into a 128-character chunk plus a remainder — and when the remainder
+  was shorter than the 20-character minimum it was not matched at all and
+  survived VERBATIM. A 141-character opaque secret was redacted to
+  "[REDACTED_TOKEN]" **plus its last 13 characters**, straight into the
+  durable audit and idempotency sinks. The rule now consumes the maximal
+  run, so the shape checks see the whole token.
+- **`decimalToNumber` reported a blank amount as a money value of ZERO.**
+  The string branch trimmed and rejected an empty value before parsing it;
+  the object branch did not, and `Number("")` is `0` — so a decimal whose
+  string form was blank was reported to the agent as price 0.00 instead of
+  "no amount stored", contradicting the helper's own documented contract.
+- **`handleTransactionError` could throw a non-Error.** It re-throws the
+  original value for failures it cannot map, but the value can be a plain
+  OBJECT — and throwing a non-Error breaks every downstream `instanceof
+  Error` check (the REST filter's dispatch and the MCP error-handler's code
+  extraction both rely on it). The re-throw now guarantees an `Error` and
+  keeps the original as `cause`. The null/primitive case was also reported
+  as `InvalidTypeValueError` → **422** ("your input was wrong") for what is
+  an internal fault; the same function deliberately avoids that for P1xxx
+  outages twenty lines below, so it is now a generic 500.
+- **`resolveConstraintName` could return a non-string.** The metadata values
+  were cast to `string` without a type check, so `meta.field_name = 42` was
+  interpolated into the user-facing message as "…(constraint: 42).". The
+  sibling extractor `resolveConflictField` already validated every element's
+  type; the two now agree.
+- **`SanitizeForLogOutputOptions` was not exported** from the package entry
+  point, so a consumer could not name the type of the options object it must
+  pass to `sanitizeForLogOutput` — even though the `keepOpaqueTokens`
+  option is used in production.
+- **`packages/shared/src/prisma-error-mapper.ts` had ZERO tests.** The
+  module that decides the HTTP status and error class for every database
+  failure (P2002→409, P2003→422, P2025→404, P2028/P2034→409, P1xxx→500)
+  was untested. It now has its own spec.
+
+### Fixed this round — `packages/mcp-tools`
+
+- **The two durable sinks disagreed about the identity fields.** The audit
+  sink passed `keepOpaqueTokens: true`; the idempotency sink did not, so the
+  SAME `conversationId` was stored verbatim in `ai_action_log` and destroyed
+  to "[REDACTED_TOKEN]" in `idempotency_record`. The two cross-tenant
+  durable rows permanently disagreed about who performed the operation, and
+  the idempotency row could no longer be correlated to the audit row, to the
+  user or to the agent. The repo's own tests had baked the divergence in on
+  both sides; they now assert that the two sinks AGREE.
+- **The audit middleware could abort the tool call.** `reasoning` was
+  sanitized with `sanitizeForLogOutput(context.reasoning)` and no
+  try/catch, while `createBaseEntry` runs OUTSIDE the middleware's
+  try/catch. `sanitizeForLogOutput` calls `message.replace(...)`, so a
+  non-string `reasoning` threw a `TypeError` that escaped the middleware
+  entirely and aborted the call BEFORE the handler ran — the agent was told
+  INTERNAL_ERROR and retried. `reasoning` was also the only free-text field
+  that was not passed through `stripHtmlTags`, so raw HTML could be
+  persisted into the durable `ai_action_log.reasoning` column.
+- **A failure payload was not redacted.** `sanitizeAgentFacingResult`
+  redacted `data` on a SUCCESSFUL result and returned it VERBATIM on a
+  failure — but `ToolResult` does not gate `data` on `success`. The
+  identical value was therefore protected on one path and exposed on the
+  other, which is exactly the asymmetry the module exists to close.
+- **The `UNKNOWN_TOOL` response was uncapped.** `sanitizeForLogOutput` only
+  truncates at its own 100 KB internal guard, so a 120 KB tool name produced
+  a 100 KB agent-facing response — 50× the documented
+  `MAX_ERROR_MESSAGE_LENGTH` bound that every other agent-facing error
+  surface honours.
+- **A non-string tool name threw a raw `TypeError`** that escaped
+  `execute()` entirely (`errorHandlerMiddleware` sits INSIDE the pipeline and
+  can only convert errors raised by a middleware or the handler).
+- **A non-object tool input was replaced with `null`.** `stripEnvelopeKeys`
+  is documented to pass non-objects through untouched, but it was given the
+  already-nulled object — so a tool whose schema is not an object was
+  uncallable and the agent got a misleading "expected array, received null".
+- **`truncateValue` could exceed the limit it was asked to enforce.** The
+  marker's fixed skeleton is 64 bytes, so any limit below that was silently
+  violated (a limit of 32 produced a 64-byte payload) even though the
+  comment claimed otherwise. The minimal 24-byte marker is used when the
+  full one does not fit.
+- **`error-handler.ts` re-implemented the shared error-code extractor.** It
+  now uses the canonical `getErrorCode`, so there is one implementation of
+  "read a machine-readable error code" rather than three.
+
+### Fixed this round — `apps/api`
+
+- **`create_user` persisted an arbitrary string as the password hash.** The
+  only validation was "a non-empty string ≤255 characters", and
+  `create_user` is the ONLY write path to `user.password_hash` — the table
+  that stores the system's only credentials. A mistaken or prompt-injected
+  agent could persist `"hunter2"` verbatim into the credential column and
+  the tool still reported `success: true`. The hash must now be a **bcrypt
+  or argon2 digest**, enforced at BOTH the service boundary (the
+  authoritative write path) and the MCP tool schema (so the agent gets an
+  actionable error at the call site). The tool had NO test coverage at all —
+  there is no `user-tools.spec.ts`.
+- **REST and MCP disagreed on `partyType` case-sensitivity.** The MCP tool
+  upper-cases the value, the service layer upper-cases it too, but the REST
+  DTOs used a bare `@IsEnum(["PERSON", "ORGANIZATION"])`, so the SAME
+  request that succeeded over MCP was rejected over REST with an opaque 400
+  that the service layer would have accepted. The REST DTOs are now
+  case-insensitive too.
+- **The health endpoint's database probe was uncached.** `/api/health` is
+  `@Public()` and deliberately bypasses the general rate limiter. The Redis
+  probe was hardened against exactly that (a result cache plus an in-flight
+  dedup), but the PostgreSQL probe had neither — every anonymous request
+  issued a real `SELECT 1` round-trip on the RLS app client, so an
+  unauthenticated caller could drive unbounded query load and exhaust the
+  Prisma connection pool through a route that is outside the rate limiter.
+- **`resolveJwtSecret` failed closed only in production.** `isDev()` and
+  `isProd()` are not complements — "staging", "preview", "uat" and an unset
+  `NODE_ENV` are NEITHER, so an `isProd()` guard silently minted an
+  ephemeral secret in every non-development, non-production environment.
+  Every other fail-closed check in the codebase uses `!isDev()`; so does
+  this one now.
+- **`McpService.onModuleInit()` had no test at all** — every `McpService`
+  test mocked out the very method that performs the production wiring.
+  Deleting `registerUserTools(this.registry)` (the only write path to the
+  credential table) or reordering the middleware chain would not have failed
+  a single test. The registration, the middleware order and the discovery
+  payload are now pinned — the order assertion is BEHAVIOURAL (each
+  middleware is invoked and identified by what it does), not a name match.
+- **Smaller items:** the `currencyCode` schema checked the length but not
+  the ISO 4217 shape (the service did, so the tool's description and its
+  schema disagreed); the MCP controller's header comment still said "21
+  registered tools" (there are 25); `createExplainError` took an unused
+  Prisma client; `updateLastLogin` — the only write path to
+  `user.last_login_at` — is documented as deliberately unwired until an
+  authentication endpoint exists.
+
+### Verified clean (no action needed)
+
+- **`stripHtmlTags` corrupts prose containing `<…>`** — `"Widgets <100 units
+  and tax> 0"` loses the text between the angle brackets. This is a
+  documented trade-off of the tag-stripping approach (the renderer is
+  responsible for escaping) and the same behaviour existed before this
+  round; the differential fuzz confirms the rewrite did not change it.
+- **`get_valid_transitions` always returns `ENTITY_NOT_FOUND`** — the
+  transition registry is empty, and the tool's own description says so
+  ("If the registry is empty, this deployment has no such entity yet").
+- **`search_across_entities` / `explain_error` are backed by in-code
+  reference data** — a known limitation, unchanged.
+- **The `user` table's `last_login_at` has no writer** — there is no
+  authentication endpoint in this service (the JWT is issued by an external
+  identity provider), so `updateLastLogin` has no caller by construction.
+- **The JWT `role` claim is propagated but not used for authorization** —
+  unchanged from round 272.
+- **Multi-tenant isolation** — re-verified against the live database: a
+  `tenant-globex` JWT sees only globex rows, and the RLS-enabled table set
+  still matches the boot-time verification list exactly (17 tables, all with
+  FORCE RLS and at least one policy, and no unexpected force-RLS table).
+  `prisma migrate diff` still reports NO drift.
+
+## Test Results (round 273)
+```
+shared:    293 passed (6 files)
+mcp-tools: 248 passed (7 files)
+database:   34 passed, 10 skipped (3 files)
+api:       703 passed (24 files)
+────────────────────────────
+Total:     1278 passed, 10 skipped
+```
+
+The database suite ran against a live PostgreSQL 16 instance (the 10
+integration tests are skipped without a database). The API was BOOTED
+against that instance and the MCP HTTP surface driven end-to-end before
+and after the fixes:
+
+- `POST /api/mcp/tools/:name` returned **400** before and **200** after.
+- `GET /api/mcp/tools` now reports the ten gated tools
+  (`create_party`, `add_party_role`, `add_contact_mechanism`,
+  `register_agent`, `update_agent`, `deactivate_agent`, `delete_agent`,
+  `create_user`, `create_product`, `update_product`) with
+  `confirmationRequired: true` — the same set the MCP
+  `list_available_tools` tool reports.
+- A **deactivated** agent's JWT was rejected with `AGENT_INACTIVE` on both
+  a read and a write (it previously executed both); an **unregistered**
+  agent with `AGENT_NOT_REGISTERED`; an **active agent** whose
+  `capabilities` did not list the tool with `AGENT_CAPABILITY_DENIED`,
+  while the same agent could still call a tool it WAS permitted to call.
+- `create_user` with `"hunter2"` was rejected with `INVALID_INPUT` and the
+  actionable "must be a bcrypt or argon2 digest" message.
+- `POST /api/parties` and `GET /api/parties?partyType=person` with a
+  lower-case `partyType` were rejected with 400 before and now succeed.
+- The confirmation gate, the idempotency replay, the durable audit trail
+  and the tenant isolation all still behave correctly.
+
+
+## Scope
+                Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
+                 `mcp-tools`, `apps/api`, plus README/`.env.example`/docker/CI) conducted on
                    2026-10-21. This is review 272; rounds 1–271 are documented in
                    earlier revisions of this file and `CHANGES.md`.
 
