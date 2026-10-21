@@ -132,6 +132,74 @@ describe("ProductService", () => {
       ).rejects.toThrow(InvalidTypeValueError);
     });
 
+    it("rejects a non-string feature name in createProduct", async () => {
+      prisma.admin.productType.findUnique.mockResolvedValue({ productTypeId: "pt-1" });
+      await expect(
+        service.createProduct({ tenantId: "t1", productType: "GOODS", name: "Widget", features: [{ name: 42 as unknown as string, value: "Red" }] })
+      ).rejects.toThrow(InvalidTypeValueError);
+    });
+
+    it("rejects a non-string feature value in createProduct", async () => {
+      prisma.admin.productType.findUnique.mockResolvedValue({ productTypeId: "pt-1" });
+      await expect(
+        service.createProduct({ tenantId: "t1", productType: "GOODS", name: "Widget", features: [{ name: "Color", value: 42 as unknown as string }] })
+      ).rejects.toThrow(InvalidTypeValueError);
+    });
+
+    it("rejects a categoryId that is not a UUID", async () => {
+      prisma.admin.productType.findUnique.mockResolvedValue({ productTypeId: "pt-1" });
+      await expect(
+        service.createProduct({ tenantId: "t1", productType: "GOODS", name: "Widget", categoryId: "not-a-uuid" })
+      ).rejects.toThrow(InvalidTypeValueError);
+    });
+
+    it("rejects a categoryId that belongs to another tenant", async () => {
+      // Postgres runs foreign-key checks with the table owner's rights, which
+      // bypass RLS — so the category ownership must be verified explicitly,
+      // otherwise a product could be linked to another tenant's category.
+      prisma.admin.productType.findUnique.mockResolvedValue({ productTypeId: "pt-1" });
+      prisma.tenantScoped.mockReturnValue({
+        $transaction: vi.fn().mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => fn({
+          productCategory: { findFirst: vi.fn().mockResolvedValue(null) },
+          product: { create: vi.fn() },
+        })),
+      });
+      await expect(
+        service.createProduct({
+          tenantId: "t1", productType: "GOODS", name: "Widget",
+          categoryId: "12345678-1234-1234-1234-123456789abc",
+        })
+      ).rejects.toThrow(EntityNotFoundError);
+    });
+
+    it("links a category that belongs to the tenant", async () => {
+      prisma.admin.productType.findUnique.mockResolvedValue({ productTypeId: "pt-1" });
+      const create = vi.fn().mockResolvedValue({
+        productId: "p1", productTypeId: "pt-1", tenantId: "t1",
+        name: "Widget", description: null, sku: null, version: 1,
+        createdAt: new Date(), updatedAt: new Date(),
+      });
+      prisma.tenantScoped.mockReturnValue({
+        $transaction: vi.fn().mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => fn({
+          productCategory: { findFirst: vi.fn().mockResolvedValue({ productCategoryId: "12345678-1234-1234-1234-123456789abc" }) },
+          product: { create },
+        })),
+      });
+
+      await service.createProduct({
+        tenantId: "t1", productType: "GOODS", name: "Widget",
+        categoryId: "12345678-1234-1234-1234-123456789abc",
+      });
+
+      expect(create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            category: { connect: { productCategoryId: "12345678-1234-1234-1234-123456789abc" } },
+          }),
+        })
+      );
+    });
+
     it("rejects feature value exceeding max length in createProduct", async () => {
       prisma.admin.productType.findUnique.mockResolvedValue({ productTypeId: "pt-1" });
       prisma.tenantScoped.mockReturnValue({
@@ -290,7 +358,7 @@ describe("ProductService", () => {
     it("validates productType when provided", async () => {
       prisma.admin.productType.findUnique.mockResolvedValue(null);
       await expect(
-        service.updateProduct({ tenantId: "t1", productId: "12345678-1234-1234-1234-123456789abc", productTypeId: "BAD" })
+        service.updateProduct({ tenantId: "t1", productId: "12345678-1234-1234-1234-123456789abc", productType: "BAD" })
       ).rejects.toThrow(InvalidTypeValueError);
     });
   });
@@ -373,9 +441,52 @@ describe("ProductService", () => {
         product: { findUnique: vi.fn().mockResolvedValue({ productId: "p1" }) },
         productPrice: { create: vi.fn() },
       });
+      // The date is validated with isValidISODate BEFORE it is parsed, so an
+      // unparseable value produces the structured InvalidTypeValueError (not
+      // a plain Error that surfaced as an opaque INTERNAL_ERROR).
       await expect(
         service.addProductPrice({ tenantId: "t1", productId: "12345678-1234-1234-1234-123456789abc", priceType: "LIST", amount: 10, fromDate: "not-a-date" })
-      ).rejects.toThrow("Invalid ISO date string");
+      ).rejects.toThrow(InvalidTypeValueError);
+    });
+
+    it("rejects a calendar-invalid date that Date would silently roll over", async () => {
+      prisma.tenantScoped.mockReturnValue({
+        product: { findUnique: vi.fn().mockResolvedValue({ productId: "p1" }) },
+        productPrice: { create: vi.fn() },
+      });
+      // "2024-06-31" is not a real date — `new Date("2024-06-31")` silently
+      // rolls over to 2024-07-01, storing a DIFFERENT day than requested.
+      await expect(
+        service.addProductPrice({ tenantId: "t1", productId: "12345678-1234-1234-1234-123456789abc", priceType: "LIST", amount: 10, fromDate: "2024-06-31" })
+      ).rejects.toThrow(InvalidTypeValueError);
+    });
+
+    it("rejects a null currencyCode-free price with a non-string priceType", async () => {
+      prisma.tenantScoped.mockReturnValue({
+        product: { findUnique: vi.fn().mockResolvedValue({ productId: "p1" }) },
+        productPrice: { create: vi.fn() },
+      });
+      await expect(
+        service.addProductPrice({ tenantId: "t1", productId: "12345678-1234-1234-1234-123456789abc", priceType: 42 as unknown as string, amount: 10 })
+      ).rejects.toThrow(InvalidTypeValueError);
+    });
+
+    it("defaults a null currencyCode to the default currency", async () => {
+      const create = vi.fn().mockResolvedValue({
+        productPriceId: "pp1", productId: "p1", priceType: "LIST", amount: 10,
+        currencyCode: "USD", fromDate: new Date(), thruDate: null, createdAt: new Date(),
+      });
+      prisma.tenantScoped.mockReturnValue({
+        product: { findUnique: vi.fn().mockResolvedValue({ productId: "p1" }) },
+        productPrice: { create },
+      });
+      await service.addProductPrice({
+        tenantId: "t1", productId: "12345678-1234-1234-1234-123456789abc",
+        priceType: "LIST", amount: 10, currencyCode: null as unknown as string,
+      });
+      expect(create).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ currencyCode: "USD" }) })
+      );
     });
 
     it("rejects NaN amount with InvalidTypeValueError", async () => {

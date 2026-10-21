@@ -11,7 +11,7 @@
 
 import type { PrismaClient, Prisma } from "@prisma/client";
 import { isDomainError, TenantContextFailedError, InvalidTenantIdError, InvalidTypeValueError } from "./errors.js";
-import { MAX_TENANT_ID_LENGTH } from "./constants.js";
+import { MAX_TENANT_ID_LENGTH, TENANT_SCOPE_TX_TIMEOUT_MS } from "./constants.js";
 import { sanitizeLogMessage } from "./sanitize.js";
 
 /** Prisma's interactive transaction client with all model delegates. */
@@ -118,8 +118,6 @@ export async function setTenantContext(
   }
 }
 
-/** Default transaction timeout in milliseconds (30 seconds). */
-const DEFAULT_TRANSACTION_TIMEOUT_MS = 30_000;
 
 /**
  * Execute a function within a tenant-scoped database transaction.
@@ -167,7 +165,7 @@ export async function withTenant<T>(
     await setTenantContext(tx, normalizedTenantId);
     return fn(tx);
   }, {
-    timeout: options?.timeout ?? DEFAULT_TRANSACTION_TIMEOUT_MS,
+    timeout: options?.timeout ?? TENANT_SCOPE_TX_TIMEOUT_MS,
     ...(options?.isolationLevel && { isolationLevel: options.isolationLevel }),
   });
 }

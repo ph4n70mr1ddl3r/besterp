@@ -52,6 +52,11 @@ function createMockPrisma() {
         return Promise.resolve(row ?? null);
       }),
     },
+    confirmationGate: {
+      findMany: vi.fn().mockResolvedValue([
+        { toolName: "describe_entity" },
+      ]),
+    },
   } as unknown as PrismaClient;
 }
 
@@ -75,6 +80,31 @@ describe("Discovery MCP Tools", () => {
       expect(result.success).toBe(true);
       expect((result.data as { tools: unknown[]; totalAvailable: number }).tools.length).toBeGreaterThan(0);
       expect((result.data as { totalAvailable: number }).totalAvailable).toBeGreaterThan(0);
+    });
+
+    it("should report which tools require an agent confirmation", async () => {
+      // The tool description promises "confirmation requirements" — the
+      // discovery payload must actually carry them, sourced from the
+      // database-backed confirmation_gate table.
+      const result = await registry.execute("list_available_tools", {}, mockContext);
+
+      expect(result.success).toBe(true);
+      const data = result.data as { tools: Array<{ name: string; confirmationRequired: boolean }> };
+      const gated = data.tools.filter((t) => t.confirmationRequired);
+      expect(gated.map((t) => t.name)).toEqual(["describe_entity"]);
+      expect(data.tools.every((t) => typeof t.confirmationRequired === "boolean")).toBe(true);
+    });
+
+    it("should report no confirmation requirement when the gate table is unavailable", async () => {
+      const mockGate = (mockPrisma as unknown as Record<string, { findMany: { mockRejectedValueOnce: (e: unknown) => void } } | undefined>).confirmationGate;
+      expect(mockGate).toBeDefined();
+      mockGate?.findMany.mockRejectedValueOnce(new Error("db down"));
+
+      const result = await registry.execute("list_available_tools", {}, mockContext);
+
+      expect(result.success).toBe(true);
+      const data = result.data as { tools: Array<{ confirmationRequired: boolean }> };
+      expect(data.tools.every((t) => t.confirmationRequired === false)).toBe(true);
     });
 
     it("should filter tools by entity name (case-insensitive)", async () => {
@@ -444,6 +474,47 @@ describe("Discovery MCP Tools", () => {
 
       // Should not fail validation — result depends on service availability
       expect(result.success !== false || result.error?.code !== "INVALID_INPUT").toBe(true);
+    });
+
+    it("should report a structured failure when every entity search fails", async () => {
+      // A rejected branch must not be reported as "no results" — a database
+      // outage or a DomainError is otherwise indistinguishable from a
+      // genuinely empty result.
+      const failing = {
+        searchParties: vi.fn().mockRejectedValue(new Error("db down")),
+        searchProducts: vi.fn().mockRejectedValue(new Error("db down")),
+      };
+
+      const result = await registry.execute(
+        "search_across_entities",
+        { query: "Acme" },
+        { ...mockContext, services: { partyService: failing, productService: failing } },
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe("SERVICE_UNAVAILABLE");
+      expect(result.error?.context?.failures).toHaveLength(2);
+    });
+
+    it("should report a partial failure when one entity search fails", async () => {
+      const result = await registry.execute(
+        "search_across_entities",
+        { query: "Acme" },
+        {
+          ...mockContext,
+          services: {
+            partyService: { searchParties: vi.fn().mockResolvedValue({ items: [], total: 0 }) },
+            productService: { searchProducts: vi.fn().mockRejectedValue(new Error("db down")) },
+          },
+        },
+      );
+
+      expect(result.success).toBe(true);
+      const data = result.data as { results: { party: unknown; product: unknown }; partialFailure?: boolean; failures?: unknown[] };
+      expect(data.results.party).not.toBeNull();
+      expect(data.results.product).toBeNull();
+      expect(data.partialFailure).toBe(true);
+      expect(data.failures).toHaveLength(1);
     });
   });
 

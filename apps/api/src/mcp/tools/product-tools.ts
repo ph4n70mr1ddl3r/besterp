@@ -118,6 +118,7 @@ For idempotent writes, pass an idempotencyKey along with the tool arguments.`,
 
   riskLevel: "high",
   entity: "product",
+  relatedTools: { get: "get_product", search: "search_products" },
   tags: ["product", "create", "core"],
 
   handler: async (inputRaw: unknown, context: ToolContext) => {
@@ -158,6 +159,7 @@ Returns full product details with all features and active prices.`,
 
   riskLevel: "none",
   entity: "product",
+  relatedTools: { get: "get_product", search: "search_products" },
   tags: ["product", "read", "core"],
 
   handler: async (inputRaw: unknown, context: ToolContext) => {
@@ -197,6 +199,7 @@ Returns a paginated list of products matching the criteria.`,
 
   riskLevel: "none",
   entity: "product",
+  relatedTools: { get: "get_product", search: "search_products" },
   tags: ["product", "search", "core"],
 
   handler: async (inputRaw: unknown, context: ToolContext) => {
@@ -241,6 +244,7 @@ Features are key-value pairs that describe product characteristics
 
   riskLevel: "medium",
   entity: "product",
+  relatedTools: { get: "get_product", search: "search_products" },
   tags: ["product", "feature", "update"],
 
   handler: async (inputRaw: unknown, context: ToolContext) => {
@@ -295,6 +299,7 @@ Prices support effective dating via fromDate/thruDate for price changes over tim
 
   riskLevel: "medium",
   entity: "product",
+  relatedTools: { get: "get_product", search: "search_products" },
   tags: ["product", "price", "update"],
 
   handler: async (inputRaw: unknown, context: ToolContext) => {

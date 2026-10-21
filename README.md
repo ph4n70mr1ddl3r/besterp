@@ -204,13 +204,49 @@ npm run db:seed
 - `POST /api/parties/:id/contacts` - Add contact mechanism
 
 ### MCP Tools
-- `list_available_tools` - Discover available tools
+
+**Discovery**
+- `list_available_tools` - Discover available tools (includes risk level and whether a confirmation is required)
 - `get_type_table_values` - Get valid type values
+- `describe_entity` - Describe an entity's fields and semantics
+- `get_valid_transitions` - Get valid status transitions for an entity
+- `search_across_entities` - Universal search across entity types
+- `explain_error` - Explain an error code and suggest recovery steps
+
+**Party**
 - `create_party` - Create party with validation
 - `get_party` - Retrieve party details
 - `search_parties` - Search with filters and pagination
 - `add_party_role` - Assign roles to parties
 - `add_contact_mechanism` - Add contact information
+
+**Product**
+- `create_product` - Create a product
+- `get_product` - Retrieve a product with features and prices
+- `search_products` - Search products with filters and pagination
+- `add_product_feature` - Add a key/value feature to a product
+- `add_product_price` - Add a price to a product
+
+**Agent registry**
+- `register_agent` - Register an AI agent identity
+- `list_agents` - List registered agents
+- `describe_agent` - Describe an agent's configuration
+- `update_agent` - Update an agent's configuration
+- `deactivate_agent` - Deactivate an agent (soft delete)
+- `delete_agent` - Permanently delete an agent
+
+#### Envelope fields
+
+Two arguments are handled by the framework rather than by the tool schemas,
+so they are accepted on every tool:
+
+- `idempotencyKey` (string) — deduplicates retries of a write. The same key
+  with the same input replays the stored result; a different input under the
+  same key is rejected with `IDEMPOTENCY_KEY_MISMATCH`.
+- `confirmation` (string, ≥ 10 characters) — required by tools whose
+  confirmation gate is enabled (the high-risk write tools). It explains why
+  the agent believes the operation should proceed and is persisted to the
+  audit trail. `list_available_tools` reports which tools require it.
 
 ## Contributing
 

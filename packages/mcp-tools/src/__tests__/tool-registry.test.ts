@@ -679,12 +679,37 @@ describe("ToolRegistry", () => {
 
       await registry.execute(
         "test_idem_tool2",
-        { idempotencyKey: "from-input" },
+        { idempotencyKey: "from-context" },
         { tenantId: "t1", userId: "u1", idempotencyKey: "from-context", services: {} },
       );
 
       // Context value should win — input should not override it
       expect(contextReceived[0].idempotencyKey).toBe("from-context");
+    });
+
+    it("should reject two conflicting idempotency keys instead of silently preferring one", async () => {
+      // Regression: the registry silently preferred the context key and
+      // discarded the tool-argument key, so the agent believed it deduplicated
+      // under one key while the durable idempotency record was keyed by the
+      // other. Fail closed with a structured error instead.
+      const handler = vi.fn(async () => ({ success: true }));
+      registry.register({
+        name: "test_idem_conflict",
+        description: "test",
+        inputSchema: z.object({}),
+        riskLevel: "low",
+        handler,
+      });
+
+      const result = await registry.execute(
+        "test_idem_conflict",
+        { idempotencyKey: "from-input" },
+        { tenantId: "t1", userId: "u1", idempotencyKey: "from-context", services: {} },
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe("IDEMPOTENCY_KEY_MISMATCH");
+      expect(handler).not.toHaveBeenCalled();
     });
 
     it("should promote an over-length idempotencyKey so the middleware fails closed", async () => {
@@ -747,7 +772,7 @@ describe("ToolRegistry", () => {
       // Regression: the promotion gate previously required
       // `typeof raw.idempotencyKey === "string"`, so a caller passing a
       // numeric/boolean/object key had its envelope silently stripped by
-      // stripPromotedIdempotencyKey() while the call executed WITHOUT
+      // stripEnvelopeKeys() while the call executed WITHOUT
       // idempotency protection — the exact silent-loss class the fail-closed
       // contract exists to prevent. The idempotency middleware validates the
       // key as `unknown` and rejects non-strings with INVALID_IDEMPOTENCY_KEY,

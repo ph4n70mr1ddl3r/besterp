@@ -9,7 +9,7 @@
 // never break the tool).
 
 import { PrismaClient, Prisma } from "@prisma/client";
-import { getErrorCode, sanitizeLogMessage, sanitizeForLogOutput, stripHtmlTags, MAX_REASONING_LENGTH, MAX_SOFT_FAILURE_MESSAGE_SIZE, redactSensitiveFieldValues, MAX_CONCURRENT_AUDIT_WRITES, MAX_AUDIT_QUEUE_SIZE, AUDIT_WRITE_QUEUE_TIMEOUT_MS, MAX_USER_ID_LENGTH, MAX_AGENT_ID_LENGTH, MAX_CONVERSATION_ID_LENGTH } from "@besterp/shared";
+import { getErrorCode, sanitizeLogMessage, sanitizeForLogOutput, stripHtmlTags, MAX_REASONING_LENGTH, MAX_SOFT_FAILURE_MESSAGE_SIZE, MAX_CONFIRMATION_LENGTH, redactSensitiveFieldValues, MAX_CONCURRENT_AUDIT_WRITES, MAX_AUDIT_QUEUE_SIZE, AUDIT_WRITE_QUEUE_TIMEOUT_MS, MAX_USER_ID_LENGTH, MAX_AGENT_ID_LENGTH, MAX_CONVERSATION_ID_LENGTH } from "@besterp/shared";
 import { ToolMiddleware, ToolContext, ToolResult } from "../schema/tool-definition.js";
 import { truncateValue, capString, MAX_STORED_PAYLOAD_SIZE } from "./truncate.js";
 
@@ -71,7 +71,7 @@ export function auditLogMiddleware(prisma: PrismaClient): ToolMiddleware {
   return (input, context, definition, next) => executeAndLog(prisma, backpressure, input, context, definition, next);
 }
 
-function createBaseEntry(context: { agentId?: string; conversationId?: string; reasoning?: string; userId: string; tenantId: string }, definition: { name: string }, input: unknown): Omit<AuditLogEntry, "toolOutput"> {
+function createBaseEntry(context: { agentId?: string; conversationId?: string; reasoning?: string; confirmation?: string; userId: string; tenantId: string }, definition: { name: string }, input: unknown): Omit<AuditLogEntry, "toolOutput"> {
   // `reasoning` originates from the AI agent / tool-call context, which is
   // attacker-influenceable (any string may be supplied in the MCP request
   // body). It is persisted verbatim to ai_action_log.reasoning, a durable
@@ -112,8 +112,30 @@ function createBaseEntry(context: { agentId?: string; conversationId?: string; r
     // strings that are not charset-restricted, so they require sanitization.
     tenantId: context.tenantId,
     toolCalled: definition.name,
-    toolInput: redactSensitiveFields(input),
+    toolInput: withConfirmation(redactSensitiveFields(input), context.confirmation),
   };
+}
+
+/**
+ * Attach the agent's confirmation to the durable `toolInput` payload.
+ *
+ * The confirmation used to travel on the tool input, which meant it was
+ * captured implicitly by the redaction pass — but the confirmation gate had
+ * to inject it AFTER the strict schema validation boundary, so the row could
+ * not be trusted to contain it. The confirmation now travels on the context
+ * (see ToolRegistry.execute), and this helper writes it into the audit row
+ * explicitly so operators can still audit the agent's stated reason for a
+ * gated operation.
+ *
+ * The value is sanitized + capped exactly like `reasoning`: a confirmation
+ * is attacker-influenceable free text that lands in a durable cross-tenant
+ * sink.
+ */
+function withConfirmation(toolInput: unknown, confirmation: string | undefined): unknown {
+  if (confirmation === undefined) return toolInput;
+  const safeConfirmation = sanitizeForLogOutput(stripHtmlTags(confirmation)).slice(0, MAX_CONFIRMATION_LENGTH);
+  const base = isPlainObjectData(toolInput) ? toolInput : {};
+  return { ...base, confirmation: safeConfirmation };
 }
 
 /**
@@ -124,16 +146,22 @@ function createBaseEntry(context: { agentId?: string; conversationId?: string; r
  * row captures failure detail on the path that ACTUALLY fires in production —
  * the OUTERMOST errorHandlerMiddleware converts every thrown error into a
  * non-thrown ToolResult, so the throw branch never runs for real failures.
- * `code` is redacted to `[REDACTED]` at the durable sink the same way it is
- * for the throw branch, because `code` is a sensitive field name.
+ *
+ * The machine-readable code is stored under `errorCode`, NOT `code`: the
+ * shared redactor treats the exact key `code` as a sensitive field name and
+ * rewrote it to "[REDACTED]", so the durable audit trail lost the only
+ * machine-readable discriminator for a failure (the idempotency sink stores
+ * the same value verbatim under `error.code` — the two durable sinks
+ * disagreed). `errorCode` is not a sensitive field name, so the value
+ * survives the redaction pass intact.
  */
-function formatSoftFailureOutput(result: ToolResult): { error: { message: string | null; code: string | undefined } } {
+function formatSoftFailureOutput(result: ToolResult): { error: { message: string | null; errorCode: string | undefined } } {
   return {
     error: {
       message: result.error?.message
         ? capString(sanitizeForLogOutput(result.error.message), MAX_SOFT_FAILURE_MESSAGE_SIZE)
         : null,
-      code: result.error?.code
+      errorCode: result.error?.code
         ? capString(sanitizeForLogOutput(result.error.code), MAX_SOFT_FAILURE_MESSAGE_SIZE) || undefined
         : undefined,
     },
@@ -164,7 +192,10 @@ async function executeAndLog(prisma: PrismaClient, backpressure: BackpressureMan
       toolOutput: {
         error: {
           message: capString(sanitizeForLogOutput(error instanceof Error ? error.message : String(error)), MAX_SOFT_FAILURE_MESSAGE_SIZE),
-          code: capString(sanitizeForLogOutput(getErrorCode(error) ?? ""), MAX_SOFT_FAILURE_MESSAGE_SIZE) || undefined,
+          // Stored under `errorCode` (not `code`) so the shared redactor does
+          // not rewrite the machine-readable failure code to "[REDACTED]" —
+          // see formatSoftFailureOutput for the full rationale.
+          errorCode: capString(sanitizeForLogOutput(getErrorCode(error) ?? ""), MAX_SOFT_FAILURE_MESSAGE_SIZE) || undefined,
         },
       },
     });
@@ -172,13 +203,13 @@ async function executeAndLog(prisma: PrismaClient, backpressure: BackpressureMan
   }
 
   // Soft-failure results (success:false) are the path that ACTUALLY fires in
-  // production: the OUTERMOST errorHandlerMiddleware converts every thrown
+  // production: the OUTERMEST errorHandlerMiddleware converts every thrown
   // error into a non-thrown ToolResult before the throw branch above could run,
   // so real failures (validation, domain, Prisma) never reach it and would be
   // persisted with `toolOutput: null` — losing every failure's error from the
   // durable ai_action_log trail. Persist the sanitized error detail instead,
-  // mirroring the throw branch (code is redacted to [REDACTED] at the sink the
-  // same way, since `code` is a sensitive field name).
+  // mirroring the throw branch (the machine-readable code is kept under
+  // `errorCode` so the shared redactor does not blank it out).
   const auditWrite = backpressure.log({
     ...base,
     toolOutput: result.success ? result.data ?? null : formatSoftFailureOutput(result),

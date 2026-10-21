@@ -20,9 +20,9 @@
 // freshly generated UUID v4.
 
 import { randomUUID } from "node:crypto";
+import { MAX_REQUEST_ID_LENGTH } from "@besterp/shared";
 
-/** Maximum accepted length for a client-supplied request ID. */
-export const MAX_REQUEST_ID_LENGTH = 128;
+export { MAX_REQUEST_ID_LENGTH };
 
 /**
  * A request ID must be a printable-ASCII token (0x21–0x7E) with NO whitespace

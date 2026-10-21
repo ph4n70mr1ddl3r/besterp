@@ -3,8 +3,118 @@
 ## Scope
                 Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
                  `mcp-tools`, `apps/api`, plus README/`.env.example`/docker/CI) conducted on
-                   2026-10-07. This is review 264; rounds 1–263 are documented in
+                   2026-10-21. This is review 270; rounds 1–269 are documented in
                    earlier revisions of this file and `CHANGES.md`.
+
+## Findings & Actions (round 270)
+
+### Fixed this round
+
+- **The confirmation gate was a dead end** — it injected `confirmation` into
+  the tool input, and every tool schema is a `z.strictObject` that rejects
+  undeclared keys, so the final Zod step rejected EVERY gated tool with
+  `Unrecognized key(s) in object: 'confirmation'`. The 7 seeded high-risk
+  tools could never execute. Because the idempotency middleware hashes the
+  input through the same strict schema, idempotency was silently skipped for
+  those calls as well. The gate also ran INSIDE idempotency, so a request
+  blocked for a missing confirmation still burned the caller's idempotency
+  key. Fixed by promoting both envelope keys onto the `ToolContext`,
+  stripping them from the pipeline input, reordering the middleware (gate
+  before idempotency), and persisting the sanitized confirmation in the
+  durable audit row.
+- **Two conflicting idempotency keys were silently resolved** — the registry
+  preferred the context key and discarded the argument key. Now fails closed
+  with `IDEMPOTENCY_KEY_MISMATCH`.
+- **`update_agent` dropped `isActive`** — the schema accepted it, the handler
+  never forwarded it, and the tool reported success while the agent stayed
+  active.
+- **`maxTransactionAmount` was always `null`** — the column is a Prisma
+  `Decimal` (an object), and the mapper used `typeof === "number"`, so the
+  branch was never taken.
+- **`partyId` was not UUID-validated** in `SecurityService` — a malformed
+  value was accepted (the column is TEXT) and surfaced as
+  `ENTITY_NOT_FOUND` instead of the actionable validation error.
+- **Product price dates were parsed without validation** — `"2024-06-31"`
+  silently rolled over to July 1, a non-ISO string was parsed as local
+  midnight, and an unparseable string raised a plain `Error` (opaque
+  `INTERNAL_ERROR`).
+- **`create_product` connected `categoryId` without validation or a tenant
+  ownership check** — Postgres runs FK checks with the owner's rights, which
+  bypass RLS, so another tenant's category could be linked.
+- **Missing typeof guards** in `ProductService` (features, priceType,
+  currencyCode) and `PartyService` (description) — a non-string value threw
+  a raw `TypeError` (500 `INTERNAL_ERROR`); `currencyCode: null` crashed on
+  `.trim()`.
+- **`UpdateProductInput.productTypeId`** held a product type NAME but was
+  named like a UUID field — renamed to `productType`.
+- **Party service length caps ran on the raw value** for `addressLine1`,
+  `city`, `areaCode` and `lineNumber` while both boundary layers and the
+  storage sanitizers cap the STRIPPED value.
+- **REST date fields did not strip HTML** while the MCP date schema did — the
+  identical input was accepted on MCP and rejected on REST.
+- **`allowedEntityTypes` had no length cap** on any layer, and
+  `update_agent`'s `capabilities` was missing the bounds `register_agent`
+  declares.
+- **`list_available_tools` never returned the confirmation requirements** its
+  own description promised.
+- **`search_across_entities` hid service failures** behind `null` results,
+  making an outage indistinguishable from an empty result.
+- **The error handler suggested unregistered tool names** derived from the
+  entity string (`search_agent_registryies`). Tool definitions now declare
+  their related tools, and every suggestion is callable.
+- **The audit sink redacted the failure code** to `[REDACTED]` because it was
+  stored under the sensitive-named key `code` — now stored as `errorCode`.
+- **Shared constants consolidated** — confirmation length bounds, request-id
+  length, party-type length, allowed-entity-types length and the
+  tenant-scoped transaction timeout now live in `@besterp/shared`.
+
+### Reviewed but NOT changed
+
+- The RLS/tenant-scoping model, the `withTenant` / `createTenantClient`
+  contract and the `rls-setup.sql` policy list were re-read in full — the
+  tenant-scoped lookups, the `tenantId` filters on every domain query and the
+  global-reference-table access (type tables, entity descriptors) are
+  unchanged and correct.
+- The idempotency state machine (`pending`/`completed`/`failed`, the stale
+  threshold, the tool-name/hash mismatch branches) was re-traced; only the
+  input-hash source changed (the envelope is now stripped before hashing).
+- The `@besterp/shared` sanitizer (`stripHtmlTags`, `sanitizeForLogOutput`,
+  `redactSensitiveFieldValues`) was re-read — the depth cap, cycle
+  detection, Map/Set conversion and the sensitive-field matching rules are
+  unchanged.
+- The auth boundary (`JwtStrategy`, `JwtAuthGuard`, `TenantGuard`) was
+  re-read — tenant/user/agent id validation and the public-route decorator
+  are unchanged.
+- `.env.example`, the Docker compose file and the CI workflow were reviewed
+  — the documented boot order, the seed opt-in guard and the RLS-after-
+  migration requirement are all consistent with the code.
+
+### Follow-ups (not fixed — outside this round's scope)
+
+- The MCP tool framework is not yet reachable over HTTP: there is no MCP
+  controller, so `ToolRegistry.execute` is only exercised by tests. When one
+  is added, the tenant identity MUST come from the verified principal
+  (`req.tenantContext`), never from the request body.
+- The agent registry's `capabilities`, `rateLimitPerMinute` and `isActive`
+  are stored but not ENFORCED — a deactivated agent can still call every
+  tool. Enforcement needs an authorization middleware that loads the agent
+  and checks its capabilities before the tool runs.
+- `IDEMPOTENCY_STALE_PENDING_THRESHOLD_MS` (60s) is shorter than a plausible
+  long-running write, so a slow handler could be reclaimed and re-executed.
+  A lease/heartbeat would close that window.
+- The idempotency acquire treats a `P2002` (unique violation on the
+  composite key) as an infrastructure outage instead of routing it to
+  `REQUEST_IN_PROGRESS`.
+
+## Test Results (round 270)
+```
+shared:    243 passed (4 files)
+mcp-tools: 203 passed (5 files)
+database:   34 passed, 10 skipped (3 files)
+api:       654 passed (22 files)
+────────────────────────────
+Total:     1134 passed, 10 skipped
+```
 
 ## Findings & Actions (round 264)
 

@@ -26,6 +26,13 @@ export const MAX_TAX_ID_LENGTH = 50;
 /** Maximum length for role type names. */
 export const MAX_ROLE_TYPE_LENGTH = 100;
 
+/** Maximum length for party type names (e.g. "PERSON", "ORGANIZATION").
+ *  The MCP/REST boundaries constrain the value to the PERSON/ORGANIZATION
+ *  enum, but the service layer validates it as a free-text filter and needs
+ *  its own bound — previously it reused MAX_ROLE_TYPE_LENGTH (a role-type
+ *  cap), which is semantically unrelated. */
+export const MAX_PARTY_TYPE_LENGTH = 50;
+
 /** Maximum length for product type names. */
 export const MAX_PRODUCT_TYPE_LENGTH = 100;
 
@@ -115,6 +122,12 @@ export const MAX_VERSION_LENGTH = 64;
 
 /** Maximum number of capabilities an agent can have. */
 export const MAX_CAPABILITIES_LENGTH = 50;
+
+/** Maximum number of entity types an agent can be allowed to interact with.
+ *  `AgentRegistry.allowedEntityTypes` is a free-form JSON array with no
+ *  database-side bound, so the cap must be enforced at every layer that
+ *  accepts it (MCP Zod schema + service validation). */
+export const MAX_ALLOWED_ENTITY_TYPES_LENGTH = 50;
 
 /** Maximum length for a single capability string. */
 export const MAX_CAPABILITY_STRING_LENGTH = 100;
@@ -242,6 +255,17 @@ export const MAX_ERROR_LOG_LINE_LENGTH = 500;
  *  (main.ts) tests this pattern before booting, so the cap is enforced there. */
 export const JWT_EXPIRES_IN_REGEX = /^([1-9]\d{0,9})([smhd])$/;
 
+// ─── Confirmation Gate ──────────────────────────────────────────
+
+/** Minimum length for an agent confirmation string.
+ *  A confirmation shorter than this cannot carry a meaningful justification
+ *  for a high-risk operation. Centralised here so the MCP confirmation gate
+ *  and every other surface that reasons about confirmations share one bound. */
+export const MIN_CONFIRMATION_LENGTH = 10;
+
+/** Maximum length for a confirmation string (prevents bloat in audit rows). */
+export const MAX_CONFIRMATION_LENGTH = 500;
+
 // ─── Middleware Constants ──────────────────────────────────────
 
 /** Threshold after which a "pending" idempotency record is considered stale.
@@ -258,8 +282,29 @@ export const MAX_AUDIT_QUEUE_SIZE = 1000;
 /** Maximum time (ms) a write can wait in the audit write queue before being dropped. */
 export const AUDIT_WRITE_QUEUE_TIMEOUT_MS = 5_000;
 
-/** Timeout for Prisma interactive transactions (ms). */
+/** Timeout for Prisma interactive transactions (ms).
+ *  Used by the domain services for their multi-statement transactions. */
 export const TX_TIMEOUT_MS = 10_000;
+
+/**
+ * Timeout for the per-operation transactions opened by the tenant-scoped
+ * Prisma client (ms).
+ *
+ * Distinct from {@link TX_TIMEOUT_MS} on purpose: the tenant-scoped client
+ * wraps EVERY model operation in its own short transaction that only sets
+ * the RLS context and runs one query, while `TX_TIMEOUT_MS` bounds the
+ * multi-statement transactions the domain services open. Both values used to
+ * live as private constants in their own modules (`rls-extension.ts`,
+ * `tenant.ts`), so the same "transaction timeout" concept had two
+ * un-discoverable definitions — centralising them here makes the contract
+ * explicit.
+ */
+export const TENANT_SCOPE_TX_TIMEOUT_MS = 30_000;
+
+/** Maximum accepted length for a client-supplied request ID (the
+ *  `x-request-id` header). Centralised with every other length limit so the
+ *  bound is discoverable from one place. */
+export const MAX_REQUEST_ID_LENGTH = 128;
 
 /** Timeout for Redis health probe connections (ms). */
 export const REDIS_PROBE_TIMEOUT_MS = 2_000;

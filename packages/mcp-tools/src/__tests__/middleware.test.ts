@@ -41,6 +41,11 @@ const mockDefinition: ToolDefinition = {
   } as any,
   riskLevel: "low",
   entity: "test",
+  // The follow-up tools the error handler suggests are DECLARED by the tool
+  // definition — they are never derived from the entity string, because the
+  // derived names ("search_agent_registryies", "get_type_table") are not
+  // registered tools and an agent that followed them got UNKNOWN_TOOL back.
+  relatedTools: { get: "get_test", search: "search_tests" },
   tags: ["test"],
   handler: async (input: any) => ({ success: true, data: input }),
 };
@@ -1394,9 +1399,11 @@ describe("Audit Log Middleware", () => {
       expect.objectContaining({
         data: expect.objectContaining({
           toolCalled: "test_tool",
-          // `code` is now a sensitive field name (single source of truth),
-          // so the audit path redacts its value — mirroring the REST surface.
-          toolOutput: { error: { message: "Test error", code: "[REDACTED]" } },
+          // The machine-readable code is stored under `errorCode`, NOT `code`:
+          // the shared redactor treats the exact key `code` as a sensitive
+          // field name and rewrote it to "[REDACTED]", which stripped the
+          // only machine-readable discriminator from the durable audit trail.
+          toolOutput: { error: { message: "Test error", errorCode: undefined } },
         }),
       })
     );
@@ -1426,9 +1433,10 @@ describe("Audit Log Middleware", () => {
       expect.objectContaining({
         data: expect.objectContaining({
           toolCalled: "test_tool",
-          // `code` is a sensitive field name, so its value is redacted at the
-          // durable sink (mirroring the throw branch); the message survives.
-          toolOutput: { error: { message: "A party with this name already exists", code: "[REDACTED]" } },
+          // The machine-readable code is stored under `errorCode` (not the
+          // sensitive-named key `code`) so it survives the shared redactor —
+          // the durable audit trail keeps the failure discriminator.
+          toolOutput: { error: { message: "A party with this name already exists", errorCode: "BUSINESS_RULE" } },
         }),
       })
     );
@@ -1803,6 +1811,21 @@ describe("Error Handler Middleware", () => {
     expect(result.error?.suggestedTools).toEqual(["search_tests", "test_tool"]);
   });
 
+  it("should not suggest unregistered tools when the definition declares no related tools", async () => {
+    // The handler used to derive the follow-up tool names from the entity
+    // string, producing names that are not registered ("search_tests" for
+    // entity "test"). A tool that declares no mapping now suggests only
+    // itself, so every suggestion is callable.
+    const prismaError: any = new Error("Record not found");
+    prismaError.code = "P2025";
+
+    const definitionWithoutRelated = { ...mockDefinition, relatedTools: undefined };
+    const result = await errorHandlerMiddleware({}, mockContext, definitionWithoutRelated, throwingNext(prismaError));
+
+    expect(result.success).toBe(false);
+    expect(result.error?.suggestedTools).toEqual(["test_tool"]);
+  });
+
   it("should surface Prisma P2002 meta.target in the error message and context", async () => {
     // Prisma carries the conflicting field(s) in `meta.target`. The
     // handler should include them so the AI can correct the input
@@ -1856,7 +1879,7 @@ describe("Error Handler Middleware", () => {
 
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe("ENTITY_NOT_FOUND");
-    expect(result.error?.suggestedTools).toEqual(["search_tests", "get_test"]);
+    expect(result.error?.suggestedTools).toEqual(["search_tests", "get_test", "test_tool"]);
   });
 
   it("should handle Prisma optimistic concurrency / deadlock (P2034)", async () => {
@@ -2331,21 +2354,48 @@ describe("Confirmation Gate Middleware", () => {
     expect(result.error?.code).toBe("INVALID_CONFIRMATION");
   });
 
-  it("should sanitize HTML in confirmation before passing through", async () => {
+  it("should sanitize HTML in confirmation before propagating it", async () => {
     (mockPrismaForGate.confirmationGate.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({ enabled: true });
 
     const middleware = confirmationGateMiddleware(mockPrismaForGate as any);
     const input = { name: "Jane", confirmation: "<script>alert(1)</script> Creating a customer for invoice follow-up" };
-    let capturedInput: unknown;
-    const capturingNext = async (inp: unknown) => {
-      capturedInput = inp;
+    let capturedContext: ToolContext | undefined;
+    const capturingNext = async (_inp: unknown, ctx: ToolContext) => {
+      capturedContext = ctx;
       return { success: true, data: "ok" };
     };
     await middleware(input, mockContext, highRiskDefinition, capturingNext);
-    const confirmation = (capturedInput as Record<string, unknown>).confirmation as string;
+    // The confirmation travels on the CONTEXT — the tool input is left
+    // untouched because every tool schema is a z.strictObject that rejects
+    // undeclared keys (the gate used to inject the key into the input, which
+    // made every gated tool fail schema validation).
+    const confirmation = capturedContext?.confirmation as string;
     expect(confirmation).not.toContain("<script>");
     expect(confirmation).not.toContain("alert");
     expect(confirmation).toContain("Creating a customer");
+  });
+
+  it("should propagate the confirmation on the context when it is supplied there", async () => {
+    // The registry promotes the confirmation from the tool arguments onto the
+    // context and strips it from the validated input — the gate must read it
+    // from the context.
+    (mockPrismaForGate.confirmationGate.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({ enabled: true });
+
+    const middleware = confirmationGateMiddleware(mockPrismaForGate as any);
+    let capturedContext: ToolContext | undefined;
+    const capturingNext = async (_inp: unknown, ctx: ToolContext) => {
+      capturedContext = ctx;
+      return { success: true, data: "ok" };
+    };
+    const result = await middleware(
+      { name: "Jane" },
+      { ...mockContext, confirmation: "Creating a customer for invoice follow-up" },
+      highRiskDefinition,
+      capturingNext,
+    );
+
+    expect(result.success).toBe(true);
+    expect(capturedContext?.confirmation).toBe("Creating a customer for invoice follow-up");
   });
 
   it("should pass through when DB is unavailable (does not block execution)", async () => {

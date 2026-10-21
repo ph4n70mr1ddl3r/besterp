@@ -7,7 +7,11 @@ import {
   InvalidTypeValueError,
   EntityNotFoundError,
   DuplicateEntityError,
+  MAX_ALLOWED_ENTITY_TYPES_LENGTH,
 } from "@besterp/shared";
+
+/** A canonical party UUID — `partyId` is `Party`'s UUID primary key. */
+const PARTY_ID = "12345678-1234-1234-1234-123456789abc";
 
 function createMockPrisma() {
   return {
@@ -46,7 +50,7 @@ describe("SecurityService", () => {
   describe("createUser", () => {
     it("validates tenantId format", async () => {
       await expect(
-        service.createUser({ tenantId: "", partyId: "p1", passwordHash: "hash" })
+        service.createUser({ tenantId: "", partyId: PARTY_ID, passwordHash: "hash" })
       ).rejects.toThrow(InvalidTypeValueError);
     });
 
@@ -56,16 +60,26 @@ describe("SecurityService", () => {
       ).rejects.toThrow(InvalidTypeValueError);
     });
 
+    it("rejects a partyId that is not a UUID", async () => {
+      // `partyId` is `Party`'s UUID primary key. The column is TEXT, so the
+      // database would accept a malformed value and every lookup would simply
+      // miss — the caller has to get the actionable "must be a valid UUID"
+      // error instead of a confusing ENTITY_NOT_FOUND.
+      await expect(
+        service.createUser({ tenantId: "t1", partyId: "not-a-uuid", passwordHash: "hash" })
+      ).rejects.toThrow(InvalidTypeValueError);
+    });
+
     it("uses trimmed partyId in queries", async () => {
       const mockTenantClient = {
         party: { findUnique: vi.fn().mockResolvedValue({ tenantId: "t1" }) },
-        user: { create: vi.fn().mockResolvedValue({ userId: "u1", partyId: "p1", tenantId: "t1", lastLoginAt: null, createdAt: new Date(), updatedAt: new Date() }) },
+        user: { create: vi.fn().mockResolvedValue({ userId: "u1", partyId: PARTY_ID, tenantId: "t1", lastLoginAt: null, createdAt: new Date(), updatedAt: new Date() }) },
       };
       prisma.tenantScoped.mockReturnValue(mockTenantClient);
 
-      await service.createUser({ tenantId: "t1", partyId: " p1 ", passwordHash: "hash" });
+      await service.createUser({ tenantId: "t1", partyId: ` ${PARTY_ID} `, passwordHash: "hash" });
       expect(mockTenantClient.party.findUnique).toHaveBeenCalledWith(
-        expect.objectContaining({ where: { partyId: "p1" } })
+        expect.objectContaining({ where: { partyId: PARTY_ID } })
       );
     });
 
@@ -77,7 +91,7 @@ describe("SecurityService", () => {
       });
 
       await expect(
-        service.createUser({ tenantId: "t1", partyId: "p1", passwordHash: "hash" })
+        service.createUser({ tenantId: "t1", partyId: PARTY_ID, passwordHash: "hash" })
       ).rejects.toThrow();
     });
   });
@@ -85,19 +99,19 @@ describe("SecurityService", () => {
   describe("getUser", () => {
     it("validates tenantId format", async () => {
       await expect(
-        service.getUser("", "p1")
+        service.getUser("", PARTY_ID)
       ).rejects.toThrow(InvalidTypeValueError);
     });
 
     it("uses trimmed partyId in queries", async () => {
       const mockTenantClient = {
-        user: { findUnique: vi.fn().mockResolvedValue({ userId: "u1", partyId: "p1", tenantId: "t1", lastLoginAt: null, createdAt: new Date(), updatedAt: new Date() }) },
+        user: { findUnique: vi.fn().mockResolvedValue({ userId: "u1", partyId: PARTY_ID, tenantId: "t1", lastLoginAt: null, createdAt: new Date(), updatedAt: new Date() }) },
       };
       prisma.tenantScoped.mockReturnValue(mockTenantClient);
 
-      await service.getUser("t1", " p1 ");
+      await service.getUser("t1", ` ${PARTY_ID} `);
       expect(mockTenantClient.user.findUnique).toHaveBeenCalledWith(
-        expect.objectContaining({ where: { tenantId_partyId: { tenantId: "t1", partyId: "p1" } } })
+        expect.objectContaining({ where: { tenantId_partyId: { tenantId: "t1", partyId: PARTY_ID } } })
       );
     });
 
@@ -107,7 +121,7 @@ describe("SecurityService", () => {
       };
       prisma.tenantScoped.mockReturnValue(mockTenantClient);
 
-      const err = await service.getUser("t1", "p1").catch((e) => e);
+      const err = await service.getUser("t1", PARTY_ID).catch((e) => e);
       expect(err).toBeInstanceOf(EntityNotFoundError);
       expect(err.suggestedTools).toEqual(["get_user", "search_parties"]);
     });
@@ -120,7 +134,7 @@ describe("SecurityService", () => {
       prisma.tenantScoped.mockReturnValue(mockTenantClient);
 
       // P2025 should map to EntityNotFoundError, not be swallowed
-      await expect(service.getUser("t1", "p1"))
+      await expect(service.getUser("t1", PARTY_ID))
         .rejects.toThrow(EntityNotFoundError);
     });
   });
@@ -128,7 +142,7 @@ describe("SecurityService", () => {
   describe("updateLastLogin", () => {
     it("validates tenantId format", async () => {
       await expect(
-        service.updateLastLogin("", "p1")
+        service.updateLastLogin("", PARTY_ID)
       ).rejects.toThrow(InvalidTypeValueError);
     });
 
@@ -138,9 +152,9 @@ describe("SecurityService", () => {
       };
       prisma.tenantScoped.mockReturnValue(mockTenantClient);
 
-      await service.updateLastLogin("t1", " p1 ");
+      await service.updateLastLogin("t1", ` ${PARTY_ID} `);
       expect(mockTenantClient.user.update).toHaveBeenCalledWith(
-        expect.objectContaining({ where: { tenantId_partyId: { tenantId: "t1", partyId: "p1" } } })
+        expect.objectContaining({ where: { tenantId_partyId: { tenantId: "t1", partyId: PARTY_ID } } })
       );
     });
 
@@ -150,7 +164,7 @@ describe("SecurityService", () => {
       };
       prisma.tenantScoped.mockReturnValue(mockTenantClient);
 
-      await expect(service.updateLastLogin("t1", "p1")).resolves.toBeUndefined();
+      await expect(service.updateLastLogin("t1", PARTY_ID)).resolves.toBeUndefined();
     });
   });
 
@@ -194,8 +208,40 @@ describe("SecurityService", () => {
       );
     });
 
-    it("maps P2002 to DuplicateEntityError", async () => {
-      prisma.admin.agentRegistry.create.mockRejectedValue({ code: "P2002", meta: { target: ["agent_id", "tenant_id"] } });
+    it("reports a Decimal maxTransactionAmount as a number", async () => {
+      // Regression: the column is a Prisma `Decimal?`, which the driver
+      // returns as an OBJECT. The old `typeof value === "number"` check was
+      // therefore never true and EVERY agent result reported
+      // `maxTransactionAmount: null` — the agent could not verify that a
+      // financial restriction had been applied.
+      prisma.admin.agentRegistry.create.mockResolvedValue({
+        agentId: "a1", tenantId: "t1", displayName: "Agent", description: "Desc",
+        capabilities: ["read"], maxToolCallsPerConversation: 100,
+        maxConcurrentConversations: 5,
+        maxTransactionAmount: { toNumber: () => 250.5, toString: () => "250.5" },
+        allowedEntityTypes: [], rateLimitPerMinute: 30, version: "1.0.0",
+        isActive: true, createdAt: new Date(),
+      });
+
+      const agent = await service.registerAgent({
+        agentId: "a1", tenantId: "t1", displayName: "Agent",
+        description: "Desc", capabilities: ["read"], version: "1.0.0",
+      });
+
+      expect(agent.maxTransactionAmount).toBe(250.5);
+    });
+
+    it("rejects an allowedEntityTypes array that exceeds the cap", async () => {
+      await expect(
+        service.registerAgent({
+          agentId: "a1", tenantId: "t1", displayName: "Agent", description: "Desc",
+          capabilities: ["read"], version: "1.0.0",
+          allowedEntityTypes: Array.from({ length: MAX_ALLOWED_ENTITY_TYPES_LENGTH + 1 }, (_, i) => `entity-${i}`),
+        })
+      ).rejects.toThrow(InvalidTypeValueError);
+    });
+
+    it("maps P2002 to DuplicateEntityError", async () => {      prisma.admin.agentRegistry.create.mockRejectedValue({ code: "P2002", meta: { target: ["agent_id", "tenant_id"] } });
 
       await expect(
         service.registerAgent({

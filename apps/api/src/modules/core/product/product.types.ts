@@ -59,7 +59,16 @@ export interface UpdateProductInput {
   name?: string;
   description?: string | null;
   sku?: string | null;
-  productTypeId?: string;
+  /**
+   * The product type NAME (e.g. "GOOD"), matching `CreateProductInput.productType`.
+   *
+   * This field was previously named `productTypeId`, which is a UUID
+   * everywhere else in the codebase (`ProductResult.productTypeId`,
+   * `Product.productTypeId`) — but the value is looked up by NAME. Callers
+   * passing the actual UUID got a misleading "PRODUCT_TYPE '<uuid>' is not
+   * valid" error. The name now matches what it holds.
+   */
+  productType?: string;
 }
 
 // ─── Add Feature ─────────────────────────────────────────────────

@@ -18,10 +18,8 @@
 //   because they cannot receive tenant context. Use interactive transactions.
 
 import type { PrismaClient, Prisma } from "@prisma/client";
-import { validateTenantId, InvalidTypeValueError, setTenantContext } from "@besterp/shared";
+import { validateTenantId, InvalidTypeValueError, setTenantContext, TENANT_SCOPE_TX_TIMEOUT_MS } from "@besterp/shared";
 
-/** Default timeout for individual model operation transactions (ms). */
-const DEFAULT_TX_TIMEOUT_MS = 30_000;
 
 // ─── Blocked methods — single source of truth ─────────────────────
 // DATA_METHODS is the authoritative list of model operations that must be
@@ -227,7 +225,7 @@ function createModelDelegateProxy(
           const txMethod = (txDelegate as Record<string, unknown>)[method];
           if (!txMethod || typeof txMethod !== "function") throw new Error(`Method "${method}" not found on model "${modelName}"`);
           return txMethod.apply(txDelegate, args);
-        }, { timeout: DEFAULT_TX_TIMEOUT_MS });
+        }, { timeout: TENANT_SCOPE_TX_TIMEOUT_MS });
       };
       methodCache.set(cacheKey, wrapped);
       return wrapped;

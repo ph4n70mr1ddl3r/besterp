@@ -72,6 +72,18 @@ export interface ToolContext {
   readonly conversationId?: string;
   /** Idempotency key (if provided by the caller). */
   readonly idempotencyKey?: string;
+  /**
+   * Agent confirmation for a gated (high/critical risk) tool — the agent's
+   * stated reason for performing the operation.
+   *
+   * Promoted from the tool input by {@link ToolRegistry.execute} so the
+   * confirmation gate can validate it WITHOUT the key appearing in the
+   * schema-validated input (every tool schema is a `z.strictObject`, which
+   * rejects undeclared keys — the gate used to inject the key into the input
+   * and every gated tool then failed validation with "Unrecognized key(s) in
+   * object: 'confirmation'").
+   */
+  readonly confirmation?: string;
   /** Reasoning provided by the AI agent for why this tool was called. */
   readonly reasoning?: string;
   /**
@@ -134,6 +146,26 @@ export interface ToolDefinition<TResult = unknown> {
 
   /** Entity this tool primarily operates on (for discovery categorization). */
   entity?: string;
+
+  /**
+   * The registered tool names a caller should use to look up or list the
+   * entity this tool operates on.
+   *
+   * The error-handler middleware suggests follow-up tools to the agent. It
+   * used to DERIVE those names from `entity` (`search_${pluralize(entity)}`),
+   * which produced names that are not registered tools — entity
+   * "agent_registry" yielded "search_agent_registryies" and
+   * "get_agent_registry", so an agent that followed the suggestion got
+   * UNKNOWN_TOOL back. Declaring the real tool names keeps every suggestion
+   * callable; when a tool declares no mapping, the error handler suggests
+   * only the failing tool itself and `list_available_tools`.
+   */
+  relatedTools?: {
+    /** Tool that fetches a single record of this entity (e.g. "get_party"). */
+    get?: string;
+    /** Tool that lists/searches records of this entity (e.g. "search_parties"). */
+    search?: string;
+  };
 
   /** Tags for discovery and filtering. */
   tags?: string[];

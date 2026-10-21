@@ -13,6 +13,7 @@ import {
 } from "@besterp/mcp-tools";
 import {
   InvalidTypeValueError,
+  redactSensitiveFieldValues,
   sanitizeForLogOutput,
   stripHtmlTags,
   MAX_ENTITY_LENGTH,
@@ -52,13 +53,37 @@ interface PrismaModelDelegate {
 
 // ─── Tool: list_available_tools ───────────────────────────────────
 
-function createListAvailableTools(registry: ToolRegistry): ToolDefinition {
+/**
+ * Collect the names of the tools whose confirmation gate is enabled.
+ *
+ * The gate configuration lives in the `confirmation_gate` table, so the
+ * discovery surface reads it from the database instead of hardcoding a risk
+ * level heuristic — the gate can be enabled or disabled per tool at
+ * runtime. A database failure degrades to an EMPTY set (no tool is reported
+ * as gated) rather than failing the whole discovery call: the gate itself
+ * also fails open when the database is unreachable, so the two surfaces
+ * agree.
+ */
+async function listGatedToolNames(prisma: PrismaClient): Promise<Set<string>> {
+  try {
+    const gates = await prisma.confirmationGate.findMany({
+      where: { enabled: true },
+      select: { toolName: true },
+    });
+    return new Set(gates.map((g) => g.toolName));
+  } catch {
+    return new Set<string>();
+  }
+}
+
+function createListAvailableTools(registry: ToolRegistry, prisma: PrismaClient): ToolDefinition {
   return {
     name: "list_available_tools",
     description: `Returns a list of all available MCP tools with descriptions.
 
 Use this to discover what operations you can perform in the ERP system.
-Each tool listing includes its risk level and confirmation requirements.`,
+Each tool listing includes its risk level and whether it requires an agent
+confirmation.`,
 
     inputSchema: z.strictObject({
       // Trim, and normalize whitespace-only input to no filter — the same
@@ -90,11 +115,21 @@ Each tool listing includes its risk level and confirmation requirements.`,
         const filter = input.entity.toLowerCase();
         tools = tools.filter((t) => (t.entity ?? "").toLowerCase() === filter);
       }
+      // Report which tools require an agent confirmation. The gate is
+      // database-backed (`confirmation_gate`), so this reflects the deployed
+      // configuration rather than a hardcoded guess — the agent can then
+      // supply the `confirmation` field up front instead of discovering the
+      // requirement through a CONFIRMATION_REQUIRED rejection.
+      const gatedTools = await listGatedToolNames(prisma);
+      const withConfirmation = tools.map((t) => ({
+        ...t,
+        confirmationRequired: gatedTools.has(t.name),
+      }));
       return {
         success: true,
         data: {
-          tools,
-          totalAvailable: tools.length,
+          tools: withConfirmation,
+          totalAvailable: withConfirmation.length,
           note: "Use 'get_type_table_values' with a typeName to see valid values for type tables.",
         },
       };
@@ -253,8 +288,14 @@ Returns the entity's description, AI prompt hint, and key fields.`,
       const aiPromptHint = typeof row.aiPromptHint === "string"
         ? sanitizeForLogOutput(stripHtmlTags(row.aiPromptHint))
         : null;
+      // `keyFields` is a JSON blob straight from the entity_descriptor table.
+      // The two string fields above are stripped/sanitized; this one was
+      // returned raw — the same asymmetric-sanitization class the rest of
+      // this file avoids. Redact it through the canonical shared redactor so
+      // sensitive-named keys and URL/secret-shaped values are scrubbed before
+      // the blob reaches the agent (and the durable audit sink).
       const keyFields = row.keyFields != null && typeof row.keyFields === "object"
-        ? row.keyFields
+        ? redactSensitiveFieldValues(row.keyFields)
         : null;
 
       return {
@@ -392,19 +433,9 @@ Example: search_across_entities({ query: "Widget", entity: "product" })`,
       // ToolContext.services.
       if (input.entity) {
         if (input.entity === "party") {
-          const svc = context.services.partyService;
-          if (!svc || typeof svc !== "object" || typeof (svc as Record<string, unknown>).searchParties !== "function") {
-            return {
-              success: false,
-              error: {
-                code: "SERVICE_UNAVAILABLE",
-                message: "Party search service is not available.",
-                suggestedTools: ["list_available_tools"],
-                context: { service: "partyService" },
-              },
-            };
-          }
-          const result = await (svc as { searchParties: (input: { tenantId: string; name?: string; limit?: number; offset?: number }) => Promise<unknown> }).searchParties({
+          const unavailable = unavailableServiceError(context, "partyService", "searchParties");
+          if (unavailable) return unavailable;
+          const result = await (context.services.partyService as { searchParties: (i: { tenantId: string; name?: string; limit?: number; offset?: number }) => Promise<unknown> }).searchParties({
             tenantId: context.tenantId,
             name: input.query,
             limit: input.limit,
@@ -414,19 +445,9 @@ Example: search_across_entities({ query: "Widget", entity: "product" })`,
         }
 
         if (input.entity === "product") {
-          const svc = context.services.productService;
-          if (!svc || typeof svc !== "object" || typeof (svc as Record<string, unknown>).searchProducts !== "function") {
-            return {
-              success: false,
-              error: {
-                code: "SERVICE_UNAVAILABLE",
-                message: "Product search service is not available.",
-                suggestedTools: ["list_available_tools"],
-                context: { service: "productService" },
-              },
-            };
-          }
-          const result = await (svc as { searchProducts: (input: { tenantId: string; name?: string; limit?: number; offset?: number }) => Promise<unknown> }).searchProducts({
+          const unavailable = unavailableServiceError(context, "productService", "searchProducts");
+          if (unavailable) return unavailable;
+          const result = await (context.services.productService as { searchProducts: (i: { tenantId: string; name?: string; limit?: number; offset?: number }) => Promise<unknown> }).searchProducts({
             tenantId: context.tenantId,
             name: input.query,
             limit: input.limit,
@@ -446,29 +467,37 @@ Example: search_across_entities({ query: "Widget", entity: "product" })`,
         };
       }
 
-      // No entity specified — search parties and products in parallel
+      // No entity specified — search parties and products in parallel.
       const [partyResult, productResult] = await Promise.allSettled([
-        (async () => {
-          const svc = context.services.partyService;
-          if (!svc || typeof svc !== "object" || typeof (svc as Record<string, unknown>).searchParties !== "function") return null;
-          return (svc as { searchParties: (input: { tenantId: string; name?: string; limit?: number; offset?: number }) => Promise<unknown> }).searchParties({
-            tenantId: context.tenantId,
-            name: input.query,
-            limit: input.limit,
-            offset: input.offset,
-          });
-        })(),
-        (async () => {
-          const svc = context.services.productService;
-          if (!svc || typeof svc !== "object" || typeof (svc as Record<string, unknown>).searchProducts !== "function") return null;
-          return (svc as { searchProducts: (input: { tenantId: string; name?: string; limit?: number; offset?: number }) => Promise<unknown> }).searchProducts({
-            tenantId: context.tenantId,
-            name: input.query,
-            limit: input.limit,
-            offset: input.offset,
-          });
-        })(),
+        searchOneEntity(context, "partyService", "searchParties", input),
+        searchOneEntity(context, "productService", "searchProducts", input),
       ]);
+
+      // A rejected branch must NOT be reported as "no results" — a database
+      // outage, an RLS failure, or a DomainError from the service is
+      // indistinguishable from a genuine empty result when both surface as
+      // `null`, which hides real incidents from the agent AND from operators.
+      // Surface the failure explicitly: a partial success reports the branch
+      // that worked alongside the error for the one that did not; a total
+      // failure returns a structured error.
+      const failures: Array<{ entity: string; reason: string }> = [];
+      if (partyResult.status === "rejected") {
+        failures.push({ entity: "party", reason: describeSearchFailure(partyResult.reason) });
+      }
+      if (productResult.status === "rejected") {
+        failures.push({ entity: "product", reason: describeSearchFailure(productResult.reason) });
+      }
+      if (failures.length === 2) {
+        return {
+          success: false,
+          error: {
+            code: "SERVICE_UNAVAILABLE",
+            message: `Universal search failed for every entity type (${failures.map((f) => f.entity).join(", ")}). The operation did not complete — retry the same request later.`,
+            suggestedTools: ["list_available_tools"],
+            context: { failures },
+          },
+        };
+      }
 
       return {
         success: true,
@@ -478,10 +507,79 @@ Example: search_across_entities({ query: "Widget", entity: "product" })`,
             party: partyResult.status === "fulfilled" && partyResult.value ? partyResult.value : null,
             product: productResult.status === "fulfilled" && productResult.value ? productResult.value : null,
           },
+          ...(failures.length > 0
+            ? {
+              partialFailure: true,
+              failures,
+              note: "One entity type could not be searched; the results above cover the rest.",
+            }
+            : {}),
         },
       };
     },
   };
+}
+
+/**
+ * Run one entity search through the service exposed on the tool context.
+ *
+ * A missing/unavailable service resolves to `null` (no results for that
+ * entity) rather than throwing — the caller distinguishes a genuine empty
+ * result from a service failure by inspecting the settled result.
+ */
+async function searchOneEntity(
+  context: ToolContext,
+  serviceKey: "partyService" | "productService",
+  method: "searchParties" | "searchProducts",
+  input: { query: string; limit: number; offset: number },
+): Promise<unknown> {
+  const svc = context.services[serviceKey];
+  if (!svc || typeof svc !== "object" || typeof (svc as Record<string, unknown>)[method] !== "function") return null;
+  const search = (svc as unknown as Record<string, ((i: { tenantId: string; name?: string; limit?: number; offset?: number }) => Promise<unknown>) | undefined>)[method];
+  if (typeof search !== "function") return null;
+  return search({
+    tenantId: context.tenantId,
+    name: input.query,
+    limit: input.limit,
+    offset: input.offset,
+  });
+}
+
+/**
+ * Build the SERVICE_UNAVAILABLE result when the requested entity's search
+ * service is not wired into the tool context. Returns null when the service
+ * IS available, so the caller can proceed with the search.
+ */
+function unavailableServiceError(
+  context: ToolContext,
+  serviceKey: "partyService" | "productService",
+  method: "searchParties" | "searchProducts",
+): {
+  success: false;
+  error: { code: string; message: string; suggestedTools: string[]; context: Record<string, string> };
+} | null {
+  const svc = context.services[serviceKey];
+  if (svc && typeof svc === "object" && typeof (svc as Record<string, unknown>)[method] === "function") return null;
+  return {
+    success: false,
+    error: {
+      code: "SERVICE_UNAVAILABLE",
+      message: `${serviceKey === "partyService" ? "Party" : "Product"} search service is not available.`,
+      suggestedTools: ["list_available_tools"],
+      context: { service: serviceKey },
+    },
+  };
+}
+
+/**
+ * Summarise a rejected search branch for the agent-facing payload.
+ *
+ * The underlying error is sanitized (a Prisma/driver message can embed a
+ * connection string or hostname) and capped so the payload stays bounded.
+ */
+function describeSearchFailure(reason: unknown): string {
+  const message = reason instanceof Error ? reason.message : String(reason);
+  return sanitizeForLogOutput(message).slice(0, 200);
 }
 
 // ─── Tool: explain_error ──────────────────────────────────────────
@@ -610,7 +708,7 @@ Example: explain_error({ errorCode: "INVALID_TYPE_VALUE" })`,
 // ─── Registration ─────────────────────────────────────────────────
 
 export function registerDiscoveryTools(registry: ToolRegistry, prisma: PrismaClient): void {
-  registry.register(createListAvailableTools(registry));
+  registry.register(createListAvailableTools(registry, prisma));
   registry.register(createGetTypeTableValues(prisma));
   registry.register(createDescribeEntity(prisma));
   registry.register(createGetValidTransitions());

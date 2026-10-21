@@ -205,24 +205,32 @@ export class ToolRegistry {
     const raw = (rawInput != null && typeof rawInput === "object" && !Array.isArray(rawInput))
       ? rawInput as Record<string, unknown>
       : null;
-    const effectiveContext: ToolContext =
-      raw?.idempotencyKey != null && !context.idempotencyKey
-        ? { ...auth.context, idempotencyKey: raw.idempotencyKey as string }
-        : auth.context;
 
-    // Strip the idempotency-key envelope ONCE, BEFORE any middleware runs.
+    // Promote the envelope keys and detect conflicting idempotency keys.
+    const promotion = ToolRegistry.promoteEnvelopeKeys(auth.context, raw);
+    if ("error" in promotion) return promotion.error;
+    const effectiveContext = promotion.context;
+
+    // Strip the envelope keys ONCE, BEFORE any middleware runs.
+    //
     // The idempotency middleware computes its input hash via
     // `definition.inputSchema.safeParse(input)`, and every tool schema is a
-    // z.strictObject that REJECTS the undeclared `idempotencyKey` key — so if
-    // the envelope were still present here, safeParse would fail for every
-    // idempotent call, the middleware would log "input failed Zod validation"
-    // and SKIP deduplication entirely (verified by probe: two identical calls
+    // z.strictObject that REJECTS undeclared keys — so if the envelope were
+    // still present here, safeParse would fail for every idempotent call,
+    // the middleware would log "input failed Zod validation" and SKIP
+    // deduplication entirely (verified by probe: two identical calls
     // with the same key both executed the handler; no record was ever
-    // created). Stripping here guarantees every middleware AND the final Zod
+    // created). The same strictness made the confirmation gate a dead end:
+    // it injected `confirmation` into the input, and the final Zod step
+    // rejected every gated tool with "Unrecognized key(s) in object:
+    // 'confirmation'", so the 7 seeded high-risk tools could never execute
+    // and their idempotency protection was silently disabled.
+    //
+    // Stripping here guarantees every middleware AND the final Zod
     // validation step see schema-conformant input. The final handler's own
     // strip remains as belt-and-suspenders in case a pipeline is invoked
     // through a path that bypasses execute().
-    const pipelineInput = ToolRegistry.stripPromotedIdempotencyKey(raw);
+    const pipelineInput = ToolRegistry.stripEnvelopeKeys(raw);
 
     // Check pipeline cache — rebuilt only on register() or addGlobalMiddleware()
     let pipeline = this.pipelineCache.get(name);
@@ -239,7 +247,7 @@ export class ToolRegistry {
         },
         // Final handler — validates input with Zod, then calls the handler
         async (input, ctx) => {
-          const parsed = definition.inputSchema.safeParse(ToolRegistry.stripPromotedIdempotencyKey(input));
+          const parsed = definition.inputSchema.safeParse(ToolRegistry.stripEnvelopeKeys(input));
           if (!parsed.success) {
             const issueString = parsed.error.issues
               .map((i) => `${i.path.map((p) => String(p)).join(".")}: ${i.message}`)
@@ -295,13 +303,15 @@ export class ToolRegistry {
   }
 
   /**
-   * Remove the idempotency-key envelope from raw input before schema
-   * validation. execute() promotes `idempotencyKey` into the context
-   * (which the idempotency middleware reads — it never reads the input
-   * field), and tool input schemas deliberately do not declare it. Strict
-   * tool schemas (z.strictObject, matching REST ValidationPipe's
-   * forbidNonWhitelisted posture) reject undeclared keys, so the envelope
-   * must be stripped first or every idempotent call would fail validation.
+   * Remove the envelope keys from raw input before schema validation.
+   *
+   * execute() promotes `idempotencyKey` and `confirmation` into the context
+   * (which the idempotency middleware and the confirmation gate read — they
+   * never read the input fields), and tool input schemas deliberately do not
+   * declare them. Strict tool schemas (z.strictObject, matching REST
+   * ValidationPipe's forbidNonWhitelisted posture) reject undeclared keys,
+   * so the envelope must be stripped first or every idempotent/gated call
+   * would fail validation.
    *
    * Called from TWO places by design:
    * - `execute()` strips before the PIPELINE runs, because the idempotency
@@ -312,11 +322,66 @@ export class ToolRegistry {
    *
    * Accepts `unknown`; non-object inputs pass through untouched.
    */
-  private static stripPromotedIdempotencyKey(input: unknown): unknown {
+  private static stripEnvelopeKeys(input: unknown): unknown {
     if (input == null || typeof input !== "object" || Array.isArray(input)) return input;
-    if (!("idempotencyKey" in input)) return input;
-    const { idempotencyKey: _promoted, ...rest } = input as Record<string, unknown>;
+    if (!("idempotencyKey" in input) && !("confirmation" in input)) return input;
+    const {
+      idempotencyKey: _promotedKey,
+      confirmation: _promotedConfirmation,
+      ...rest
+    } = input as Record<string, unknown>;
     return rest;
+  }
+
+  /**
+   * Promote the envelope keys from the raw tool arguments into the context,
+   * and reject conflicting idempotency keys.
+   *
+   * Tool schemas deliberately do not declare `idempotencyKey` or
+   * `confirmation` (see {@link stripEnvelopeKeys}), so the middleware
+   * pipeline reads them from the context — never from the parsed input.
+   *
+   * Precedence:
+   * - `idempotencyKey`: the context value wins (it is the dedup identity).
+   *   When the caller supplies TWO different keys — one in the context and
+   *   one in the tool arguments — the call FAILS CLOSED with
+   *   IDEMPOTENCY_KEY_MISMATCH. The previous implementation silently
+   *   preferred the context key and discarded the argument key, so the agent
+   *   believed it deduplicated under one key while the durable idempotency
+   *   record was keyed by the other.
+   * - `confirmation`: the tool-argument value wins — it is the agent's
+   *   per-call justification and it is what the confirmation gate validates.
+   *   A context-provided confirmation is only a fallback for callers that do
+   *   not pass one in the arguments.
+   */
+  private static promoteEnvelopeKeys(
+    context: ToolContext,
+    raw: Record<string, unknown> | null,
+  ): { error: ToolResult } | { context: ToolContext } {
+    if (raw?.idempotencyKey != null && context.idempotencyKey != null
+      && raw.idempotencyKey !== context.idempotencyKey) {
+      return {
+        error: {
+          success: false,
+          error: {
+            code: "IDEMPOTENCY_KEY_MISMATCH",
+            message: "Two different idempotency keys were supplied (one in the request context, one in the tool arguments). Use a single idempotency key.",
+            suggestedTools: ["list_available_tools"],
+          },
+        },
+      };
+    }
+    return {
+      context: {
+        ...context,
+        ...(raw?.idempotencyKey != null && !context.idempotencyKey
+          ? { idempotencyKey: raw.idempotencyKey as string }
+          : {}),
+        ...(raw?.confirmation != null
+          ? { confirmation: raw.confirmation as string }
+          : {}),
+      },
+    };
   }
 
   /**

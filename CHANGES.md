@@ -1,5 +1,216 @@
 # BestERP — Security & Architecture Fixes
 
+## Changes Applied (2026-10-21) — Code Review Round 270
+
+### 🔴 `confirmation-gate.ts` + `tool-registry.ts` — the confirmation gate was a dead end and silently disabled idempotency
+
+**Problem:** The confirmation gate injected the `confirmation` field into the
+tool INPUT so the audit middleware could capture it. Every tool schema is a
+`z.strictObject`, which REJECTS undeclared keys — so the final Zod step
+rejected **every gated tool** with `Unrecognized key(s) in object:
+'confirmation'`. The 7 high-risk tools seeded with an enabled gate
+(`create_party`, `add_party_role`, `add_contact_mechanism`, `register_agent`,
+`update_agent`, `deactivate_agent`, `delete_agent`) could therefore never
+execute. Worse, the idempotency middleware computes its input hash through the
+same strict schema, so the parse failed there too and idempotency was skipped
+entirely for those calls — the duplicate write the middleware exists to
+prevent. The middleware order compounded it: the gate ran INSIDE idempotency,
+so a request blocked for a missing confirmation still burned the caller's
+idempotency key.
+
+**Fix:**
+- `ToolRegistry.execute` now promotes BOTH envelope keys (`idempotencyKey`
+  and `confirmation`) onto the `ToolContext` and strips them from the
+  pipeline input (`stripEnvelopeKeys`, formerly `stripPromotedIdempotencyKey`).
+  Every middleware and the final Zod step now see schema-conformant input.
+- The confirmation gate validates `context.confirmation` and propagates the
+  SANITIZED value on the context; the input is left untouched.
+- `McpService.onModuleInit` registers the gate BEFORE the idempotency
+  middleware, so a rejected request never consumes an idempotency key.
+- The audit middleware writes the sanitized confirmation into the durable
+  `ai_action_log.toolInput`, preserving the audit intent of the original design.
+
+### 🔴 `tool-registry.ts` — two conflicting idempotency keys are now rejected
+
+**Problem:** When a caller supplied an idempotency key in BOTH the request
+context and the tool arguments, the registry silently preferred the context
+key and discarded the argument key. The agent believed it deduplicated under
+one key while the durable idempotency record was keyed by the other.
+
+**Fix:** The registry fails closed with `IDEMPOTENCY_KEY_MISMATCH` when the
+two keys differ.
+
+### 🔴 `agent-tools.ts` — `update_agent` silently dropped `isActive`
+
+**Problem:** `isActive` was declared in the update schema but never forwarded
+to `SecurityService.updateAgent`. The tool returned `success: true` while the
+agent stayed active — a silent data-integrity bug (the sibling
+`deactivate_agent` tool passes the flag correctly).
+
+**Fix:** Forward `isActive` in the update payload.
+
+### 🟠 `security.service.ts` — `maxTransactionAmount` was always reported as `null`
+
+**Problem:** `AgentRegistry.maxTransactionAmount` is a Prisma `Decimal?`, which
+the driver returns as an OBJECT. The result mapper used
+`typeof value === "number"`, so the branch was never taken and EVERY agent
+result reported `maxTransactionAmount: null` — an agent could not verify that
+a financial restriction had been applied. The bug was invisible in the tests
+because the mocks used plain numbers.
+
+**Fix:** Added `SecurityService.toTransactionAmount`, which converts a
+`Decimal` (via `toNumber()`, falling back to `toString()`) to a number.
+
+### 🟠 `security.service.ts` — `partyId` is validated as a UUID
+
+**Problem:** `partyId` is `Party`'s UUID primary key, but it was validated as
+a free-form string capped with `MAX_USER_ID_LENGTH` (a JWT user-id bound).
+The column is TEXT, so a malformed value was accepted and every lookup simply
+missed — the caller received `ENTITY_NOT_FOUND` instead of the actionable
+"must be a valid UUID" error.
+
+**Fix:** Added `SecurityService.requireUuid` (mirrors `PartyService` /
+`ProductService`) and used it in `createUser`, `getUser` and `updateLastLogin`.
+
+### 🟠 `product.service.ts` — user-supplied dates are validated before they are parsed
+
+**Problem:** `addProductPrice` called `parseISODateTimeAsUTC` without
+validating the input first. `"2024-06-31"` was accepted and silently rolled
+over to July 1 (a DIFFERENT day than requested); `"June 15, 2024"` was parsed
+as LOCAL midnight, shifting the stored instant by the host's UTC offset; and
+an unparseable string raised a plain `Error`, which the MCP error handler
+reported as an opaque `INTERNAL_ERROR`.
+
+**Fix:** Added `ProductService.parseOptionalDate` — trim → length cap →
+`isValidISODate` → `parseISODateTimeAsUTC`, with a structured
+`InvalidTypeValueError` for every rejection. The now-redundant
+`validateParsedDate` helper was removed.
+
+### 🟠 `product.service.ts` — `create_product` verifies category ownership
+
+**Problem:** `categoryId` was connected without any validation or
+tenant-ownership check. Postgres runs foreign-key checks with the table
+owner's rights, which BYPASS RLS, so a product could be linked to another
+tenant's category and that category's name could then be read back through
+`get_product`.
+
+**Fix:** Validate the id as a UUID, then look the category up with the
+tenant-scoped client inside the transaction and reject it with
+`EntityNotFoundError` when it does not belong to the tenant.
+
+### 🟠 `product.service.ts` / `party.service.ts` — missing typeof guards
+
+**Problem:** `features[].name` / `features[].value`, `priceType`,
+`currencyCode` and `description` were `.trim()`-ed without a type check. A
+direct/internal caller passing a non-string hit a raw `TypeError` that
+surfaced as a 500 `INTERNAL_ERROR` instead of the documented
+`InvalidTypeValueError`. `currencyCode: null` crashed on `.trim()` because the
+destructuring default only fires for `undefined`.
+
+**Fix:** Added the missing typeof guards (mirroring the round-151 party
+service guards) and switched the currency default to `??` semantics.
+
+### 🟠 `product.types.ts` — `UpdateProductInput.productTypeId` renamed to `productType`
+
+**Problem:** The field held a product type NAME but was named `productTypeId`
+— a UUID everywhere else in the codebase. A caller passing the actual
+`productTypeId` UUID received the misleading error
+`PRODUCT_TYPE '<uuid>' is not valid`.
+
+**Fix:** Renamed the field to `productType`, matching
+`CreateProductInput.productType`.
+
+### 🟡 `party.service.ts` — length caps now run on the sanitized value
+
+**Problem:** `addressLine1`, `city`, `areaCode` and `lineNumber` were capped
+against the RAW input, while both boundary layers (REST DTO, MCP Zod) and the
+storage sanitizers validate the STRIPPED value. An HTML-wrapped value that
+was valid after sanitization was rejected by the service but accepted
+everywhere else. The same divergence had already been fixed for `country` and
+telecom `countryCode`.
+
+**Fix:** Added `PartyService.requireSanitizedStringField` (strip → non-empty →
+cap) and used it for the four fields.
+
+### 🟡 `party.dto.ts` — optional date fields strip HTML
+
+**Problem:** The REST date transform trimmed but did not strip HTML, while the
+MCP `optionalIsoDate` schema strips before validating. The identical input
+`"<b>2024-01-01</b>"` was accepted on MCP and rejected on REST.
+
+**Fix:** The DTO transform now strips HTML, matching the MCP boundary. The
+service's `requireValidDate` strips too and returns the canonical value, so
+all three layers agree.
+
+### 🟡 `agent-tools.ts` / `security.service.ts` — agent array bounds
+
+**Problem:** `allowedEntityTypes` had NO length cap on any layer (it is a
+free-form JSON array with no database-side bound), and `update_agent`'s
+`capabilities` was missing the `.min(1)` / `.max(MAX_CAPABILITIES_LENGTH)`
+bounds that `register_agent` declares.
+
+**Fix:** Added `MAX_ALLOWED_ENTITY_TYPES_LENGTH` to the shared constants and
+enforced it in the Zod schema and the service; mirrored the capability bounds
+on the update schema.
+
+### 🟡 `discovery-tools.ts` — discovery reports confirmation requirements
+
+**Problem:** The `list_available_tools` description promised "confirmation
+requirements" but the payload never contained them, so an agent could only
+discover the requirement by hitting `CONFIRMATION_REQUIRED`.
+
+**Fix:** The discovery payload now carries `confirmationRequired` per tool,
+sourced from the database-backed `confirmation_gate` table (it degrades to
+"not required" when the table is unreachable, matching the gate's own
+fail-open behaviour).
+
+### 🟡 `discovery-tools.ts` — `search_across_entities` no longer hides failures
+
+**Problem:** The tool searched parties and products with `Promise.allSettled`
+and turned a rejected branch into `null`, so a database outage, an RLS
+failure or a domain error was indistinguishable from a genuinely empty
+result.
+
+**Fix:** A total failure returns a structured `SERVICE_UNAVAILABLE` error; a
+partial failure reports the branch that worked alongside the error for the
+one that did not.
+
+### 🟡 `error-handler.ts` — suggested tools are now real tool names
+
+**Problem:** The follow-up tools were DERIVED from the entity string
+(`search_${pluralize(entity)}` / `get_${entity}`), producing names that are
+not registered tools — entity `agent_registry` yielded
+`search_agent_registryies` and `get_agent_registry`, so an agent that
+followed the suggestion received `UNKNOWN_TOOL`.
+
+**Fix:** Added an optional `relatedTools` declaration to `ToolDefinition` and
+declared it for the party, product and agent tools. A tool that declares no
+mapping now suggests only itself, so every suggestion is callable.
+
+### 🟡 `audit-log.ts` — the failure code survives the durable audit sink
+
+**Problem:** The audit row stored the failure code under the key `code`, which
+the shared redactor treats as a sensitive field name and rewrote to
+`[REDACTED]` — the durable audit trail lost the only machine-readable
+discriminator for a failure (the idempotency sink stores the same value
+verbatim).
+
+**Fix:** The audit payload stores it under `errorCode`.
+
+### 🟡 Shared constants consolidated
+
+- `MIN_CONFIRMATION_LENGTH` / `MAX_CONFIRMATION_LENGTH` moved from the
+  confirmation gate into `@besterp/shared`.
+- `MAX_REQUEST_ID_LENGTH` moved from `common/request-id.ts` into
+  `@besterp/shared`.
+- `MAX_PARTY_TYPE_LENGTH` added (the party-type filter previously reused the
+  role-type cap).
+- `MAX_ALLOWED_ENTITY_TYPES_LENGTH` added.
+- The two private "transaction timeout" constants (`tenant.ts`,
+  `rls-extension.ts`) are now the shared `TENANT_SCOPE_TX_TIMEOUT_MS`, so the
+  timeout contract is discoverable from one place. `TX_TIMEOUT_MS` remains the
+  bound for the domain services' multi-statement transactions.
+
 ## Changes Applied (2026-09-18) — Code Review Round 254
 
 ### 🟡 `eslint.config.js` — removed disallowed `**` glob from `allowDefaultProject`

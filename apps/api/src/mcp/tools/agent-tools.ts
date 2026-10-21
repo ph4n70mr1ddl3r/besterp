@@ -18,6 +18,7 @@ import {
   MAX_VERSION_LENGTH,
   MAX_CAPABILITIES_LENGTH,
   MAX_CAPABILITY_STRING_LENGTH,
+  MAX_ALLOWED_ENTITY_TYPES_LENGTH,
   MAX_ENTITY_LENGTH,
   DEFAULT_SEARCH_LIMIT,
   MIN_SEARCH_LIMIT,
@@ -110,7 +111,9 @@ const registerAgentSchema = z.strictObject({
     .describe(`Max concurrent conversations (default: ${DEFAULT_MAX_CONCURRENT_CONVERSATIONS})`),
   maxTransactionAmount: z.number().min(0).optional()
     .describe("Per-operation financial limit in tenant base currency (default: 0 = unlimited)"),
-  allowedEntityTypes: z.array(z.string().transform((s) => stripHtmlTags(s.trim())).pipe(z.string().min(1).max(MAX_ENTITY_LENGTH))).optional()
+  allowedEntityTypes: z.array(z.string().transform((s) => stripHtmlTags(s.trim())).pipe(z.string().min(1).max(MAX_ENTITY_LENGTH)))
+    .max(MAX_ALLOWED_ENTITY_TYPES_LENGTH)
+    .optional()
     .describe("Entity types this agent can interact with (e.g., ['party', 'order'])"),
   rateLimitPerMinute: z.number().int().min(MIN_RATE_LIMIT_PER_MINUTE).max(MAX_RATE_LIMIT_PER_MINUTE).optional()
     .describe(`Max tool calls per minute (default: ${DEFAULT_RATE_LIMIT_PER_MINUTE})`),
@@ -138,6 +141,7 @@ Example: Register a sales assistant agent
 
   riskLevel: "high",
   entity: "agent_registry",
+  relatedTools: { get: "describe_agent", search: "list_agents" },
   tags: ["security", "agent", "create"],
 
   handler: async (inputRaw: unknown, context: ToolContext) => {
@@ -189,6 +193,7 @@ agent configuration before using them in tool calls.`,
 
   riskLevel: "none",
   entity: "agent_registry",
+  relatedTools: { get: "describe_agent", search: "list_agents" },
   tags: ["security", "agent", "read"],
 
   handler: async (inputRaw: unknown, context: ToolContext) => {
@@ -235,6 +240,7 @@ Use this before calling tools that require agent-specific permissions.`,
 
   riskLevel: "none",
   entity: "agent_registry",
+  relatedTools: { get: "describe_agent", search: "list_agents" },
   tags: ["security", "agent", "discovery"],
 
   handler: async (inputRaw: unknown, context: ToolContext) => {
@@ -261,7 +267,10 @@ const updateAgentSchema = z.strictObject({
     .pipe(z.string().min(1).max(MAX_AGENT_DESCRIPTION_LENGTH))
     .optional()
     .describe("New description"),
-  capabilities: z.array(z.string().transform((s) => stripHtmlTags(s.trim())).pipe(z.string().min(1).max(MAX_CAPABILITY_STRING_LENGTH))).optional()
+  capabilities: z.array(z.string().transform((s) => stripHtmlTags(s.trim())).pipe(z.string().min(1).max(MAX_CAPABILITY_STRING_LENGTH)))
+    .min(1)
+    .max(MAX_CAPABILITIES_LENGTH)
+    .optional()
     .describe("Updated capability list"),
   version: z.string()
     .transform((s) => stripHtmlTags(s.trim()))
@@ -274,7 +283,9 @@ const updateAgentSchema = z.strictObject({
     .describe(`Max concurrent conversations (default: ${DEFAULT_MAX_CONCURRENT_CONVERSATIONS})`),
   maxTransactionAmount: z.number().min(0).optional()
     .describe("Per-operation financial limit in tenant base currency (default: 0 = unlimited)"),
-  allowedEntityTypes: z.array(z.string().transform((s) => stripHtmlTags(s.trim())).pipe(z.string().min(1).max(MAX_ENTITY_LENGTH))).optional()
+  allowedEntityTypes: z.array(z.string().transform((s) => stripHtmlTags(s.trim())).pipe(z.string().min(1).max(MAX_ENTITY_LENGTH)))
+    .max(MAX_ALLOWED_ENTITY_TYPES_LENGTH)
+    .optional()
     .describe("Entity types this agent can interact with (e.g., ['party', 'order'])"),
   rateLimitPerMinute: z.number().int().min(MIN_RATE_LIMIT_PER_MINUTE).max(MAX_RATE_LIMIT_PER_MINUTE).optional()
     .describe(`Max tool calls per minute (default: ${DEFAULT_RATE_LIMIT_PER_MINUTE})`),
@@ -298,6 +309,7 @@ Only specified fields are updated; omitting a field leaves it unchanged.`,
 
   riskLevel: "high",
   entity: "agent_registry",
+  relatedTools: { get: "describe_agent", search: "list_agents" },
   tags: ["security", "agent", "update"],
 
   handler: async (inputRaw: unknown, context: ToolContext) => {
@@ -315,6 +327,10 @@ Only specified fields are updated; omitting a field leaves it unchanged.`,
       ...(input.maxTransactionAmount !== undefined && { maxTransactionAmount: input.maxTransactionAmount }),
       ...(input.allowedEntityTypes !== undefined && { allowedEntityTypes: input.allowedEntityTypes }),
       ...(input.rateLimitPerMinute !== undefined && { rateLimitPerMinute: input.rateLimitPerMinute }),
+      // `isActive` was accepted by the schema but never forwarded to the
+      // service, so the tool reported success while the agent stayed active
+      // (a silent data-integrity bug). Forward it explicitly.
+      ...(input.isActive !== undefined && { isActive: input.isActive }),
     };
     const agent = await svc.updateAgent(updateInput);
     return {
@@ -346,6 +362,7 @@ Use this instead of delete_agent when you want to temporarily disable an agent.`
 
   riskLevel: "critical",
   entity: "agent_registry",
+  relatedTools: { get: "describe_agent", search: "list_agents" },
   tags: ["security", "agent", "update"],
 
   handler: async (inputRaw: unknown, context: ToolContext) => {
@@ -387,6 +404,7 @@ disable an agent instead.`,
 
   riskLevel: "critical",
   entity: "agent_registry",
+  relatedTools: { get: "describe_agent", search: "list_agents" },
   tags: ["security", "agent", "delete"],
 
   handler: async (inputRaw: unknown, context: ToolContext) => {

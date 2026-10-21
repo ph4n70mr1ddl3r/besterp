@@ -15,6 +15,7 @@ import {
   ConcurrencyConflictError,
   MAX_SEARCH_LIMIT,
   MAX_SEARCH_OFFSET,
+  MAX_ADDRESS_LINE_LENGTH,
 } from "@besterp/shared";
 
 /** Create a mock Prisma return object with all fields toPartyResult needs. */
@@ -336,6 +337,23 @@ describe("PartyService", () => {
       };
 
       await expect(partyService.createParty(input)).rejects.toThrow(InvalidTypeValueError);
+    });
+
+    it("should reject a non-string description", async () => {
+      // `name` is type-guarded but `description` was not — a direct/internal
+      // caller passing a number hit `description.trim` and got a raw
+      // TypeError (a 500 INTERNAL_ERROR) instead of the structured
+      // InvalidTypeValueError every other field produces.
+      const input = {
+        tenantId: "tenant-1",
+        partyType: "PERSON",
+        name: "John Doe",
+        description: 42,
+        person: { firstName: "John", lastName: "Doe" },
+      } as any;
+
+      await expect(partyService.createParty(input)).rejects.toThrow(InvalidTypeValueError);
+      await expect(partyService.createParty(input)).rejects.toThrow("'description' must be a string");
     });
 
     it("should throw error for whitespace-only name", async () => {
@@ -1708,6 +1726,64 @@ describe("PartyService", () => {
       expect(result.contactMechanismId).toBe("contact-123");
       expect(result.contactMechanismType).toBe("POSTAL_ADDRESS");
       expect(result.postalAddress?.addressLine1).toBe("123 Main St");
+    });
+
+    it("should apply the length cap to the sanitized addressLine1", async () => {
+      // The stored value is the HTML-stripped one and BOTH boundary layers
+      // (REST @sanitizeTransform + @MaxLength, MCP sanitizedString) cap the
+      // STRIPPED value — so the service must too. The raw cap previously
+      // rejected values the other layers accept.
+      mockAdminTypes();
+      const input = {
+        tenantId: "tenant-1",
+        partyId: "12345678-1234-1234-1234-123456789abc",
+        contactMechanismType: "POSTAL_ADDRESS" as const,
+        postalAddress: {
+          addressLine1: `<b>${"x".repeat(MAX_ADDRESS_LINE_LENGTH)}</b>`,
+          city: "Anytown",
+          country: "US",
+        },
+      } as any;
+
+      const mockDb = {
+        contactMechanismType: {
+          findUnique: vi.fn().mockResolvedValue({ contactMechanismTypeId: "cmt-postal" }),
+        },
+        $transaction: vi.fn().mockImplementation(async (fn) => fn({
+          party: { findUnique: vi.fn().mockResolvedValue({ partyId: "12345678-1234-1234-1234-123456789abc" }) },
+          contactMechanism: {
+            create: vi.fn().mockResolvedValue({
+              contactMechanismId: "contact-123",
+              contactMechanismTypeId: "cmt-postal",
+              contactMechanismType: { name: "POSTAL_ADDRESS", contactMechanismTypeId: "cmt-postal" },
+              postalAddress: { addressLine1: "x", addressLine2: null, city: "Anytown", stateProvince: null, postalCode: null, country: "US" },
+              telecomNumber: null,
+              emailAddress: null,
+            }),
+          },
+        })),
+      };
+      mockPrismaService.tenantScoped.mockReturnValue(mockDb);
+
+      // The sanitized value is exactly MAX_ADDRESS_LINE_LENGTH characters —
+      // long enough raw, within bounds once stripped — so it must be ACCEPTED.
+      await expect(partyService.addContactMechanism(input)).resolves.toBeDefined();
+    });
+
+    it("should reject a contact mechanism type that is not a string", async () => {
+      mockAdminTypes();
+      const input = {
+        tenantId: "tenant-1",
+        partyId: "12345678-1234-1234-1234-123456789abc",
+        contactMechanismType: 42,
+      } as any;
+
+      const err = await partyService.addContactMechanism(input).catch((e) => e);
+      expect(err).toBeInstanceOf(InvalidTypeValueError);
+      // The failing operation is add_contact_mechanism — the suggestion must
+      // point at the operation the caller was performing, not at a
+      // read-only lookup.
+      expect(err.suggestedTools).toEqual(["add_contact_mechanism"]);
     });
 
     it("should reject a postal address whose required field sanitizes to empty (defense-in-depth)", async () => {

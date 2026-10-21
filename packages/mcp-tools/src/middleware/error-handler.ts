@@ -92,10 +92,32 @@ interface PrismaErrorResult {
     context?: Record<string, unknown>;
   };
 }
-type ErrorFactory = (entityName: string, entityPlural: string, definition: { name: string }, prismaMeta: { target?: string | string[] } | undefined) => PrismaErrorResult | null;
+
+/**
+ * The follow-up tools the agent may call for the failing entity.
+ *
+ * Both names come from the tool definition's `relatedTools` declaration —
+ * they are guaranteed to be REGISTERED tool names. The previous
+ * implementation derived them from the entity string
+ * (`search_${pluralize(entity)}` / `get_${entity}`), which produced names
+ * that do not exist ("search_agent_registryies", "get_type_table"), so an
+ * agent that followed the suggestion received UNKNOWN_TOOL. When a tool
+ * declares no mapping, only the failing tool and `list_available_tools` are
+ * suggested — every suggestion must be callable.
+ */
+interface RelatedTools {
+  get?: string;
+  search?: string;
+}
+
+function resolveRelatedTools(definition: { name: string; relatedTools?: RelatedTools }): RelatedTools {
+  return definition.relatedTools ?? {};
+}
+
+type ErrorFactory = (entityName: string, entityPlural: string, definition: { name: string; relatedTools?: RelatedTools }, prismaMeta: { target?: string | string[] } | undefined) => PrismaErrorResult | null;
 
 const PRISMA_ERROR_HANDLERS: Record<string, ErrorFactory> = {
-  P2002(_entityName, entityPlural, definition, prismaMeta) {
+  P2002(_entityName, _entityPlural, definition, prismaMeta) {
     // meta.target is a schema-derived field/column name, but it is
     // user-influenced in compound-constraint scenarios and is echoed to the
     // agent (and into context.conflictingFields). Sanitize it like every
@@ -103,43 +125,49 @@ const PRISMA_ERROR_HANDLERS: Record<string, ErrorFactory> = {
     // target cannot inject ANSI/CRLF into the agent-facing message.
     const rawTarget = Array.isArray(prismaMeta?.target) ? prismaMeta.target.join(", ") : prismaMeta?.target;
     const target = rawTarget ? sanitizeForLogOutput(rawTarget) : undefined;
+    const related = resolveRelatedTools(definition);
+    const searchHint = related.search ? ` Use '${related.search}' to find existing records.` : "";
     return {
       success: false,
       error: {
         code: "DUPLICATE_ENTITY",
-        message: `A duplicate entity already exists.${target ? ` Conflicting field(s): ${target}.` : ""} Use 'search_${entityPlural}' to find existing records.`,
-        suggestedTools: [`search_${entityPlural}`, definition.name],
+        message: `A duplicate entity already exists.${target ? ` Conflicting field(s): ${target}.` : ""}${searchHint}`,
+        suggestedTools: [related.search, definition.name].filter((t): t is string => t !== undefined),
         context: target ? { conflictingFields: target } : undefined,
       },
     };
   },
-  P2025(entityName, entityPlural) {
+  P2025(entityName, _entityPlural, definition) {
+    const related = resolveRelatedTools(definition);
+    const searchHint = related.search ? ` Use '${related.search}' to find valid records.` : "";
     return {
       success: false,
       error: {
         code: "ENTITY_NOT_FOUND",
-        message: `The '${entityName}' entity was not found. Use 'search_${entityPlural}' to find valid records.`,
-        suggestedTools: [`search_${entityPlural}`, `get_${entityName}`],
+        message: `The '${entityName}' entity was not found.${searchHint}`,
+        suggestedTools: [related.search, related.get, definition.name].filter((t): t is string => t !== undefined),
       },
     };
   },
-  P2034(entityName, _entityPlural, definition) {
+  P2034(_entityName, _entityPlural, definition) {
+    const related = resolveRelatedTools(definition);
     return {
       success: false,
       error: {
         code: "CONCURRENCY_CONFLICT",
         message: `The '${definition.name}' operation conflicted with a concurrent update. Re-fetch the entity and retry with the same idempotency key (do not use a new key).`,
-        suggestedTools: [`get_${entityName}`, definition.name],
+        suggestedTools: [related.get, definition.name].filter((t): t is string => t !== undefined),
       },
     };
   },
   P2003(_entityName, entityPlural, definition) {
+    const related = resolveRelatedTools(definition);
     return {
       success: false,
       error: {
         code: "REFERENCE_ERROR",
         message: `A referenced entity was not found. Check foreign key values and ensure all referenced ${entityPlural} exist.`,
-        suggestedTools: [`search_${entityPlural}`, definition.name],
+        suggestedTools: [related.search, definition.name].filter((t): t is string => t !== undefined),
       },
     };
   },
@@ -154,12 +182,13 @@ const PRISMA_ERROR_HANDLERS: Record<string, ErrorFactory> = {
     };
   },
   P2014(_entityName, entityPlural, definition) {
+    const related = resolveRelatedTools(definition);
     return {
       success: false,
       error: {
         code: "REFERENCE_ERROR",
         message: `A required relation is missing or violates a constraint. Check that all required related ${entityPlural} exist and are properly linked.`,
-        suggestedTools: [`search_${entityPlural}`, definition.name],
+        suggestedTools: [related.search, definition.name].filter((t): t is string => t !== undefined),
       },
     };
   },
@@ -174,12 +203,13 @@ const PRISMA_ERROR_HANDLERS: Record<string, ErrorFactory> = {
     };
   },
   P2028(entityName, _entityPlural, definition) {
+    const related = resolveRelatedTools(definition);
     return {
       success: false,
       error: {
         code: "CONCURRENCY_CONFLICT",
         message: `The '${definition.name}' operation on ${entityName} timed out. Re-fetch the entity and retry with the same idempotency key (do not use a new key).`,
-        suggestedTools: [`get_${entityName}`, definition.name],
+        suggestedTools: [related.get, definition.name].filter((t): t is string => t !== undefined),
       },
     };
   },
@@ -197,7 +227,7 @@ const PRISMA_ERROR_HANDLERS: Record<string, ErrorFactory> = {
 
 const CONNECTION_ERROR_CODES = new Set(["P1000", "P1001", "P1002", "P1003", "P1008", "P1017"]);
 
-function handlePrismaError(prismaCode: string, prismaMeta: { target?: string | string[] } | undefined, entityName: string, entityPlural: string, definition: { name: string }): PrismaErrorResult | null {
+function handlePrismaError(prismaCode: string, prismaMeta: { target?: string | string[] } | undefined, entityName: string, entityPlural: string, definition: { name: string; relatedTools?: RelatedTools }): PrismaErrorResult | null {
   if (CONNECTION_ERROR_CODES.has(prismaCode)) {
     return {
       success: false,

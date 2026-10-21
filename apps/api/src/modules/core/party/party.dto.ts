@@ -88,26 +88,33 @@ function optionalSanitizeTransform(): PropertyDecorator {
 }
 
 /**
- * Optional ISO 8601 date transform: trims whitespace, collapses whitespace-only
- * to undefined so @IsOptional() skips it — matching the MCP boundary's
- * optionalIsoDate contract exactly. Previously only birthDate/registrationDate
- * had this guard; AddPartyRoleDto.fromDate was missed (round 169), so a
- * whitespace-padded fromDate like " 2024-01-15T00:00:00.000Z " passed the
- * DTO layer on MCP but 422'd on REST. Apply uniformly to every optional date
- * field so the two surfaces stay in sync.
+ * Optional ISO 8601 date transform: trims whitespace, strips HTML, and
+ * collapses whitespace-only to undefined so @IsOptional() skips it —
+ * matching the MCP boundary's optionalIsoDate contract exactly. Previously
+ * only birthDate/registrationDate had this guard; AddPartyRoleDto.fromDate
+ * was missed (round 169), so a whitespace-padded fromDate like
+ * " 2024-01-15T00:00:00.000Z " passed the DTO layer on MCP but 422'd on
+ * REST. Apply uniformly to every optional date field so the two surfaces
+ * stay in sync.
+ *
+ * HTML is stripped for the same reason: the MCP schema validates the
+ * STRIPPED value, so without it the identical input "<b>2024-01-01</b>" was
+ * accepted on MCP and rejected on REST — a cross-surface divergence.
  */
 function optionalIsoDateTransform(): PropertyDecorator {
-  return Transform(({ value }: TransformFnParams) =>
-    typeof value === "string" ? (value.trim().length === 0 ? undefined : value.trim()) : value,
-  );
+  return Transform(({ value }: TransformFnParams) => {
+    if (typeof value !== "string") return value;
+    const sanitized = stripHtmlTags(value.trim());
+    return sanitized.length === 0 ? undefined : sanitized;
+  });
 }
 
 // ─── Date validator ─────────────────────────────────────────────
 
 /**
- * Enforces the same strict ISO 8601 UTC (`...Z`) format the service layer
- * requires via `isValidISODate`. class-validator's built-in `@IsDateString`
- * accepts date-only strings like "2024-06-15", which would otherwise pass the
+ * Enforces the same strict ISO 8601 format the service layer requires via
+ * `isValidISODate`. class-validator's built-in `@IsDateString` accepts
+ * date-only strings like "2024-06-15", which would otherwise pass the
  * DTO layer and then fail later at the service layer with a confusing error —
  * so we validate the canonical format up front, matching the MCP Zod path.
  */
@@ -120,7 +127,7 @@ class IsValidISODateConstraint implements ValidatorConstraintInterface {
   defaultMessage(args: ValidationArguments): string {
     const rawValue = (args.object as Record<string, unknown>)[args.property];
     const sanitized = typeof rawValue === "string" ? sanitizeForLogOutput(rawValue) : String(rawValue ?? args.property);
-    return `${sanitized} must be a valid ISO 8601 UTC date (e.g. 2024-06-15T00:00:00.000Z)`;
+    return `${sanitized} must be a valid ISO 8601 date (e.g. 2024-06-15 or 2024-06-15T00:00:00.000Z)`;
   }
 }
 

@@ -14,6 +14,8 @@ import {
   sanitizeForLogOutput,
   stripHtmlTags,
   parseISODateTimeAsUTC,
+  isValidISODate,
+  MAX_DATE_STRING_LENGTH,
   MAX_PARTY_NAME_LENGTH,
   MAX_PARTY_DESCRIPTION_LENGTH,
   MAX_PRODUCT_TYPE_LENGTH,
@@ -80,6 +82,12 @@ export class ProductService {
 
     const db: TenantScopedClient = this.prisma.tenantScoped(trimmedTenantId);
 
+    // Validate the category id shape BEFORE opening the transaction — a
+    // malformed UUID never needs a round trip.
+    const categoryId = input.categoryId
+      ? ProductService.requireUuid(input.categoryId, "categoryId", ["create_product"])
+      : undefined;
+
     try {
       const product = await db.$transaction(async (tx) => {
         const data: Prisma.ProductCreateInput = {
@@ -90,8 +98,23 @@ export class ProductService {
           sku: trimmedSku,
         };
 
-        if (input.categoryId) {
-          data.category = { connect: { productCategoryId: input.categoryId } };
+        if (categoryId) {
+          // The category is a tenant-scoped row, and Postgres runs foreign-key
+          // checks with the table owner's rights — which BYPASS RLS. Without an
+          // explicit, tenant-scoped lookup, a caller could link a product to
+          // another tenant's category and then read that category's name back
+          // through getProduct. Verify ownership inside the transaction.
+          const category = await tx.productCategory.findFirst({
+            where: { productCategoryId: categoryId, tenantId: trimmedTenantId },
+            select: { productCategoryId: true },
+          });
+          if (!category) {
+            throw new EntityNotFoundError(
+              `Product category '${categoryId}' not found in tenant '${trimmedTenantId}'.`,
+              { suggestedTools: ["create_product"], context: { categoryId, tenantId: trimmedTenantId } }
+            );
+          }
+          data.category = { connect: { productCategoryId: categoryId } };
         }
 
         if (validatedFeatures && validatedFeatures.length > 0) {
@@ -140,6 +163,20 @@ export class ProductService {
     let validatedFeatures = undefined;
     if (features && features.length > 0) {
       validatedFeatures = features.map((f) => {
+        // Type-check before .trim(): a direct/internal caller bypassing the
+        // DTO/Zod bounds could pass a non-string feature, and `f.name.trim`
+        // throws a raw TypeError that surfaces as a 500 INTERNAL_ERROR instead
+        // of the documented InvalidTypeValueError (the same class the party
+        // service fixed in round 151).
+        if (!f || typeof f !== "object") {
+          throw new InvalidTypeValueError("'features' must be an array of { name, value } objects.", { suggestedTools: ["create_product"], context: { field: "features", received: typeof f } });
+        }
+        if (typeof f.name !== "string") {
+          throw new InvalidTypeValueError("'featureName' must be a string.", { suggestedTools: ["create_product"], context: { field: "featureName", received: typeof f.name } });
+        }
+        if (typeof f.value !== "string") {
+          throw new InvalidTypeValueError("'featureValue' must be a string.", { suggestedTools: ["create_product"], context: { field: "featureValue", received: typeof f.value } });
+        }
         const trimmedName = ProductService.requireNonEmptyString(f.name.trim(), "featureName", MAX_FEATURE_NAME_LENGTH, "create_product");
         const trimmedValue = ProductService.requireNonEmptyString(f.value.trim(), "featureValue", MAX_FEATURE_VALUE_LENGTH, "create_product");
         return { name: trimmedName, value: trimmedValue };
@@ -243,7 +280,7 @@ export class ProductService {
     const productId = ProductService.requireUuid(rawProductId, "productId", ["update_product"]);
 
     const updateData = ProductService.buildUpdateData(updates, "update_product");
-    await ProductService.validateUpdateProductType(updates.productTypeId, updateData, "update_product", this.prisma);
+    await ProductService.validateUpdateProductType(updates.productType, updateData, "update_product", this.prisma);
 
     const db: TenantScopedClient = this.prisma.tenantScoped(trimmedTenantId);
 
@@ -275,32 +312,32 @@ export class ProductService {
   }
 
   private static async validateUpdateProductType(
-    productTypeId: string | undefined,
+    productType: string | undefined,
     updateData: Prisma.ProductUpdateInput,
     tool: string,
     prisma: PrismaService,
   ): Promise<void> {
-    if (productTypeId !== undefined && typeof productTypeId !== "string") {
-      throw new InvalidTypeValueError("'productTypeId' must be a string.", { suggestedTools: [tool], context: { field: "productTypeId", received: typeof productTypeId } });
+    if (productType !== undefined && typeof productType !== "string") {
+      throw new InvalidTypeValueError("'productType' must be a string.", { suggestedTools: [tool], context: { field: "productType", received: typeof productType } });
     }
-    if (productTypeId !== undefined) {
-      const trimmedProductTypeId = stripHtmlTags(productTypeId.trim());
-      if (trimmedProductTypeId.length === 0) {
-        throw new InvalidTypeValueError("'productType' must contain visible characters after HTML sanitization.", { suggestedTools: ["update_product"], context: { field: "productType" } });
+    if (productType !== undefined) {
+      const trimmedProductType = stripHtmlTags(productType.trim());
+      if (trimmedProductType.length === 0) {
+        throw new InvalidTypeValueError("'productType' must contain visible characters after HTML sanitization.", { suggestedTools: [tool], context: { field: "productType" } });
       }
-      if (trimmedProductTypeId.length > MAX_PRODUCT_TYPE_LENGTH) {
-        throw new InvalidTypeValueError(`'productType' exceeds maximum length of ${MAX_PRODUCT_TYPE_LENGTH} characters.`, { suggestedTools: ["update_product"], context: { field: "productType", length: trimmedProductTypeId.length } });
+      if (trimmedProductType.length > MAX_PRODUCT_TYPE_LENGTH) {
+        throw new InvalidTypeValueError(`'productType' exceeds maximum length of ${MAX_PRODUCT_TYPE_LENGTH} characters.`, { suggestedTools: [tool], context: { field: "productType", length: trimmedProductType.length } });
       }
       let pt;
       try {
-        pt = await prisma.admin.productType.findUnique({ where: { name: trimmedProductTypeId } });
+        pt = await prisma.admin.productType.findUnique({ where: { name: trimmedProductType } });
       } catch (err) {
-        throw mapPrismaError(err, "update_product", "update_product", "product");
+        throw mapPrismaError(err, tool, tool, "product");
       }
       if (!pt) {
         throw new InvalidTypeValueError(
-          `PRODUCT_TYPE '${sanitizeForLogOutput(trimmedProductTypeId)}' is not valid.`,
-          { suggestedTools: ["get_type_table_values"], context: { field: "productTypeId", invalidValue: sanitizeForLogOutput(trimmedProductTypeId) } }
+          `PRODUCT_TYPE '${sanitizeForLogOutput(trimmedProductType)}' is not valid. Use 'get_type_table_values' to see available product types.`,
+          { suggestedTools: ["get_type_table_values"], context: { field: "productType", invalidValue: sanitizeForLogOutput(trimmedProductType) } }
         );
       }
       updateData.productType = { connect: { productTypeId: pt.productTypeId } };
@@ -370,7 +407,7 @@ export class ProductService {
   // ─── Add Product Price ────────────────────────────────────────
 
   async addProductPrice(input: AddProductPriceInput): Promise<ProductPriceResult> {
-    const { tenantId, productId: rawProductId, priceType, amount, currencyCode = DEFAULT_CURRENCY_CODE, fromDate, thruDate } = input;
+    const { tenantId, productId: rawProductId, priceType, amount, currencyCode, fromDate, thruDate } = input;
 
     const trimmedTenantId = ProductService.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "add_product_price");
     const productId = ProductService.requireUuid(rawProductId, "productId", ["add_product_price"]);
@@ -425,23 +462,70 @@ export class ProductService {
   /** Parse and validate date fields for addProductPrice.
    *  Extracted from addProductPrice to keep its complexity under the lint cap. */
   private static parsePriceDates(
-    priceType: string,
+    priceType: unknown,
     amount: number,
-    currencyCode: string,
+    currencyCode: unknown,
     fromDate: string | null | undefined,
     thruDate: string | null | undefined,
     tool: string,
   ): { priceType: string; amount: number; currencyCode: string; fromDate: Date; thruDate: Date | null } {
+    // Type-check before .trim(): a direct/internal caller bypassing the Zod
+    // boundary could pass a non-string, and `priceType.trim` throws a raw
+    // TypeError that surfaces as an opaque 500 INTERNAL_ERROR instead of the
+    // documented InvalidTypeValueError.
+    if (typeof priceType !== "string") {
+      throw new InvalidTypeValueError("'priceType' must be a string.", { suggestedTools: [tool], context: { field: "priceType", received: typeof priceType } });
+    }
+    if (currencyCode !== undefined && currencyCode !== null && typeof currencyCode !== "string") {
+      throw new InvalidTypeValueError("'currencyCode' must be a string.", { suggestedTools: [tool], context: { field: "currencyCode", received: typeof currencyCode } });
+    }
     const trimmedPriceType = stripHtmlTags(priceType.trim());
-    const trimmedCurrencyCode = stripHtmlTags(currencyCode.trim()).toUpperCase();
+    // `?? DEFAULT_CURRENCY_CODE` (not `||`) so an explicit empty string is
+    // still reported as invalid rather than silently defaulted — the
+    // `= DEFAULT_CURRENCY_CODE` destructuring default only fires for
+    // `undefined`, and a `null` value would have crashed on `.trim()`.
+    const trimmedCurrencyCode = stripHtmlTags((currencyCode ?? DEFAULT_CURRENCY_CODE).trim()).toUpperCase();
     ProductService.validatePriceAmount(amount, tool);
     ProductService.validatePriceType(trimmedPriceType, tool);
     ProductService.validatePriceCurrencyCode(trimmedCurrencyCode, tool);
-    const parsedFromDate = fromDate ? parseISODateTimeAsUTC(fromDate) : new Date();
-    ProductService.validateParsedDate(parsedFromDate, "fromDate", fromDate, tool);
-    const parsedThruDate = thruDate ? parseISODateTimeAsUTC(thruDate) : null;
-    ProductService.validateParsedDate(parsedThruDate, "thruDate", thruDate, tool);
+    const parsedFromDate = ProductService.parseOptionalDate(fromDate, "fromDate", tool) ?? new Date();
+    const parsedThruDate = ProductService.parseOptionalDate(thruDate, "thruDate", tool);
     return { priceType: trimmedPriceType.toUpperCase(), amount, currencyCode: trimmedCurrencyCode, fromDate: parsedFromDate, thruDate: parsedThruDate };
+  }
+
+  /**
+   * Parse an optional user-supplied date string.
+   *
+   * The value is validated with `isValidISODate` BEFORE it is parsed: the
+   * shared parse helper only converts a string to a Date, so without this
+   * check `"2024-06-31"` silently rolled over to July 1 and
+   * `"June 15, 2024"` was parsed as LOCAL midnight — shifting the stored
+   * instant by the host's UTC offset. An unparseable string also raised a
+   * plain `Error`, which the MCP error handler reported as an opaque
+   * INTERNAL_ERROR instead of the structured INVALID_TYPE_VALUE every other
+   * invalid input produces.
+   *
+   * An absent/blank value returns null ("not provided"), matching the
+   * boundary layers (the REST DTO transform and the MCP `optionalIsoDate`
+   * schema both normalise a blank value to "not provided").
+   */
+  private static parseOptionalDate(value: string | null | undefined, field: string, tool: string): Date | null {
+    if (value === undefined || value === null) return null;
+    if (typeof value !== "string") {
+      throw new InvalidTypeValueError(`'${field}' must be an ISO 8601 date string.`, { suggestedTools: [tool], context: { field, received: typeof value } });
+    }
+    const trimmed = value.trim();
+    if (trimmed.length === 0) return null;
+    if (trimmed.length > MAX_DATE_STRING_LENGTH) {
+      throw new InvalidTypeValueError(`'${field}' exceeds maximum length of ${MAX_DATE_STRING_LENGTH} characters.`, { suggestedTools: [tool], context: { field, length: trimmed.length } });
+    }
+    if (!isValidISODate(trimmed)) {
+      throw new InvalidTypeValueError(
+        `'${field}' is not a valid ISO 8601 date. Received: ${sanitizeForLogOutput(trimmed)}.`,
+        { suggestedTools: [tool], context: { field, invalidValue: sanitizeForLogOutput(trimmed) } }
+      );
+    }
+    return parseISODateTimeAsUTC(trimmed);
   }
 
   private static validatePriceAmount(amount: number, tool: string): void {
@@ -468,12 +552,6 @@ export class ProductService {
     }
     if (currencyCode.length !== MAX_CURRENCY_CODE_LENGTH) {
       throw new InvalidTypeValueError(`'currencyCode' must be ${MAX_CURRENCY_CODE_LENGTH} characters.`, { suggestedTools: [tool], context: { field: "currencyCode", length: currencyCode.length } });
-    }
-  }
-
-  private static validateParsedDate(date: Date | null, field: string, rawValue: unknown, tool: string): void {
-    if (date && isNaN(date.getTime())) {
-      throw new InvalidTypeValueError(`'${field}' must be a valid ISO 8601 date.`, { suggestedTools: [tool], context: { field, invalidValue: sanitizeForLogOutput(typeof rawValue === "string" ? rawValue : "") } });
     }
   }
 

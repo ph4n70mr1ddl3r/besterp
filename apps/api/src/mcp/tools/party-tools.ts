@@ -277,6 +277,7 @@ For idempotent writes, pass an idempotencyKey (string, max 500 chars) along with
 
   riskLevel: "high",
   entity: "party",
+  relatedTools: { get: "get_party", search: "search_parties" },
   tags: ["party", "create", "core"],
 
   handler: async (inputRaw: unknown, context: ToolContext) => {
@@ -316,6 +317,7 @@ Returns full party details. Use this to inspect a specific party's information.`
 
   riskLevel: "none",
   entity: "party",
+  relatedTools: { get: "get_party", search: "search_parties" },
   tags: ["party", "read", "core"],
 
   handler: async (inputRaw: unknown, context: ToolContext) => {
@@ -356,6 +358,7 @@ Use this to find customers, suppliers, or any party by name, type, or role.`,
 
   riskLevel: "none",
   entity: "party",
+  relatedTools: { get: "get_party", search: "search_parties" },
   tags: ["party", "search", "core"],
 
   handler: async (inputRaw: unknown, context: ToolContext) => {
@@ -405,6 +408,7 @@ For idempotent writes, pass an idempotencyKey (string, max 500 chars) along with
 
   riskLevel: "high",
   entity: "party",
+  relatedTools: { get: "get_party", search: "search_parties" },
   tags: ["party", "role", "update"],
 
   handler: async (inputRaw: unknown, context: ToolContext) => {
@@ -468,6 +472,7 @@ For idempotent writes, pass an idempotencyKey (string, max 500 chars) along with
 
   riskLevel: "high",
   entity: "party",
+  relatedTools: { get: "get_party", search: "search_parties" },
   tags: ["party", "contact", "create"],
 
   handler: async (inputRaw: unknown, context: ToolContext) => {

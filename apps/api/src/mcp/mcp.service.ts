@@ -30,10 +30,26 @@ export class McpService implements OnModuleInit {
   ) {}
 
   async onModuleInit(): Promise<void> {
+    // Middleware order matters (outermost → innermost):
+    //
+    //   errorHandler → auditLog → confirmationGate → idempotency → handler
+    //
+    // - errorHandler must be outermost so it converts every thrown error
+    //   (from any middleware or the handler) into a structured ToolResult.
+    // - auditLog wraps the rest so failures AT ANY LAYER (including
+    //   idempotency-level rejections) are recorded in the durable audit trail.
+    // - confirmationGate runs BEFORE idempotency: a request rejected for a
+    //   missing/invalid confirmation never reaches the handler, so it must not
+    //   consume the caller's idempotency key — otherwise the agent's next
+    //   attempt (with a valid confirmation) was rejected as "already in
+    //   progress" for the whole stale-pending window and the write could
+    //   never be executed.
+    // - idempotency must be innermost of the guards so it sees the fully
+    //   validated input and hashes exactly what the handler will execute.
     this.registry.addGlobalMiddleware(errorHandlerMiddleware);
     this.registry.addGlobalMiddleware(auditLogMiddleware(this.prisma.admin));
-    this.registry.addGlobalMiddleware(idempotencyMiddleware(this.prisma.admin));
     this.registry.addGlobalMiddleware(confirmationGateMiddleware(this.prisma.admin));
+    this.registry.addGlobalMiddleware(idempotencyMiddleware(this.prisma.admin));
 
     registerPartyTools(this.registry);
     registerDiscoveryTools(this.registry, this.prisma.admin);

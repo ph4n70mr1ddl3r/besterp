@@ -9,7 +9,7 @@ import { PrismaService } from "../../../prisma/prisma.service.js";
 import {
   InvalidTypeValueError,
   EntityNotFoundError,
-  MAX_USER_ID_LENGTH,
+  UUID_REGEX,
   MAX_AGENT_ID_LENGTH,
   MAX_PARTY_NAME_LENGTH,
   MAX_TENANT_ID_LENGTH,
@@ -18,6 +18,7 @@ import {
   MAX_VERSION_LENGTH,
   MAX_CAPABILITIES_LENGTH,
   MAX_CAPABILITY_STRING_LENGTH,
+  MAX_ALLOWED_ENTITY_TYPES_LENGTH,
   MAX_ENTITY_LENGTH,
   sanitizeForLogOutput,
   stripHtmlTags,
@@ -60,7 +61,7 @@ export class SecurityService {
     const { tenantId, partyId, passwordHash } = input;
 
     const trimmedTenantId = SecurityService.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "create_user");
-    const validatedPartyId = SecurityService.requireStringField(partyId, "partyId", MAX_USER_ID_LENGTH, "create_user");
+    const validatedPartyId = SecurityService.requireUuid(partyId, "partyId", ["create_user"]);
     const trimmedPasswordHash = SecurityService.requireStringField(passwordHash, "passwordHash", MAX_PASSWORD_HASH_LENGTH, "create_user");
 
     // Verify the party exists in this tenant before linking
@@ -111,7 +112,7 @@ export class SecurityService {
 
   async getUser(tenantId: string, partyId: string): Promise<UserResult> {
     const trimmedTenantId = SecurityService.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "get_user");
-    const validatedPartyId = SecurityService.requireStringField(partyId, "partyId", MAX_USER_ID_LENGTH, "get_user");
+    const validatedPartyId = SecurityService.requireUuid(partyId, "partyId", ["get_user"]);
     const db = this.prisma.tenantScoped(trimmedTenantId);
     try {
       const user = await db.user.findUnique({
@@ -140,7 +141,7 @@ export class SecurityService {
 
   async updateLastLogin(tenantId: string, partyId: string): Promise<void> {
     const trimmedTenantId = SecurityService.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "update_last_login");
-    const validatedPartyId = SecurityService.requireStringField(partyId, "partyId", MAX_USER_ID_LENGTH, "update_last_login");
+    const validatedPartyId = SecurityService.requireUuid(partyId, "partyId", ["update_last_login"]);
     try {
       await this.prisma.tenantScoped(trimmedTenantId).user.update({
         where: { tenantId_partyId: { tenantId: trimmedTenantId, partyId: validatedPartyId } },
@@ -260,6 +261,16 @@ export class SecurityService {
       throw new InvalidTypeValueError("'allowedEntityTypes' must be a string array.", {
         suggestedTools: [tool],
         context: { field: "allowedEntityTypes", received: typeof allowedEntityTypes },
+      });
+    }
+    // `allowedEntityTypes` is a free-form JSON array with no database-side
+    // bound, so the cap must be enforced here as well as at the MCP
+    // boundary — mirroring the `capabilities` bound above. Without it, a
+    // direct/internal caller could persist an arbitrarily large array.
+    if (allowedEntityTypes.length > MAX_ALLOWED_ENTITY_TYPES_LENGTH) {
+      throw new InvalidTypeValueError(`'allowedEntityTypes' must have at most ${MAX_ALLOWED_ENTITY_TYPES_LENGTH} entries.`, {
+        suggestedTools: [tool],
+        context: { field: "allowedEntityTypes", length: (allowedEntityTypes as unknown[]).length },
       });
     }
     for (const item of allowedEntityTypes) {
@@ -567,7 +578,7 @@ export class SecurityService {
       capabilities: Array.isArray(a.capabilities) ? a.capabilities : [],
       maxToolCallsPerConversation: a.maxToolCallsPerConversation,
       maxConcurrentConversations: a.maxConcurrentConversations,
-      maxTransactionAmount: typeof a.maxTransactionAmount === "number" ? a.maxTransactionAmount : null,
+      maxTransactionAmount: SecurityService.toTransactionAmount(a.maxTransactionAmount),
       allowedEntityTypes: Array.isArray(a.allowedEntityTypes) ? a.allowedEntityTypes : [],
       rateLimitPerMinute: a.rateLimitPerMinute,
       version: a.version,
@@ -588,6 +599,57 @@ export class SecurityService {
       throw new InvalidTypeValueError(`'${field}' exceeds maximum length of ${maxLength} characters.`, { suggestedTools: [tool], context: { field, length: trimmed.length } });
     }
     return trimmed;
+  }
+
+  /**
+   * Validate that a value looks like a UUID.
+   *
+   * `partyId` is the primary key of `Party` (`@default(uuid())`), so it is a
+   * UUID. The column is TEXT, so the database will happily store a malformed
+   * value and every lookup simply misses — the caller then receives
+   * ENTITY_NOT_FOUND instead of the actionable "must be a valid UUID" error
+   * every other id field in the codebase produces. Mirrors
+   * `PartyService.requireUuid` / `ProductService.requireUuid`.
+   */
+  private static requireUuid(value: unknown, field: string, suggestedTools: string[]): string {
+    if (typeof value !== "string") {
+      throw new InvalidTypeValueError(`'${field}' must be a string.`, { suggestedTools, context: { field, received: typeof value } });
+    }
+    const trimmed = stripHtmlTags(value.trim());
+    if (!UUID_REGEX.test(trimmed)) {
+      throw new InvalidTypeValueError(
+        `'${field}' must be a valid UUID.`,
+        { suggestedTools, context: { field, received: sanitizeForLogOutput(trimmed) } }
+      );
+    }
+    return trimmed;
+  }
+
+  /**
+   * Convert a stored `maxTransactionAmount` into a plain number.
+   *
+   * The column is a Prisma `Decimal?`, which comes back from the driver as a
+   * `Decimal` OBJECT — never a `number`. The previous implementation used
+   * `typeof value === "number"`, so the branch was never taken and EVERY
+   * agent result reported `maxTransactionAmount: null`, even when a limit
+   * had been configured. The agent therefore could not verify that a
+   * financial restriction was applied.
+   */
+  private static toTransactionAmount(value: unknown): number | null {
+    if (typeof value === "number") return Number.isFinite(value) ? value : null;
+    if (value === null || value === undefined) return null;
+    if (typeof value === "object") {
+      const decimal = value as { toNumber?: () => number; toString?: () => string };
+      if (typeof decimal.toNumber === "function") {
+        const parsed = decimal.toNumber();
+        return Number.isFinite(parsed) ? parsed : null;
+      }
+      if (typeof decimal.toString === "function") {
+        const parsed = Number(decimal.toString());
+        return Number.isFinite(parsed) ? parsed : null;
+      }
+    }
+    return null;
   }
 
   /** Validate that a pagination parameter is a finite integer before clamping.

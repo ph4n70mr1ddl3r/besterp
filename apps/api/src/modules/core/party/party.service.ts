@@ -52,6 +52,7 @@ import {
   MAX_LEGAL_NAME_LENGTH,
   MAX_TAX_ID_LENGTH,
   MAX_ROLE_TYPE_LENGTH,
+  MAX_PARTY_TYPE_LENGTH,
   MAX_CONTACT_MECHANISM_TYPE_LENGTH,
   MAX_ADDRESS_LINE_LENGTH,
   MAX_CITY_LENGTH,
@@ -209,6 +210,16 @@ export class PartyService {
     }
     PartyService.requireMaxLength(stripHtmlTags(trimmedName), "Party name", MAX_PARTY_NAME_LENGTH, "create_party");
 
+    // Type-check before .trim(): a direct/internal caller bypassing the
+    // DTO/Zod bounds could pass a non-string, and `description.trim` throws a
+    // raw TypeError that surfaces as a 500 INTERNAL_ERROR instead of the
+    // documented InvalidTypeValueError. Mirrors the `name` guard above.
+    if (description !== undefined && description !== null && typeof description !== "string") {
+      throw new InvalidTypeValueError(
+        "'description' must be a string.",
+        { suggestedTools: ["create_party"], context: { field: "description", received: typeof description } }
+      );
+    }
     const trimmedDescription = description?.trim() ?? null;
     if (trimmedDescription !== null && trimmedDescription.length === 0) {
       throw new InvalidTypeValueError("'description' cannot be whitespace-only.", { suggestedTools: ["create_party"], context: { field: "description" } });
@@ -486,7 +497,7 @@ export class PartyService {
       where.name = { contains: trimmedName, mode: "insensitive" as const };
     }
 
-    const trimmedPartyType = PartyService.requireNonEmptyFilter(partyType, "partyType", MAX_ROLE_TYPE_LENGTH, ["search_parties"]);
+    const trimmedPartyType = PartyService.requireNonEmptyFilter(partyType, "partyType", MAX_PARTY_TYPE_LENGTH, ["search_parties"]);
     if (trimmedPartyType) {
       where.partyType = { name: { equals: trimmedPartyType, mode: "insensitive" as const } };
     }
@@ -671,10 +682,13 @@ export class PartyService {
     }
     // Reuse requireValidDate for ISO 8601 format validation to avoid
     // duplicating the regex + Date.parse logic used for birthDate/registrationDate.
-    PartyService.requireValidDate(trimmed, "fromDate", ["add_party_role"]);
+    // Use the CANONICAL (trimmed + HTML-stripped) value it returns — parsing
+    // the raw input instead would store a different instant than the one
+    // that was validated.
+    const canonical = PartyService.requireValidDate(trimmed, "fromDate", ["add_party_role"]);
     // parseISODateTimeAsUTC so a naive datetime resolves to UTC midnight
     // (same instant as the date-only form) regardless of the host timezone.
-    const parsed = parseISODateTimeAsUTC(trimmed);
+    const parsed = parseISODateTimeAsUTC(canonical);
     // Belt-and-suspenders: isValidISODate already ensures parseability via
     // Date.parse, but a future validation path that bypasses it would store
     // an Invalid Date corrupt timestamp silently (matching the birthDate
@@ -825,7 +839,11 @@ export class PartyService {
   }
 
   private static validateContactMechanismType(type: string): string {
-    return PartyService.requireStringField(type, "contactMechanismType", MAX_CONTACT_MECHANISM_TYPE_LENGTH, "get_type_table_values");
+    // The failing operation is add_contact_mechanism (the caller asked to add
+    // a contact mechanism with an invalid type) — pointing at
+    // get_type_table_values here sent the agent to a read-only lookup
+    // instead of the operation it was trying to perform.
+    return PartyService.requireStringField(type, "contactMechanismType", MAX_CONTACT_MECHANISM_TYPE_LENGTH, "add_contact_mechanism");
   }
 
   /** Reject cross-subtype contact data instead of silently discarding it.
@@ -886,8 +904,17 @@ export class PartyService {
     if (!postalAddress) {
       throw new MissingSubtypeDataError("postalAddress is required when contactMechanismType is POSTAL_ADDRESS.", { suggestedTools: ["add_contact_mechanism"], context: { contactMechanismType: "POSTAL_ADDRESS", missingField: "postalAddress" } });
     }
-    PartyService.requireStringField(postalAddress.addressLine1, "addressLine1", MAX_ADDRESS_LINE_LENGTH, "add_contact_mechanism");
-    PartyService.requireStringField(postalAddress.city, "city", MAX_CITY_LENGTH, "add_contact_mechanism");
+    // Strip HTML BEFORE the length cap so validation agrees with (a) both
+    // boundary layers — the REST DTO's @sanitizeTransform and the MCP Zod
+    // schema both validate the STRIPPED value — and (b) the storage
+    // sanitizer (sanitizePostalAddress), which stores the stripped value.
+    // Previously requireStringField ran its cap on the RAW input, so an
+    // HTML-wrapped value that was valid after sanitization was rejected here
+    // while the identical input succeeded on REST/MCP. The same divergence
+    // was fixed for `country` and telecom `countryCode` in earlier rounds;
+    // these four fields were missed.
+    PartyService.requireSanitizedStringField(postalAddress.addressLine1, "addressLine1", MAX_ADDRESS_LINE_LENGTH, "add_contact_mechanism");
+    PartyService.requireSanitizedStringField(postalAddress.city, "city", MAX_CITY_LENGTH, "add_contact_mechanism");
     if (typeof postalAddress.country !== "string") {
       throw new InvalidTypeValueError(
         "'country' must be a string.",
@@ -965,23 +992,11 @@ export class PartyService {
     if (!telecomNumber) {
       throw new MissingSubtypeDataError("telecomNumber is required when contactMechanismType is TELECOM_NUMBER.", { suggestedTools: ["add_contact_mechanism"], context: { contactMechanismType: "TELECOM_NUMBER", missingField: "telecomNumber" } });
     }
-    PartyService.requireStringField(telecomNumber.areaCode, "areaCode", MAX_AREA_CODE_LENGTH, "add_contact_mechanism");
-    PartyService.requireStringField(telecomNumber.lineNumber, "lineNumber", MAX_LINE_NUMBER_LENGTH, "add_contact_mechanism");
-    // Defense-in-depth: reject values that are entirely consumed by
-    // stripHtmlTags so an HTML-only areaCode/lineNumber cannot be stored
-    // as an empty string (mirrors assertSanitizedPostalUsable / createParty).
-    if (stripHtmlTags(telecomNumber.areaCode.trim()).length === 0) {
-      throw new InvalidTypeValueError(
-        "areaCode must contain visible characters after HTML sanitization.",
-        { suggestedTools: ["add_contact_mechanism"], context: { field: "areaCode" } }
-      );
-    }
-    if (stripHtmlTags(telecomNumber.lineNumber.trim()).length === 0) {
-      throw new InvalidTypeValueError(
-        "lineNumber must contain visible characters after HTML sanitization.",
-        { suggestedTools: ["add_contact_mechanism"], context: { field: "lineNumber" } }
-      );
-    }
+    // Same strip-before-cap contract as the postal fields above (the raw
+    // length cap previously rejected values that both boundary layers and
+    // the storage sanitizer accept after sanitization).
+    PartyService.requireSanitizedStringField(telecomNumber.areaCode, "areaCode", MAX_AREA_CODE_LENGTH, "add_contact_mechanism");
+    PartyService.requireSanitizedStringField(telecomNumber.lineNumber, "lineNumber", MAX_LINE_NUMBER_LENGTH, "add_contact_mechanism");
     if (telecomNumber.countryCode) {
       // Strip HTML BEFORE the length/regex checks so validation agrees with
       // (a) validateEmailSubtype's strip-then-validate pattern below, (b) the
@@ -1288,6 +1303,37 @@ export class PartyService {
     return trimmed;
   }
 
+  /**
+   * Validate a required free-text field whose STORED value is the HTML-
+   * stripped form: must be a string, non-empty, non-blank after stripping,
+   * and within maxLength AFTER stripping.
+   *
+   * `requireStringField` applies its length cap to the raw (trimmed) input.
+   * That is wrong for every field whose persisted form is sanitized: both
+   * boundary layers (REST `@sanitizeTransform` + `@MaxLength`, MCP
+   * `sanitizedString`) and the storage sanitizers validate the STRIPPED
+   * value, so a raw cap rejects inputs the other layers accept — the
+   * cross-surface divergence already fixed for `country` and telecom
+   * `countryCode`.
+   */
+  private static requireSanitizedStringField(value: unknown, field: string, maxLength: number, tool: string): string {
+    if (typeof value !== "string") {
+      throw new InvalidTypeValueError(`'${field}' must be a string.`, { suggestedTools: [tool], context: { field, received: typeof value } });
+    }
+    const trimmed = value.trim();
+    if (trimmed.length === 0) {
+      throw new InvalidTypeValueError(`'${field}' must not be empty.`, { suggestedTools: [tool], context: { field } });
+    }
+    const stripped = stripHtmlTags(trimmed);
+    if (stripped.length === 0) {
+      throw new InvalidTypeValueError(`'${field}' must contain visible characters after HTML sanitization.`, { suggestedTools: [tool], context: { field } });
+    }
+    if (stripped.length > maxLength) {
+      throw new InvalidTypeValueError(`'${field}' exceeds maximum length of ${maxLength} characters.`, { suggestedTools: [tool], context: { field, length: stripped.length } });
+    }
+    return stripped;
+  }
+
   /** Validate that a pagination parameter is a finite integer before clamping.
    *  See searchParties for why the clamp alone is insufficient. The received
    *  value is stringified when non-finite because JSON.stringify(NaN) → null
@@ -1337,16 +1383,24 @@ export class PartyService {
     return trimmed;
   }
 
-  /** Validate that a date string parses to a real Date.
-   *  Defense-in-depth — the DTO path validates with @IsDateString and
-   *  the Zod path validates with .date() / .iso(), but the service is
+  /** Validate that a date string parses to a real Date and return the
+   *  CANONICAL (trimmed + HTML-stripped) value.
+   *  Defense-in-depth — the DTO path validates with @IsValidISODate and
+   *  the Zod path validates with .refine(isValidISODate), but the service is
    *  the last line of defense and is called from contexts (MCP, future
    *  internal callers) that may skip the boundary validation.
    *
    *  Also enforces a 30-char max length (matching the Zod schema's
    *  .max(30) on birthDate/registrationDate) so an oversized
-   *  string that bypasses Zod still gets caught here. */
-  private static requireValidDate(value: string, field: string, suggestedTools: string[]): void {
+   *  string that bypasses Zod still gets caught here.
+   *
+   *  HTML is stripped BEFORE validation, matching both boundary layers
+   *  (the REST DTO transform and the MCP `optionalIsoDate` schema both strip
+   *  before validating). Without this, the identical input
+   *  "<b>2024-01-01</b>" was rejected on REST but accepted on MCP — a
+   *  cross-surface divergence. Callers MUST use the returned value: it is the
+   *  form that was validated. */
+  private static requireValidDate(value: string, field: string, suggestedTools: string[]): string {
     if (typeof value !== "string") {
       throw new InvalidTypeValueError(
         `'${field}' must be a non-empty ISO 8601 date string.`,
@@ -1360,27 +1414,35 @@ export class PartyService {
         { suggestedTools, context: { field, received: sanitizeForLogOutput(stripHtmlTags(value)) } }
       );
     }
-    // Defense-in-depth: cap the raw input length so that an absurdly long
+    const canonical = stripHtmlTags(trimmed);
+    if (canonical.length === 0) {
+      throw new InvalidTypeValueError(
+        `'${field}' must be a non-empty ISO 8601 date string.`,
+        { suggestedTools, context: { field, received: sanitizeForLogOutput(canonical) } }
+      );
+    }
+    // Defense-in-depth: cap the input length so that an absurdly long
     // value (e.g., multi-KB string) is rejected before reaching new Date().
     // The Zod schemas limit birthDate/registrationDate to MAX_DATE_STRING_LENGTH;
     // mirror that here for any call path that bypasses Zod (e.g., REST).
-    if (trimmed.length > MAX_DATE_STRING_LENGTH) {
+    if (canonical.length > MAX_DATE_STRING_LENGTH) {
       throw new InvalidTypeValueError(
         `'${field}' exceeds maximum length of ${MAX_DATE_STRING_LENGTH} characters.`,
-        { suggestedTools, context: { field, length: trimmed.length } }
+        { suggestedTools, context: { field, length: canonical.length } }
       );
     }
-    // Validate the TRIMMED value so a date with surrounding whitespace
+    // Validate the CANONICAL value so a date with surrounding whitespace
     // (e.g. " 2024-01-01 ") is accepted — consistent with parseFromDate()
     // and the MCP Zod schemas, which trim via .transform() before any
     // format check. The raw `value` is reported in the error below so the
     // caller sees exactly what they sent.
-    if (!isValidISODate(trimmed)) {
+    if (!isValidISODate(canonical)) {
       throw new InvalidTypeValueError(
         `'${field}' is not a valid ISO 8601 date. Received: ${sanitizeForLogOutput(value)}.`,
         { suggestedTools, context: { field, invalidValue: value } }
       );
     }
+    return canonical;
   }
 
   private static toPartyResult(party: PartyWithIncludes): PartyResult {

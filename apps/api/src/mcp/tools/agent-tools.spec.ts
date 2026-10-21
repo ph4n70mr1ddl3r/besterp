@@ -3,6 +3,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { ToolRegistry, type ToolContext } from "@besterp/mcp-tools";
 import { registerAgentTools } from "./agent-tools.js";
+import { MAX_CAPABILITIES_LENGTH, MAX_ALLOWED_ENTITY_TYPES_LENGTH } from "@besterp/shared";
 
 const TEST_TENANT = "tenant-acme";
 const TEST_AGENT_ID = "sales-assistant-v1";
@@ -262,6 +263,53 @@ describe("Agent MCP Tools", () => {
           version: "2.0.0",
         })
       );
+    });
+
+    it("should forward isActive to the service", async () => {
+      // Regression: `isActive` was declared in the schema but never
+      // forwarded, so the tool reported success while the agent stayed
+      // active — a silent data-integrity bug.
+      const result = await registry.execute("update_agent", {
+        agentId: TEST_AGENT_ID,
+        isActive: false,
+      }, createContext({ securityService: mockSecurityService }));
+
+      expect(result.success).toBe(true);
+      expect(mockSecurityService.updateAgent).toHaveBeenCalledWith(
+        expect.objectContaining({ tenantId: TEST_TENANT, agentId: TEST_AGENT_ID, isActive: false })
+      );
+    });
+
+    it("should reject an empty capabilities array", async () => {
+      // The update schema now mirrors register_agent's bounds: an empty
+      // capability list would clear the agent's permissions entirely.
+      const result = await registry.execute("update_agent", {
+        agentId: TEST_AGENT_ID,
+        capabilities: [],
+      }, createContext({ securityService: mockSecurityService }));
+
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe("INVALID_INPUT");
+    });
+
+    it("should reject a capabilities array that exceeds the cap", async () => {
+      const result = await registry.execute("update_agent", {
+        agentId: TEST_AGENT_ID,
+        capabilities: Array.from({ length: MAX_CAPABILITIES_LENGTH + 1 }, (_, i) => `tool_${i}`),
+      }, createContext({ securityService: mockSecurityService }));
+
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe("INVALID_INPUT");
+    });
+
+    it("should reject an allowedEntityTypes array that exceeds the cap", async () => {
+      const result = await registry.execute("update_agent", {
+        agentId: TEST_AGENT_ID,
+        allowedEntityTypes: Array.from({ length: MAX_ALLOWED_ENTITY_TYPES_LENGTH + 1 }, (_, i) => `entity_${i}`),
+      }, createContext({ securityService: mockSecurityService }));
+
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe("INVALID_INPUT");
     });
 
     it("should reject update with no changes", async () => {
