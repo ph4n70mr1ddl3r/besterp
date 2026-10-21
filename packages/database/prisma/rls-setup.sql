@@ -230,6 +230,22 @@ CREATE POLICY tenant_isolation_organization ON organization
   );
 
 -- Postal Address (subtype of ContactMechanism)
+--
+-- `postal_address` has NO `tenant_id` column: it is a subtype of
+-- `contact_mechanism` and inherits the tenant through that join. The
+-- previous version of this policy (a) closed only the inner `IN (` list and
+-- not the enclosing `USING (` — so the statement never reached the statement
+-- terminator and psql submitted everything from here to EOF as ONE statement,
+-- which failed with a syntax error and silently skipped the ENABLE/FORCE +
+-- policy statements for every table below (product, product_category,
+-- product_feature, product_price, telecom_number, email_address,
+-- agent_registry and "user"); and (b) referenced a `tenant_id` column that
+-- does not exist on this table, so even with balanced parentheses the policy
+-- could not be created. Both defects left the tables below with NO row-level
+-- security at all — including "user", which stores password hashes.
+--
+-- The tenant predicate therefore comes solely from the `contact_mechanism`
+-- join, exactly like the `party_role` / `person` / `organization` policies.
 ALTER TABLE postal_address ENABLE ROW LEVEL SECURITY;
 ALTER TABLE postal_address FORCE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS tenant_isolation_postal_address ON postal_address;
@@ -239,15 +255,15 @@ CREATE POLICY tenant_isolation_postal_address ON postal_address
     AND contact_mechanism_id IN (
       SELECT contact_mechanism_id FROM contact_mechanism
       WHERE tenant_id = current_setting('app.current_tenant', TRUE)
+    )
   )
-   WITH CHECK (
-     current_setting('app.current_tenant', TRUE) != ''
-     AND tenant_id = current_setting('app.current_tenant', TRUE)
-     AND contact_mechanism_id IN (
-       SELECT contact_mechanism_id FROM contact_mechanism
-       WHERE tenant_id = current_setting('app.current_tenant', TRUE)
-     )
-   );
+  WITH CHECK (
+    current_setting('app.current_tenant', TRUE) != ''
+    AND contact_mechanism_id IN (
+      SELECT contact_mechanism_id FROM contact_mechanism
+      WHERE tenant_id = current_setting('app.current_tenant', TRUE)
+    )
+  );
 
 -- ─── Product tables (tenant-scoped, ERP_PLAN Phase 1) ───────────
 -- product and product_category carry their own tenant_id columns.

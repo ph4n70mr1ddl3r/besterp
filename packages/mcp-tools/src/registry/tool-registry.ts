@@ -25,6 +25,7 @@ import {
   isSensitiveFieldName,
   isValidOptionalId,
 } from "@besterp/shared";
+import { sanitizeAgentFacingResult } from "../agent-result.js";
 
 /** Permissive pattern for optional identity fields (userId, agentId, conversationId).
  *  More lenient than TENANT_ID_PATTERN to accommodate real-world identifiers
@@ -35,6 +36,15 @@ import {
  *  by auth boundaries (JwtStrategy) and the MCP tool registry. */
 
 const VALID_RISK_LEVELS: readonly RiskLevel[] = ["none", "low", "medium", "high", "critical"];
+
+/**
+ * The argument names the FRAMEWORK owns.
+ *
+ * They are promoted into the tool context and stripped from the input before
+ * validation (see {@link ToolRegistry.stripEnvelopeKeys}), so a tool must
+ * not declare them in its own input schema.
+ */
+const ENVELOPE_KEYS = ["idempotencyKey", "confirmation"] as const;
 
 export class ToolRegistry {
   private readonly tools = new Map<string, RegistryEntry>();
@@ -111,12 +121,44 @@ export class ToolRegistry {
     }
 
     ToolRegistry.validateInputSchemaShape(definition.name, definition.inputSchema);
+    ToolRegistry.rejectEnvelopeKeyCollision(definition.name, definition.inputSchema);
 
     this.tools.set(definition.name, {
       definition,
       middlewares,
     });
     this.pipelineCache.delete(definition.name);
+  }
+
+  /**
+   * Reject a tool whose input schema declares one of the ENVELOPE keys.
+   *
+   * `idempotencyKey` and `confirmation` are handled by the FRAMEWORK: they
+   * are promoted out of the raw arguments into the tool context and STRIPPED
+   * from the input before validation. A tool that declares either name would
+   * therefore never receive its own field — the value was silently removed
+   * before the schema saw it (or, for a required field, the tool failed
+   * validation with a misleading "Required" issue). There was no error at
+   * registration and no error at runtime.
+   *
+   * The check is done on the schema's declared shape (Zod exposes `shape` for
+   * object schemas). A schema without a `shape` (a custom Zod-like
+   * implementation) cannot be inspected, so it is accepted — the strip is
+   * then still harmless for tools that do not use those names.
+   */
+  private static rejectEnvelopeKeyCollision(toolName: string, schema: unknown): void {
+    const shape = (schema as { shape?: unknown }).shape;
+    if (shape == null || typeof shape !== "object") return;
+    const declared = Object.keys(shape as Record<string, unknown>);
+    for (const envelopeKey of ENVELOPE_KEYS) {
+      if (declared.includes(envelopeKey)) {
+        throw new Error(
+          `Tool '${toolName}' must not declare '${envelopeKey}' in its input schema. ` +
+          `The framework handles '${envelopeKey}' itself: it is promoted out of the tool arguments ` +
+          `and stripped before validation, so the tool would never receive it.`
+        );
+      }
+    }
   }
 
   /**
@@ -275,7 +317,7 @@ export class ToolRegistry {
             // carried under a sensitive-named path so this agent-facing surface
             // stays consistent with every other error path.
             const sanitizedIssues = ToolRegistry.sanitizeIssues(parsed.error.issues, MAX_VALIDATION_ISSUES);
-            return {
+            return sanitizeAgentFacingResult({
               success: false,
               error: {
                 code: "INVALID_INPUT",
@@ -283,9 +325,17 @@ export class ToolRegistry {
                 suggestedTools: [name],
                 context: { issues: sanitizedIssues },
               },
-            };
+            });
           }
-          return definition.handler(parsed.data, ctx);
+          // The agent-facing boundary: EVERY value the agent sees goes
+          // through the canonical redaction here, so it cannot depend on
+          // which middlewares happen to be composed. Previously the
+          // agent-facing redaction lived in the AUDIT middleware, which
+          // meant a soft failure returned by the handler (the normal
+          // business-rule path) had its `error.context` reflected VERBATIM
+          // — while the identical value was redacted in the durable audit
+          // row, the idempotency record and the thrown-error path.
+          return sanitizeAgentFacingResult(await definition.handler(parsed.data, ctx));
         }
       );
       this.pipelineCache.set(name, pipeline);
@@ -633,7 +683,12 @@ export class ToolRegistry {
       // under a sensitive-named path is redacted via `received` below.
       const sanitizedPath = path.map((p) => sanitizeForLogOutput(p));
       const redacted: Record<string, unknown> = {
-        code: sanitizeForLogOutput(String(issue.code ?? "custom")),
+        // The field is named `issueCode`, NOT `code`: `code` is a SENSITIVE
+        // field name (it is where a one-time code / OTP usually lives), so
+        // the agent-facing context redaction would replace the issue type
+        // with "[REDACTED]" and the agent would lose the information it
+        // needs to fix its input.
+        issueCode: sanitizeForLogOutput(String(issue.code ?? "custom")),
         // A Zod issue message can echo the offending input verbatim (e.g.
         // "Expected string, received {raw password}"), so run it through the
         // deep redactor as well as the length/char sanitizer.

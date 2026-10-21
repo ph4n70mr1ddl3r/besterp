@@ -211,7 +211,23 @@ function createModelDelegateProxy(
 
       const originalFn = (modelTarget as Record<string, unknown>)[method];
       if (typeof originalFn !== "function") return originalFn;
-      if (!DATA_METHODS.has(method)) return originalFn;
+      // FAIL CLOSED on an unknown method.
+      //
+      // The previous behaviour returned the raw Prisma method for any name
+      // that was not in DATA_METHODS, so a method Prisma added in a future
+      // version (or a method that already exists but is not data — e.g.
+      // `findRaw`) ran WITHOUT `set_tenant_context`, i.e. it silently
+      // bypassed RLS. DATA_METHODS is documented as "the authoritative list"
+      // of operations that must be wrapped, but nothing enforced it.
+      // An unknown method now fails loudly so the list has to be updated
+      // deliberately.
+      if (!DATA_METHODS.has(method)) {
+        throw new Error(
+          `Method '${method}' on the '${modelName}' model delegate of a tenant-scoped client is not a ` +
+          `known data method and therefore cannot be tenant-scoped. ` +
+          `Add it to DATA_METHODS (packages/database/src/rls-extension.ts) if it is a data operation.`
+        );
+      }
 
       const cacheKey = `${modelName}.${method}`;
       const cached = methodCache.get(cacheKey);
@@ -253,6 +269,12 @@ function createClientProxy(
         );
       }
       if (prop === "$transaction") return transactionWrapper;
+      // `then` must resolve to undefined so `await scopedClient` works.
+      // JavaScript's await checks for a callable `then` on the awaited
+      // value; the proxy's `get` trap previously threw "Model 'then' does
+      // not exist on the Prisma schema", so `await this.prisma.tenantScoped(t)`
+      // — a natural thing to write — threw instead of resolving.
+      if (prop === "then") return undefined;
       if (BLOCKED_CLIENT_METHODS.has(prop)) {
         throw new Error(`Cannot call '${prop}' on a tenant-scoped client. Use the base PrismaClient directly.`);
       }

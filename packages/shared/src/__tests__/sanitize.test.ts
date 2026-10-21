@@ -1016,3 +1016,115 @@ describe("sanitizeTelecomNumber", () => {
     expect(out.extension).toBe("77");
   });
 });
+
+describe("sensitive-name detection — qualified / compound names", () => {
+  it("detects a sensitive compound name that carries a qualifier prefix", () => {
+    // The exact-match set holds COMPOUND names (`private_key`, `access_key`,
+    // `encryption_key`, `session_id`) whose component tokens are not in the
+    // token set, so a QUALIFIED spelling (`db_private_key`, `aws_access_key`)
+    // was not detected while the unqualified one was — the same secret
+    // redacted under one key name and leaked under another.
+    for (const k of [
+      "db_private_key",
+      "aws_access_key",
+      "encryption_key",
+      "secret_key",
+      "user_session_id",
+    ]) {
+      expect(isSensitiveFieldName(k)).toBe(true);
+    }
+  });
+
+  it("detects a qualified `authorization` name", () => {
+    // `authorization` is a single-token entry, so the compound rule cannot
+    // see it; the regex branch must recognise the full word rather than just
+    // the `auth` prefix (which the trailing lookahead rejected).
+    for (const k of ["user_authorization", "x-authorization", "proxyAuthorization"]) {
+      expect(isSensitiveFieldName(k)).toBe(true);
+    }
+  });
+
+  it("does NOT flag benign names that merely contain a sensitive token", () => {
+    for (const k of ["sort_key", "primary_key", "idempotencyKey", "statusCode", "session_count"]) {
+      expect(isSensitiveFieldName(k)).toBe(false);
+    }
+  });
+});
+
+describe("free-text secret rules agree with the field-name rules", () => {
+  it("redacts names that are only in the field-name rule set", () => {
+    // Every one of these was redacted when it appeared as an OBJECT KEY but
+    // leaked verbatim in free text, because the free-text rules carried a
+    // separate, drifted list of names.
+    const cases: Array<[string, string]> = [
+      ["mfa=123456", "mfa"],
+      ["credentials=abc123", "credentials"],
+      ["passphrase=abc123", "passphrase"],
+      ["x-api-key: abc123", "x-api-key"],
+      ["x_token=abc123", "x_token"],
+      ["client-secret: abc123", "client-secret"],
+      ["db_private_key=abc123", "db_private_key"],
+      ["user_authorization=abc123", "user_authorization"],
+    ];
+    for (const [input, name] of cases) {
+      const out = sanitizeForLogOutput(input);
+      expect(out).toContain(`${name}=[REDACTED]`);
+      expect(out).not.toContain("abc123");
+      expect(out).not.toContain("123456");
+    }
+  });
+
+  it("redacts camelCase and kebab-case secret names in quoted JSON", () => {
+    for (const name of ["clientSecret", "accessToken", "api-key", "secretKey"]) {
+      const input = `{"${name}":"abc123"}`;
+      const out = sanitizeForLogOutput(input);
+      expect(out).not.toContain("abc123");
+      expect(out).toContain("[REDACTED]");
+      // The JSON must stay parseable.
+      expect(() => JSON.parse(out)).not.toThrow();
+    }
+  });
+
+  it("redacts a query-string parameter whose separator is padded with whitespace", () => {
+    const out = sanitizeForLogOutput("?api_key = abc123");
+    expect(out).not.toContain("abc123");
+    expect(out).toContain("[REDACTED]");
+  });
+
+  it("keeps benign prose intact", () => {
+    for (const input of [
+      "sort_key=asc",
+      "status code=200 ok",
+      "session=abc123",
+      "meet me at /home/user later",
+    ]) {
+      expect(sanitizeForLogOutput(input)).toBe(input);
+    }
+  });
+
+  it("keeps the auth scheme so the dedicated Basic/Bearer rules can redact it", () => {
+    const basic = sanitizeForLogOutput("Authorization: Basic dXNlcjpwYXNz");
+    expect(basic).toContain("Basic [REDACTED]");
+    expect(basic).not.toContain("dXNlcjpwYXNz");
+    const bearer = sanitizeForLogOutput("Authorization: Bearer sk_live_abc123xyz");
+    expect(bearer).toContain("Bearer [REDACTED]");
+    expect(bearer).not.toContain("sk_live_abc123xyz");
+  });
+});
+
+describe("sanitizePostalAddress / sanitizeTelecomNumber — required fields", () => {
+  it("throws a structured error for a missing required postal-address field", () => {
+    // A missing field used to produce a raw TypeError ("Cannot read
+    // properties of undefined"), which the REST filter reports as a 500
+    // instead of an actionable 422.
+    expect(() => sanitizePostalAddress({ city: "X", country: "US" } as never)).toThrow(/addressLine1/);
+    expect(() => sanitizePostalAddress({ addressLine1: "1 A St", country: "US" } as never)).toThrow(/city/);
+    expect(() => sanitizePostalAddress({ addressLine1: "1 A St", city: "X" } as never)).toThrow(/country/);
+  });
+
+  it("throws a structured error for a missing required telecom field", () => {
+    // A missing field used to be silently persisted as an EMPTY STRING.
+    expect(() => sanitizeTelecomNumber({ lineNumber: "5551234" } as never)).toThrow(/areaCode/);
+    expect(() => sanitizeTelecomNumber({ areaCode: "212" } as never)).toThrow(/lineNumber/);
+  });
+});

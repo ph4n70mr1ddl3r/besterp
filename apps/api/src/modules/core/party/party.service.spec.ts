@@ -40,7 +40,10 @@ function mockParty(overrides: Record<string, any> = {}) {
 // Mock PrismaService
 const mockPrismaService = {
   admin: {
-    partyType: { findUnique: vi.fn() },
+    // `createParty` resolves the party type with a CASE-INSENSITIVE
+    // `findFirst` (matching `searchParties`/`addPartyRole`/`createProduct`),
+    // so the mock must provide it.
+    partyType: { findUnique: vi.fn(), findFirst: vi.fn() },
     roleType: { findUnique: vi.fn(), findFirst: vi.fn() },
     contactMechanismType: { findUnique: vi.fn() },
   },
@@ -69,8 +72,10 @@ describe("PartyService", () => {
   } = {}) {
     if (!overrides.partyTypeNull) {
       mockPrismaService.admin.partyType.findUnique.mockResolvedValue({ partyTypeId: overrides.partyTypeId ?? "pt-person" });
+      mockPrismaService.admin.partyType.findFirst.mockResolvedValue({ partyTypeId: overrides.partyTypeId ?? "pt-person" });
     } else {
       mockPrismaService.admin.partyType.findUnique.mockResolvedValue(null);
+      mockPrismaService.admin.partyType.findFirst.mockResolvedValue(null);
     }
     if (!overrides.roleTypeNull) {
       mockPrismaService.admin.roleType.findUnique.mockResolvedValue({ roleTypeId: overrides.roleTypeId ?? "rt-customer" });
@@ -101,6 +106,7 @@ describe("PartyService", () => {
           const tx = {
             partyType: {
               findUnique: vi.fn().mockResolvedValue({ partyTypeId: "pt-person" }),
+              findFirst: vi.fn().mockResolvedValue({ partyTypeId: "pt-person" }),
             },
             party: {
               create: vi.fn().mockResolvedValue(
@@ -139,6 +145,7 @@ describe("PartyService", () => {
           const tx = {
             partyType: {
               findUnique: vi.fn().mockResolvedValue({ partyTypeId: "pt-org" }),
+              findFirst: vi.fn().mockResolvedValue({ partyTypeId: "pt-org" }),
             },
             party: {
               create: vi.fn().mockResolvedValue(
@@ -888,6 +895,49 @@ describe("PartyService", () => {
 
       await expect(partyService.searchParties(input)).rejects.toThrow(InvalidTypeValueError);
       await expect(partyService.searchParties(input)).rejects.toThrow(/whitespace-only/);
+    });
+  });
+
+  describe("addPartyRole — the raw INSERT", () => {
+    it("supplies party_role_id explicitly", async () => {
+      // Regression guard: the schema declares
+      // `partyRoleId String @id @default(uuid())`, and Prisma's `uuid()`
+      // default is applied CLIENT-side — the database column has no default
+      // of its own. The raw INSERT omitted it, so every `add_party_role`
+      // call failed at runtime with "Null constraint failed:
+      // (party_role_id)". The insert now provides it database-side.
+      const queryRaw = vi.fn().mockResolvedValue([{ partyRoleId: "role-123", fromDate: new Date(), thruDate: null }]);
+      mockPrismaService.tenantScoped.mockReturnValue({
+        party: { findUnique: vi.fn() },
+        partyRole: { findUnique: vi.fn().mockResolvedValue(null) },
+        roleType: { findFirst: vi.fn().mockResolvedValue({ roleTypeId: "rt-customer" }) },
+        $transaction: vi.fn().mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => fn({
+          party: { findUnique: vi.fn().mockResolvedValue({ partyId: "12345678-1234-1234-1234-123456789abc" }) },
+          $queryRaw: queryRaw,
+          partyRole: {
+            findUnique: vi.fn().mockResolvedValue({
+              partyRoleId: "role-123",
+              partyId: "12345678-1234-1234-1234-123456789abc",
+              roleTypeId: "rt-customer",
+              fromDate: new Date(),
+              thruDate: null,
+              roleType: { name: "Customer", roleTypeId: "rt-customer" },
+            }),
+          },
+        })),
+      });
+
+      await partyService.addPartyRole({
+        tenantId: "t1",
+        partyId: "12345678-1234-1234-1234-123456789abc",
+        roleType: "Customer",
+      });
+
+      expect(queryRaw).toHaveBeenCalled();
+      const call = queryRaw.mock.calls[0] as unknown as [TemplateStringsArray, ...unknown[]];
+      const sql = String(call[0]);
+      expect(sql).toContain('"party_role_id"');
+      expect(sql).toContain("gen_random_uuid()");
     });
   });
 

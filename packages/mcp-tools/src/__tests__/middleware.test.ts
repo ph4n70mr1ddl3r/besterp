@@ -1603,6 +1603,14 @@ describe("Audit Log Middleware", () => {
     // Regression guard (round 85): buildContext returns raw identity values,
     // so audit-log middleware must sanitize them before persisting to the
     // cross-tenant durable sink (ai_action_log) to prevent secret leaks.
+    //
+    // "Sanitize" means: redact the RECOGNISED secret shapes (provider keys,
+    // connection strings, `name=value` pairs, URLs, paths, Bearer/JWT). The
+    // generic "opaque token" rule is deliberately NOT applied to identity
+    // fields: it rewrites every 20-128 character run that mixes letters and
+    // digits to "[REDACTED_TOKEN]", so a legal identifier such as
+    // "ServiceAccount12345678" or "conv_123_session-token" was persisted
+    // mangled — destroying the audit correlation the row exists to provide.
     const input = { test: "value" };
     const contextWithSecretIdentity = {
       ...mockContext,
@@ -1619,10 +1627,60 @@ describe("Audit Log Middleware", () => {
 
     const createCall = mockPrisma.aiActionLog.create.mock.calls[0];
     const stored = createCall[0].data;
+    // A recognised provider key embedded in the userId IS redacted.
     expect(stored.userId).not.toContain("sk_live_realsecret123");
     expect(stored.userId).toContain("[REDACTED_API_KEY]");
     expect(stored.agentId).toBe("agent-a-password-hidden");
-    expect(stored.conversationId).not.toContain("session-token");
+    // An opaque identifier is preserved so the audit row still identifies its
+    // subject.
+    expect(stored.conversationId).toBe("conv_123_session-token");
+  });
+
+  it("redacts recognised secrets embedded in an identity field", async () => {
+    // The identity fields are charset-validated but NOT secret-free: a
+    // caller can embed a connection string or a provider key in one. Those
+    // shapes must still be scrubbed before the row reaches the cross-tenant
+    // durable sink.
+    const input = { test: "value" };
+    const contextWithSecretIdentity = {
+      ...mockContext,
+      userId: "postgres://besterp:hunter2@db.internal:5432/besterp",
+      agentId: "agent-with-sk_live_realsecret123",
+      conversationId: "conv-with-AKIAIOSFODNN7EXAMPLE",
+    };
+    const toolResult: ToolResult = { success: true, data: "ok" };
+
+    mockPrisma.aiActionLog.create.mockResolvedValue({ id: "log-id" });
+
+    const middleware = auditLogMiddleware(mockPrisma as any);
+    await middleware(input, contextWithSecretIdentity as any, mockDefinition, successNext(toolResult));
+
+    const createCall = mockPrisma.aiActionLog.create.mock.calls[0];
+    const stored = createCall[0].data;
+    expect(stored.userId).toContain("[DATABASE_URL]");
+    expect(stored.userId).not.toContain("hunter2");
+    expect(stored.agentId).not.toContain("sk_live_realsecret123");
+    expect(stored.conversationId).not.toContain("AKIAIOSFODNN7EXAMPLE");
+  });
+
+  it("preserves a legitimate long opaque identifier in the audit row", async () => {
+    // Regression guard: the durable audit trail is useless if its subject
+    // column contains "[REDACTED_TOKEN]" instead of the identifier.
+    const input = { test: "value" };
+    const contextWithLongIdentity = {
+      ...mockContext,
+      userId: "ServiceAccount12345678",
+    };
+    const toolResult: ToolResult = { success: true, data: "ok" };
+
+    mockPrisma.aiActionLog.create.mockResolvedValue({ id: "log-id" });
+
+    const middleware = auditLogMiddleware(mockPrisma as any);
+    await middleware(input, contextWithLongIdentity as any, mockDefinition, successNext(toolResult));
+
+    const createCall = mockPrisma.aiActionLog.create.mock.calls[0];
+    const stored = createCall[0].data;
+    expect(stored.userId).toBe("ServiceAccount12345678");
   });
 });
 
@@ -2506,6 +2564,26 @@ describe("Regression: audit middleware never breaks the tool call", () => {
     expect(row.toolInput).toBeDefined();
     expect(JSON.stringify(row.toolInput)).toContain("1");
     expect(row.toolInput).toHaveProperty("confirmation");
+  });
+
+  it("does not abort the call when a nextActions entry is oversized", async () => {
+    // `nextActions` is an agent-facing string array built by handlers from
+    // user input. The sanitizer called `stripHtmlTags(n)` with no length
+    // clamp and no try/catch, and `stripHtmlTags` THROWS for inputs over
+    // 100 KB — so a handler that legitimately returned a large nextActions
+    // entry turned a SUCCESSFUL write into an INVALID_TYPE_VALUE error whose
+    // message was unrelated to the input. The agent was told the call failed
+    // and retried, duplicating the write.
+    const middleware = auditLogMiddleware(auditPrisma as any);
+    const huge = "x".repeat(150_000);
+    const result = await middleware(
+      { name: "Jane" },
+      mockContext,
+      mockDefinition,
+      successNext({ success: true, data: "ok", nextActions: [huge] }),
+    );
+    expect(result.success).toBe(true);
+    expect(auditPrisma.aiActionLog.create).toHaveBeenCalled();
   });
 });
 

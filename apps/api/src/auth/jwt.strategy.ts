@@ -154,6 +154,22 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       );
     }
     const role = JwtStrategy.validateOptionalField(payload.role, "role", MAX_ROLE_LENGTH);
+    // The `role` claim gets the SAME pattern validation as `userId` and
+    // `agentId`. It was the only identity field that skipped it: the claim
+    // was only type- and length-checked, so a correctly-signed token could
+    // carry a role containing control characters, zero-width/bidi sequences
+    // or HTML. The value is placed on `request.tenantContext` and is
+    // intended for downstream consumers (RBAC checks, audit rows, logs), so
+    // the moment one of them logs or persists it, it becomes a log-injection
+    // or stored-XSS vector. The comment above states the pattern validation
+    // exists "so they never reach TenantGuard or the MCP layer" — `role`
+    // was simply omitted from that set.
+    if (role !== undefined && !isValidOptionalId(role)) {
+      throw new UnauthorizedException(
+        "Invalid token: role contains invalid characters. " +
+          "Roles may only contain printable non-whitespace characters.",
+      );
+    }
 
     return {
       userId,

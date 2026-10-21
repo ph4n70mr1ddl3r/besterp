@@ -14,6 +14,18 @@ import {
 const PARTY_ID = "12345678-1234-1234-1234-123456789abc";
 
 function createMockPrisma() {
+  // The agent registry is a TENANT-SCOPED table with RLS enabled, so it is
+  // accessed through the tenant-scoped client — the SAME delegate instances
+  // are exposed under `admin` so the existing assertions keep working, and
+  // `tenantScoped` is a spy so a test can assert WHICH client was used.
+  const agentRegistry = {
+    create: vi.fn(),
+    update: vi.fn(),
+    delete: vi.fn(),
+    findUnique: vi.fn(),
+    findMany: vi.fn(),
+    count: vi.fn(),
+  };
   return {
     tenantScoped: vi.fn().mockReturnValue({
       party: {
@@ -24,16 +36,10 @@ function createMockPrisma() {
         create: vi.fn(),
         update: vi.fn(),
       },
+      agentRegistry,
     }),
     admin: {
-      agentRegistry: {
-        create: vi.fn(),
-        update: vi.fn(),
-        delete: vi.fn(),
-        findUnique: vi.fn(),
-        findMany: vi.fn(),
-        count: vi.fn(),
-      },
+      agentRegistry,
     },
   };
 }
@@ -655,5 +661,48 @@ describe("SecurityService", () => {
         service.searchAgents({ tenantId: "t1", limit: 10, offset: Infinity })
       ).rejects.toThrow(InvalidTypeValueError);
     });
+  });
+});
+
+describe("SecurityService — agent registry uses the RLS-enforced client", () => {
+  it("reads and writes agent_registry through the tenant-scoped client", async () => {
+    // Regression guard: `agent_registry` is a tenant-scoped table with RLS
+    // enabled and forced (rls-setup.sql) and it is listed among the tables
+    // whose RLS the boot-time verification checks. Accessing it through the
+    // ADMIN (superuser) client bypasses RLS entirely, so its tenant
+    // isolation rested only on the explicit `tenantId` filter at each call
+    // site — while the SAME file used the tenant-scoped client for the other
+    // tenant tables (`party`, `user`).
+    const prisma = createMockPrisma();
+    const service = new SecurityService(prisma as unknown as import("../../../prisma/prisma.service.js").PrismaService);
+
+    prisma.tenantScoped.mockReturnValue({
+      party: { findUnique: vi.fn() },
+      user: { findUnique: vi.fn(), create: vi.fn(), update: vi.fn() },
+      agentRegistry: {
+        create: vi.fn().mockResolvedValue({
+          agentId: "a1", tenantId: "t1", displayName: "Agent", description: "An agent",
+          capabilities: [], maxToolCallsPerConversation: 100, maxConcurrentConversations: 5,
+          maxTransactionAmount: 0, allowedEntityTypes: [], rateLimitPerMinute: 30,
+          version: "1", isActive: true, createdAt: new Date("2026-01-01"),
+        }),
+        update: vi.fn(),
+        delete: vi.fn(),
+        findUnique: vi.fn(),
+        findMany: vi.fn(),
+        count: vi.fn(),
+      },
+    });
+
+    await service.registerAgent({
+      agentId: "a1",
+      tenantId: "t1",
+      displayName: "Agent",
+      description: "An agent",
+      capabilities: [],
+      version: "1",
+    });
+
+    expect(prisma.tenantScoped).toHaveBeenCalledWith("t1");
   });
 });

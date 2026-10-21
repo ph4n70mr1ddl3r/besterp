@@ -456,3 +456,22 @@ describe("hashInput", () => {
     expect(hashInput(mixedSet)).toMatch(/^[a-f0-9]{64}$/);
   });
 });
+
+describe("hashInput — Map key determinism", () => {
+  it("produces the same hash for Maps whose keys serialize identically", () => {
+    // Two DISTINCT Map keys can serialize to the SAME string: `undefined`
+    // and `null` both become "null", and two distinct objects with identical
+    // content both become `{"x":1}`. Without a deterministic tie-break the
+    // canonical order depended on Map insertion order, so two logically
+    // identical requests hashed DIFFERENTLY — which the idempotency
+    // middleware reports as a key mismatch even though the input was the
+    // same.
+    const a = new Map<unknown, unknown>([[undefined, 1], [null, 2]]);
+    const b = new Map<unknown, unknown>([[null, 2], [undefined, 1]]);
+    expect(hashInput(a)).toBe(hashInput(b));
+
+    const c = new Map<unknown, unknown>([[{ x: 1 }, "first"], [{ x: 1 }, "second"]]);
+    const d = new Map<unknown, unknown>([[{ x: 1 }, "second"], [{ x: 1 }, "first"]]);
+    expect(hashInput(c)).toBe(hashInput(d));
+  });
+});

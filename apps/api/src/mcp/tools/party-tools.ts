@@ -242,7 +242,17 @@ const emailAddressSchema = z.strictObject({
 // ─── Tool: create_party ───────────────────────────────────────────
 
 const createPartySchema = z.strictObject({
-  partyType: z.enum(["PERSON", "ORGANIZATION"]).describe("Type of party to create"),
+  // Case-insensitive: the value is upper-cased before it is matched, exactly
+  // like `create_product` does for `productType`. `search_parties` filters
+  // `partyType` case-INSENSITIVELY, so an agent that searched with
+  // `partyType: "person"` and then called `create_party({ partyType:
+  // "person" })` was rejected by the strict enum even though the search
+  // result was usable — the search/create divergence the product module had
+  // already fixed.
+  partyType: z.string()
+    .transform((s) => stripHtmlTags(s.trim()).toUpperCase())
+    .pipe(z.enum(["PERSON", "ORGANIZATION"]))
+    .describe("Type of party to create (PERSON or ORGANIZATION; case-insensitive)"),
   name: sanitizedString(1, MAX_PARTY_NAME_LENGTH).describe("Display name for the party (1-500 characters)"),
   description: optionalFilteredString(MAX_PARTY_DESCRIPTION_LENGTH).describe("Optional description (max 1000 characters)"),
   person: personSchema.optional().describe("Person details (required when partyType is PERSON)"),
@@ -339,7 +349,11 @@ Returns full party details. Use this to inspect a specific party's information.`
 
 const searchPartiesSchema = z.strictObject({
   name: optionalSearchFilterString(MAX_PARTY_NAME_LENGTH).describe("Filter by name (case-insensitive partial match; must not be whitespace-only)"),
-  partyType: z.enum(["PERSON", "ORGANIZATION"]).optional().describe("Filter by party type"),
+  partyType: z.string()
+    .transform((s) => stripHtmlTags(s.trim()).toUpperCase())
+    .pipe(z.enum(["PERSON", "ORGANIZATION"]))
+    .optional()
+    .describe("Filter by party type (PERSON or ORGANIZATION; case-insensitive)"),
   roleType: optionalSearchFilterString(MAX_ROLE_TYPE_LENGTH).describe("Filter by role type name (e.g., 'Customer', 'Supplier'; must not be whitespace-only)"),
   limit: z.number().int().min(MIN_SEARCH_LIMIT).max(MAX_SEARCH_LIMIT).optional().default(DEFAULT_SEARCH_LIMIT).describe(`Maximum results to return (max ${MAX_SEARCH_LIMIT})`),
   offset: z.number().int().min(MIN_SEARCH_OFFSET).max(MAX_SEARCH_OFFSET).optional().default(0).describe(`Number of results to skip (min ${MIN_SEARCH_OFFSET})`),

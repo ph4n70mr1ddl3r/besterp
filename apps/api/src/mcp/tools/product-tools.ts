@@ -37,6 +37,7 @@ import {
 import type {
   CreateProductInput,
   SearchProductsInput,
+  UpdateProductInput,
   AddProductFeatureInput,
   AddProductPriceInput,
   ProductResult,
@@ -51,6 +52,7 @@ interface ProductServices {
     createProduct(input: CreateProductInput): Promise<ProductResult>;
     getProduct(tenantId: string, productId: string): Promise<GetProductResult>;
     searchProducts(input: SearchProductsInput): Promise<SearchProductsResult>;
+    updateProduct(input: UpdateProductInput): Promise<ProductResult>;
     addProductFeature(input: AddProductFeatureInput): Promise<ProductFeatureResult>;
     addProductPrice(input: AddProductPriceInput): Promise<ProductPriceResult>;
   };
@@ -65,7 +67,7 @@ function getProductService(ctx: ToolContext) {
     );
   }
   const requiredMethods: (keyof ProductServices["productService"])[] = [
-    "createProduct", "getProduct", "searchProducts", "addProductFeature", "addProductPrice",
+    "createProduct", "getProduct", "searchProducts", "updateProduct", "addProductFeature", "addProductPrice",
   ];
   for (const method of requiredMethods) {
     if (typeof (svc as ProductServices["productService"])[method] !== "function") {
@@ -326,12 +328,70 @@ Prices support effective dating via fromDate/thruDate for price changes over tim
   },
 };
 
+// ─── Tool: update_product ─────────────────────────────────────────
+
+const updateProductSchema = z.strictObject({
+  productId: uuidParam("The UUID of the product to update"),
+  productType: z.string()
+    .transform((s) => stripHtmlTags(s.trim()).toUpperCase())
+    .pipe(z.string().min(1).max(MAX_PRODUCT_TYPE_LENGTH))
+    .optional()
+    .describe("New product type (e.g., 'GOOD', 'SERVICE'); omit to keep the current type"),
+  name: sanitizedString(1, MAX_PARTY_NAME_LENGTH).optional().describe("New product name"),
+  description: optionalFilteredString(MAX_PARTY_DESCRIPTION_LENGTH).optional().describe("New product description"),
+  sku: optionalFilteredString(MAX_SKU_LENGTH).optional().describe("New stock-keeping unit (must be unique within tenant)"),
+});
+
+type UpdateProductInput_z = z.infer<typeof updateProductSchema>;
+
+const updateProduct: ToolDefinition = {
+  name: "update_product",
+  description: `Update an existing product in the ERP catalog.
+
+Change the name, description, SKU or product type of a product. Only the
+fields you provide are changed — omitted fields keep their current value.
+
+Use 'get_product' first to see the current values, and 'search_products' to
+find the product if you do not have its productId.
+
+For idempotent writes, pass an idempotencyKey along with the tool arguments.`,
+
+  inputSchema: updateProductSchema,
+
+  riskLevel: "high",
+  entity: "product",
+  relatedTools: { get: "get_product", search: "search_products" },
+  tags: ["product", "update", "core"],
+
+  handler: async (inputRaw: unknown, context: ToolContext) => {
+    const input = inputRaw as UpdateProductInput_z;
+    const svc = getProductService(context);
+    const product = await svc.updateProduct({
+      tenantId: context.tenantId,
+      productId: input.productId,
+      productType: input.productType,
+      name: input.name,
+      description: input.description ?? undefined,
+      sku: input.sku ?? undefined,
+    });
+    return {
+      success: true,
+      data: product,
+      nextActions: [
+        "Use 'get_product' to review the updated product.",
+        "Use 'add_product_price' or 'add_product_feature' to update pricing or attributes.",
+      ],
+    };
+  },
+};
+
 // ─── Registration ─────────────────────────────────────────────────
 
 export function registerProductTools(registry: ToolRegistry): void {
   registry.register(createProduct);
   registry.register(getProduct);
   registry.register(searchProducts);
+  registry.register(updateProduct);
   registry.register(addProductFeature);
   registry.register(addProductPrice);
 }

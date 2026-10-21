@@ -180,19 +180,28 @@ npm run db:seed
    tenants and refuses to run without an explicit opt-in (`ALLOW_SEED=1`):
    ```bash
    npm run db:migrate
-   docker exec -i besterp-postgres psql -U besterp -d besterp -f /setup/rls-setup.sql
+   docker exec -i besterp-postgres psql -v ON_ERROR_STOP=1 -U besterp -d besterp -f /setup/rls-setup.sql
    ALLOW_SEED=1 npm run db:seed
    ```
 
+   `ON_ERROR_STOP=1` is required: without it `psql` exits `0` even when a
+   statement fails, so a malformed policy leaves the database without RLS
+   while the command appears to succeed.
+
    The API **refuses to boot** if RLS is not enabled (and forced) on every
    tenant-scoped table — including `user` and `agent_registry`, which store
-   password hashes and agent configuration. Re-apply `rls-setup.sql` after
-   pulling changes that add a tenant-scoped table.
+   password hashes and agent configuration — or if a tenant table has RLS
+   enabled but **no policy** (PostgreSQL then denies every row on it).
+   Re-apply `rls-setup.sql` after pulling changes that add a tenant-scoped
+   table, and after any migration that recreates one.
 
 6. **Run the application**
     ```bash
     npm run start:dev --workspace=@besterp/api
     ```
+    The start scripts build the workspace packages first — the API resolves
+    `@besterp/shared` / `@besterp/mcp-tools` / `@besterp/database` through
+    their published build output.
 
 7. **Access the health endpoint**
    ```bash
@@ -209,6 +218,40 @@ npm run db:seed
 - `POST /api/parties/:id/contacts` - Add contact mechanism
 
 ### MCP Tools
+
+The MCP tool registry is the primary agent interface (ADR-001). It is
+reachable over HTTP at:
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| `GET`  | `/api/mcp/tools` | List the registered tools (name, description, risk level, entity, tags) |
+| `POST` | `/api/mcp/tools/call` | Invoke a tool — the MCP `tools/call` request shape |
+| `POST` | `/api/mcp/tools/:name` | Invoke a tool with the name in the path |
+
+All three endpoints require a JWT (the global `JwtAuthGuard` +
+`TenantGuard` apply); the tenant and user identity come from the validated
+token, never from the request body.
+
+```bash
+curl -X POST http://localhost:3000/api/mcp/tools/call \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+        "name": "create_party",
+        "arguments": {
+          "partyType": "PERSON",
+          "name": "Jane Doe",
+          "person": { "firstName": "Jane", "lastName": "Doe" }
+        },
+        "reasoning": "The customer asked for a new contact"
+      }'
+```
+
+The response body is the tool result verbatim
+(`{ "success": true, "data": … }` or `{ "success": false, "error": { "code",
+"message", "suggestedTools", "context" } }`). The HTTP status reports the
+transport outcome; the tool's own outcome is in the body — the MCP
+convention.
 
 **Discovery**
 - `list_available_tools` - Discover available tools (includes risk level and whether a confirmation is required)
@@ -229,6 +272,7 @@ npm run db:seed
 - `create_product` - Create a product
 - `get_product` - Retrieve a product with features and prices
 - `search_products` - Search products with filters and pagination
+- `update_product` - Update a product's name, description, SKU or type
 - `add_product_feature` - Add a key/value feature to a product
 - `add_product_price` - Add a price to a product
 
@@ -239,6 +283,10 @@ npm run db:seed
 - `update_agent` - Update an agent's configuration
 - `deactivate_agent` - Deactivate an agent (soft delete)
 - `delete_agent` - Permanently delete an agent
+
+**User**
+- `get_user` - Read the user account linked to a party (never returns the password hash)
+- `create_user` - Create a user account for an existing party
 
 #### Envelope fields
 

@@ -197,7 +197,16 @@ export class SecurityService {
     SecurityService.validateMaxTransactionAmount(maxTransactionAmount, "register_agent");
 
     try {
-      const agent = await this.prisma.admin.agentRegistry.create({
+      // The agent registry is a TENANT-SCOPED table with RLS enabled and
+      // forced (rls-setup.sql) — the boot-time RLS verification lists it
+      // among the protected tables. It was nevertheless read and written
+      // through the ADMIN client (the superuser connection, which ALWAYS
+      // bypasses RLS), so its tenant isolation rested entirely on the
+      // explicit `tenantId` filter at each call site while the rest of this
+      // very file used the RLS-enforced tenant-scoped client for the OTHER
+      // tenant tables (`party`, `user`). Use the tenant-scoped client so the
+      // database-level backstop actually applies.
+      const agent = await this.prisma.tenantScoped(validatedTenantId).agentRegistry.create({
         data: {
           agentId: validatedAgentId,
           tenantId: validatedTenantId,
@@ -393,7 +402,7 @@ export class SecurityService {
     }
 
     try {
-      const agent = await this.prisma.admin.agentRegistry.update({
+      const agent = await this.prisma.tenantScoped(trimmedTenantId).agentRegistry.update({
         where: { agentId_tenantId: { agentId: validatedAgentId, tenantId: trimmedTenantId } },
         data: updateData,
       });
@@ -446,7 +455,7 @@ export class SecurityService {
       throw new InvalidTypeValueError("'agentId' must contain visible characters after HTML sanitization.", { suggestedTools: ["delete_agent"], context: { field: "agentId" } });
     }
     try {
-      await this.prisma.admin.agentRegistry.delete({
+      await this.prisma.tenantScoped(trimmedTenantId).agentRegistry.delete({
         where: { agentId_tenantId: { agentId: validatedAgentId, tenantId: trimmedTenantId } },
       });
       this.logger.log(`Deleted agent: ${sanitizeForLogOutput(validatedAgentId)}`);
@@ -465,7 +474,7 @@ export class SecurityService {
     }
     let agent;
     try {
-      agent = await this.prisma.admin.agentRegistry.findUnique({
+      agent = await this.prisma.tenantScoped(trimmedTenantId).agentRegistry.findUnique({
         where: { agentId_tenantId: { agentId: validatedAgentId, tenantId: trimmedTenantId } },
       });
     } catch (err) {
@@ -481,13 +490,11 @@ export class SecurityService {
   }
 
   async searchAgents(input: SearchAgentsInput): Promise<SearchAgentsResult> {
-    const {
-      tenantId,
-      agentId,
-      isActive,
-      limit = DEFAULT_SEARCH_LIMIT,
-      offset = MIN_SEARCH_OFFSET,
-    } = input;
+    // `??` (not a destructuring default) so an explicit `null` is defaulted
+    // instead of being rejected — the same rule `searchParties` applies.
+    const { tenantId, agentId, isActive } = input;
+    const limit = input.limit ?? DEFAULT_SEARCH_LIMIT;
+    const offset = input.offset ?? MIN_SEARCH_OFFSET;
 
     const trimmedTenantId = SecurityService.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "search_agents");
     SecurityService.requireIntegerPageParam(limit, "limit", "search_agents");
@@ -512,10 +519,11 @@ export class SecurityService {
     // Running sequentially avoids this, matching the PartyService/ProductService
     // pattern (round 176).
     let total: number;
-    let items: Awaited<ReturnType<typeof this.prisma.admin.agentRegistry.findMany>>;
+    const agentDb = this.prisma.tenantScoped(trimmedTenantId);
+    let items: Awaited<ReturnType<typeof agentDb.agentRegistry.findMany>>;
     try {
-      total = await this.prisma.admin.agentRegistry.count({ where });
-      items = await this.prisma.admin.agentRegistry.findMany({
+      total = await agentDb.agentRegistry.count({ where });
+      items = await agentDb.agentRegistry.findMany({
         where,
         orderBy: [{ createdAt: "asc" }, { agentId: "asc" }],
         skip: validatedOffset,

@@ -15,8 +15,10 @@ services:
       # rls-setup.sql cannot run from initdb.d: at init time the tables created by
       # Prisma migrations do not exist yet, so every ENABLE/FORCE ROW LEVEL SECURITY
       # statement would fail silently. Mount it read-only instead and apply it AFTER
-      # `npm run db:migrate` (see README):
-      #   docker exec -i besterp-postgres psql -U besterp -d besterp -f /setup/rls-setup.sql
+      # `npm run db:migrate` (see README). ON_ERROR_STOP=1 is required: without it psql
+      # exits 0 even when a statement fails, so a malformed policy would leave the
+      # database without RLS while the command appeared to succeed.
+      #   docker exec -i besterp-postgres psql -v ON_ERROR_STOP=1 -U besterp -d besterp -f /setup/rls-setup.sql
       - ../packages/database/prisma/rls-setup.sql:/setup/rls-setup.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U besterp"]

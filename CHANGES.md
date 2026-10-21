@@ -1,5 +1,241 @@
 # BestERP — Security & Architecture Fixes
 
+## Changes Applied (2026-10-21) — Code Review Round 272
+
+This round was run against a **live PostgreSQL 16 instance** so that every
+migration, the RLS script and the seed could be executed end-to-end instead
+of reasoned about. Every database finding below was reproduced (or proved
+impossible to apply) against that instance.
+
+### 🔴 The API could not start — and three runtime-only defects hid behind it
+
+**Problem:** the workspace packages declared `"main": "src/index.ts"`, so the
+compiled API output loaded a TypeScript file and then failed on its own
+`./tenant.js` relative imports (which only exist in `dist/`). The documented
+`npm run start:dev` died with `ERR_MODULE_NOT_FOUND` — the API had never
+actually been RUN, which hid three defects that no unit test and no static
+review could see (the unit tests mock the Prisma client):
+
+- `this.prisma.admin` returned an object WITHOUT any model delegate.
+  Prisma's client constructor returns a Proxy, and the proxy's `get` trap
+  evaluates an accessor with the TARGET as the receiver (`h[g]`), so
+  `get admin() { return this; }` returned the raw target — which does not
+  carry the model delegates (the proxy creates them). EVERY admin-client
+  call failed with *"Cannot read properties of undefined (reading
+  'findFirst')"*: `create_party` could not resolve the party type, and the
+  MCP audit / idempotency / confirmation middlewares received `undefined` and
+  silently disabled themselves.
+- `add_party_role` failed for every party — the raw `INSERT` (needed for
+  the PARTIAL unique index on the active role) omitted `party_role_id`. The
+  schema's `@default(uuid())` is applied CLIENT-side by Prisma, so the
+  database column has no default and the insert failed with *"Null
+  constraint failed: (party_role_id)"*.
+- The Zod issue type was redacted away from the agent — `code` is a
+  sensitive field name, so the agent-facing context redaction replaced the
+  issue type with "[REDACTED]".
+
+**Fix:**
+- The packages publish their build output (`main` → `dist/index.js`) while
+  `types` still points at the SOURCE, so the type check never depends on a
+  build; the API's start scripts build the workspace packages first, and the
+  test runners alias the workspace specifiers back to the source so the
+  tests never run against a stale build.
+- `admin` is now an own property assigned in the constructor, where `this`
+  IS the proxy that resolves the model delegates.
+- The raw insert supplies the id database-side with `gen_random_uuid()`.
+- The Zod issue type is reported as `issueCode`.
+
+The MCP endpoint was then exercised end-to-end against a live PostgreSQL
+instance: `create_party`, `add_party_role`, `add_contact_mechanism`,
+`search_parties`, `create_product`, `add_product_price`, `get_product`,
+`update_product`, `create_user` and `get_user` all succeed, the confirmation
+gate rejects an unconfirmed high-risk write, an idempotent retry replays the
+stored result instead of writing twice, the durable audit trail records every
+call, and the password hash is redacted from the recorded tool input.
+
+### 🔴 `rls-setup.sql` — eight tenant tables had NO row-level security
+
+**Problem:** the `postal_address` policy closed only the inner `IN (` list
+and not the enclosing `USING (`, so the statement never reached its `;`.
+psql therefore submitted everything from that line to EOF as ONE statement,
+which failed with a syntax error. Because `psql` exits `0` on a failed
+statement unless `ON_ERROR_STOP=1` is set, the script "succeeded" — while
+`product`, `product_category`, `product_feature`, `product_price`,
+`telecom_number`, `email_address`, `agent_registry` and `"user"` (the table
+that stores `password_hash`) were left with **no RLS at all**. The policy
+also referenced a `tenant_id` column that `postal_address` does not have.
+
+**Fix:**
+- The policy is balanced and derives the tenant from the `contact_mechanism`
+  join (like the `party_role` / `person` / `organization` policies).
+- Every `psql` invocation (CI, README, docker-compose) now passes
+  `-v ON_ERROR_STOP=1` so a failed statement fails the command.
+
+### 🔴 `20261007000000_agent_registry_composite_pk` — the migration FAILED on every fresh database
+
+**Problem:** it recreated the table and declared
+`CONSTRAINT "agent_registry_pkey"`, but that name was already taken by the
+primary key of the original table, so `CREATE TABLE` failed with *"relation
+agent_registry_pkey already exists"* and the transaction rolled back —
+`prisma migrate deploy` aborted there on every new database. The same
+`DROP TABLE` destroyed the table's RLS flags and policies (dropping a table
+drops its policies) and silently lost any agent rows written in between the
+two migrations.
+
+**Fix:** the primary key is now swapped in place with
+`ALTER TABLE … DROP CONSTRAINT / ADD CONSTRAINT`, which preserves the rows,
+the policies and the RLS flags. A follow-up migration restores RLS for
+environments that already applied the broken version.
+
+### 🔴 `product.product_category_id` was never created
+
+**Problem:** the schema declared the optional category relation, but the
+migration that created the `product` table never added the column or its FK,
+so `get_product` / `search_products` (which join the category) and
+`create_product` with a `categoryId` always failed with *"column
+product.product_category_id does not exist"*.
+
+**Fix:** a migration adds the column, the FK (`ON DELETE SET NULL`) and its
+index.
+
+### 🔴 The MCP tool surface was completely unreachable at runtime
+
+**Problem:** `TOOL_REGISTRY` was provided and exported by `McpModule` and
+nothing ever injected it; `McpService.buildContext()` — the only place a
+`ToolContext` was ever constructed — had no production caller; and there
+was no MCP controller. All 21 documented tools, and the middleware pipeline
+that makes them safe (confirmation gate, idempotency, durable audit trail,
+agent-facing redaction), were dead code while the README described them as
+the primary interface.
+
+**Fix:**
+- New `McpController`: `GET /api/mcp/tools`,
+  `POST /api/mcp/tools/call` (the MCP `tools/call` request shape) and
+  `POST /api/mcp/tools/:name`. The tenant and user identity come from the
+  validated JWT, never from the request body.
+- `ProductService.updateProduct` had no caller at all — the new
+  `update_product` tool exposes it.
+- `SecurityService.createUser` / `getUser` / `updateLastLogin` were equally
+  unreachable, and `createUser` is the ONLY write path to the `user` table
+  — a tenant could not provision an account. The new `get_user` and
+  `create_user` tools expose them.
+
+### 🔴 A soft failure leaked its `error.context` to the agent verbatim
+
+**Problem:** the agent-facing redaction lived INSIDE the audit middleware
+and was gated on `result.success`, so a handler that RETURNED
+`{ success: false, error: { …, context } }` — the normal business-rule path
+— bypassed it entirely, while the identical value was redacted in the
+durable audit row, the idempotency record and the thrown-error path.
+
+**Fix:** the redaction moved to a shared agent-facing boundary
+(`sanitizeAgentFacingResult`) applied by the registry's final handler, the
+audit middleware and the error handler — so it no longer depends on which
+middlewares are composed.
+
+### 🟠 The free-text secret rules had drifted from the field-name rules
+
+**Problem:** the log/query/quote rules carried their own list of secret
+names, so `mfa=…`, `credentials=…`, `passphrase=…`, `x-api-key: …`,
+`x_token=…`, `{"clientSecret":"…"}` and `{"accessToken":"…"}` leaked
+verbatim in log lines, audit rows and idempotency records, while the
+identical value under an object key was redacted. The detector also missed
+qualified compound names (`db_private_key`, `aws_access_key`).
+
+**Fix:** the three rules capture the name as a WHOLE and decide with the
+shared `isSensitiveFieldName` predicate; a token-subsequence rule detects
+the qualified compound names.
+
+### 🟠 The audit middleware could abort a successful write
+
+**Problem:** its `nextActions` sanitizer called `stripHtmlTags` with no
+length clamp and no try/catch, and `stripHtmlTags` throws for inputs over
+100 KB. A handler that legitimately returned a large `nextActions` entry
+turned a successful write into an `INVALID_TYPE_VALUE` error whose message
+was unrelated to the input — the agent was told the call failed and retried,
+duplicating the write.
+
+**Fix:** the agent-facing sanitizer clamps and never throws.
+
+### 🟠 The idempotency fallback reset was dead code
+
+**Problem:** `updateIdempotencyRecordWithRetry` caught every error
+internally and returned, so the caller's `catch` — whose best-effort "reset
+the record to failed" was supposed to stop a stuck `pending` row blocking
+retries for 60 s — never ran.
+
+**Fix:** the helper reports whether it persisted, and the fallback runs when
+it did not. An input that cannot be hashed (too large for the DoS guard) now
+fails CLOSED with `IDEMPOTENCY_UNAVAILABLE` instead of silently executing
+the write without deduplication.
+
+### 🟠 `/api/health/version` disclosed the exact build outside `production`
+
+**Problem:** the guard was `isProd()`, true only for
+`NODE_ENV === "production"`; staging / preview / uat are deployed,
+internet-reachable surfaces.
+
+**Fix:** the guard is now `!isDev()`, matching the rest of the codebase.
+
+### 🟠 Schema / database drift
+
+`idempotency_record.status` was `TEXT` while the schema declares the native
+`IdempotencyStatus` enum; `agent_registry.capabilities` was nullable while
+the schema declares `Json`; `max_transaction_amount` had no default and the
+wrong precision; nine tables used `TIMESTAMPTZ` while the schema uses
+`TIMESTAMP(3)`; three indexes had different names in the database than the
+schema derived; `user.party_id` had no unique index despite the schema's
+`@unique`; and the two `pg_trgm` GIN indexes were treated as drift (and
+would have been dropped by `prisma migrate dev`).
+
+**Fix:** two migrations align the column types (the timestamp conversion is
+pinned to UTC), the schema pins the three index names with `map:` and
+declares the trgm indexes, and a migration creates `user_party_id_key`.
+`prisma migrate diff` against a fully migrated database now reports **no
+drift**.
+
+### 🟠 Smaller correctness fixes
+
+- The boot-time RLS check now requires a POLICY per tenant table (a table
+  with the flags set but no policy is deny-all in PostgreSQL).
+- `create_product` — a high-risk write — had no confirmation gate; the seed
+  now covers every high/critical tool (10 gates for 10 tools).
+- The cleanup script released its advisory lock BEFORE committing; it now
+  uses the transaction-scoped lock.
+- `search_parties` matched `partyType` case-insensitively while
+  `create_party` required the exact upper case, and a lower-case value
+  skipped the "person data is required" rule entirely. Both are fixed.
+- `createParty` accepted the seeded `TENANT` type and produced a party with
+  no subtype; it is now rejected.
+- `addProductFeature` / `addProductPrice` ran their existence check and
+  their insert in two separate transactions; both are now atomic.
+- `agent_registry` was read and written through the ADMIN (superuser)
+  client — bypassing RLS on a table the boot-time check reports as
+  protected. It now uses the tenant-scoped client.
+- The `role` JWT claim skipped the pattern validation applied to `userId`
+  and `agentId`.
+- The REST filter's HTML-stripping helper reintroduced the `__proto__`
+  hazard the shared redactor avoids.
+- `pluralize` returned non-strings (and threw) for prototype keys such as
+  "constructor" — inside the MCP error path.
+- `isValidISODate` could throw instead of returning `false`.
+- `MAX_DATE_STRING_LENGTH` (30) was smaller than the longest date the ISO
+  regex accepts (32).
+- The idempotency hash was not deterministic for Maps whose keys serialize
+  identically.
+- `sanitizePostalAddress` / `sanitizeTelecomNumber` failed inconsistently
+  (raw `TypeError` vs. a silently-persisted empty string).
+- The tenant-scoped proxy now fails closed on an unknown model method
+  (previously it ran without the tenant context — a silent RLS bypass), and
+  `await scopedClient` no longer throws.
+
+### Migration cruft removed
+
+- `20260901000000_…/migration.sql.done` — a 0-byte marker Prisma ignores
+  (the migration it sits next to IS applied), so it only misled readers.
+- `20260901000001_…/migration_lock.toml` — a stray lock file inside a
+  migration folder.
+
 ## Changes Applied (2026-10-21) — Code Review Round 271
 
 ### 🔴 `product.service.ts` — `get_product` and `add_product_price` failed for every product that had a price

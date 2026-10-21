@@ -32,3 +32,6 @@ export {
 
 // Truncation utilities (re-exported for custom middleware authors)
 export { truncateValue, capString, MAX_STORED_PAYLOAD_SIZE, isTruncationMarker } from "./middleware/truncate.js";
+
+// Agent-facing result sanitization (re-exported for custom middleware authors)
+export { sanitizeAgentFacingResult, sanitizeAgentText, capAgentErrorText } from "./agent-result.js";

@@ -65,12 +65,27 @@ function validateIdempotencyKey(key: unknown, toolName: string): { valid: false;
   return { valid: true, key };
 }
 
-const SKIP_HASH = Symbol("skipIdempotencyHash");
+/**
+ * Outcome of computing the idempotency hash for a tool input.
+ *
+ * - `invalid-input`: the input does not satisfy the tool's schema, so the
+ *   handler will reject it and NO side effect will occur. Deduplication is
+ *   unnecessary, and the request proceeds.
+ * - `unhashable`: the input IS schema-valid but cannot be hashed (a
+ *   DoS-guard rejection or an unserializable value). The handler WILL run
+ *   and WILL perform its side effect, so the request must NOT proceed
+ *   without deduplication — that is a fail-CLOSED outcome.
+ * - `ok`: the hash was computed.
+ */
+type HashOutcome =
+  | { status: "ok"; hash: string }
+  | { status: "invalid-input" }
+  | { status: "unhashable"; reason: string };
 
-function computeInputHash(input: unknown, definition: { name: string; inputSchema: ZodSchemaLike }): string | symbol {
+function computeInputHash(input: unknown, definition: { name: string; inputSchema: ZodSchemaLike }): HashOutcome {
   const parseResult = definition.inputSchema.safeParse(input);
   if (!parseResult.success) {
-    // Zod parse failure means the input is malformed — no side effect was
+    // Zod parse failure means the input is malformed — no side effect will be
     // produced, so idempotency dedup is unnecessary. Log so operators can
     // detect pathological inputs (e.g. circular refs that pass Zod but break
     // the serializer, or schema drift that silently drops fields). Previously
@@ -80,16 +95,40 @@ function computeInputHash(input: unknown, definition: { name: string; inputSchem
     logIdempotencyWarn(
       `Skipping idempotency for '${definition.name}': input failed Zod validation (${parseResult.error.issues.length} issue(s))`
     );
-    return SKIP_HASH;
+    return { status: "invalid-input" };
   }
   try {
-    return hashInput(parseResult.data);
-  } catch {
+    return { status: "ok", hash: hashInput(parseResult.data) };
+  } catch (error) {
+    // The DoS guards in `hashInput` (key-count and CPU-time budgets) reject
+    // an input that is too large to canonicalise. That is NOT the same
+    // failure as a circular reference, and the distinction matters: the
+    // former means the handler WILL run a write, the latter means it might.
+    // The previous log message claimed "circular reference or unserializable
+    // type" for both.
+    const reason = error instanceof Error ? error.message : "unknown hashing failure";
     logIdempotencyWarn(
-      `Skipping idempotency for '${definition.name}': input cannot be hashed (circular reference or unserializable type)`
+      `Idempotency for '${definition.name}' cannot be applied: the input cannot be hashed (${sanitizeForLogOutput(reason)})`
     );
-    return SKIP_HASH;
+    return { status: "unhashable", reason: sanitizeForLogOutput(reason) };
   }
+}
+
+function handleUnhashableInput(toolName: string): ToolResult {
+  return {
+    success: false,
+    error: {
+      code: "IDEMPOTENCY_UNAVAILABLE",
+      // Fail CLOSED. The previous behaviour passed the request through
+      // WITHOUT creating an idempotency record, so the write executed with
+      // deduplication silently disabled and the agent was never told — a
+      // retry of the same request (with the same key) would execute the
+      // side effect a second time. Refusing the request is the only safe
+      // option for a write whose input cannot be deduplicated.
+      message: "The request is too large to deduplicate safely. Reduce the size of the request and retry with a new idempotency key.",
+      suggestedTools: [toolName],
+    },
+  };
 }
 
 function handleRecordUnavailable(toolName: string): ToolResult {
@@ -135,9 +174,10 @@ export function idempotencyMiddleware(prisma: PrismaClient): ToolMiddleware {
     if (!keyResult.valid) return keyResult.error;
     if (!keyResult.key) return next(input, context);
 
-    const hashResult = computeInputHash(input, definition);
-    if (typeof hashResult === "symbol") return next(input, context);
-    const inputHash = hashResult;
+    const hashOutcome = computeInputHash(input, definition);
+    if (hashOutcome.status === "invalid-input") return next(input, context);
+    if (hashOutcome.status === "unhashable") return handleUnhashableInput(definition.name);
+    const inputHash = hashOutcome.hash;
 
     const { existingRecord, recordCreated, unavailable } = await acquireIdempotencyRecord(
       prisma, keyResult.key, tenantId, userId, agentId, conversationId, definition.name, inputHash,
@@ -159,14 +199,13 @@ export function idempotencyMiddleware(prisma: PrismaClient): ToolMiddleware {
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => {
-    const timer = setTimeout(resolve, ms);
-    // unref so an in-flight retry backoff (used by both the acquire- and
-    // update-record retry loops) does not hold the event loop open during
-    // graceful shutdown. Mirrors the unref pattern in main.ts (hardExitTimer),
-    // health.controller.ts (readiness timeout), and audit-log.ts. The promise
-    // still resolves normally while the loop is running, so retry timing is
-    // unchanged.
-    timer.unref();
+    // The timer is deliberately NOT unref'd. An unref'd backoff timer does
+    // not keep the event loop alive, so a process whose only pending work is
+    // the retry backoff could EXIT in the middle of the retry — leaving the
+    // idempotency record stuck in "pending" and the retry never performed.
+    // The backoff is bounded (a handful of short sleeps), so holding the
+    // loop open for it is harmless.
+    setTimeout(resolve, ms);
   });
 }
 
@@ -558,14 +597,31 @@ async function executeAndUpdate(
       },
     };
     try {
-      await updateIdempotencyRecordWithRetry(prisma, idempotencyKey, tenantId, failedResult, true);
+      // `updateIdempotencyRecordWithRetry` NEVER throws — it reports whether
+      // the update was persisted. The previous implementation wrapped the call
+      // in a try/catch whose catch block was therefore UNREACHABLE, so the
+      // best-effort "reset the record to failed" fallback never ran: a write
+      // whose result could not be persisted left the record in "pending",
+      // which blocked the agent's retries with the same key for the whole
+      // stale-pending window (60 s) even though the operation genuinely
+      // failed.
+      const persisted = await updateIdempotencyRecordWithRetry(prisma, idempotencyKey, tenantId, failedResult, true);
+      if (!persisted) {
+        try {
+          await prisma.idempotencyRecord.update({
+            where: { idempotencyKey_tenantId: { idempotencyKey, tenantId } },
+            data: { status: "failed", completedAt: new Date(), error: Prisma.DbNull },
+          });
+        } catch {
+          logIdempotencyWarn(
+            `Failed to persist error result for idempotency key '${redactKey(idempotencyKey)}' and could not reset state — original error will propagate`
+          );
+        }
+      }
     } catch {
-      // Belt-and-suspenders: if updating the idempotency record as "failed"
-      // itself fails (e.g. P2034 or transient DB error), try a best-effort
-      // reset so the pending record does not block future retries for up to
-      // STALE_PENDING_THRESHOLD_MS (60s). Without this, a stuck "pending"
-      // row would prevent the agent from retrying with the same key even
-      // though the operation genuinely failed.
+      // Defensive: the helper is documented not to throw, but a future change
+      // must never leave the record stuck in "pending" — fall back to the
+      // best-effort reset.
       try {
         await prisma.idempotencyRecord.update({
           where: { idempotencyKey_tenantId: { idempotencyKey, tenantId } },
@@ -582,13 +638,21 @@ async function executeAndUpdate(
 
   const isSoftFailure = toolResult.success !== true;
   try {
-    await updateIdempotencyRecordWithRetry(prisma, idempotencyKey, tenantId, toolResult, isSoftFailure);
+    const persisted = await updateIdempotencyRecordWithRetry(prisma, idempotencyKey, tenantId, toolResult, isSoftFailure);
+    if (!persisted) {
+      // The idempotency record write failed (e.g. transient DB error).
+      // Log the failure but still return the tool result — the operation
+      // already executed. The agent may retry with the same key, which could
+      // re-execute the operation since no completed/failed record exists.
+      // This is a known limitation of the acquire-then-update pattern under
+      // transient failures between acquire and update.
+      logIdempotencyWarn(
+        `Failed to persist result for idempotency key '${redactKey(idempotencyKey)}' — result still returned but idempotency guarantee is weakened for this key`
+      );
+    }
   } catch {
     // Belt-and-suspenders: the idempotency record write failed (e.g. transient DB error).
     // Log the failure but still return the tool result — the operation already executed.
-    // The agent may retry with the same key, which could re-execute the operation since
-    // no completed/failed record exists. This is a known limitation of the acquire-then-update
-    // pattern under transient failures between acquire and update.
     logIdempotencyWarn(
       `Failed to persist result for idempotency key '${redactKey(idempotencyKey)}' — result still returned but idempotency guarantee is weakened for this key`
     );
@@ -597,10 +661,18 @@ async function executeAndUpdate(
   return toolResult;
 }
 
+/**
+ * Persist the outcome of an executed tool call onto the idempotency record.
+ *
+ * Returns `true` when the record was updated, `false` when it could NOT be
+ * (the record no longer exists, or every retry attempt failed). It NEVER
+ * throws — the callers use the return value to decide whether the
+ * best-effort "reset to failed" fallback is required.
+ */
 async function updateIdempotencyRecordWithRetry(
   prisma: PrismaClient, idempotencyKey: string, tenantId: string,
   toolResult: ToolResult, isSoftFailure: boolean,
-): Promise<void> {
+): Promise<boolean> {
   for (let attempt = 0; attempt < IDEMPOTENCY_MAX_RETRIES; attempt++) {
     try {
       await prisma.idempotencyRecord.update({
@@ -642,21 +714,22 @@ async function updateIdempotencyRecordWithRetry(
           completedAt: new Date(),
         },
       });
-      return;
+      return true;
     } catch (updateErr) {
       const code = getErrorCode(updateErr);
       // P2025: the idempotency record was TTL-cleaned or manually deleted
       // between acquire and update — retrying is futile. The operation already
       // ran successfully, but the result cannot be persisted. A future retry
       // with the same key will re-execute (idempotency defeated for this key).
-      // Both call sites wrap this in try/catch, so returning here avoids
-      // IDEMPOTENCY_MAX_RETRIES wasted attempts + backoff latency.
+      // The callers inspect the return value to decide whether the
+      // best-effort "reset to failed" fallback is required, so returning
+      // here avoids IDEMPOTENCY_MAX_RETRIES wasted attempts + backoff latency.
       if (code === "P2025") {
         const p2025Detail = updateErr instanceof Error ? updateErr.message : String(updateErr);
         logIdempotencyWarn(
           `Idempotency record '${redactKey(idempotencyKey)}' no longer exists (expired/cleaned up between acquire and update) — result will not be persisted for replay. Detail: ${sanitizeForLogOutput(p2025Detail)}`
         );
-        return;
+        return false;
       }
       if (attempt < MAX_RETRY_ATTEMPT) {
         await delay(retryDelayMs(IDEMPOTENCY_RETRY_BASE_DELAY_MS, attempt));
@@ -664,7 +737,11 @@ async function updateIdempotencyRecordWithRetry(
       }
       const detail = updateErr instanceof Error ? updateErr.message : String(updateErr);
       logIdempotencyWarn(`Failed to update idempotency record '${redactKey(idempotencyKey)}' after ${IDEMPOTENCY_MAX_RETRIES} attempts — result still returned: ${sanitizeForLogOutput(detail)}`);
-      return;
+      return false;
     }
   }
+  // The loop always returns from inside the try/catch (success → true,
+  // P2025 → false, retries exhausted → false); this is unreachable but keeps
+  // the function total for the type checker.
+  return false;
 }

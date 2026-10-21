@@ -11,21 +11,31 @@ import {
 } from "@besterp/shared";
 
 function createMockPrisma() {
+  // The tenant-scoped client exposes the model delegates plus an interactive
+  // `$transaction`. The write paths (createProduct, addProductFeature,
+  // addProductPrice) run their existence check and their insert inside ONE
+  // interactive transaction, so the mock must support the callback form:
+  // `$transaction(fn)` calls `fn` with a transaction handle that exposes the
+  // same delegates.
+  const scoped = {
+    product: {
+      findUnique: vi.fn(),
+      findMany: vi.fn(),
+      count: vi.fn(),
+      create: vi.fn(),
+      update: vi.fn(),
+    },
+    productFeature: {
+      create: vi.fn(),
+    },
+    productPrice: {
+      create: vi.fn(),
+    },
+  };
   return {
     tenantScoped: vi.fn().mockReturnValue({
-      product: {
-        findUnique: vi.fn(),
-        findMany: vi.fn(),
-        count: vi.fn(),
-        create: vi.fn(),
-        update: vi.fn(),
-      },
-      productFeature: {
-        create: vi.fn(),
-      },
-      productPrice: {
-        create: vi.fn(),
-      },
+      ...scoped,
+      $transaction: vi.fn(async (fn: (tx: unknown) => Promise<unknown>) => fn(scoped)),
     }),
     admin: {
       productType: {
@@ -33,6 +43,18 @@ function createMockPrisma() {
         findFirst: vi.fn(),
       },
     },
+  };
+}
+
+
+/**
+ * Build a tenant-scoped client mock whose `$transaction` runs the callback
+ * against the supplied delegates.
+ */
+function scopedClientWith(delegates: Record<string, unknown>) {
+  return {
+    ...delegates,
+    $transaction: vi.fn(async (fn: (tx: unknown) => Promise<unknown>) => fn(delegates)),
   };
 }
 
@@ -230,9 +252,9 @@ describe("ProductService", () => {
     });
 
     it("returns EntityNotFoundError when product not found", async () => {
-      prisma.tenantScoped.mockReturnValue({
+      prisma.tenantScoped.mockReturnValue(scopedClientWith({
         product: { findUnique: vi.fn().mockResolvedValue(null) },
-      });
+      }));
       await expect(
         service.getProduct("t1", "12345678-1234-1234-1234-123456789abc")
       ).rejects.toThrow(EntityNotFoundError);
@@ -388,9 +410,9 @@ describe("ProductService", () => {
     });
 
     it("returns EntityNotFoundError when product not found", async () => {
-      prisma.tenantScoped.mockReturnValue({
+      prisma.tenantScoped.mockReturnValue(scopedClientWith({
         product: { findUnique: vi.fn().mockResolvedValue(null) },
-      });
+      }));
       await expect(
         service.addProductFeature({ tenantId: "t1", productId: "12345678-1234-1234-1234-123456789abc", name: "Color", value: "Red" })
       ).rejects.toThrow(EntityNotFoundError);
@@ -429,9 +451,9 @@ describe("ProductService", () => {
     });
 
     it("returns EntityNotFoundError when product not found", async () => {
-      prisma.tenantScoped.mockReturnValue({
+      prisma.tenantScoped.mockReturnValue(scopedClientWith({
         product: { findUnique: vi.fn().mockResolvedValue(null) },
-      });
+      }));
       await expect(
         service.addProductPrice({ tenantId: "t1", productId: "12345678-1234-1234-1234-123456789abc", priceType: "LIST", amount: 10 })
       ).rejects.toThrow(EntityNotFoundError);
@@ -477,10 +499,10 @@ describe("ProductService", () => {
         productPriceId: "pp1", productId: "p1", priceType: "LIST", amount: 10,
         currencyCode: "USD", fromDate: new Date(), thruDate: null, createdAt: new Date(),
       });
-      prisma.tenantScoped.mockReturnValue({
+      prisma.tenantScoped.mockReturnValue(scopedClientWith({
         product: { findUnique: vi.fn().mockResolvedValue({ productId: "p1" }) },
         productPrice: { create },
-      });
+      }));
       await service.addProductPrice({
         tenantId: "t1", productId: "12345678-1234-1234-1234-123456789abc",
         priceType: "LIST", amount: 10, currencyCode: null as unknown as string,

@@ -352,6 +352,26 @@ async function seedProductEntityDescriptors(prisma: PrismaClient): Promise<Array
         keyFields: { productPriceId: "UUID", productId: "UUID (FK to product)", priceType: "string" },
       },
     }),
+    prisma.entityDescriptor.upsert({
+      where: { entityName: "product_category" },
+      update: {},
+      create: {
+        entityName: "product_category",
+        description: "A hierarchical classification of products within a tenant (e.g. Hardware > Laptops). Each tenant owns its own category tree.",
+        aiPromptHint: "A product may reference a category by its productCategoryId. Categories are tenant-scoped and hierarchical via parentCategoryId. There is no create_category tool yet — categories are provisioned by the tenant administrator.",
+        keyFields: { productCategoryId: "UUID", parentCategoryId: "UUID (FK to product_category, optional)", tenantId: "tenant-slug", name: "category-name" },
+      },
+    }),
+    prisma.entityDescriptor.upsert({
+      where: { entityName: "product_type" },
+      update: {},
+      create: {
+        entityName: "product_type",
+        description: "Global classification of what a product IS (GOOD, SERVICE, RAW_MATERIAL, ...). Shared across all tenants.",
+        aiPromptHint: "Use get_type_table_values with typeName \"PRODUCT_TYPE\" to list the valid product types. Always assign a productType when creating a product.",
+        keyFields: { productTypeId: "UUID", name: "GOOD | SERVICE | ...", parentTypeId: "UUID (FK to product_type, optional)" },
+      },
+    }),
   ]);
 }
 
@@ -425,6 +445,42 @@ async function seedConfirmationGates(prisma: PrismaClient): Promise<number> {
         enabled: true,
         description: "Permanently deleting a registered AI agent from the tenant.",
         reason: "Irreversible operation that removes the agent record entirely. Use deactivate_agent for temporary disable.",
+      },
+    }),
+    // create_product is a HIGH-risk write (it declares riskLevel: "high" in
+    // product-tools.ts) and the confirmation gate is driven by the risk level,
+    // so it MUST have a gate row — otherwise it ran with no confirmation at
+    // all while `list_available_tools` reported its risk level as high. The
+    // gate set must stay in sync with the high/critical tools declared in
+    // apps/api/src/mcp/tools/*.ts.
+    prisma.confirmationGate.upsert({
+      where: { toolName: "create_product" },
+      update: {},
+      create: {
+        toolName: "create_product",
+        enabled: true,
+        description: "Creating a new product (good or service) in the ERP catalog.",
+        reason: "Irreversible write that creates a new catalog entry visible to all agents in the tenant.",
+      },
+    }),
+    prisma.confirmationGate.upsert({
+      where: { toolName: "update_product" },
+      update: {},
+      create: {
+        toolName: "update_product",
+        enabled: true,
+        description: "Updating an existing product's name, description, SKU or type.",
+        reason: "Changes catalog data other agents and downstream processes rely on.",
+      },
+    }),
+    prisma.confirmationGate.upsert({
+      where: { toolName: "create_user" },
+      update: {},
+      create: {
+        toolName: "create_user",
+        enabled: true,
+        description: "Creating a human user account for an existing party.",
+        reason: "Provisions a credential for a human identity — the account can then sign in to the tenant.",
       },
     }),
   ]);

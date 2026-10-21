@@ -38,6 +38,24 @@ describe("PrismaService", () => {
     vi.clearAllMocks();
   });
 
+  describe("admin client", () => {
+    it("is an OWN property, not a getter", () => {
+      // Regression guard: Prisma's client constructor returns a Proxy, and
+      // the proxy's `get` trap evaluates an accessor with the TARGET as the
+      // receiver (`h[g]`). A `get admin() { return this; }` therefore
+      // returned the raw target — which does NOT carry the model delegates
+      // (those are created by the proxy) — so EVERY admin-client call failed
+      // with "Cannot read properties of undefined (reading 'findFirst')".
+      // The property is assigned in the constructor, where `this` IS the
+      // proxy.
+      const service = new PrismaService();
+      const descriptor = Object.getOwnPropertyDescriptor(service, "admin");
+      expect(descriptor).toBeDefined();
+      expect(descriptor?.value).toBe(service);
+      expect(service.admin).toBe(service);
+    });
+  });
+
   describe("tenantScoped", () => {
     it("should return a tenant-scoped client", () => {
       const service = new PrismaService();
@@ -307,6 +325,48 @@ describe("PrismaService", () => {
           ];
         });
       await expect(service.onModuleInit()).rejects.toThrow(/force-RLS on user_session which are NOT in the verification list/i);
+    });
+
+    it("refuses to boot when a tenant table has RLS enabled but NO policy", async () => {
+      // A table can carry ENABLE + FORCE ROW LEVEL SECURITY and still have
+      // ZERO policies — PostgreSQL then denies every row on it (deny-all).
+      // That state is easy to reach: a policy statement that fails to parse
+      // leaves the flags applied but the policy missing. The flags-only check
+      // passed it, so the service booted and every read silently returned
+      // nothing while every write failed with an opaque "violates row-level
+      // security policy" error.
+      const service = new PrismaService();
+      const rows = [
+        { relname: "party_type", relrowsecurity: false, relforcerowsecurity: false, policy_count: 0n },
+        { relname: "party", relrowsecurity: true, relforcerowsecurity: true, policy_count: 1n },
+        { relname: "contact_mechanism", relrowsecurity: true, relforcerowsecurity: true, policy_count: 1n },
+        { relname: "party_contact_mechanism", relrowsecurity: true, relforcerowsecurity: true, policy_count: 1n },
+        { relname: "party_role", relrowsecurity: true, relforcerowsecurity: true, policy_count: 1n },
+        { relname: "ai_action_log", relrowsecurity: true, relforcerowsecurity: true, policy_count: 1n },
+        { relname: "idempotency_record", relrowsecurity: true, relforcerowsecurity: true, policy_count: 1n },
+        { relname: "person", relrowsecurity: true, relforcerowsecurity: true, policy_count: 1n },
+        { relname: "organization", relrowsecurity: true, relforcerowsecurity: true, policy_count: 1n },
+        // postal_address is the table whose policy was previously missing
+        // (the rls-setup.sql statement was malformed and never applied).
+        { relname: "postal_address", relrowsecurity: true, relforcerowsecurity: true, policy_count: 0n },
+        { relname: "telecom_number", relrowsecurity: true, relforcerowsecurity: true, policy_count: 1n },
+        { relname: "email_address", relrowsecurity: true, relforcerowsecurity: true, policy_count: 1n },
+        { relname: "product", relrowsecurity: true, relforcerowsecurity: true, policy_count: 1n },
+        { relname: "product_category", relrowsecurity: true, relforcerowsecurity: true, policy_count: 1n },
+        { relname: "product_feature", relrowsecurity: true, relforcerowsecurity: true, policy_count: 1n },
+        { relname: "product_price", relrowsecurity: true, relforcerowsecurity: true, policy_count: 1n },
+        { relname: "agent_registry", relrowsecurity: true, relforcerowsecurity: true, policy_count: 1n },
+        { relname: "user", relrowsecurity: true, relforcerowsecurity: true, policy_count: 1n },
+      ];
+      (service.appClient as unknown as { $queryRaw: () => Promise<unknown> }).$queryRaw = vi
+        .fn()
+        .mockImplementation(async (query: any) => {
+          const sql = String(query);
+          if (sql.includes("current_user")) return [{ role: "besterp_app" }];
+          if (sql.includes("pg_roles")) return [{ rolsuper: false, rolbypassrls: false }];
+          return rows;
+        });
+      await expect(service.onModuleInit()).rejects.toThrow(/NO policy/i);
     });
 
     it("refuses to boot when a tenant table has NO RLS at all", async () => {

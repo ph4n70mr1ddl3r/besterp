@@ -84,9 +84,16 @@ async function main() {
   // *session* scoped: under Prisma's default connection pool the lock and
   // the subsequent findMany/deleteMany could otherwise land on different
   // pooled connections, voiding the serialisation guarantee. Bounding the
-  // work to one transaction keeps the lock effective and lets the server
-  // release it automatically on commit/rollback (an explicit
-  // pg_advisory_unlock is still issued for clarity/early release).
+  // work to one transaction keeps the lock effective.
+  //
+  // The lock is the TRANSACTION-scoped variant (`pg_try_advisory_xact_lock`),
+  // which PostgreSQL releases automatically at COMMIT/ROLLBACK. The previous
+  // revision used the session-scoped `pg_try_advisory_lock` and issued an
+  // explicit `pg_advisory_unlock` INSIDE the still-open transaction: that
+  // released the lock while the deletes were not yet committed, so a second
+  // concurrent run could acquire it, start scanning rows the first run had
+  // deleted but not committed (blocking on the row locks, then reporting
+  // zero deletions and a misleading before/after count).
   const result = await prisma.$transaction(
     async (tx) => {
       // Prisma tagged-template interpolation binds the value as a bound
@@ -96,10 +103,10 @@ async function main() {
       // a hard parse error ("A destructuring declaration must have an
       // initializer") that aborted the script before it ever ran. Interpolating
       // via ${...} is the only form Prisma binds.
-      const lockResult = await tx.$queryRaw<Array<{ pg_try_advisory_lock: boolean }>>`
-        SELECT pg_try_advisory_lock(${ADVISORY_LOCK_KEY})
+      const lockResult = await tx.$queryRaw<Array<{ pg_try_advisory_xact_lock: boolean }>>`
+        SELECT pg_try_advisory_xact_lock(${ADVISORY_LOCK_KEY})
       `;
-      const lockAcquired = lockResult[0]?.pg_try_advisory_lock === true;
+      const lockAcquired = lockResult[0]?.pg_try_advisory_xact_lock === true;
       if (!lockAcquired) {
         return { skipped: true as const, deleted: 0, before: 0, after: 0 };
       }
@@ -156,13 +163,10 @@ async function main() {
       } while (expired.length === BATCH_SIZE);
 
       const afterCount = await tx.idempotencyRecord.count();
-      try {
-        const unlockResult = await tx.$queryRaw`SELECT pg_advisory_unlock(${ADVISORY_LOCK_KEY})`;
-        void unlockResult;
-      } catch (e) {
-        console.warn("Could not release advisory lock:", sanitizeForLogOutput(e instanceof Error ? e.message : String(e)));
-      }
 
+      // No explicit unlock: `pg_try_advisory_xact_lock` is released
+      // automatically when this transaction commits or rolls back, which is
+      // exactly when the deleted rows become visible to other sessions.
       return { skipped: false as const, deleted, before: beforeCount, after: afterCount };
     },
     { timeout: TX_TIMEOUT_MS },

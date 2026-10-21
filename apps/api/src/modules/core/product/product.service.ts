@@ -245,7 +245,15 @@ export class ProductService {
   // ─── Search Products ──────────────────────────────────────────
 
   async searchProducts(input: SearchProductsInput): Promise<SearchProductsResult> {
-    const { tenantId, name, productType, limit = DEFAULT_SEARCH_LIMIT, offset = MIN_SEARCH_OFFSET } = input;
+    // `??` (not a destructuring default) so an explicit `null` is defaulted
+    // instead of being rejected. The three sibling search services must
+    // agree: `searchParties` used `??` while `searchProducts` /
+    // `searchAgents` used a destructuring default, which only fires on
+    // `undefined` — so `limit: null` was silently defaulted by one service
+    // and rejected by the others with "'limit' must be a finite integer".
+    const { tenantId, name, productType } = input;
+    const limit = input.limit ?? DEFAULT_SEARCH_LIMIT;
+    const offset = input.offset ?? MIN_SEARCH_OFFSET;
 
     const trimmedTenantId = ProductService.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "search_products");
     ProductService.requireIntegerPageParam(limit, "limit", "search_products");
@@ -281,7 +289,13 @@ export class ProductService {
       total = await db.product.count({ where });
       items = await db.product.findMany({
         where,
-        include: { productType: { select: { name: true } }, category: { select: { name: true } } },
+        // No `include`: the result mapper (`toProductResult`) reads only the
+        // base columns, so joining `productType` and `category` executed two
+        // extra relations per row for data that was never returned — and the
+        // `include` misled readers into believing the search result carried
+        // the type and the category (it does not: `SearchProductsResult.items`
+        // is `ProductResult[]`). `searchParties` DOES need its include,
+        // because `toPartyResult` reads `person`, `organization` and `roles`.
         take: validatedLimit,
         skip: validatedOffset,
         orderBy: [{ name: "asc" }, { productId: "asc" }],
@@ -416,18 +430,29 @@ export class ProductService {
     const db: TenantScopedClient = this.prisma.tenantScoped(trimmedTenantId);
 
     try {
-      const product = await db.product.findUnique({ where: { productId, tenantId: trimmedTenantId } });
-      if (!product) {
-        throw new EntityNotFoundError(
-          `Product '${productId}' not found in tenant '${trimmedTenantId}'.`,
-          { suggestedTools: ["search_products", "get_product"], context: { productId, tenantId: trimmedTenantId } }
-        );
-      }
+      // The existence check and the insert run in ONE interactive transaction.
+      // On the tenant-scoped proxy every STANDALONE model operation is
+      // wrapped in its own transaction, so the previous implementation
+      // (a standalone `findUnique` followed by a standalone `create`) put the
+      // check and the write in two different transactions with no shared
+      // snapshot — a TOCTOU window in which the product could be deleted
+      // (or moved to another tenant) between them. The caller then got a
+      // P2003 "Referenced product does not exist" for a product that
+      // demonstrably existed a moment earlier.
+      const feature = await db.$transaction(async (tx) => {
+        const product = await tx.product.findUnique({ where: { productId, tenantId: trimmedTenantId } });
+        if (!product) {
+          throw new EntityNotFoundError(
+            `Product '${productId}' not found in tenant '${trimmedTenantId}'.`,
+            { suggestedTools: ["search_products", "get_product"], context: { productId, tenantId: trimmedTenantId } }
+          );
+        }
 
-      const feature = await db.productFeature.create({
-        data: { productId, name: trimmedName, value: trimmedValue },
-        select: { productFeatureId: true, productId: true, name: true, value: true, createdAt: true },
-      });
+        return tx.productFeature.create({
+          data: { productId, name: trimmedName, value: trimmedValue },
+          select: { productFeatureId: true, productId: true, name: true, value: true, createdAt: true },
+        });
+      }, { timeout: TX_TIMEOUT_MS });
 
       return ProductService.toFeatureResult(feature);
     } catch (err: unknown) {
@@ -448,25 +473,29 @@ export class ProductService {
     const db: TenantScopedClient = this.prisma.tenantScoped(trimmedTenantId);
 
     try {
-      const product = await db.product.findUnique({ where: { productId, tenantId: trimmedTenantId } });
-      if (!product) {
-        throw new EntityNotFoundError(
-          `Product '${productId}' not found in tenant '${trimmedTenantId}'.`,
-          { suggestedTools: ["search_products", "get_product"], context: { productId, tenantId: trimmedTenantId } }
-        );
-      }
+      // The existence check and the insert run in ONE interactive transaction
+      // — see the equivalent note in `addProductFeature`.
+      const price = await db.$transaction(async (tx) => {
+        const product = await tx.product.findUnique({ where: { productId, tenantId: trimmedTenantId } });
+        if (!product) {
+          throw new EntityNotFoundError(
+            `Product '${productId}' not found in tenant '${trimmedTenantId}'.`,
+            { suggestedTools: ["search_products", "get_product"], context: { productId, tenantId: trimmedTenantId } }
+          );
+        }
 
-      const price = await db.productPrice.create({
-        data: {
-          productId,
-          priceType: parsedDates.priceType,
-          amount: parsedDates.amount,
-          currencyCode: parsedDates.currencyCode,
-          fromDate: parsedDates.fromDate,
-          thruDate: parsedDates.thruDate,
-        },
-        select: { productPriceId: true, productId: true, priceType: true, amount: true, currencyCode: true, fromDate: true, thruDate: true, createdAt: true },
-      });
+        return tx.productPrice.create({
+          data: {
+            productId,
+            priceType: parsedDates.priceType,
+            amount: parsedDates.amount,
+            currencyCode: parsedDates.currencyCode,
+            fromDate: parsedDates.fromDate,
+            thruDate: parsedDates.thruDate,
+          },
+          select: { productPriceId: true, productId: true, priceType: true, amount: true, currencyCode: true, fromDate: true, thruDate: true, createdAt: true },
+        });
+      }, { timeout: TX_TIMEOUT_MS });
 
       return ProductService.toPriceResult(price);
     } catch (err: unknown) {

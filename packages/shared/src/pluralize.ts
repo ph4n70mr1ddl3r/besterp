@@ -1,31 +1,45 @@
 // Simple English pluralization for entity names used in MCP error messages and suggested tool names.
 // Not a full grammar — handles the entity names this codebase uses.
 
-const IRREGULAR_PLURALS: Record<string, string> = {
-  child: "children",
-  mouse: "mice",
-  goose: "geese",
-  man: "men",
-  woman: "women",
-  tooth: "teeth",
-  foot: "feet",
-  ox: "oxen",
-  datum: "data",
-  person: "people",
-  knife: "knives",
-  life: "lives",
-  wife: "wives",
-  loaf: "loaves",
-  wolf: "wolves",
-  calf: "calves",
-  half: "halves",
-  leaf: "leaves",
-  shelf: "shelves",
-  thief: "thieves",
-  self: "selves",
-  elf: "elves",
-  sheaf: "sheaves",
-};
+// The irregular-plural table is built WITHOUT a prototype so a lookup can
+// never reach an inherited `Object.prototype` member.
+//
+// The previous version used an object literal, so `IRREGULAR_PLURALS["toString"]`
+// (or "constructor", "valueOf", …) returned a FUNCTION and
+// `IRREGULAR_PLURALS["__proto__"]` returned an OBJECT — both were then
+// passed to `preserveCasing()` as if they were strings, so `pluralize()`
+// returned a non-string for those inputs and THREW a TypeError for
+// capitalised variants ("Constructor" → "plural.charAt is not a function").
+// `pluralize` runs inside the MCP error path, so an entity named
+// "constructor" (a perfectly plausible ERP entity) crashed the error
+// handler itself.
+const IRREGULAR_PLURALS: ReadonlyMap<string, string> = new Map(
+  Object.entries({
+    child: "children",
+    mouse: "mice",
+    goose: "geese",
+    man: "men",
+    woman: "women",
+    tooth: "teeth",
+    foot: "feet",
+    ox: "oxen",
+    datum: "data",
+    person: "people",
+    knife: "knives",
+    life: "lives",
+    wife: "wives",
+    loaf: "loaves",
+    wolf: "wolves",
+    calf: "calves",
+    half: "halves",
+    leaf: "leaves",
+    shelf: "shelves",
+    thief: "thieves",
+    self: "selves",
+    elf: "elves",
+    sheaf: "sheaves",
+  } as Record<string, string>),
+);
 
 function preserveCasing(input: string, plural: string): string {
   if (input.length === 0) return plural;
@@ -73,8 +87,8 @@ function isConsonantOEnding(lower: string): boolean {
 export function pluralize(entity: string): string {
   if (entity.length === 0) return entity;
   const lower = entity.toLowerCase();
-  const irregular = IRREGULAR_PLURALS[lower];
-  if (irregular) return preserveCasing(entity, irregular);
+  const irregular = IRREGULAR_PLURALS.get(lower);
+  if (irregular !== undefined) return preserveCasing(entity, irregular);
   // Words already ending in "ves" (e.g. "knives", "lives") are already in
   // their plural form — returning them as-is avoids double-pluralization
   // ("kniveses", "liveses") which would be wrong. The sibilant-ending rule

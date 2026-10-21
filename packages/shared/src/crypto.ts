@@ -46,10 +46,16 @@ function sortMap(value: Map<unknown, unknown>, ancestors: Set<object>, depth: nu
     // comparison re-stringifies both keys — O(n log n) stringifications total.
     // Pre-computing reduces this to O(n).
     const entries = Array.from(value.entries());
-    const prepared: Array<{ v: unknown; kSorted: unknown; kStr: string }> = entries
+    const prepared: Array<{ v: unknown; kSorted: unknown; kStr: string; vStr: string }> = entries
       .map(([k, v]) => {
         const kSorted = sortKeysDeep(k, ancestors, depth + 1, budget);
-        return { v, kSorted, kStr: JSON.stringify(kSorted) };
+        const vSorted = sortKeysDeep(v, ancestors, depth + 1, budget);
+        return {
+          v: vSorted,
+          kSorted,
+          kStr: JSON.stringify(kSorted) ?? "",
+          vStr: JSON.stringify(vSorted) ?? "",
+        };
       });
     for (const entry of prepared) {
       // Charge the key bytes to the aggregate budget. For string keys,
@@ -70,9 +76,23 @@ function sortMap(value: Map<unknown, unknown>, ancestors: Set<object>, depth: nu
         }
       }
     }
+    // Sort by the serialized KEY, with a deterministic tie-break on the
+    // serialized VALUE.
+    //
+    // The tie-break is required: two DISTINCT Map keys can serialize to the
+    // SAME string (`undefined` and `null` both become "null"; two distinct
+    // objects with identical content both become `{"x":1}`). Without a
+    // tie-break the resulting order depended on Map insertion order, so two
+    // logically identical requests could produce DIFFERENT hashes — which
+    // `hashInput` reports as an idempotency-key mismatch even though the
+    // input was the same.
     const sortedEntries = prepared
-      .sort((a, b) => a.kStr < b.kStr ? -1 : a.kStr > b.kStr ? 1 : 0);
-    return sortedEntries.map(({ v, kSorted }) => [kSorted, sortKeysDeep(v, ancestors, depth + 1, budget)]);
+      .sort((a, b) => {
+        if (a.kStr !== b.kStr) return a.kStr < b.kStr ? -1 : 1;
+        if (a.vStr !== b.vStr) return a.vStr < b.vStr ? -1 : 1;
+        return 0;
+      });
+    return sortedEntries.map(({ v, kSorted }) => [kSorted, v]);
   } finally {
     ancestors.delete(value);
   }
@@ -84,22 +104,17 @@ function sortSet(value: Set<unknown>, ancestors: Set<object>, depth: number, bud
   try {
     // Pre-compute stringified forms to avoid redundant JSON.stringify calls
     // in the comparator (same optimization as sortMap). Each element is first
-    // run through sortKeysDeep (which charges its string *values* to the
-    // budget) — but a Set of *strings* (the dominant case for large
-    // payloads) produces elements that are already strings, so their bytes
-    // are never charged here. Charge each element's serialized bytes to the
-    // aggregate budget so a wide Set of large strings cannot bypass the
-    // MAX_HASH_TOTAL_BYTES DoS guard (object/Map keys ARE charged via
-    // chargeKeyBytes; this was the missing leg — a Set of ~30 × 99 KB
-    // strings previously hashed successfully, emitting a ~3 MB buffer).
+    // run through sortKeysDeep, which charges its string *values* to the
+    // budget — so a Set of ~30 × 99 KB strings is already charged and
+    // correctly rejected by the MAX_HASH_TOTAL_BYTES DoS guard.
     //
-    // Only charge structural bytes for the container itself (the JSON array
+    // Only the container's structural bytes are charged here (the JSON array
     // wrapper `[...]` plus separators between elements). Individual elements
-    // are already charged via sortKeysDeep above, so we do NOT re-charge
-    // their serialized form here — doing so double-counted every element
-    // (sortKeysDeep charged string values, then JSON.stringify +
-    // chargeKeyBytes charged them again), causing legitimate inputs to
-    // exceed the budget and be rejected as DoS.
+    // are already charged via sortKeysDeep above, so they are NOT re-charged
+    // here — re-charging double-counted every element (sortKeysDeep charged
+    // the string values, then JSON.stringify + chargeKeyBytes charged them
+    // again), causing legitimate inputs to exceed the budget and be rejected
+    // as DoS.
     const prepared = Array.from(value, (v) => {
       const sorted = sortKeysDeep(v, ancestors, depth + 1, budget);
       return { v: sorted, str: JSON.stringify(sorted) };
@@ -409,6 +424,11 @@ export function hashInput(input: unknown): string {
     const budgetStart = performance.now();
     const budget = { bytes: 0 };
     const canonical = sortKeysDeep(input, new Set(), 0, budget);
+    const serialized = JSON.stringify(canonical);
+    // The elapsed time is measured AFTER the serialization: the CPU budget
+    // covers "JSON.stringify + sortKeysDeep" (as documented above), and
+    // JSON.stringify is the single most expensive step of the two. Measuring
+    // before it left the most expensive step unguarded.
     const elapsed = performance.now() - budgetStart;
     if (elapsed > BUDGET_MS) {
       throw new InvalidTypeValueError(
@@ -417,7 +437,6 @@ export function hashInput(input: unknown): string {
         { context: { field: "input", elapsedMs: elapsed, budgetMs: BUDGET_MS } }
       );
     }
-    const serialized = JSON.stringify(canonical);
     return createHash("sha256")
       .update(serialized)
       .digest("hex");

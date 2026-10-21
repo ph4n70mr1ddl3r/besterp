@@ -63,7 +63,12 @@ export function computeHasMore(offset: number, limit: number, total: number): bo
  */
 export function resolveConflictField(err: { meta?: Record<string, unknown> }): string | null {
   const target = err.meta?.target;
-  if (Array.isArray(target) && target.length > 0 && typeof target[0] === "string") {
+  // EVERY element of a compound target must be a string. Checking only
+  // `target[0]` let a mixed array through, and `join(" and ")` then stringified
+  // the non-string members ("tenantId and 42") — a nonsense field name
+  // reflected back to the caller. The MCP error-handler validates every
+  // element for the same reason.
+  if (Array.isArray(target) && target.length > 0 && target.every((t) => typeof t === "string")) {
     return target.join(" and ");
   }
   // Some Prisma/driver versions report `meta.target` as a bare string.
@@ -87,7 +92,7 @@ export function resolveConstraintName(err: { meta?: Record<string, unknown> }): 
  */
 export function throwMappedPrismaError(
   code: string,
-  err: { code: string; meta?: Record<string, unknown> },
+  err: Error & { code: string; meta?: Record<string, unknown> },
   retryTool: string,
   suggestTool: string,
   entityName: string,
@@ -132,7 +137,17 @@ export function throwMappedPrismaError(
       // Re-throw unknown Prisma codes (e.g. future P3xxx, P4xxx) as the
       // original error so the filter returns 500 instead of misreporting
       // a transient infrastructure failure as a caller-input 422.
-      throw err;
+      //
+      // The original error is re-thrown only when it really is an Error.
+      // The parameter is typed as `Error & { code }`, but a caller could
+      // still pass a plain object; throwing a non-Error breaks every
+      // downstream `instanceof Error` check (the REST filter and
+      // `DomainError` handling both rely on it), so a non-Error is wrapped.
+      if (err instanceof Error) throw err;
+      throw new InvalidTypeValueError(
+        `Unexpected database error while processing ${entityName}.`,
+        { suggestedTools: [suggestTool], context: { prismaCode: code } }
+      );
     }
   }
 }
@@ -173,5 +188,5 @@ export function handleTransactionError(
   if (!/^P\d{4}$/.test(code)) throw err;
   if (/^P1\d{3}$/.test(code)) throw err;
 
-  return throwMappedPrismaError(code, err as { code: string; meta?: Record<string, unknown> }, retryTool, suggestTool, entityName);
+  return throwMappedPrismaError(code, err as Error & { code: string; meta?: Record<string, unknown> }, retryTool, suggestTool, entityName);
 }

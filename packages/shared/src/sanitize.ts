@@ -182,10 +182,36 @@ function stripControlCharacters(input: string): string {
  * (O(n²)) on a long run of letters with no `://` — an event-loop-blocking
  * ReDoS on hot, agent-facing and durable-persist paths. Bound the input so no
  * downstream regex can be fed an unbounded string.
+ *
+ * Same bound as `MAX_INPUT_LENGTH` (the `stripHtmlTags` cap) so the two
+ * length guards in this module cannot silently drift apart — they used to be
+ * two independent literals with the same value.
  */
-const MAX_LOG_OUTPUT_LENGTH = 100_000;
+const MAX_LOG_OUTPUT_LENGTH = MAX_INPUT_LENGTH;
 
-export function sanitizeForLogOutput(message: string): string {
+/**
+ * Options for {@link sanitizeForLogOutput}.
+ */
+export interface SanitizeForLogOutputOptions {
+  /**
+   * Keep "opaque" tokens (a 20-128 character run that mixes letters and
+   * digits) verbatim instead of rewriting them to `[REDACTED_TOKEN]`.
+   *
+   * The generic long-token rule exists to catch secrets whose shape is not
+   * recognisable (a random base64 blob). It cannot tell those apart from a
+   * legitimate opaque IDENTIFIER — so it rewrote a perfectly legal user id
+   * such as `ServiceAccount12345678` into `[REDACTED_TOKEN]`, destroying the
+   * audit correlation the row exists to provide.
+   *
+   * Use this for values that are already charset-validated (identifiers),
+   * where the recognised-secret rules (provider keys, connection strings,
+   * `name=value` pairs, URLs, paths) still apply but an opaque token is a
+   * legitimate value. NEVER use it for free-form user input.
+   */
+  keepOpaqueTokens?: boolean;
+}
+
+export function sanitizeForLogOutput(message: string, options?: SanitizeForLogOutputOptions): string {
   // Defensive length cap (mirrors the guard in stripHtmlTags). Without it, a
   // long attacker-influenced error message / tool output / validation `received`
   // value could trigger O(n²) backtracking in the URL catch-all regex below and
@@ -227,8 +253,10 @@ export function sanitizeForLogOutput(message: string): string {
     replaceHostPaths,
     replaceCredentialUrls,
     replaceFilesystemPaths,
-    replaceGenericLongToken,
   ];
+  if (options?.keepOpaqueTokens !== true) {
+    pipeline.push(replaceGenericLongToken);
+  }
   return pipeline.reduce((acc, fn) => fn(acc), result);
 }
 
@@ -242,31 +270,77 @@ function replaceDatabaseUrls(input: string): string {
     .replace(/amqps?:\/\/[^\s"']+/gi, "[MESSAGE_BROKER_URL]");
 }
 
-// Field-name alternation shared by the three free-text secret rules below.
-// Extracted to a single source of truth so the rules cannot drift from
-// `isSensitiveFieldName`: the previously fixed alternation missed composite
-// names like `refresh_token`, so a short/all-letter secret under one of those
-// names leaked verbatim while the identical value under `access_token` was
-// scrubbed — an asymmetric leak across log surfaces.
+// ─── Free-text secret rules ───────────────────────────────────────
 //
-// `code`/`session` are deliberately EXCLUDED from this base list because they
-// over-redact benign prose (`status code=200 ok`, `session=abc123`). The
-// query-string and quoted-value rules re-add them, since a URL param or a
-// quoted value is structured rather than prose.
-const SECRET_PARAM_NAMES = Object.freeze(new Set([
-  "key", "token", "id_token", "access_token", "refresh_token", "auth_token",
-  "session_token", "reset_token", "grant_token", "secret", "secret_key",
-  "secretkey", "access_key", "accesskey", "password", "passwd", "pwd",
-  "auth", "api_key", "apikey", "client_secret", "client_id", "signature",
-  "sign", "otp", "bearer",
+// Three rules redact `name=value` / `name: value` shaped secrets in free
+// text, query strings and quoted values.
+//
+// They are all driven by ONE predicate — {@link isFreeTextSecretName} — which
+// delegates to the canonical `isSensitiveFieldName` (the same predicate the
+// object-key redactor uses). The previous implementation carried its own
+// fixed alternation of secret names, and the two lists had drifted apart:
+// `mfa`, `credentials`, `passphrase`, `authorization`, `clientSecret`,
+// `accessToken` and every compound such as `private_key` / `access_key` were
+// redacted when they appeared as an OBJECT KEY but leaked verbatim in free
+// text, where the same secret should have been scrubbed. That asymmetry is
+// exactly the leak class this module exists to prevent.
+//
+// A "name" in free text is captured as a WHOLE (snake_case, kebab-case or
+// camelCase) so the sensitivity decision is made on the complete name —
+// `clientSecret`, `x-api-key` and `db_private_key` are recognised — instead
+// of on a hand-maintained list of spellings that could never stay in sync
+// with the field-name rules.
+
+// Names that the free-text rules deliberately do NOT treat as secret
+// markers even though `isSensitiveFieldName` flags them: they over-redact
+// benign prose ("status code=200 ok", "session=abc123"). The query-string
+// and quoted-value rules re-add them, because a URL parameter or a quoted
+// value is structured rather than prose.
+const FREE_TEXT_PROSE_EXCLUSIONS: ReadonlySet<string> = Object.freeze(new Set([
+  "code", "session",
 ]));
-const SECRET_PARAM_ALTERNATION = Array.from(SECRET_PARAM_NAMES).sort().join("|");
-const SECRET_PARAM_ALTERNATION_WITH_SESSION = `${SECRET_PARAM_ALTERNATION}|code|session`;
+
+// Names the free-text rules treat as secret markers even though
+// `isSensitiveFieldName` does NOT flag them. `key` alone cannot be part of
+// the field-name rules (it would flag `primaryKey` / `sortKey` /
+// `foreignKey`), but in a `name=value` position — a config dump, a query
+// string, a log line — a bare `key` IS a credential. `client_id` and
+// `bearer` are the same shape of judgement: they are credential markers in
+// free text but ordinary identifiers as field names.
+const FREE_TEXT_EXTRA_SECRET_NAMES: ReadonlySet<string> = Object.freeze(new Set([
+  "key", "client_id", "bearer",
+]));
+
+/**
+ * True when a NAME captured from free text denotes a secret.
+ *
+ * @param allowCodeAndSession - the query-string and quoted-value rules pass
+ *   `true` because a URL parameter or a quoted value is structured, not
+ *   prose ("code=200" in a query string is still a value worth scrubbing).
+ */
+function isFreeTextSecretName(name: string, allowCodeAndSession = false): boolean {
+  const lower = name.toLowerCase();
+  if (!allowCodeAndSession && FREE_TEXT_PROSE_EXCLUSIONS.has(lower)) return false;
+  if (FREE_TEXT_EXTRA_SECRET_NAMES.has(lower)) return true;
+  return isSensitiveFieldName(name);
+}
+
+// A name in free text: an identifier-ish run. Kept deliberately permissive
+// (letters, digits, `_`, `-`, `.`) so `clientSecret`, `x-api-key` and
+// `db_private_key` are all captured whole and the sensitivity decision is
+// made on the complete name.
+const FREE_TEXT_NAME = "[A-Za-z][A-Za-z0-9_.-]{0,63}";
 
 // `String.raw` preserves regex backslash escapes verbatim, so each pattern
 // below is byte-for-byte the intended regex source.
+//
+// The query-string rule previously required `name=` with NO whitespace
+// around the separator, so `?api_key = secret` was never matched; and the
+// name had to be one of a fixed alternation, so `?x_token=secret` (a
+// qualified parameter name) leaked. Both are fixed below: the separator may
+// be surrounded by whitespace, and the name is captured whole.
 const QUERY_SECRET_PATTERN = new RegExp(
-  String.raw`(?<=[?&#;])((?:${SECRET_PARAM_ALTERNATION_WITH_SESSION})=)([^&;\s"']+)`,
+  String.raw`(?<=[?&#;])([ \t]*(${FREE_TEXT_NAME})[ \t]*=[ \t]*)([^&;\s"']+)`,
   "gi",
 );
 // `name: value` and `name = value` are the canonical YAML/config/log forms
@@ -277,7 +351,7 @@ const QUERY_SECRET_PATTERN = new RegExp(
 // quoted values: its `"…"` value class is excluded here, so `password:
 // "hunter2"` continues to flow to that rule unchanged.
 const BOUNDARY_SECRET_PATTERN = new RegExp(
-  String.raw`(^|[\s"'{([,;])((?:${SECRET_PARAM_ALTERNATION}))\s*[:=]\s*([^}\]\s"'\` ,;]+)`,
+  String.raw`(^|[\s"'{([,;])([A-Za-z][A-Za-z0-9_.-]{0,63})[ \t]*[:=][ \t]*([^}\]\s"'\` ,;]+)`,
   "gi",
 );
 // The name's own quote characters AND the `:`/`=` separator are captured so
@@ -287,9 +361,22 @@ const BOUNDARY_SECRET_PATTERN = new RegExp(
 // payload after redaction (audit rows, idempotency records, agent-facing
 // errors) could no longer parse it.
 const QUOTED_SECRET_PATTERN = new RegExp(
-  String.raw`(^|[\s"'{([;,?])("?)((?:${SECRET_PARAM_ALTERNATION_WITH_SESSION}))("?)\s*([:=])\s*("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')`,
+  String.raw`(^|[\s"'{([;,?])("?)(${FREE_TEXT_NAME})("?)[ \t]*([:=])[ \t]*("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')`,
   "gi",
 );
+
+/**
+ * Auth schemes whose credential is redacted by a dedicated rule.
+ *
+ * `Authorization: Bearer <token>` must NOT be rewritten by the generic
+ * `name=value` rule: the value class stops at whitespace, so the rule would
+ * consume the SCHEME (`Bearer`) and leave the credential behind — and the
+ * dedicated Bearer/Basic rule would then no longer recognise it. Skipping
+ * the generic rule for these values keeps the scheme intact and lets
+ * `replaceBearerAndJwtTokens` redact the credential as
+ * "Bearer [REDACTED]".
+ */
+const AUTH_SCHEME_VALUE = /^(?:Bearer|Basic)$/i;
 
 /**
  * Redact secrets in URL query strings and fragments.
@@ -300,7 +387,11 @@ const QUOTED_SECRET_PATTERN = new RegExp(
  * leaves nothing sensitive behind.
  */
 function replaceQuerySecrets(input: string): string {
-  return input.replace(QUERY_SECRET_PATTERN, (_m, name) => `${name}[REDACTED]`);
+  return input.replace(
+    QUERY_SECRET_PATTERN,
+    (match, prefix: string, name: string) =>
+      isFreeTextSecretName(name, true) ? `${prefix}[REDACTED]` : match,
+  );
 }
 
 /**
@@ -308,7 +399,16 @@ function replaceQuerySecrets(input: string): string {
  * string, e.g. `password=hunter2` or `{"api_key":"sk_live_abc"}`.
  */
 function replaceBoundarySecrets(input: string): string {
-  return input.replace(BOUNDARY_SECRET_PATTERN, (_, lead, name) => `${lead}${name}=[REDACTED]`);
+  return input.replace(
+    BOUNDARY_SECRET_PATTERN,
+    (match, lead: string, name: string, value: string) => {
+      if (!isFreeTextSecretName(name)) return match;
+      // Leave `Authorization: Bearer …` / `Authorization: Basic …` to the
+      // dedicated auth rules (see AUTH_SCHEME_VALUE).
+      if (AUTH_SCHEME_VALUE.test(value)) return match;
+      return `${lead}${name}=[REDACTED]`;
+    },
+  );
 }
 
 /**
@@ -321,10 +421,14 @@ function replaceBoundarySecrets(input: string): string {
  * agent-facing errors) failed to parse it.
  */
 function replaceQuotedSecrets(input: string): string {
-  return input.replace(QUOTED_SECRET_PATTERN, (_, lead, nameOpen, name, nameClose, sep, value) => {
-    const quote = value.startsWith("'") ? "'" : '"';
-    return `${lead}${nameOpen}${name}${nameClose}${sep}${quote}[REDACTED]${quote}`;
-  });
+  return input.replace(
+    QUOTED_SECRET_PATTERN,
+    (match, lead: string, nameOpen: string, name: string, nameClose: string, sep: string, value: string) => {
+      if (!isFreeTextSecretName(name, true)) return match;
+      const quote = value.startsWith("'") ? "'" : '"';
+      return `${lead}${nameOpen}${name}${nameClose}${sep}${quote}[REDACTED]${quote}`;
+    },
+  );
 }
 
 /** Redact Bearer tokens, Basic auth credentials, and JWTs. */
@@ -352,7 +456,13 @@ function replaceProviderSecrets(input: string): string {
   return input
     .replace(/\b(?:AKIA|ASIA)[0-9A-Z]{16}/g, "[REDACTED_AWS_KEY]")
     .replace(/\b(?:sk|rk|pk|ssk)_(?:live|test)_[A-Za-z0-9]{8,}/gi, "[REDACTED_API_KEY]")
-    .replace(/\b(?:ghp|gho|ghu|ghs|ghr|glpat|glpat-|gldt|dop_v1)_[A-Za-z0-9]{16,}/g, "[REDACTED_TOKEN]")
+    // GitHub personal-access tokens: `ghp_…`, `gho_…`, … (underscore form).
+    .replace(/\b(?:ghp|gho|ghu|ghs|ghr|glpat|dop_v1)_[A-Za-z0-9]{16,}/g, "[REDACTED_TOKEN]")
+    // GitLab personal-access tokens: `glpat-…` (HYPHEN form). The previous
+    // revision listed `glpat-` as an alternative of the underscore pattern
+    // above, where it was unreachable — the pattern required a trailing `_`,
+    // so the real GitLab format was never matched.
+    .replace(/\bglpat-[A-Za-z0-9_-]{16,}/g, "[REDACTED_TOKEN]")
     .replace(/\b(?:xox[baprs]-[A-Za-z0-9-]{10,})/g, "[REDACTED_SLACK_TOKEN]")
     .replace(/\b(?:AIza)[A-Za-z0-9_-]{35}/g, "[REDACTED_GOOGLE_KEY]")
     .replace(/\b(?:ya29\.)[A-Za-z0-9_-]{20,}/g, "[REDACTED_GOOGLE_TOKEN]");
@@ -369,6 +479,17 @@ const ULID_CHARSET = "0-9A-HJKMNP-TV-Za-hjkmnp-tv-z";
 const ULID_PATTERN = new RegExp(`^[0-9][${ULID_CHARSET}]{25}$`);
 // Prefixed forms such as `usr_<ULID>`, `agent_<ULID>`, `conv_<ULID>`.
 const PREFIXED_ULID_PATTERN = new RegExp(`^[a-z][a-z0-9]{0,19}_[0-9][${ULID_CHARSET}]{25}$`);
+
+// A dotted lower-case identifier: a DNS name / host / email domain /
+// package coordinate. At least two dot-separated labels, each label made of
+// lower-case alphanumerics and dashes (no leading/trailing dash).
+//
+// These are STRUCTURED values, not opaque secrets. The generic long-token
+// rule cannot tell them apart from a random blob, and redacting them
+// silently corrupts legitimate data — an agent that created a contact with
+// the address "contact@acme-trading.example.com" got back
+// "contact@[REDACTED_TOKEN]".
+const DOTTED_IDENTIFIER_PATTERN = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/;
 
 function replaceGenericLongToken(input: string): string {
   // Use a state-machine scan instead of a single greedy regex to avoid
@@ -412,6 +533,14 @@ function replaceGenericLongToken(input: string): string {
       const hasLetter = /[a-zA-Z]/.test(candidate);
       const hasDigit = /[0-9]/.test(candidate);
       result.push(hasLetter && hasDigit ? "[REDACTED_TOKEN]" : candidate);
+    } else if (DOTTED_IDENTIFIER_PATTERN.test(candidate)) {
+      // A dotted, lower-case identifier — a hostname, an email domain, a
+      // package name. These are STRUCTURED values, not opaque secrets, and
+      // redacting them silently corrupts legitimate data: the generic rule
+      // used to rewrite "acme-trading.example.com" to "[REDACTED_TOKEN]",
+      // so an agent that created a contact with that address got a mangled
+      // value back and could not read it.
+      result.push(candidate);
     } else {
       result.push("[REDACTED_TOKEN]");
     }
@@ -442,8 +571,14 @@ function replaceCredentialUrls(input: string): string {
 
 /**
  * Redact absolute filesystem paths (Unix `/a/b/c.ext`, Windows `C:\path`, `~/path`).
- * Requires at least two non-empty segments so prose like "meet me at /home"
- * is not corrupted.
+ *
+ * Requires at least two non-empty segments AND a file extension in the final
+ * segment, so prose like "meet me at /home" or "retry at /admin/reindex" is
+ * not corrupted. The extension requirement is deliberate: without it every
+ * multi-segment path in ordinary prose ("see /var/log/app") would be
+ * rewritten, which destroys readability without protecting anything — the
+ * paths that matter (config files, source files, keys) all carry an
+ * extension.
  */
 function replaceFilesystemPaths(input: string): string {
   return input.replace(
@@ -552,7 +687,7 @@ const SENSITIVE_FIELD_NAMES: ReadonlySet<string> = Object.freeze(new Set([
  * camelCase variants while rejecting infix matches inside unrelated words.
  */
 const SENSITIVE_FIELD_NAME_PATTERN =
-  /(?<![a-z0-9])(password|passwd|pwd|secret|token|api[_-]?key|credential|auth(?:token|key|code|[_-](?:token|key|code))?|signature|otp|mfa|passcode|passphrase|sign)(?![a-z0-9])/i;
+  /(?<![a-z0-9])(password|passwd|pwd|secret|token|api[_-]?key|credential|auth(?:token|key|code|orization|[_-](?:token|key|code))?|signature|otp|mfa|passcode|passphrase|sign)(?![a-z0-9])/i;
 
 /**
  * Split a field name into tokens at snake_case, kebab-case, and camelCase
@@ -581,15 +716,36 @@ export { splitFieldNameTokens };
 const SENSITIVE_FIELD_TOKENS: ReadonlySet<string> = Object.freeze(new Set([
   "password", "passwd", "pwd", "secret", "token", "credential", "credentials",
   "otp", "mfa", "passcode", "passphrase", "signature", "sign",
+  // `authorization` is a single-word entry of SENSITIVE_FIELD_NAMES, so the
+  // exact-set lookup only catches it as a WHOLE name. Adding it here also
+  // catches it as a camelCase COMPONENT ("proxyAuthorization",
+  // "userAuthorization"), which the regex branch cannot see: the regex's
+  // `(?<![a-z0-9])` lookbehind rejects a match preceded by a letter, and
+  // the `i` flag makes that lookbehind reject an UPPERCASE predecessor too.
+  // This mirrors how "password" and "token" already flag compound names
+  // ("passwordPolicy", "tokenCount").
+  "authorization",
 ]));
 
 /**
- * Returns true if a field name matches a sensitive pattern. Three layers:
+ * Returns true if a field name matches a sensitive pattern. Four layers:
  * 1. Exact match against the explicit `SENSITIVE_FIELD_NAMES` set.
  * 2. The `SENSITIVE_FIELD_NAME_PATTERN` regex (snake/kebab/camel aware).
  * 3. A token-based fallback that splits on camelCase + snake/kebab boundaries
  *    and checks each token against `SENSITIVE_FIELD_TOKENS` — catches camelCase
  *    names (`clientSecret`, `bearerToken`) the regex's alnum lookarounds miss.
+ * 4. A token-SUBSEQUENCE rule: the field name contains one of the explicit
+ *    set's COMPOUND entries as a contiguous run of tokens.
+ *
+ * Layer 4 exists because the exact set holds compound names
+ * (`private_key`, `access_key`, `encryption_key`, `authorization`,
+ * `session_id`) whose component tokens are NOT in `SENSITIVE_FIELD_TOKENS`
+ * and whose spelling the regex cannot see (the regex's lookbehind rejects a
+ * match preceded by `_`/`-`, and `auth(?:…)?` cannot match `authorization`
+ * because the trailing lookahead fails on the following `o`). Without layer 4
+ * the SAME secret was redacted under `private_key` but leaked verbatim under
+ * `db_private_key` — an asymmetric leak, exactly the class the single
+ * source of truth is meant to prevent.
  *
  * `key`/`code`/`session` are intentionally NOT token fallbacks: they
  * over-redact benign names (`primaryKey`, `foreignKey`, `sortKey`,
@@ -610,6 +766,48 @@ export function isSensitiveFieldName(key: string): boolean {
   if (tokens.some((t) => SENSITIVE_FIELD_TOKENS.has(t))) return true;
   for (let i = 0; i + 1 < tokens.length; i++) {
     if (tokens[i] === "api" && tokens[i + 1] === "key") return true;
+  }
+  return containsSensitiveCompound(tokens);
+}
+
+/**
+ * The compound entries of {@link SENSITIVE_FIELD_NAMES}, pre-split into
+ * lowercase token runs.
+ *
+ * Only entries that contain a separator are included: a single-token entry
+ * (`password`, `token`, …) is already covered by the exact-set lookup and
+ * the token fallback, and including it here would over-redact benign names
+ * (`session_code`, `passenger`).
+ */
+const SENSITIVE_COMPOUND_TOKEN_RUNS: readonly (readonly string[])[] = Object.freeze(
+  Array.from(SENSITIVE_FIELD_NAMES)
+    .filter((name) => name.includes("_"))
+    .map((name) => name.split("_").filter((t) => t.length > 0)),
+);
+
+/**
+ * True when the field's token run contains one of the sensitive compound
+ * names as a contiguous subsequence.
+ *
+ * `db_private_key` → tokens `[db, private, key]` contains `[private, key]` ✓
+ * `aws_access_key`  → tokens `[aws, access, key]` contains `[access, key]` ✓
+ * `user_authorization` → tokens `[user, authorization]` contains `[authorization]` ✓
+ * `primary_key`     → tokens `[primary, key]` — no compound entry matches ✗
+ */
+function containsSensitiveCompound(tokens: readonly string[]): boolean {
+  if (tokens.length === 0) return false;
+  for (const run of SENSITIVE_COMPOUND_TOKEN_RUNS) {
+    if (run.length === 0 || run.length > tokens.length) continue;
+    for (let start = 0; start + run.length <= tokens.length; start++) {
+      let matched = true;
+      for (let offset = 0; offset < run.length; offset++) {
+        if (tokens[start + offset] !== run[offset]) {
+          matched = false;
+          break;
+        }
+      }
+      if (matched) return true;
+    }
   }
   return false;
 }
@@ -757,7 +955,17 @@ export function redactSensitiveFieldValues(
   return redactTypedObject(value, depth, s);
 }
 
-/** Sanitize a postal address object by stripping HTML from all fields. */
+/**
+ * Sanitize a postal address object by stripping HTML from all fields.
+ *
+ * The REQUIRED fields (addressLine1, city, country) are validated and a
+ * structured `InvalidTypeValueError` is thrown when one is missing. The
+ * previous implementation called `.trim()` on them directly, so a missing
+ * field produced a raw `TypeError: Cannot read properties of undefined
+ * (reading 'trim')` — not a DomainError, so the REST filter answered with a
+ * generic 500 instead of an actionable 422, and the MCP error-handler
+ * reported it as an opaque INTERNAL_ERROR.
+ */
 export function sanitizePostalAddress(addr: {
   addressLine1: string;
   addressLine2?: string | null;
@@ -773,20 +981,33 @@ export function sanitizePostalAddress(addr: {
   postalCode: string | null;
   country: string;
 } {
+  const addressLine1 = requireStringField(addr.addressLine1, "addressLine1");
+  const city = requireStringField(addr.city, "city");
+  const country = requireStringField(addr.country, "country");
   const addressLine2 = addr.addressLine2?.trim();
   const stateProvince = addr.stateProvince?.trim();
   const postalCode = addr.postalCode?.trim();
   return {
-    addressLine1: stripHtmlTags(addr.addressLine1.trim()),
+    addressLine1: stripHtmlTags(addressLine1),
     addressLine2: addressLine2 ? (stripHtmlTags(addressLine2) || null) : null,
-    city: stripHtmlTags(addr.city.trim()),
+    city: stripHtmlTags(city),
     stateProvince: stateProvince ? (stripHtmlTags(stateProvince) || null) : null,
     postalCode: postalCode ? (stripHtmlTags(postalCode) || null) : null,
-    country: stripHtmlTags(addr.country.trim().toUpperCase()),
+    country: stripHtmlTags(country.toUpperCase()),
   };
 }
 
-/** Sanitize a telecom number object by stripping HTML from all fields. */
+/**
+ * Sanitize a telecom number object by stripping HTML from all fields.
+ *
+ * The REQUIRED fields (areaCode, lineNumber) are validated and a structured
+ * `InvalidTypeValueError` is thrown when one is missing. The previous
+ * implementation defaulted them to the EMPTY STRING, so a caller that
+ * omitted a required field silently persisted `areaCode: ""` /
+ * `lineNumber: ""` — a row that violates the domain's "a phone number has
+ * an area code and a line number" invariant and can never be corrected
+ * through the API.
+ */
 export function sanitizeTelecomNumber(tel: {
   countryCode?: string | null;
   areaCode: string;
@@ -798,12 +1019,36 @@ export function sanitizeTelecomNumber(tel: {
   lineNumber: string;
   extension: string | null;
 } {
+  const areaCode = requireStringField(tel.areaCode, "areaCode");
+  const lineNumber = requireStringField(tel.lineNumber, "lineNumber");
   const countryCode = tel.countryCode?.trim();
   const extension = tel.extension?.trim();
   return {
-    countryCode: countryCode ? (stripHtmlTags(countryCode) || defaultCountryCode) : defaultCountryCode,
-    areaCode: stripHtmlTags((tel.areaCode ?? "").trim()),
-    lineNumber: stripHtmlTags((tel.lineNumber ?? "").trim()),
+    // The default country code is sanitized as well, so a caller-supplied
+    // default cannot smuggle HTML into the persisted row.
+    countryCode: countryCode
+      ? (stripHtmlTags(countryCode) || stripHtmlTags(defaultCountryCode))
+      : stripHtmlTags(defaultCountryCode),
+    areaCode: stripHtmlTags(areaCode),
+    lineNumber: stripHtmlTags(lineNumber),
     extension: extension ? (stripHtmlTags(extension) || null) : null,
   };
+}
+
+/**
+ * Require a non-empty string field, throwing a structured DomainError.
+ */
+function requireStringField(value: unknown, field: string): string {
+  if (typeof value !== "string") {
+    throw new InvalidTypeValueError(`'${field}' must be a string.`, {
+      context: { field, received: value === null ? "null" : typeof value },
+    });
+  }
+  const trimmed = value.trim();
+  if (trimmed.length === 0) {
+    throw new InvalidTypeValueError(`'${field}' must not be empty.`, {
+      context: { field },
+    });
+  }
+  return trimmed;
 }

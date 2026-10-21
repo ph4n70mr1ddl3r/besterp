@@ -66,8 +66,13 @@ model Party {
   @@index([tenantId])
   @@index([partyTypeId])
   @@index([tenantId, partyTypeId])
-  // pg_trgm GIN index added in migration 20260619000000 (party_name_trgm_idx).
-  // For large production tables, consider running CREATE INDEX CONCURRENTLY manually.
+  // pg_trgm GIN index for case-insensitive fuzzy name search (migration
+  // 20260619000000). It IS declared here so Prisma manages it: an index that
+  // exists in the database but not in the schema is reported as drift by
+  // `prisma migrate dev`, which would then generate a migration DROPPING the
+  // fuzzy-search index. For large production tables, consider running
+  // CREATE INDEX CONCURRENTLY manually.
+  @@index([name(ops: raw("gin_trgm_ops"))], type: Gin, map: "party_name_trgm_idx")
   @@map("party")
 }
 
@@ -359,7 +364,12 @@ model User {
 
   party Party @relation(fields: [partyId], references: [partyId], onDelete: Cascade)
 
-  @@unique([tenantId, partyId])
+  // The database constraint is named `user_tenant_party_unique` (migration
+  // 20260901000001). Prisma derives `user_tenant_id_party_id_key` from the
+  // field list, so without `map:` every `migrate dev` emitted a
+  // DROP/CREATE pair for a constraint that enforces tenant-scoped
+  // one-user-per-party.
+  @@unique([tenantId, partyId], map: "user_tenant_party_unique")
   @@index([tenantId])
   @@map("user")
 }
@@ -377,7 +387,7 @@ model ProductType {
   isSystem      Boolean  @default(false) @map("is_system")
   createdAt     DateTime @default(now()) @map("created_at")
 
-  parentType ProductType?  @relation("ProductTypeHierarchy", fields: [parentTypeId], references: [productTypeId])
+  parentType ProductType?  @relation("ProductTypeHierarchy", fields: [parentTypeId], references: [productTypeId], map: "product_type_parent_fkey")
   childTypes ProductType[] @relation("ProductTypeHierarchy")
 
   products Product[]
@@ -399,7 +409,7 @@ model ProductCategory {
   level             Int       @default(0) @map("level")
   createdAt         DateTime  @default(now()) @map("created_at")
 
-  parentCategory ProductCategory?  @relation("ProductCategoryHierarchy", fields: [parentCategoryId], references: [productCategoryId])
+  parentCategory ProductCategory?  @relation("ProductCategoryHierarchy", fields: [parentCategoryId], references: [productCategoryId], map: "product_category_parent_fkey")
   childCategories ProductCategory[] @relation("ProductCategoryHierarchy")
   products       Product[]
 
@@ -434,10 +444,10 @@ model Product {
   updatedAt     DateTime @updatedAt @map("updated_at")
 
   // Type relation
-  productType ProductType @relation(fields: [productTypeId], references: [productTypeId])
+  productType ProductType @relation(fields: [productTypeId], references: [productTypeId], map: "product_product_type_fkey")
 
   // Optional category link
-  category ProductCategory? @relation(fields: [productCategoryId], references: [productCategoryId])
+  category ProductCategory? @relation(fields: [productCategoryId], references: [productCategoryId], map: "product_product_category_id_fkey")
   productCategoryId String? @map("product_category_id")
 
   // Relations
@@ -447,7 +457,13 @@ model Product {
   @@unique([tenantId, sku], map: "product_sku_tenant_key")
   @@index([tenantId])
   @@index([productTypeId])
-  @@index([tenantId, productTypeId])
+  @@index([tenantId, productTypeId], map: "product_tenant_product_type_idx")
+  // pg_trgm GIN index for fuzzy name search (migration 20260901000002).
+  // Declared in the schema so `prisma migrate dev` does not treat it as
+  // drift and generate a migration dropping it.
+  @@index([name(ops: raw("gin_trgm_ops"))], type: Gin, map: "product_name_trgm_idx")
+  // Index backing the optional category join (migration 20261021000000).
+  @@index([productCategoryId])
   // pg_trgm GIN index for fuzzy name search (migration 20260901000002).
   @@map("product")
 }
@@ -463,7 +479,7 @@ model ProductFeature {
   value            String
   createdAt        DateTime @default(now()) @map("created_at")
 
-  product Product @relation(fields: [productId], references: [productId], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [productId], onDelete: Cascade, map: "product_feature_product_fkey")
 
   @@index([productId])
   @@map("product_feature")
@@ -483,10 +499,10 @@ model ProductPrice {
   thruDate       DateTime? @map("thru_date")
   createdAt      DateTime  @default(now()) @map("created_at")
 
-  product Product @relation(fields: [productId], references: [productId], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [productId], onDelete: Cascade, map: "product_price_product_fkey")
 
   @@index([productId])
   @@index([fromDate])
-  @@index([productId, priceType])
+  @@index([productId, priceType], map: "product_price_product_type_idx")
   @@map("product_price")
 }

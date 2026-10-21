@@ -15,6 +15,7 @@ import {
 import { registerPartyTools } from "./tools/party-tools.js";
 import { registerDiscoveryTools } from "./tools/discovery-tools.js";
 import { registerAgentTools } from "./tools/agent-tools.js";
+import { registerUserTools } from "./tools/user-tools.js";
 import { registerProductTools } from "./tools/product-tools.js";
 
 @Injectable()
@@ -36,8 +37,13 @@ export class McpService implements OnModuleInit {
     //
     // - errorHandler must be outermost so it converts every thrown error
     //   (from any middleware or the handler) into a structured ToolResult.
-    // - auditLog wraps the rest so failures AT ANY LAYER (including
-    //   idempotency-level rejections) are recorded in the durable audit trail.
+    // - auditLog wraps the rest so failures AT ANY INNER LAYER (the
+    //   confirmation gate, the idempotency middleware, the handler) are
+    //   recorded in the durable audit trail. The registry's own PRE-pipeline
+    //   rejections (an unknown tool name, an invalid tenant/user identity, a
+    //   conflicting idempotency key) are returned before the pipeline is
+    //   built and are therefore NOT audited — they carry no validated
+    //   identity to attribute the attempt to.
     // - confirmationGate runs BEFORE idempotency: a request rejected for a
     //   missing/invalid confirmation never reaches the handler, so it must not
     //   consume the caller's idempotency key — otherwise the agent's next
@@ -54,6 +60,7 @@ export class McpService implements OnModuleInit {
     registerPartyTools(this.registry);
     registerDiscoveryTools(this.registry, this.prisma.admin);
     registerAgentTools(this.registry);
+    registerUserTools(this.registry);
     registerProductTools(this.registry);
 
     this.logger.log(

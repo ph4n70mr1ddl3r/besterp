@@ -77,7 +77,20 @@ export class TenantGuard implements CanActivate {
       );
     }
     const trimmed = user.role.trim();
-    return trimmed.length === 0 ? undefined : trimmed;
+    if (trimmed.length === 0) return undefined;
+    // The same pattern validation JwtStrategy applies to `userId` and
+    // `agentId` — the `role` claim used to be only type/length-checked, so a
+    // hand-constructed `req.user` (which bypasses the strategy) could inject
+    // a role containing control characters, zero-width/bidi sequences or HTML
+    // into `request.tenantContext`, from where it reaches logs, audit rows
+    // and RBAC checks.
+    if (!isValidOptionalId(trimmed)) {
+      throw new UnauthorizedException(
+        "TenantGuard: role contains invalid characters. " +
+          "Roles may only contain printable non-whitespace characters."
+      );
+    }
+    return trimmed;
   }
 
   private static validateTenantId(user: JwtValidatedUser): string {

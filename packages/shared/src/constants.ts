@@ -87,8 +87,17 @@ export const MAX_GENDER_LENGTH = 50;
 /** Maximum length for password hashes (bcrypt: 60, argon2: ~97, future algorithms up to 255). */
 export const MAX_PASSWORD_HASH_LENGTH = 255;
 
-/** Maximum length for ISO 8601 date strings (e.g., "2024-06-15", "2024-06-15T00:00:00.000Z"). */
-export const MAX_DATE_STRING_LENGTH = 30;
+/**
+ * Maximum length for ISO 8601 date strings (e.g., "2024-06-15", "2024-06-15T00:00:00.000Z").
+ *
+ * 32 characters, not 30: `ISO_DATE_REGEX` accepts a fractional second AND a
+ * numeric UTC offset at the same time ("2024-06-15T00:00:00.123456+01:00"),
+ * which is exactly 32 characters long. The previous value of 30 made every
+ * boundary (the Zod schema, the class-validator constraint, the service-level
+ * validators) reject a value that satisfies the documented "ISO 8601"
+ * contract with a misleading "too long" error.
+ */
+export const MAX_DATE_STRING_LENGTH = 32;
 
 /** Maximum length for product SKUs. */
 export const MAX_SKU_LENGTH = 100;

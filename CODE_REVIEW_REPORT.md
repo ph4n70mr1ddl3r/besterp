@@ -3,6 +3,352 @@
 ## Scope
                 Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
                  `mcp-tools`, `apps/api`, plus README/`.env.example`/docker/CI) conducted on
+                   2026-10-21. This is review 272; rounds 1–271 are documented in
+                   earlier revisions of this file and `CHANGES.md`.
+
+## Findings & Actions (round 272)
+
+The review was run against a live PostgreSQL 16 instance so that every
+migration, the RLS script and the seed could be executed end-to-end rather
+than reasoned about. The database findings below were all reproduced (or
+proved impossible to apply) against that instance.
+
+### Fixed this round — defects found by RUNNING the application
+
+The review read the code, but the code had never been RUN: the workspace
+packages published their TypeScript SOURCE as their package entry point, so
+the compiled API could not resolve `@besterp/shared` at runtime and
+`npm run start:dev` died with `ERR_MODULE_NOT_FOUND`. Every runtime-only
+defect below was invisible to the unit tests (which mock the Prisma client)
+and to the static review. They were found by booting the API against a live
+PostgreSQL instance and driving the MCP endpoint end-to-end.
+
+- **The API could not start at all** — `packages/*/package.json` declared
+  `"main": "src/index.ts"`, so the compiled API output loaded a TypeScript
+  file and then failed on its own `./tenant.js` relative imports (which only
+  exist in `dist/`). The packages now publish their build output (`main` →
+  `dist/index.js`, `types` → `src/index.ts` so the type check never depends
+  on a build), the API's start scripts build the workspace packages first,
+  and the test runners alias the workspace specifiers back to the SOURCE so
+  the tests never run against a stale build.
+- **`this.prisma.admin` returned an object without any model delegate** —
+  Prisma's client constructor returns a Proxy, and the proxy's `get` trap
+  evaluates an accessor with the TARGET as the receiver (`h[g]`), so
+  `get admin() { return this; }` returned the raw target — which does not
+  carry the model delegates (the proxy creates them). EVERY admin-client
+  call therefore failed with "Cannot read properties of undefined (reading
+  'findFirst')": `create_party` could not resolve the party type, the MCP
+  audit / idempotency / confirmation middlewares received `undefined` and
+  silently disabled themselves, and the agent-registry tools could not
+  write. `admin` is now an own property assigned in the constructor, where
+  `this` IS the proxy.
+- **`add_party_role` failed for every party** — the raw `INSERT` (needed
+  for the PARTIAL unique index on the active role) omitted `party_role_id`.
+  The schema's `@default(uuid())` is applied client-side by Prisma, so the
+  database column has no default of its own and the insert failed with
+  "Null constraint failed: (party_role_id)". The insert now supplies the id
+  database-side with `gen_random_uuid()`.
+- **The Zod issue type was redacted away from the agent** — `code` is a
+  sensitive field name (an OTP usually lives there), so the agent-facing
+  context redaction replaced the issue type with "[REDACTED]". The issue type
+  is now reported as `issueCode`.
+
+### Fixed this round — database
+
+- **`rls-setup.sql` silently disabled RLS on eight tenant tables** — the
+  `postal_address` policy closed only the inner `IN (` list and not the
+  enclosing `USING (`, so the statement never reached its `;`. psql submits
+  everything from that point to EOF as ONE statement, which fails with a
+  syntax error — and because `psql` exits `0` on a failed statement (unless
+  `ON_ERROR_STOP=1` is set), the script "succeeded" while `product`,
+  `product_category`, `product_feature`, `product_price`, `telecom_number`,
+  `email_address`, `agent_registry` and `"user"` (which stores
+  `password_hash`) were left with **no row-level security at all**. The
+  policy also referenced a `tenant_id` column that `postal_address` does not
+  have. The statement is now balanced and derives the tenant from the
+  `contact_mechanism` join, and every `psql` invocation (CI, README,
+  docker-compose) now passes `ON_ERROR_STOP=1`.
+- **The `agent_registry` composite-PK migration FAILED on every fresh
+  database** — it recreated the table and declared
+  `CONSTRAINT "agent_registry_pkey"`, but that constraint name was already
+  taken by the primary key of the original table, so `CREATE TABLE` failed
+  with *"relation agent_registry_pkey already exists"* and the transaction
+  rolled back. `prisma migrate deploy` therefore aborted there on every new
+  database. The same `DROP TABLE` also destroyed the table's RLS flags and
+  policies (dropping a table drops its policies) and silently lost any
+  agent rows written in between the two migrations. The migration now swaps
+  the primary key in place with `ALTER TABLE … DROP/ADD CONSTRAINT`, which
+  preserves the rows, the policies and the RLS flags. A follow-up migration
+  restores RLS on the table for environments that already applied the
+  broken version.
+- **`product.product_category_id` was never created** — the Prisma schema
+  declared the optional category relation, but the migration that created
+  the `product` table did not add the column or its foreign key, so
+  `get_product` / `search_products` (which join the category) and
+  `create_product` with a `categoryId` ALWAYS failed with *"column
+  product.product_category_id does not exist"*. A migration adds the column,
+  the FK (`ON DELETE SET NULL`) and its index.
+- **`user.party_id` had no unique index** — the schema declares the 1:1
+  `Party ↔ User` relation with `@unique`, but no migration created the
+  index, so the database never enforced "one user per party" and the
+  Prisma client's `findUnique({ where: { partyId } })` had no index to use.
+- **The schema and the database had drifted on column types, defaults and
+  index names** — `idempotency_record.status` was `TEXT` while the schema
+  declares the native `IdempotencyStatus` enum; `agent_registry.capabilities`
+  was nullable while the schema declares `Json`; `max_transaction_amount`
+  had no default and the wrong precision; nine tables created after the
+  initial migration used `TIMESTAMPTZ` while the schema (and the initial
+  migration) use `TIMESTAMP(3)`; and three indexes had different names in
+  the database than the schema derived. Every `prisma migrate dev` therefore
+  reported drift and wanted to regenerate a migration. Two migrations align
+  the column types (the timestamp conversion is pinned to UTC so it is
+  deterministic), the schema now pins the three index names with `map:`, and
+  the two `pg_trgm` GIN indexes are declared in the schema so they are no
+  longer treated as drift and silently dropped.
+  `prisma migrate diff` against a fully migrated database now reports **no
+  drift**.
+- **The boot-time RLS check only verified the FLAGS, not the policies** — a
+  table with `ENABLE`+`FORCE ROW LEVEL SECURITY` and zero policies is
+  deny-all in PostgreSQL: every read returns nothing and every write fails
+  with *"violates row-level security policy"*. That is exactly the state the
+  broken `postal_address` policy left behind, and the service booted
+  happily. The verification now requires at least one policy per tenant
+  table.
+- **`create_product` (a high-risk write) had no confirmation gate** — the
+  gate is driven by the tool's declared risk level, so the tool ran with no
+  confirmation at all while `list_available_tools` reported it as high-risk.
+  The seed now covers every high/critical tool (10 gates for 10 tools).
+- **The cleanup script released its advisory lock before committing** — the
+  session-scoped `pg_advisory_unlock` ran inside the still-open transaction,
+  so a concurrent run could acquire the lock and scan rows the first run had
+  deleted but not committed. The transaction-scoped
+  `pg_try_advisory_xact_lock` is used instead, which PostgreSQL releases at
+  COMMIT.
+- **Migration cruft** — a 0-byte `migration.sql.done` marker (which Prisma
+  ignores — the migration it sits next to IS applied) and a stray
+  `migration_lock.toml` inside a migration folder were removed.
+
+### Fixed this round — `@besterp/shared`
+
+- **The sensitive-field detector missed qualified compound names** — the
+  exact-match set holds compound names (`private_key`, `access_key`,
+  `encryption_key`, `session_id`) whose component tokens are not in the
+  token set, so `db_private_key` and `aws_access_key` were NOT detected
+  while `private_key` was: the same secret was redacted under one key name
+  and reflected verbatim under another. A token-subsequence rule closes the
+  gap, and `authorization` is now recognised as a camelCase component
+  (`proxyAuthorization`).
+- **The free-text secret rules had drifted away from the field-name rules**
+  — they carried their own list of names, so `mfa=…`, `credentials=…`,
+  `passphrase=…`, `x-api-key: …`, `x_token=…`, `{"clientSecret":"…"}` and
+  `{"accessToken":"…"}` leaked verbatim in log lines, audit rows and
+  idempotency records while the identical value under an object key was
+  redacted. The three rules now capture the name as a WHOLE and decide with
+  the shared `isSensitiveFieldName` predicate, and the query-string rule
+  accepts whitespace around the separator.
+- **`pluralize` returned non-strings and threw for prototype keys** — the
+  irregular-plural table was an object literal, so `pluralize("constructor")`
+  returned a FUNCTION, `pluralize("__proto__")` an OBJECT and
+  `pluralize("Constructor")` threw a `TypeError`. `pluralize` runs inside the
+  MCP error path, so an entity named "constructor" crashed the error handler
+  itself.
+- **`isValidISODate` could throw instead of returning `false`** — it called
+  the throwing `parseISODateTimeAsUTC` from the right-hand side of a `||`,
+  so the "is it NaN?" guard was unreachable. The throw escaped the Zod
+  `.refine()` and the class-validator constraint as an opaque 500.
+- **`MAX_DATE_STRING_LENGTH` was smaller than the longest date the regex
+  accepts** — a value with both a fractional second and a numeric offset is
+  32 characters, so every boundary rejected a valid ISO 8601 string as
+  "too long".
+- **The idempotency hash was not deterministic for Maps with colliding
+  keys** — two distinct Map keys can serialize identically (`undefined` and
+  `null` both become `"null"`), and with no tie-break the canonical order
+  depended on insertion order, so two logically identical requests hashed
+  differently — reported to the agent as an idempotency-key mismatch.
+- **The CPU budget did not cover `JSON.stringify`** — the most expensive
+  step of the hash ran after the elapsed time was measured.
+- **`sanitizePostalAddress` / `sanitizeTelecomNumber` failed inconsistently**
+  — a missing required field produced a raw `TypeError` in one and a
+  silently-persisted empty string in the other. Both now throw a structured
+  `InvalidTypeValueError`.
+- **Smaller fixes** — `decimalToNumber` now falls back to `toString()` when
+  `toNumber()` is not finite; `throwMappedPrismaError` never throws a
+  non-`Error`; `resolveConflictField` validates every element of a compound
+  target; `DomainError` copies the caller's `suggestedTools` / `context`;
+  the deprecated `sanitizeLogOutput` alias is re-exported from the package
+  entry point; `MAX_LOG_OUTPUT_LENGTH` and `MAX_INPUT_LENGTH` share one
+  constant; the unreachable `glpat-` alternative in the provider-secret rule
+  was fixed; the filesystem-path rule's documentation now states the
+  extension requirement it actually enforces.
+
+### Fixed this round — `@besterp/mcp-tools`
+
+- **A soft failure leaked its `error.context` to the agent verbatim** — the
+  agent-facing redaction lived INSIDE the audit middleware and was gated on
+  `result.success`, so the normal business-rule path (a handler that RETURNS
+  `{ success: false, error: { … context } }`) bypassed it entirely, while the
+  identical value was redacted in the durable audit row, the idempotency
+  record and the thrown-error path. The redaction now lives in a shared
+  agent-facing boundary (`sanitizeAgentFacingResult`) that the registry's
+  final handler, the audit middleware and the error handler all apply — so
+  it no longer depends on which middlewares happen to be composed.
+- **The audit middleware could abort a successful write** — its `nextActions`
+  sanitizer called `stripHtmlTags` with no length clamp and no try/catch, and
+  `stripHtmlTags` throws for inputs over 100 KB. A handler that legitimately
+  returned a large `nextActions` entry turned a successful write into an
+  `INVALID_TYPE_VALUE` error whose message was unrelated to the input; the
+  agent was told the call failed and retried — duplicating the write.
+- **The idempotency fallback reset was dead code** —
+  `updateIdempotencyRecordWithRetry` caught every error internally and
+  returned, so the caller's `catch` (whose best-effort "reset the record to
+  failed" was supposed to stop a stuck `pending` row blocking retries for
+  60 s) never ran. The helper now reports whether it persisted.
+- **An unhashable input silently disabled deduplication** — the DoS guards
+  in `hashInput` reject an input that is too large to canonicalise, and the
+  middleware passed the request through WITHOUT an idempotency record, so
+  the write executed with dedup off and the agent was never told. It now
+  fails closed with `IDEMPOTENCY_UNAVAILABLE`.
+- **The retry backoff timer was `unref`'d** — a process whose only pending
+  work was the backoff could exit in the middle of the retry, leaving the
+  record stuck in `pending` and the retry unperformed.
+- **A tool could declare a framework-owned envelope key** — `idempotencyKey`
+  and `confirmation` are promoted out of the arguments and stripped before
+  validation, so a tool declaring either never received its own field (and
+  a required one failed validation with a misleading "Required" issue). The
+  registry now rejects such a tool at registration.
+- **The audit trail destroyed legitimate identifiers** — the generic
+  high-entropy rule rewrote a legal 20+ character user id
+  ("ServiceAccount12345678") to `[REDACTED_TOKEN]`, so the audit row had no
+  subject. The recognised-secret rules still apply; the opaque-token rule
+  does not.
+- **The middleware docstring stated the reverse of the production pipeline
+  order** (`idempotency → audit → validation → handler` instead of
+  `errorHandler → audit → confirmationGate → idempotency → handler`).
+
+### Fixed this round — `apps/api`
+
+- **The entire MCP tool surface was unreachable at runtime** — `TOOL_REGISTRY`
+  was provided and exported by `McpModule` and nothing ever injected it,
+  `McpService.buildContext()` — the only place a `ToolContext` was ever
+  constructed — had no production caller, and there was no MCP controller.
+  All 21 documented tools (and the middleware pipeline that makes them safe)
+  were dead code, while the README described them as the primary interface.
+  A new `McpController` exposes the registry over HTTP
+  (`GET /api/mcp/tools`, `POST /api/mcp/tools/call`,
+  `POST /api/mcp/tools/:name`), taking the tenant and user identity from the
+  validated JWT and never from the request body.
+- **`ProductService.updateProduct` had no caller** — the method (and the
+  optimistic-locking `version` column it maintains) was fully implemented but
+  unreachable: there was no MCP tool and no REST controller. The
+  `update_product` tool now exposes it.
+- **The user domain had no interface at all** — `createUser` is the ONLY
+  write path to the `user` table (the one that stores `password_hash`), and
+  `getUser` / `updateLastLogin` were equally unreachable, so a tenant could
+  not provision an account at all. The `get_user` and `create_user` tools
+  now expose them.
+- **`/api/health/version` disclosed the exact build to anonymous callers
+  outside `production`** — the guard was `isProd()`, which is true only for
+  `NODE_ENV === "production"`; staging / preview / uat are deployed,
+  internet-reachable surfaces. The guard is now `!isDev()`, matching the
+  posture the rest of the codebase uses for deployed environments.
+- **`search_parties` matched `partyType` case-insensitively but
+  `create_party` required the exact upper-case spelling** — so a search
+  result could not be turned into a create. The type lookup is now
+  case-insensitive (like the `roleType` and `productType` lookups in the
+  same codebase), the value is canonicalised before the subtype rules run
+  (otherwise a lower-case "person" skipped the "person data is required"
+  rule entirely), and both the MCP tool and the service accept any casing.
+- **`createParty` accepted a party type with no subtype** — the seeded
+  `TENANT` type produced a Party row with neither a `person` nor an
+  `organization` child. The service now rejects the types it cannot
+  represent.
+- **`addProductFeature` / `addProductPrice` were not atomic** — the
+  existence check and the insert ran in two separate transactions (each
+  standalone model operation on the tenant-scoped proxy opens its own), so a
+  product deleted in between surfaced as a foreign-key error for a product
+  that demonstrably existed. Both now run in one interactive transaction,
+  like `createProduct`.
+- **`agent_registry` was read and written through the ADMIN (superuser)
+  client** — it is a tenant-scoped table with RLS enabled and forced, and
+  the boot-time verification lists it as protected, but every call site
+  bypassed RLS and relied on its own `tenantId` filter. The same file used
+  the tenant-scoped client for the other tenant tables.
+- **The `role` JWT claim skipped the pattern validation applied to
+  `userId` and `agentId`** — a signed token could carry a role with control
+  characters, zero-width/bidi sequences or HTML into `request.tenantContext`.
+- **The REST filter's HTML-stripping helper reintroduced the `__proto__`
+  hazard** the shared redactor avoids — it copied into a normal object
+  literal, so a `__proto__` key in the context was dropped and replaced the
+  prototype of the reflected object.
+- **Smaller fixes** — the three sibling search services now default
+  `limit` / `offset` the same way (`??`, so an explicit `null` is defaulted
+  rather than rejected); `searchProducts` no longer joins two relations it
+  discards; the Redis guards' messages say "non-development environment"
+  (which is what the `!isDev()` guard actually enforces).
+
+### Verified clean (no action needed)
+
+- **The tenant-table list in the boot-time RLS verification matches
+  `schema.prisma` exactly** — the same 17 tables in
+  `rls-setup.sql`, `prisma.service.ts` and the schema, with the 6 global
+  reference tables correctly excluded from all three.
+- **The confirmation gate cannot be bypassed** — it only fires for a
+  high/critical tool with an enabled gate row, and `list_available_tools`
+  mirrors the same predicate. The gate set is now complete (10 gates for 10
+  high/critical tools).
+- **The idempotency state machine** — every `acquire → handleExistingRecord`
+  transition (pending+stale, pending+recent, completed, failed, hash
+  mismatch) re-traced and correct.
+- **`rls-extension.ts` Proxy traps** — `set` / `deleteProperty` blocked on
+  both the client and the model delegates, raw SQL and `$`-prefixed methods
+  blocked, non-existent models throw a clear error. Two gaps were closed
+  anyway: an unknown model method now fails closed instead of running
+  WITHOUT the tenant context (a silent RLS bypass for any method Prisma
+  adds in the future), and `await scopedClient` no longer throws.
+
+### Known limitations (not addressed in this round)
+
+- The `TIMESTAMP(3)` / `TIMESTAMPTZ` alignment was applied to the tables
+  that had drifted, but the historical values were converted in the
+  session time zone (pinned to UTC) — an environment whose stored values
+  were written with a non-UTC session zone would see them shifted.
+- `IDEMPOTENCY_STALE_PENDING_THRESHOLD_MS` (60s) is still shorter than a
+  plausible long-running write, so a slow handler could be reclaimed and
+  re-executed. A lease/heartbeat would close that window.
+- The JWT `role` claim is now propagated onto the request context and
+  pattern-validated, but is still not used for authorization.
+- The MCP transport is a plain JSON HTTP endpoint rather than a full MCP
+  Streamable HTTP session server (ADR-001 lists Streamable HTTP as a later
+  phase). It mirrors the `tools/call` request shape so an MCP client can
+  adapt to it with a thin shim.
+- `search_across_entities` / `explain_error` / `get_valid_transitions` are
+  backed by in-code reference data. Moving the transition registry into the
+  `entity_descriptor` table would let operators extend it without a deploy.
+
+## Test Results (round 272)
+```
+shared:    268 passed (5 files)
+mcp-tools: 220 passed (5 files)
+database:   44 passed (3 files)
+api:       680 passed (23 files)
+────────────────────────────
+Total:     1212 passed
+```
+
+The database suite ran against a live PostgreSQL 16 instance (the 10
+integration tests are skipped without a database). The MCP endpoint was also
+exercised end-to-end against that instance: `create_party` (person and
+organization), `add_party_role`, `add_contact_mechanism`, `search_parties`,
+`create_product`, `add_product_price`, `get_product`, `update_product`,
+`create_user` and `get_user` all succeeded, the confirmation gate rejected
+an unconfirmed high-risk write, an idempotent retry replayed the stored
+result instead of writing twice, the durable audit trail recorded every
+call, and the password hash was redacted from the recorded tool input.
+
+
+## Scope
+                Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
+                 `mcp-tools`, `apps/api`, plus README/`.env.example`/docker/CI) conducted on
                    2026-10-21. This is review 271; rounds 1–270 are documented in
                    earlier revisions of this file and `CHANGES.md`.
 

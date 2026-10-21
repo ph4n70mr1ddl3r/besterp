@@ -111,6 +111,18 @@ export class PartyService {
     roles: { include: { roleType: true } },
   } satisfies Prisma.PartyInclude;
 
+  /**
+   * The party types that can be CREATED directly.
+   *
+   * Every party must carry exactly one subtype row (`person` or
+   * `organization`) — the seeded `party_type` table also contains "TENANT",
+   * which is a container of parties rather than a party itself. Creating a
+   * TENANT party produced a row with no subtype at all.
+   */
+  private static readonly PARTY_TYPES_WITH_SUBTYPE: ReadonlySet<string> = Object.freeze(
+    new Set(["PERSON", "ORGANIZATION"]),
+  );
+
   private readonly logger = new Logger(PartyService.name);
 
   constructor(private readonly prisma: PrismaService) {}
@@ -138,9 +150,16 @@ export class PartyService {
       );
     }
     const trimmedPartyType = partyType.trim();
+    // The CANONICAL form of the type. The seeded party types are upper case
+    // ("PERSON", "ORGANIZATION", "TENANT"), and every subtype rule below
+    // compares against the upper-case spelling — so the value is normalized
+    // ONCE here. Without it, a direct caller passing "person" would skip the
+    // "person data is required" rule entirely and create a PERSON party with
+    // no person row.
+    const canonicalPartyType = trimmedPartyType.toUpperCase();
 
     const { trimmedName, trimmedDescription } = PartyService.validateCreatePartyFields(name, description);
-    PartyService.validateCreatePartySubtype(trimmedPartyType, personData, orgData);
+    PartyService.validateCreatePartySubtype(canonicalPartyType, personData, orgData);
     PartyService.validatePersonData(personData);
     PartyService.validateOrganizationData(orgData);
 
@@ -180,7 +199,25 @@ export class PartyService {
     // consistency concerns (the admin client is a separate connection).
     let partyTypeRecord;
     try {
-      partyTypeRecord = await this.prisma.admin.partyType.findUnique({ where: { name: trimmedPartyType } });
+      // Case-INSENSITIVE lookup, matching the two sibling resolutions in
+      // this codebase:
+      //   * `searchParties` filters `partyType` with `mode: "insensitive"`,
+      //     so `search_parties({ partyType: "person" })` returns the PERSON
+      //     parties;
+      //   * `addPartyRole` resolves `roleType` with an insensitive
+      //     `findFirst` — the fix for "an agent that searched with roleType
+      //     'customer' and then called add_party_role({ roleType: 'customer' })
+      //     was told 'ROLE_TYPE customer is not valid' even though 'Customer'
+      //     exists";
+      //   * `createProduct` resolves `productType` the same way, because
+      //     "searchProducts already matched the type case-insensitively, so an
+      //     exact-match lookup here made the search result unusable for the
+      //     follow-up write".
+      // The partyType lookup was the last one still case-SENSITIVE, so a
+      // search result could not be turned into a create.
+      partyTypeRecord = await this.prisma.admin.partyType.findFirst({
+        where: { name: { equals: canonicalPartyType, mode: "insensitive" as const } },
+      });
     } catch (err) {
       throw mapPrismaError(err, "create_party", "create_party", "party");
     }
@@ -192,6 +229,20 @@ export class PartyService {
       // the agent was told to consult.
       throw new InvalidTypeValueError(
         `PARTY_TYPE '${trimmedPartyType}' is not valid. Use 'get_type_table_values' to see the available party types.`,
+        { suggestedTools: ["get_type_table_values"], context: { field: "partyType", invalidValue: trimmedPartyType } }
+      );
+    }
+    // A party type that has NO subtype (the seeded TENANT type) cannot be
+    // created: `validateCreatePartySubtype` only branches on PERSON and
+    // ORGANIZATION, so such a request produced a Party row with no
+    // `person` / `organization` child — a party with no identity data at all.
+    // The boundary layers (@IsEnum(["PERSON","ORGANIZATION"]) / z.enum) block
+    // it today, but the service is documented as the LAST line of defense
+    // and must not accept a strictly wider domain than the boundaries do.
+    if (!PartyService.PARTY_TYPES_WITH_SUBTYPE.has(canonicalPartyType)) {
+      throw new InvalidTypeValueError(
+        `PARTY_TYPE '${trimmedPartyType}' cannot be created directly — it has no party subtype. ` +
+        `Use 'PERSON' or 'ORGANIZATION'.`,
         { suggestedTools: ["get_type_table_values"], context: { field: "partyType", invalidValue: trimmedPartyType } }
       );
     }
@@ -743,9 +794,17 @@ export class PartyService {
         // that mapping and addresses the columns by their real, snake_case names).
         // RETURNING aliases them back to camelCase keys so the typed result below
         // (result[0]!.partyRoleId) reads as declared.
+        //
+        // `party_role_id` MUST be provided explicitly: the schema declares
+        // `partyRoleId String @id @default(uuid())`, and Prisma's `uuid()`
+        // default is applied CLIENT-side — the database column has no default
+        // of its own. The insert omitted it, so every `add_party_role` call
+        // failed with "Null constraint failed: (party_role_id)". The
+        // database-side `gen_random_uuid()` (built into PostgreSQL 13+) produces
+        // the same v4 UUID the Prisma default would have.
         const result = await tx.$queryRaw<{ partyRoleId: string; fromDate: Date; thruDate: Date | null }[]>`
-          INSERT INTO "party_role" ("party_id", "role_type_id", "from_date")
-          VALUES (${partyId}, ${roleTypeId}, ${roleFromDate})
+          INSERT INTO "party_role" ("party_role_id", "party_id", "role_type_id", "from_date")
+          VALUES (gen_random_uuid(), ${partyId}, ${roleTypeId}, ${roleFromDate})
           ON CONFLICT ("party_id", "role_type_id") WHERE "thru_date" IS NULL DO NOTHING
           RETURNING "party_role_id" AS "partyRoleId", "from_date" AS "fromDate", "thru_date" AS "thruDate"
         `;

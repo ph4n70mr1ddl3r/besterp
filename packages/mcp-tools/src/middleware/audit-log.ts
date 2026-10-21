@@ -12,6 +12,7 @@ import { PrismaClient, Prisma } from "@prisma/client";
 import { getErrorCode, sanitizeLogMessage, sanitizeForLogOutput, stripHtmlTags, MAX_REASONING_LENGTH, MAX_SOFT_FAILURE_MESSAGE_SIZE, MAX_CONFIRMATION_LENGTH, redactSensitiveFieldValues, MAX_CONCURRENT_AUDIT_WRITES, MAX_AUDIT_QUEUE_SIZE, AUDIT_WRITE_QUEUE_TIMEOUT_MS, MAX_USER_ID_LENGTH, MAX_AGENT_ID_LENGTH, MAX_CONVERSATION_ID_LENGTH } from "@besterp/shared";
 import { ToolMiddleware, ToolContext, ToolResult } from "../schema/tool-definition.js";
 import { truncateValue, capString, MAX_STORED_PAYLOAD_SIZE } from "./truncate.js";
+import { sanitizeAgentFacingResult } from "../agent-result.js";
 
 const AUDIT_DROP_WARNING =
   "Some audit log entries were dropped due to high load. The operation succeeded but the durable audit trail may be incomplete.";
@@ -87,10 +88,11 @@ function createBaseEntry(context: { agentId?: string; conversationId?: string; r
   // `userId`/`agentId`/`conversationId` originate from the caller's MCP request
   // and are persisted verbatim to the cross-tenant `ai_action_log` durable sink.
   // A caller could embed a secret (connection string, `?api_key=…`) in any of
-  // these fields, so sanitize them the same way `reasoning` is — via
-  // `sanitizeForLogOutput` — before the row is written. `stripHtmlTags` is
-  // applied first (HTML can hide secret-shaped patterns from the redactor) and
-  // the length cap prevents oversized identity fields from bloating the row.
+  // these fields, so they are sanitized before the row is written — with the
+  // caveat that a CHARSET-VALIDATED identity is only stripped of HTML (see
+  // `sanitizeIdentityField`): running it through the generic high-entropy
+  // rule would rewrite a legal 20+ character id ("ServiceAccount12345678")
+  // into "[REDACTED_TOKEN]" and destroy the audit correlation.
   // `stripHtmlTags` rejects inputs over 100 KB by throwing, and
   // `createBaseEntry` runs OUTSIDE the try/catch in executeAndLog — so a
   // throw here would abort the tool call (the audit middleware is documented
@@ -113,8 +115,9 @@ function createBaseEntry(context: { agentId?: string; conversationId?: string; r
     // jwt.strategy.ts and tenant.guard.ts) enforces TENANT_ID_PATTERN
     // (/^[a-zA-Z0-9_-]+$/), so the value can only contain alphanumeric chars
     // and hyphens — it cannot embed secrets, connection strings, or HTML. The
-    // other identity fields (userId, agentId, conversationId) use free-form
-    // strings that are not charset-restricted, so they require sanitization.
+    // other identity fields (userId, agentId, conversationId) are validated
+    // with the looser OPTIONAL_ID_PATTERN, so they are HTML-stripped and,
+    // when they fail that validation, fully sanitized.
     tenantId: context.tenantId,
     toolCalled: definition.name,
     toolInput: withConfirmation(redactSensitiveFields(input), context.confirmation),
@@ -174,11 +177,23 @@ function sanitizeConfirmation(confirmation: string): string {
 /**
  * Sanitize + cap an identity field (userId / agentId / conversationId)
  * without ever throwing.
+ *
+ * The recognised-secret rules (provider keys, connection strings,
+ * `name=value` pairs, URLs, paths) still apply — a caller-supplied identity
+ * CAN embed a secret, and the durable row is a cross-tenant sink.
+ *
+ * The generic "opaque token" rule does NOT: it rewrites any 20-128 character
+ * run that mixes letters and digits into "[REDACTED_TOKEN]", so a perfectly
+ * legal user id such as "ServiceAccount12345678" was persisted as
+ * "[REDACTED_TOKEN]" — destroying the audit correlation the row exists to
+ * provide. The identity fields are charset-validated (OPTIONAL_ID_PATTERN)
+ * before any middleware runs, so an opaque token in one of them is an
+ * identifier, not a secret.
  */
 function sanitizeIdentityField(value: string, maxLength: number): string {
   try {
     const clamped = value.slice(0, maxLength);
-    return sanitizeForLogOutput(stripHtmlTags(clamped)).slice(0, maxLength);
+    return sanitizeForLogOutput(stripHtmlTags(clamped), { keepOpaqueTokens: true }).slice(0, maxLength);
   } catch {
     return "";
   }
@@ -280,23 +295,21 @@ async function executeAndLog(prisma: PrismaClient, backpressure: BackpressureMan
   // tool returning a value under a sensitive-named key (e.g. a credential)
   // leaks to the agent live on the first call, while the identical value is
   // redacted when persisted or replayed — an asymmetric secret-leak path.
-  if (result.success && result.data != null) {
-    result = { ...result, data: redactSensitiveFields(result.data) };
-  }
-  // `nextActions` is an agent-facing string array constructed by handlers from
-  // user input (e.g. an interpolated `roleType`). It is NOT part of `data`, so
-  // the redaction above leaves it untouched — and it is excluded from the
-  // error-handler's `context` redaction too. Sanitize every element the same
-  // way the durable/agent surfaces scrub strings, so a secret embedded in a
-  // handler-built `nextActions` entry cannot reach the agent verbatim.
-  if (Array.isArray(result.nextActions) && result.nextActions.length > 0) {
-    result = {
-      ...result,
-      nextActions: result.nextActions.map((n) =>
-        typeof n === "string" ? sanitizeForLogOutput(stripHtmlTags(n)) : n,
-      ),
-    };
-  }
+  //
+  // `sanitizeAgentFacingResult` is the SHARED agent-facing boundary: it
+  // redacts the success payload, the soft-failure `error.context`, the error
+  // code/message and the `nextActions` strings, and it never throws (the
+  // previous inline `stripHtmlTags(n)` on a `nextActions` entry THREW for
+  // inputs over 100 KB, turning a SUCCESSFUL write into an
+  // INVALID_TYPE_VALUE error whose message was unrelated to the input — the
+  // agent was told the call failed and retried, duplicating the write).
+  //
+  // The registry's final handler applies the same helper to the handler's own
+  // result, so a pipeline composed WITHOUT the audit middleware still
+  // sanitizes the handler output; the audit middleware additionally covers
+  // results produced by the middlewares inside it (the confirmation gate and
+  // the idempotency middleware), which never reach the final handler.
+  result = sanitizeAgentFacingResult(result);
   return result;
 }
 

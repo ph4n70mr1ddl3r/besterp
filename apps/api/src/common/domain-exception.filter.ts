@@ -61,7 +61,15 @@ function stripHtmlTagsDeep(value: unknown, depth = 0): unknown {
   }
   if (Array.isArray(value)) return value.map((v) => stripHtmlTagsDeep(v, depth + 1));
   if (value !== null && typeof value === "object") {
-    const out: Record<string, unknown> = {};
+    // `Object.create(null)` — not `{}` — so a `__proto__` key in the context
+    // becomes an ordinary own data property instead of invoking the
+    // `Object.prototype.__proto__` setter. With a normal object literal the
+    // key was silently DROPPED (never created as an own property) and the
+    // prototype of the result was replaced by the attacker-supplied child
+    // object, so `out.<attackerKey>` resolved through the prototype chain.
+    // The canonical shared redactor uses the same null-prototype construction
+    // for exactly this reason (packages/shared/src/sanitize.ts).
+    const out: Record<string, unknown> = Object.create(null) as Record<string, unknown>;
     for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
       out[key] = stripHtmlTagsDeep(child, depth + 1);
     }

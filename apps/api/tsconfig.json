@@ -4,12 +4,16 @@
     "outDir": "dist",
     "rootDir": "src",
     "paths": {
-      "@besterp/*": ["../../packages/*/src"]
+      "@besterp/*": [
+        "../../packages/*/src"
+      ]
     },
     "experimentalDecorators": true,
     "emitDecoratorMetadata": true
   },
-  "include": ["src"],
+  "include": [
+    "src"
+  ],
   "exclude": [
     "src/__tests__/**/*",
     "vitest.config.ts"

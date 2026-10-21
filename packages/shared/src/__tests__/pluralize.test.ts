@@ -113,3 +113,22 @@ describe("pluralize", () => {
     expect(pluralize("")).toBe("");
   });
 });
+
+describe("pluralize — prototype safety", () => {
+  it("does not resolve inherited Object.prototype members", () => {
+    // The irregular-plural table used to be a plain object literal, so
+    // `pluralize("constructor")` returned a FUNCTION and `pluralize(
+    // "__proto__")` an OBJECT — both violating the `string` return type, and
+    // `pluralize("Constructor")` threw a TypeError. `pluralize` runs inside
+    // the MCP error path, so an entity named "constructor" crashed the error
+    // handler itself.
+    for (const name of ["constructor", "__proto__", "toString", "valueOf", "hasOwnProperty"]) {
+      const result = pluralize(name);
+      expect(typeof result).toBe("string");
+    }
+    expect(pluralize("constructor")).toBe("constructors");
+    expect(pluralize("Constructor")).toBe("Constructors");
+    expect(pluralize("CONSTRUCTOR")).toBe("CONSTRUCTORS");
+    expect(() => pluralize("__proto__")).not.toThrow();
+  });
+});

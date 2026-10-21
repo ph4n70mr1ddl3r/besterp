@@ -187,11 +187,19 @@ export interface ToolDefinition<TResult = unknown> {
 /**
  * Middleware function that wraps tool execution.
  *
- * Middlewares form a pipeline:
- *   idempotency → audit → validation → handler
+ * Middlewares form a pipeline. Each middleware receives the input, context,
+ * definition, and a `next` function to call the next middleware (or the
+ * final handler).
  *
- * Each middleware receives the input, context, definition, and a `next`
- * function to call the next middleware (or the final handler).
+ * The production pipeline (see apps/api/src/mcp/mcp.service.ts) is:
+ *   errorHandler → audit → confirmationGate → idempotency → handler
+ *
+ * `errorHandler` must be outermost so it converts every thrown error into a
+ * structured result; `audit` wraps the rest so failures at any inner layer
+ * are recorded; `confirmationGate` runs BEFORE `idempotency` so a request
+ * rejected for a missing confirmation does not consume the caller's
+ * idempotency key; `idempotency` is innermost of the guards so it hashes
+ * exactly what the handler will execute.
  */
 export type ToolMiddleware = (
   input: unknown,

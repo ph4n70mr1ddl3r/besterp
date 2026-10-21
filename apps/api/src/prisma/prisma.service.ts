@@ -75,6 +75,12 @@ export class PrismaService
         { emit: "stdout", level: "error" },
       ],
     });
+    // The admin client IS this client (it connects with DATABASE_ADMIN_URL,
+    // the superuser connection that bypasses RLS). It is captured as an own
+    // property because `this` in the constructor is the Proxy Prisma returns
+    // — the only object that resolves the model delegates. See the `admin`
+    // property's documentation.
+    this.admin = this as unknown as PrismaClient;
     this.validateAppClientEnv();
     this.initializeAppClient();
     this.initializeCacheSizes();
@@ -320,8 +326,19 @@ export class PrismaService
       // `= ANY(tenantTables)`). A pre-filter would make the "unexpected extra
       // table" check unreachable — a new tenant table added to rls-setup.sql
       // but omitted here would pass the boot check vacuously.
-      const rows = await this._appClient.$queryRaw<{ relname: string; relrowsecurity: boolean; relforcerowsecurity: boolean }[]>`
-        SELECT c.relname, c.relrowsecurity, c.relforcerowsecurity
+      //
+      // The policy count is included in the same query: a table can have
+      // ENABLE + FORCE ROW LEVEL SECURITY set but NO POLICY at all, in which
+      // case PostgreSQL denies every row (a deny-all table). That state is
+      // easy to reach — a policy statement that fails to parse leaves the
+      // flags applied but the policy missing — and the flags-only check
+      // passed it, so the service booted and every read silently returned
+      // nothing while every write failed with an opaque "violates row-level
+      // security policy" error. Requiring at least one policy per tenant
+      // table closes that gap.
+      const rows = await this._appClient.$queryRaw<{ relname: string; relrowsecurity: boolean; relforcerowsecurity: boolean; policy_count: bigint }[]>`
+        SELECT c.relname, c.relrowsecurity, c.relforcerowsecurity,
+               (SELECT count(*) FROM pg_policy p WHERE p.polrelid = c.oid) AS policy_count
         FROM pg_class c
         JOIN pg_namespace n ON n.oid = c.relnamespace
         WHERE n.nspname = 'public' AND c.relkind = 'r'
@@ -338,16 +355,29 @@ export class PrismaService
       const missing = rows.filter(
         (r) => tenantTables.includes(r.relname) && (!r.relrowsecurity || !r.relforcerowsecurity),
       );
+      // Tenant tables whose RLS flags are set but which carry NO policy.
+      // PostgreSQL treats a policy-less table as deny-all: every SELECT
+      // returns zero rows and every INSERT/UPDATE/DELETE fails with
+      // "new row violates row-level security policy". Detect it at boot
+      // rather than letting the application misbehave at runtime.
+      const policyLess = rows.filter(
+        (r) => tenantTables.includes(r.relname) && r.policy_count !== undefined && Number(r.policy_count) === 0,
+      );
       // A force-RLS table in the database that is NOT in tenantTables means a
       // new tenant table was added to rls-setup.sql but the verification list
       // was not updated. Global (non-tenant) tables never have FORCE RLS applied,
       // so this only fires on genuinely tenant-scoped tables.
       const forceRlsNames = new Set(rows.filter((r) => r.relforcerowsecurity).map((r) => r.relname));
       const unexpected = new Set([...forceRlsNames].filter((n) => !tenantTables.includes(n)));
-      if (notFound.length > 0 || missing.length > 0 || unexpected.size > 0) {
+      if (notFound.length > 0 || missing.length > 0 || policyLess.length > 0 || unexpected.size > 0) {
         const names = [...missing.map((r) => r.relname), ...notFound].join(", ");
+        const noPolicy = policyLess.map((r) => r.relname);
         const msg =
           `Row-Level Security is NOT fully enabled (or the table is missing) on tenant tables: ${names}. ` +
+          (noPolicy.length > 0
+            ? `The following tenant tables have RLS enabled but NO policy (PostgreSQL denies every row on them): ${noPolicy.join(", ")}. ` +
+              `A policy statement in rls-setup.sql most likely failed to apply. `
+            : "") +
           (unexpected.size > 0
             ? `The database reports force-RLS on ${[...unexpected].join(", ")} which are NOT in the verification list of ${tenantTables.length} tables — ` +
               `a new tenant table was likely added to rls-setup.sql without updating the verification list. `
@@ -357,7 +387,7 @@ export class PrismaService
         this.logger.error(msg);
         throw new Error(msg);
       }
-      this.logger.debug("RLS verified enabled (and forced) on tenant tables");
+      this.logger.debug("RLS verified enabled (and forced) with policies on tenant tables");
     } catch (rlsErr) {
       if (rlsErr instanceof Error && rlsErr.message.includes("Row-Level Security is NOT fully enabled")) {
         throw rlsErr;
@@ -375,12 +405,21 @@ export class PrismaService
   }
 
   /**
-   * Get the admin PrismaClient (bypasses RLS).
+   * The admin PrismaClient (bypasses RLS).
    * Use ONLY for: migrations, seed, audit log writes, cross-tenant admin ops.
+   *
+   * This is an OWN property assigned in the constructor — NOT a `get admin()`
+   * accessor. Prisma's client constructor returns a Proxy, and the proxy's
+   * `get` trap evaluates an accessor with the TARGET as the receiver
+   * (`h[g]`), so inside a getter `this` is the raw target. The target does
+   * NOT carry the model delegates — those are created by the proxy — so the
+   * accessor returned an object without `partyType`, `agentRegistry`, … and
+   * every admin-client call crashed with "Cannot read properties of undefined
+   * (reading 'findFirst')". In the CONSTRUCTOR `this` IS the proxy, so
+   * assigning the property there captures the object that actually resolves
+   * the model delegates.
    */
-  get admin(): PrismaClient {
-    return this;
-  }
+  readonly admin: PrismaClient;
 
   /**
    * Get the app PrismaClient (RLS-enforced path).

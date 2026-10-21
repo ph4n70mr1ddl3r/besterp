@@ -203,6 +203,7 @@ describe("HealthService", () => {
 
   describe("getVersion", () => {
     it("should return version info with defaults before init completes", async () => {
+      vi.stubEnv("NODE_ENV", "development");
       const service = new HealthService(createMockPrisma());
       const result = await service.getVersion();
 
@@ -214,6 +215,7 @@ describe("HealthService", () => {
     });
 
     it("should include BUILD_NUMBER and BUILD_DATE from env when available", async () => {
+      vi.stubEnv("NODE_ENV", "development");
       vi.stubEnv("BUILD_NUMBER", "42");
       vi.stubEnv("BUILD_DATE", "2026-06-05");
 
@@ -225,6 +227,7 @@ describe("HealthService", () => {
     });
 
     it("should omit build info when env vars are not set", async () => {
+      vi.stubEnv("NODE_ENV", "development");
       vi.stubEnv("BUILD_NUMBER", undefined);
       vi.stubEnv("BUILD_DATE", undefined);
 
@@ -253,10 +256,28 @@ describe("HealthService", () => {
       expect(result.warning).toBeUndefined();
     });
 
-    it("should still disclose name and version outside production", async () => {
-      // Non-production builds are not a deployed attack surface, so operators
-      // still get the full triplet for debugging.
-      vi.stubEnv("NODE_ENV", "staging");
+    it("should redact name and version in every DEPLOYED environment, not only production", async () => {
+      // Regression guard: the guard used to be `isProd()`, which is true only
+      // for NODE_ENV === "production". Staging / preview / uat are DEPLOYED,
+      // internet-reachable surfaces, so the exact package name + version +
+      // build id must be redacted there too. The full triplet is for LOCAL
+      // DEVELOPMENT only.
+      for (const env of ["staging", "preview", "uat", "test"]) {
+        vi.stubEnv("NODE_ENV", env);
+        const service = new HealthService(createMockPrisma());
+        const result = await service.getVersion();
+
+        expect(result.version).toBe("redacted");
+        expect(result.name).toBe("redacted");
+        expect(result.build).toBeUndefined();
+        expect(result.environment).toBeUndefined();
+      }
+    });
+
+    it("should still disclose name and version in local development", async () => {
+      // Local development is not a deployed attack surface, so operators get
+      // the full triplet for debugging.
+      vi.stubEnv("NODE_ENV", "development");
 
       const service = new HealthService(createMockPrisma());
       const result = await service.getVersion();
@@ -270,7 +291,7 @@ describe("HealthService", () => {
       // message (which can leak the container's filesystem layout, e.g.
       // "/app/dist/package.json not found") must not be reflected verbatim to
       // unauthenticated callers. It is scrubbed via sanitizeForLogOutput.
-      vi.stubEnv("NODE_ENV", "staging");
+      vi.stubEnv("NODE_ENV", "development");
       const service = new HealthService(createMockPrisma());
       // Force the init error path with a bad package.json location set.
       Object.defineProperty(service, "packageInfoError", {

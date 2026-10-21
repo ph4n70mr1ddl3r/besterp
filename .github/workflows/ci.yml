@@ -129,9 +129,14 @@ jobs:
           PGUSER: besterp
           PGPASSWORD: besterp_dev
           PGDATABASE: besterp
+        # ON_ERROR_STOP=1 makes psql exit non-zero on the FIRST failing
+        # statement. Without it psql exits 0 even when a statement failed, so
+        # a malformed policy (e.g. an unbalanced parenthesis that swallows
+        # every subsequent statement) left the database without RLS while CI
+        # reported success.
         run: |
-          psql -v app_db_password=besterp_app_dev -f packages/database/prisma/create-roles.sql
-          psql -f packages/database/prisma/rls-setup.sql
+          psql -v ON_ERROR_STOP=1 -v app_db_password=besterp_app_dev -f packages/database/prisma/create-roles.sql
+          psql -v ON_ERROR_STOP=1 -f packages/database/prisma/rls-setup.sql
 
       - name: Seed database
         env:

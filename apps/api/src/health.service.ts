@@ -6,7 +6,7 @@
 
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from "@nestjs/common";
 import { PrismaService } from "./prisma/prisma.service.js";
-import { sanitizeForLogOutput, resolveRedisTls, isDev, isProd, DEFAULT_REDIS_PORT, REDIS_PROBE_TIMEOUT_MS, REDIS_PROBE_CACHE_TTL_MS, MAX_RESPONSE_BUFFER_BYTES, BYTES_PER_MB, READY_CHECK_TIMEOUT_MS } from "@besterp/shared";
+import { sanitizeForLogOutput, resolveRedisTls, isDev, DEFAULT_REDIS_PORT, REDIS_PROBE_TIMEOUT_MS, REDIS_PROBE_CACHE_TTL_MS, MAX_RESPONSE_BUFFER_BYTES, BYTES_PER_MB, READY_CHECK_TIMEOUT_MS } from "@besterp/shared";
 import { normalizeEnvironmentValue } from "./bootstrap-config.js";
 import * as fs from "node:fs/promises";
 import * as net from "node:net";
@@ -542,13 +542,20 @@ export class HealthService implements OnModuleInit, OnModuleDestroy {
     await this.packageInfoReady;
     // The /version endpoint is anonymous (@Public()), so it is reachable by
     // anyone — including unauthenticated attackers. Returning the exact
-    // package name + semantic version in production fingerprints the build,
+    // package name + semantic version + build id fingerprints the build,
     // letting an attacker target known CVEs for that exact release. Mirror the
-    // fail-closed hardening already applied to the anonymous /health body: in
-    // production return only a generic, non-fingerprintable marker. Operators
-    // still get the full triplet in non-production (dev/staging/preview), where
-    // the build is not a deployed attack surface.
-    if (isProd()) {
+    // fail-closed hardening already applied to the anonymous /health body.
+    //
+    // The guard is `!isDev()`, NOT `isProd()`: staging / preview / uat /
+    // unset NODE_ENV are all DEPLOYED, internet-reachable surfaces, and
+    // `isProd()` is true only for NODE_ENV === "production". The previous
+    // guard therefore disclosed the exact build to anonymous callers in every
+    // other deployed environment. The rest of the codebase consistently uses
+    // `!isDev()` for deployed-environment posture (main.ts for JWT_SECRET
+    // and CORS_ORIGINS, queue.module.ts for the Redis guards).
+    //
+    // Operators still get the full triplet in local development only.
+    if (!isDev()) {
       return {
         version: "redacted",
         name: "redacted",

@@ -56,3 +56,15 @@ describe("decimalToNumber", () => {
     expect(decimalToNumber(broken)).toBeNull();
   });
 });
+
+describe("decimalToNumber — non-finite toNumber() falls back to toString()", () => {
+  it("uses the string representation when toNumber() is not finite", () => {
+    // The previous implementation returned null immediately on a non-finite
+    // toNumber() result, discarding a perfectly parseable string form.
+    const overflowing = {
+      toNumber: () => Number.POSITIVE_INFINITY,
+      toString: () => "42",
+    };
+    expect(decimalToNumber(overflowing)).toBe(42);
+  });
+});

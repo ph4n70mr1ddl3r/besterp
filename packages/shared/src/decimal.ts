@@ -37,7 +37,13 @@ export function decimalToNumber(value: unknown): number | null {
     if (typeof decimal.toNumber === "function") {
       try {
         const parsed = decimal.toNumber();
-        return Number.isFinite(parsed) ? parsed : null;
+        // A non-finite result (NaN/Infinity) means the numeric conversion did
+        // not succeed — fall through to the string representation rather than
+        // returning null. decimal.js can overflow to Infinity for values
+        // beyond Number.MAX_VALUE while its toString() still yields a
+        // parseable literal, so the previous immediate `return null` threw
+        // away a recoverable value.
+        if (Number.isFinite(parsed)) return parsed;
       } catch {
         // Fall through to the string representation below.
       }

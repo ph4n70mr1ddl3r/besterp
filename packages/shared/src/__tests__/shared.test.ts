@@ -5,7 +5,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { validateTenantId, validateTenantIdEnhancedForAuth, withTenant } from "../tenant.js";
 import { COUNTRY_CODE_REGEX, COUNTRY_CODE_ISO_REGEX, EMAIL_REGEX, UUID_REGEX, isValidISODate, normalizeISODateTimeToUTC, parseISODateTimeAsUTC, validateOptionalString } from "../validation.js";
-import { JWT_EXPIRES_IN_REGEX, resolveRedisTls } from "../constants.js";
+import { JWT_EXPIRES_IN_REGEX, resolveRedisTls, MAX_DATE_STRING_LENGTH } from "../constants.js";
 import {
   ConcurrencyConflictError,
   DomainError,
@@ -478,6 +478,38 @@ describe("isValidISODate", () => {
   it("rejects non-date strings", () => {
     expect(isValidISODate("not-a-date")).toBe(false);
     expect(isValidISODate("")).toBe(false);
+  });
+
+  it("is TOTAL — it never throws, whatever the input", () => {
+    // The previous implementation called `parseISODateTimeAsUTC` (which
+    // THROWS an InvalidTypeValueError for an unparseable date) from the
+    // right-hand side of a `||`, so the "is it NaN?" guard was unreachable:
+    // a string the regex accepted but the engine could not parse made
+    // `isValidISODate` throw instead of returning false. The throw escaped
+    // the Zod `.refine()` / class-validator constraint as an opaque 500.
+    const candidates = [
+      "2024-06-15T00:00:00.123456+01:00",
+      "2024-06-15T00:00:00+14:00",
+      "2024-06-15T24:00:00",
+      "2024-06-15T00:00:00.123456789",
+      "2024-06-15T00:00:60",
+      "2024-06-15Z",
+      " ",
+      "🙂",
+    ];
+    for (const candidate of candidates) {
+      expect(() => isValidISODate(candidate)).not.toThrow();
+      expect(typeof isValidISODate(candidate)).toBe("boolean");
+    }
+  });
+
+  it("accepts the longest ISO form the regex allows", () => {
+    // "2024-06-15T00:00:00.123456+01:00" is 32 characters — the value
+    // MAX_DATE_STRING_LENGTH is sized for. It must not be rejected as
+    // "too long" by any boundary.
+    expect(isValidISODate("2024-06-15T00:00:00.123456+01:00")).toBe(true);
+    expect("2024-06-15T00:00:00.123456+01:00".length).toBe(32);
+    expect(MAX_DATE_STRING_LENGTH).toBe(32);
   });
 
   it("naive datetimes resolve to the same instant as date-only regardless of host TZ (round 172)", () => {

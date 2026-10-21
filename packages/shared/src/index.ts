@@ -48,7 +48,7 @@ export {
 
 export {
   stripHtmlTags, sanitizeLogMessage, safeFromCodePoint,
-  sanitizeForLogOutput, isSensitiveFieldName, redactSensitiveFieldValues,
+  sanitizeForLogOutput, sanitizeLogOutput, isSensitiveFieldName, redactSensitiveFieldValues,
   MAX_REDACTION_DEPTH, splitFieldNameTokens, sanitizePostalAddress,
   sanitizeTelecomNumber,
 } from "./sanitize.js";

@@ -223,9 +223,18 @@ const DAYS_IN_MONTH = Object.freeze([0, 31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 
 export function isValidISODate(value: string): boolean {
   // Parse the UTC-normalized form so the validity verdict is computed on the
   // same instant callers store via parseISODateTimeAsUTC.
-  if (!ISO_DATE_REGEX.test(value) || Number.isNaN(parseISODateTimeAsUTC(value).getTime())) {
-    return false;
-  }
+  //
+  // This function is TOTAL: it returns false for every invalid input and
+  // NEVER throws. The previous implementation called `parseISODateTimeAsUTC`
+  // (which THROWS an InvalidTypeValueError for an unparseable date) from the
+  // right-hand side of a `||`, so the "is it NaN?" guard was unreachable:
+  // any string the regex accepted but the engine could not parse made
+  // `isValidISODate` THROW instead of returning false. The throw escaped the
+  // Zod `.refine()` in schema-builders.ts and the class-validator constraint
+  // in party.dto.ts as an opaque 500 / INTERNAL_ERROR.
+  if (!ISO_DATE_REGEX.test(value)) return false;
+  const parsed = new Date(normalizeISODateTimeToUTC(value)).getTime();
+  if (Number.isNaN(parsed)) return false;
   // Use regex match groups instead of raw slice to stay robust against
   // future regex refactoring.
   const dateMatch = value.match(/^(\d{4})-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])/);

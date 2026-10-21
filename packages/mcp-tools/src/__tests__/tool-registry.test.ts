@@ -861,3 +861,101 @@ describe("ToolRegistry — a DomainError thrown inside a Zod transform", () => {
     expect(result.error?.code).toBe("INVALID_TYPE_VALUE");
   });
 });
+
+describe("ToolRegistry — agent-facing redaction boundary", () => {
+  const makeRegistry = (handler: ToolDefinition["handler"]): ToolRegistry => {
+    const r = new ToolRegistry();
+    r.register({
+      name: "leaky_tool",
+      description: "A tool that returns sensitive-looking values.",
+      inputSchema: z.strictObject({}),
+      riskLevel: "none",
+      handler,
+    });
+    return r;
+  };
+
+  const context: ToolContext = {
+    tenantId: "tenant-1",
+    userId: "user-1",
+    services: {},
+  };
+
+  it("redacts sensitive-named keys in a soft-failure error context", async () => {
+    // Regression guard: the agent-facing redaction used to live ONLY in the
+    // audit middleware and was gated on `result.success`, so a handler that
+    // RETURNED a soft failure (the normal business-rule path) had its
+    // `error.context` reflected to the agent VERBATIM — while the identical
+    // value was redacted in the durable audit row, the idempotency record
+    // and the thrown-error path.
+    const registry = makeRegistry(async () => ({
+      success: false,
+      error: {
+        code: "BUSINESS_RULE",
+        message: "could not create the record",
+        context: { apiKey: "sk_live_ABCDEFGHIJKLMNOP", password: "hunter2" },
+      },
+    }));
+
+    const result = await registry.execute("leaky_tool", {}, context);
+    expect(result.success).toBe(false);
+    const context_ = result.error?.context as Record<string, unknown>;
+    expect(context_.apiKey).toBe("[REDACTED]");
+    expect(context_.password).toBe("[REDACTED]");
+  });
+
+  it("redacts sensitive-named keys in a success payload without the audit middleware", async () => {
+    // The redaction must not depend on the audit middleware being composed —
+    // it is a property of the agent-facing surface, not of a side-effect sink.
+    const registry = makeRegistry(async () => ({
+      success: true,
+      data: { apiKey: "sk_live_ABCDEFGHIJKLMNOP", name: "Acme" },
+    }));
+
+    const result = await registry.execute("leaky_tool", {}, context);
+    expect(result.success).toBe(true);
+    expect((result.data as Record<string, unknown>).apiKey).toBe("[REDACTED]");
+    expect((result.data as Record<string, unknown>).name).toBe("Acme");
+  });
+
+  it("rejects a tool that declares an envelope key in its input schema", async () => {
+    // `confirmation` and `idempotencyKey` are handled by the framework: they
+    // are promoted into the context and stripped from the input BEFORE
+    // validation, so a tool declaring them would never receive its own
+    // field — silently.
+    const r = new ToolRegistry();
+    expect(() => {
+      r.register({
+        name: "conflicting_tool",
+        description: "Declares the framework-owned `confirmation` key.",
+        inputSchema: z.strictObject({ confirmation: z.string().optional() }),
+        riskLevel: "none",
+        handler: async () => ({ success: true }),
+      });
+    }).toThrow(/must not declare 'confirmation'/);
+  });
+});
+
+describe("ToolRegistry — validation issue shape", () => {
+  it("exposes the Zod issue type as `issueCode`, not `code`", async () => {
+    // `code` is a SENSITIVE field name (it is where a one-time code / OTP
+    // usually lives), so the agent-facing context redaction replaces it with
+    // "[REDACTED]" — the agent then loses the information it needs to fix
+    // its input. The issue type is therefore reported under `issueCode`.
+    const registry = new ToolRegistry();
+    registry.register({
+      name: "strict_tool",
+      description: "A tool with a strict schema.",
+      inputSchema: z.strictObject({ count: z.number().int() }),
+      riskLevel: "none",
+      handler: async () => ({ success: true }),
+    });
+
+    const result = await registry.execute("strict_tool", { count: "not-a-number" }, mockContext);
+    expect(result.success).toBe(false);
+    const issues = result.error?.context?.issues as Array<{ issueCode?: string; path?: string[] }> | undefined;
+    expect(issues).toBeDefined();
+    expect(issues![0]!.issueCode).toBe("invalid_type");
+    expect(JSON.stringify(issues)).not.toContain("[REDACTED]");
+  });
+});

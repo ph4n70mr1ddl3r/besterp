@@ -42,6 +42,17 @@ function createMockProductService() {
       offset: 0,
       hasMore: false,
     }),
+    updateProduct: vi.fn().mockResolvedValue({
+      productId: TEST_PRODUCT_ID,
+      productTypeId: "pt-good",
+      tenantId: TEST_TENANT,
+      name: "Widget A",
+      description: "A useful widget",
+      sku: "WID-001",
+      version: 1,
+      createdAt: "2024-01-01T00:00:00.000Z",
+      updatedAt: "2024-01-01T00:00:00.000Z",
+    }),
     addProductFeature: vi.fn().mockResolvedValue({
       productFeatureId: "feat-1",
       productId: TEST_PRODUCT_ID,
@@ -82,12 +93,23 @@ describe("Product MCP Tools", () => {
   });
 
   describe("registration", () => {
-    it("should register all five product tools", () => {
+    it("should register all six product tools", () => {
       expect(registry.names).toContain("create_product");
       expect(registry.names).toContain("get_product");
       expect(registry.names).toContain("search_products");
+      expect(registry.names).toContain("update_product");
       expect(registry.names).toContain("add_product_feature");
       expect(registry.names).toContain("add_product_price");
+    });
+
+    it("should expose update_product so ProductService.updateProduct is reachable", () => {
+      // `ProductService.updateProduct` was fully implemented but had NO
+      // caller: no MCP tool and no REST controller. The method (and the
+      // optimistic-locking `version` column it maintains) was unreachable
+      // production code.
+      const entry = registry.get("update_product");
+      expect(entry).toBeDefined();
+      expect(entry!.definition.riskLevel).toBe("high");
     });
   });
 

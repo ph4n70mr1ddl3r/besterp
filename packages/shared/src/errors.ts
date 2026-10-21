@@ -25,8 +25,13 @@ export class DomainError extends Error {
     // Subclasses must override this.name with their own class name.
     this.name = "DomainError";
     this.code = code;
-    this.suggestedTools = options?.suggestedTools ?? [];
-    this.context = options?.context ?? {};
+    // COPY the caller's arrays/objects. `readonly` only prevents REASSIGNMENT
+    // of the property, not mutation of the referenced array/object — a caller
+    // that kept a reference to `suggestedTools` and pushed to it later would
+    // change the error's payload (and therefore its serialised form) after
+    // the error had already been constructed and possibly persisted.
+    this.suggestedTools = options?.suggestedTools ? [...options.suggestedTools] : [];
+    this.context = options?.context ? { ...options.context } : {};
     // Fix instanceof checks for custom Error subclasses in environments
     // that don't properly support class extension of built-ins.
     Object.setPrototypeOf(this, new.target.prototype);
@@ -61,6 +66,14 @@ export class DomainError extends Error {
       // a secret verbatim — matching what the REST `DomainExceptionFilter` and
       // the MCP `error-handler` already apply to `error.message` before
       // reflecting/persisting it.
+      //
+      // HTML is deliberately NOT stripped here. The REST filter applies
+      // `stripHtmlTags` to the values it reflects over HTTP, but the durable
+      // sinks must not: stripping tags from an arbitrary payload mangles
+      // legitimate prose ("x <10> y" → "x  y", "A<B and C>D" → "AD"), so a
+      // product description or a free-text note would be silently corrupted
+      // on its way into the audit trail. HTML is a rendering concern, not a
+      // storage concern — the surfaces that RENDER these values strip it.
       message: sanitizeForLogOutput(this.message),
       // Like `code`, each suggestedTools entry is constructor-supplied free-form
       // string for custom DomainError subclasses — sanitize every element so a

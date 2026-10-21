@@ -11,12 +11,11 @@ import {
   sanitizeLogMessage,
   sanitizeForLogOutput,
   pluralize,
-  redactSensitiveFieldValues,
   MAX_ERROR_LOG_LINE_LENGTH,
-  MAX_ERROR_MESSAGE_LENGTH,
   type DomainError,
 } from "@besterp/shared";
 import { ToolMiddleware, ToolResult } from "../schema/tool-definition.js";
+import { sanitizeAgentFacingResult } from "../agent-result.js";
 
 // All redaction in this file (sensitive-named keys, string-leaf sanitization,
 // and recursion-depth bounding) is delegated entirely to the shared
@@ -46,59 +45,24 @@ function extractPrismaError(error: unknown): { code: string | undefined; meta: {
   return { code: undefined, meta: undefined };
 }
 
-function sanitizeContextValueForToolResult(value: unknown): unknown {
-  const sanitized = redactSensitiveFieldValues(value);
-  if (sanitized === null || sanitized === undefined) return undefined;
-  // Preserve arrays so structured data (e.g. { issues: [...] }) is reflected
-  // to the agent instead of being silently dropped. Element-level redaction
-  // (URLs/paths/secrets) is handled by redactSensitiveFieldValues below.
-  if (Array.isArray(sanitized)) return sanitized;
-  // Preserve empty objects so the agent sees that context was provided even
-  // when it carries no keys — dropping them silently made it impossible to
-  // distinguish "no context" from "empty context", and the audit-log path
-  // preserves empty objects so the two surfaces were inconsistent.
-  if (typeof sanitized === "object") {
-    return sanitized as Record<string, unknown>;
-  }
-  return sanitized;
-}
-
 function handleDomainError(error: DomainError, definition: { name: string }): ToolResult {
+  // The values are returned RAW here and sanitized by
+  // `sanitizeAgentFacingResult` (the shared agent-facing boundary) right
+  // after. Doing the sanitizing in ONE place is what keeps the REST filter,
+  // the MCP error path, the audit row and the idempotency record in
+  // agreement — the previous version sanitized here AND in the audit
+  // middleware, with the two implementations drifting apart.
   return {
     success: false,
     error: {
-      // error.code is a free-form string that a custom DomainError subclass
-      // could set to a sensitive value. Sanitize it consistently with every
-      // other agent-facing field so a crafted code is not reflected verbatim.
-      code: capAgentErrorText(sanitizeForLogOutput(error.code)),
-      // The message is length-capped like every other agent-facing error
-      // surface. `sanitizeForLogOutput` alone truncates at 100 KB, so a
-      // DomainError that embeds a large payload could return a 100 KB message
-      // to the agent while the registry's INVALID_INPUT path caps the SAME
-      // concept at MAX_ERROR_MESSAGE_LENGTH.
-      message: capAgentErrorText(sanitizeForLogOutput(error.message)),
-      // suggestedTools strings come from DomainError constructor values (a
-      // custom subclass could interpolate user input), so sanitize each one
-      // like every other agent-facing field — the fallback list is static and
-      // unaffected.
+      code: error.code,
+      message: error.message,
       suggestedTools: (error.suggestedTools?.length ?? 0) > 0
-        ? [...error.suggestedTools].map((t) => capAgentErrorText(sanitizeForLogOutput(t)))
+        ? [...error.suggestedTools]
         : [definition.name, "list_available_tools"],
-      context: sanitizeContextValueForToolResult(error.context) as Record<string, unknown> | undefined,
+      context: error.context as Record<string, unknown> | undefined,
     },
   };
-}
-
-/**
- * Cap an agent-facing error string at MAX_ERROR_MESSAGE_LENGTH.
- *
- * The registry's INVALID_INPUT path caps the joined issue summary at the same
- * bound; the DomainError path had no cap at all (only the internal 100 KB
- * sanitizer truncation), so the two surfaces disagreed on how large an
- * agent-facing error message may be.
- */
-function capAgentErrorText(value: string): string {
-  return value.length > MAX_ERROR_MESSAGE_LENGTH ? `${value.slice(0, MAX_ERROR_MESSAGE_LENGTH)}…` : value;
 }
 
 interface PrismaErrorResult {
@@ -299,7 +263,7 @@ export const errorHandlerMiddleware: ToolMiddleware = async (input, context, def
     return await next(input, context);
   } catch (error: unknown) {
     if (isDomainError(error)) {
-      return handleDomainError(error, definition);
+      return sanitizeAgentFacingResult(handleDomainError(error, definition));
     }
 
     const { code: prismaCode, meta: prismaMeta } = extractPrismaError(error);
@@ -308,9 +272,9 @@ export const errorHandlerMiddleware: ToolMiddleware = async (input, context, def
       const entityName = definition.entity ?? "entity";
       const entityPlural = pluralize(entityName);
       const result = handlePrismaError(prismaCode, prismaMeta, entityName, entityPlural, definition);
-      if (result) return result;
+      if (result) return sanitizeAgentFacingResult(result);
     }
 
-    return handleGenericError(error, definition, context.tenantId, context.userId);
+    return sanitizeAgentFacingResult(handleGenericError(error, definition, context.tenantId, context.userId));
   }
 };

@@ -25,8 +25,14 @@ import { PartyModule } from "../modules/core/party/party.module.js";
 import { SecurityModule } from "../modules/core/security/security.module.js";
 import { ProductModule } from "../modules/core/product/product.module.js";
 import { McpService } from "./mcp.service.js";
+import { McpController } from "./mcp.controller.js";
+import { TOOL_REGISTRY } from "./mcp.tokens.js";
 
-export const TOOL_REGISTRY = "TOOL_REGISTRY";
+// Re-exported so `import { TOOL_REGISTRY } from "./mcp.module.js"` keeps
+// working for existing consumers; the constant itself lives in
+// `mcp.tokens.ts` so the module and the controller can both use it without
+// importing each other.
+export { TOOL_REGISTRY };
 
 @Module({})
 export class McpModule {
@@ -34,6 +40,10 @@ export class McpModule {
     return {
       module: McpModule,
       imports: [PrismaModule, PartyModule, SecurityModule, ProductModule],
+      // The HTTP transport that makes the tool registry reachable at
+      // runtime. Without it the registry — and the whole middleware pipeline
+      // that makes it safe — was dead code.
+      controllers: [McpController],
       providers: [
         McpService,
         {

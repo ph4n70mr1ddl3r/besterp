@@ -6,42 +6,43 @@
 -- tenant-acme row instead) and would reject runtime registerAgent calls that
 -- reuse an agentId across tenants.
 --
--- PostgreSQL does not support ALTER TABLE ... ADD PRIMARY KEY when a PK already
--- exists, so we recreate the table: create new → copy data → drop old → rename.
+-- IMPLEMENTATION NOTE (this migration previously failed on EVERY fresh
+-- database):
+-- The original implementation recreated the table
+-- (CREATE TABLE agent_registry_new → INSERT → DROP TABLE agent_registry →
+-- RENAME). That approach was broken twice over:
+--
+--   1. The recreated table declared `CONSTRAINT "agent_registry_pkey"`, but
+--      that constraint name was ALREADY TAKEN by the primary key of the
+--      original `agent_registry` table created in migration 20260901000001.
+--      PostgreSQL requires unique-constraint/index names to be unique within
+--      a schema, so the CREATE TABLE failed with
+--      "relation \"agent_registry_pkey\" already exists" and the whole
+--      transaction rolled back. `prisma migrate deploy` therefore ABORTED
+--      here on every fresh database — the migration chain could never
+--      complete.
+--   2. Even where it did run, `DROP TABLE` silently destroys the table's
+--      Row-Level Security configuration: dropping a table removes its
+--      policies AND its ENABLE/FORCE ROW LEVEL SECURITY flags. Any
+--      environment that had already applied rls-setup.sql was left with
+--      `agent_registry` completely unprotected (it holds every tenant's
+--      agent capabilities and financial limits) — while
+--      PrismaService.verifyRlsEnabled() refused to boot, so the API was down
+--      after a routine deploy.
+--
+-- PostgreSQL DOES support swapping a primary key in place, and an in-place
+-- ALTER preserves both the rows and the RLS configuration:
+--
+--   ALTER TABLE ... DROP CONSTRAINT ... PRIMARY KEY   -- drops the old index
+--   ALTER TABLE ... ADD CONSTRAINT ... PRIMARY KEY     -- adds the new one
+--
+-- The composite primary key is weaker than the single-column one (it permits
+-- the same agent_id in different tenants), so no existing row can violate it.
 
 BEGIN;
 
-CREATE TABLE IF NOT EXISTS "agent_registry_new" (
-  "agent_id"                          TEXT    NOT NULL,
-  "tenant_id"                         TEXT    NOT NULL,
-  "display_name"                      TEXT    NOT NULL,
-  "description"                       TEXT    NOT NULL,
-  "capabilities"                      JSONB,
-  "max_tool_calls_per_conversation"   INTEGER NOT NULL DEFAULT 100,
-  "max_concurrent_conversations"      INTEGER NOT NULL DEFAULT 5,
-  "max_transaction_amount"            DECIMAL(19,4),
-  "allowed_entity_types"              JSONB NOT NULL DEFAULT '[]',
-  "rate_limit_per_minute"             INTEGER NOT NULL DEFAULT 30,
-  "version"                           TEXT    NOT NULL,
-  "is_active"                         BOOLEAN NOT NULL DEFAULT true,
-  "created_at"                        TIMESTAMPTZ NOT NULL DEFAULT now(),
-
-  CONSTRAINT "agent_registry_pkey" PRIMARY KEY ("agent_id", "tenant_id")
-);
-
-INSERT INTO "agent_registry_new" ("agent_id", "tenant_id", "display_name", "description",
-  "capabilities", "max_tool_calls_per_conversation", "max_concurrent_conversations",
-  "max_transaction_amount", "allowed_entity_types", "rate_limit_per_minute",
-  "version", "is_active", "created_at")
-SELECT "agent_id", "tenant_id", "display_name", "description",
-  "capabilities", "max_tool_calls_per_conversation", "max_concurrent_conversations",
-  "max_transaction_amount", "allowed_entity_types", "rate_limit_per_minute",
-  "version", "is_active", "created_at"
-FROM "agent_registry";
-
-DROP TABLE "agent_registry";
-
-ALTER TABLE "agent_registry_new" RENAME TO "agent_registry";
+ALTER TABLE "agent_registry" DROP CONSTRAINT "agent_registry_pkey";
+ALTER TABLE "agent_registry" ADD CONSTRAINT "agent_registry_pkey" PRIMARY KEY ("agent_id", "tenant_id");
 
 CREATE INDEX IF NOT EXISTS "agent_registry_tenant_id_idx" ON "agent_registry"("tenant_id");
 
