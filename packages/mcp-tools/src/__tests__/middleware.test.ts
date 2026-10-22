@@ -381,12 +381,30 @@ describe("Idempotency Middleware", () => {
     expect(mockPrisma.idempotencyRecord.create).not.toHaveBeenCalled();
   });
 
-  it("should pass through when prisma is null", async () => {
+  it("fails CLOSED when prisma is null and a key was supplied", async () => {
+    // The middleware used to pass the call through, so the write executed with
+    // deduplication silently DISABLED and the agent was never told — a retry
+    // of the same request executed the side effect a second time. That is
+    // exactly what the sibling `handleUnhashableInput` path refuses to
+    // accept, and what the sibling guards in the same pipeline (agent
+    // policy, confirmation gate) already do.
     const input = { test: "value" };
     const contextWithKey = { ...mockContext, idempotencyKey: "some-key" };
 
     const middleware = idempotencyMiddleware(null as any);
     const result = await middleware(input, contextWithKey, mockDefinition, successNext({ success: true, data: "passed through" }));
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe("SERVICE_UNAVAILABLE");
+  });
+
+  it("passes through when prisma is null and NO key was supplied", async () => {
+    // With no key there is nothing to deduplicate, so the call is a no-op
+    // pass-through whether or not the store is reachable.
+    const input = { test: "value" };
+
+    const middleware = idempotencyMiddleware(null as any);
+    const result = await middleware(input, mockContext, mockDefinition, successNext({ success: true, data: "passed through" }));
 
     expect(result.success).toBe(true);
     expect(result.data).toBe("passed through");
@@ -2814,5 +2832,192 @@ describe("Regression: idempotency P2002 is contention, not an outage", () => {
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe("REQUEST_IN_PROGRESS");
     expect(result.error?.code).not.toBe("SERVICE_UNAVAILABLE");
+  });
+});
+
+describe("Error Handler Middleware — the error mapper itself must not fail", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("maps a Prisma code that collides with an Object.prototype member", () => {
+    // `PRISMA_ERROR_HANDLERS` is a plain object literal, so the old lookup
+    // walked the prototype chain: `code: "__proto__"` resolved to
+    // `Object.prototype` (truthy) and was then CALLED as a factory, throwing
+    // a TypeError from INSIDE the catch block of the error handler — i.e.
+    // from the last line of defence. The exception escaped `execute()`
+    // entirely and the agent received an unstructured HTTP 500.
+    const middleware = errorHandlerMiddleware;
+    const definition = { ...mockDefinition };
+    return middleware(
+      { test: "value" },
+      mockContext,
+      definition,
+      throwingNext(Object.assign(new Error("boom"), { code: "__proto__" })),
+    ).then((result) => {
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe("INTERNAL_ERROR");
+      expect(typeof result.error?.message).toBe("string");
+    });
+  });
+
+  it("does not resolve a prototype member to a NON-ToolResult", () => {
+    // `code: "constructor"` resolved to `Object`, was called, and returned a
+    // STRING — so `execute()` resolved with `"entity"` and the MCP controller
+    // answered 200 with the JSON string `"entity"` as the whole body.
+    return errorHandlerMiddleware(
+      { test: "value" },
+      mockContext,
+      mockDefinition,
+      throwingNext(Object.assign(new Error("boom"), { code: "constructor" })),
+    ).then((result) => {
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe("INTERNAL_ERROR");
+    });
+  });
+
+  it("still maps a REAL Prisma code", () => {
+    return errorHandlerMiddleware(
+      { test: "value" },
+      mockContext,
+      mockDefinition,
+      throwingNext(Object.assign(new Error("boom"), { code: "P2002" })),
+    ).then((result) => {
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe("DUPLICATE_ENTITY");
+    });
+  });
+});
+
+describe("Audit Log Middleware — durable payload encoding", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("replaces an UNPAIRED surrogate so the JSONB write cannot be rejected", async () => {
+    // A lone surrogate is a legal JavaScript string but NOT a legal Unicode
+    // scalar value: PostgreSQL rejects the whole `jsonb` value with
+    // "Unicode low surrogate must follow a high surrogate". The audit write
+    // is fire-and-forget, so the row was silently DROPPED — a caller could
+    // make specific tool calls disappear from the compliance trail.
+    mockPrisma.aiActionLog.create.mockResolvedValue({ id: "log-id" });
+    const middleware = auditLogMiddleware(mockPrisma as any);
+    await middleware(
+      { name: "bad\ud800surrogate" },
+      mockContext,
+      mockDefinition,
+      successNext({ success: true, data: "ok" }),
+    );
+
+    const createCall = mockPrisma.aiActionLog.create.mock.calls[0];
+    const stored = JSON.stringify(createCall[0].data.toolInput);
+    expect(stored).not.toContain("\\ud800");
+    // JSON.stringify emits the replacement character itself, not an escape.
+    expect(stored).toContain("\uFFFD");
+  });
+
+  it("caps the tool name written to the unbounded `tool_called` column", async () => {
+    // The rejection path records a CALLER-SUPPLIED tool name; the column is
+    // an unbounded `text`, so a hallucinated name could write a 100 KB row.
+    mockPrisma.aiActionLog.create.mockResolvedValue({ id: "log-id" });
+    const middleware = auditLogMiddleware(mockPrisma as any);
+    await middleware(
+      { test: "value" },
+      mockContext,
+      { ...mockDefinition, name: "x".repeat(5000) },
+      successNext({ success: true, data: "ok" }),
+    );
+
+    const createCall = mockPrisma.aiActionLog.create.mock.calls[0];
+    expect(createCall[0].data.toolCalled.length).toBeLessThanOrEqual(200);
+  });
+});
+
+describe("Idempotency Middleware — the TTL is enforced by the middleware", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("treats an EXPIRED record as absent and re-creates it", async () => {
+    // The 24-hour TTL used to be enforced ONLY by the out-of-band cleanup
+    // script, which nothing schedules. A `completed` record from months ago
+    // was therefore still found and REPLAYED FOREVER, and a `failed` record
+    // was reset and the side effect RE-EXECUTED.
+    const input = { test: "value" };
+    const idempotencyKey = "expired-key";
+    const contextWithKey = { ...mockContext, idempotencyKey };
+    const expiredAt = new Date(Date.now() - 1000);
+
+    const deleteMock = vi.fn().mockResolvedValue({});
+    mockPrisma.$transaction.mockImplementation(async (fn: (tx: any) => Promise<any>) => {
+      const tx = {
+        idempotencyRecord: {
+          findUnique: vi.fn().mockResolvedValue({
+            idempotencyKey,
+            tenantId: mockContext.tenantId,
+            toolName: "test_tool",
+            status: "completed",
+            inputHash: hashInput(input),
+            createdAt: new Date(Date.now() - 100_000),
+            expiresAt: expiredAt,
+            userId: mockContext.userId,
+            agentId: mockContext.agentId ?? null,
+          }),
+          delete: deleteMock,
+          create: vi.fn().mockResolvedValue({ idempotencyKey, status: "pending" }),
+        },
+      };
+      return fn(tx);
+    });
+    mockPrisma.idempotencyRecord.update.mockResolvedValue({});
+
+    const middleware = idempotencyMiddleware(mockPrisma as any);
+    const result = await middleware(input, contextWithKey, mockDefinition, successNext({ success: true, data: "fresh" }));
+
+    expect(deleteMock).toHaveBeenCalled();
+    expect(result.success).toBe(true);
+    expect(result.data).toBe("fresh");
+  });
+
+  it("honours the TTL when an expired record is re-read after a race", async () => {
+    // The P2002 path re-reads the record OUTSIDE the failed transaction. An
+    // expired record must not be reported as "already in progress".
+    const input = { test: "value" };
+    const idempotencyKey = "expired-race-key";
+    const contextWithKey = { ...mockContext, idempotencyKey };
+
+    // The first attempt loses the insert race (P2002); the re-read finds an
+    // EXPIRED row, so the record is treated as absent and the loop retries —
+    // the second attempt creates the record and the call proceeds.
+    let attempts = 0;
+    mockPrisma.$transaction.mockImplementation(async (fn: (tx: any) => Promise<any>) => {
+      attempts += 1;
+      if (attempts === 1) {
+        throw Object.assign(new Error("Unique constraint failed"), { code: "P2002" });
+      }
+      return fn({
+        idempotencyRecord: {
+          findUnique: vi.fn().mockResolvedValue(null),
+          create: vi.fn().mockResolvedValue({ idempotencyKey, status: "pending" }),
+        },
+      });
+    });
+    mockPrisma.idempotencyRecord.findUnique.mockResolvedValue({
+      idempotencyKey,
+      tenantId: mockContext.tenantId,
+      toolName: "test_tool",
+      status: "completed",
+      inputHash: hashInput(input),
+      createdAt: new Date(Date.now() - 100_000),
+      expiresAt: new Date(Date.now() - 1000),
+      userId: mockContext.userId,
+      agentId: mockContext.agentId ?? null,
+    });
+
+    const middleware = idempotencyMiddleware(mockPrisma as any);
+    const result = await middleware(input, contextWithKey, mockDefinition, successNext({ success: true, data: "fresh" }));
+
+    expect(result.success).toBe(true);
+    expect(result.data).toBe("fresh");
   });
 });

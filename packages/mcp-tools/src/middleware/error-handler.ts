@@ -102,6 +102,23 @@ function resolveRelatedTools(definition: { name: string; relatedTools?: RelatedT
 
 type ErrorFactory = (entityName: string, entityPlural: string, definition: { name: string; relatedTools?: RelatedTools }, prismaMeta: { target?: string | string[] } | undefined) => PrismaErrorResult | null;
 
+/**
+ * The Prisma code → error factory table.
+ *
+ * It is a PLAIN OBJECT LITERAL, so `PRISMA_ERROR_HANDLERS[prismaCode]` walks
+ * the prototype chain: a thrown error carrying `code: "__proto__"` resolved to
+ * `Object.prototype` (truthy!) and was then CALLED as a factory, throwing a
+ * `TypeError` from inside this function — i.e. from inside the `catch` block
+ * of the error handler, which is the last line of defence. The exception
+ * escaped `registry.execute()` entirely and the agent received an
+ * unstructured HTTP 500 instead of the structured `INTERNAL_ERROR` every
+ * other failure produces. `code: "constructor"` was worse: it resolved to
+ * `Object`, was called, and returned a STRING — so `execute()` resolved with
+ * `"entity"` and the MCP controller answered 200 with the JSON string
+ * `"entity"` as the whole response body.
+ *
+ * The lookup therefore uses `Object.hasOwn` (see `handlePrismaError`).
+ */
 const PRISMA_ERROR_HANDLERS: Record<string, ErrorFactory> = {
   P2002(_entityName, _entityPlural, definition, prismaMeta) {
     // meta.target is a schema-derived field/column name, but it is
@@ -233,7 +250,9 @@ function handlePrismaError(prismaCode: string, prismaMeta: { target?: string | s
     };
   }
 
-  const factory = PRISMA_ERROR_HANDLERS[prismaCode];
+  const factory = Object.hasOwn(PRISMA_ERROR_HANDLERS, prismaCode)
+    ? PRISMA_ERROR_HANDLERS[prismaCode]
+    : undefined;
   return factory ? factory(entityName, entityPlural, definition, prismaMeta) : null;
 }
 
@@ -266,19 +285,30 @@ export const errorHandlerMiddleware: ToolMiddleware = async (input, context, def
   try {
     return await next(input, context);
   } catch (error: unknown) {
-    if (isDomainError(error)) {
-      return sanitizeAgentFacingResult(handleDomainError(error, definition));
+    try {
+      if (isDomainError(error)) {
+        return sanitizeAgentFacingResult(handleDomainError(error, definition));
+      }
+
+      const { code: prismaCode, meta: prismaMeta } = extractPrismaError(error);
+
+      if (prismaCode) {
+        const entityName = definition.entity ?? "entity";
+        const entityPlural = pluralize(entityName);
+        const result = handlePrismaError(prismaCode, prismaMeta, entityName, entityPlural, definition);
+        if (result) return sanitizeAgentFacingResult(result);
+      }
+
+      return sanitizeAgentFacingResult(handleGenericError(error, definition, context.tenantId, context.userId));
+    } catch (mapperError: unknown) {
+      // The error mapper is the LAST line of defence. If it throws (a bug in
+      // the mapper, a malformed `meta`, a pathological entity name), the
+      // exception must NOT escape `execute()` — the agent would get an
+      // unstructured HTTP 500 instead of a structured error. Fall back to the
+      // generic handler, which cannot fail on the shape of the input.
+      return sanitizeAgentFacingResult(
+        handleGenericError(mapperError, definition, context.tenantId, context.userId),
+      );
     }
-
-    const { code: prismaCode, meta: prismaMeta } = extractPrismaError(error);
-
-    if (prismaCode) {
-      const entityName = definition.entity ?? "entity";
-      const entityPlural = pluralize(entityName);
-      const result = handlePrismaError(prismaCode, prismaMeta, entityName, entityPlural, definition);
-      if (result) return sanitizeAgentFacingResult(result);
-    }
-
-    return sanitizeAgentFacingResult(handleGenericError(error, definition, context.tenantId, context.userId));
   }
 };

@@ -129,10 +129,19 @@ function serializeCause(cause: unknown): unknown {
   // connection strings or tokens in durable sinks. Cap length to prevent
   // oversized cause objects from bloating error output.
   if (typeof cause === "object") {
-    let serialized: string;
+    let serialized: string | undefined;
     try {
       serialized = JSON.stringify(cause);
     } catch {
+      return "[Non-serializable cause]";
+    }
+    // `JSON.stringify` returns UNDEFINED — not a string — when the value's
+    // `toJSON()` returns undefined (or when the value is a function or a
+    // symbol). The old code passed that `undefined` straight into
+    // `sanitizeForLogOutput`, which threw a TypeError from INSIDE the
+    // serializer — so the failure surfaced INSTEAD of the original error, and
+    // the durable sink (audit row, idempotency record) lost the record.
+    if (typeof serialized !== "string") {
       return "[Non-serializable cause]";
     }
     const sanitized = sanitizeForLogOutput(serialized).slice(0, 500);

@@ -265,9 +265,14 @@ curl -X POST http://localhost:3000/api/mcp/tools/call \
           "name": "Jane Doe",
           "person": { "firstName": "Jane", "lastName": "Doe" }
         },
-        "reasoning": "The customer asked for a new contact"
+        "reasoning": "The customer asked for a new contact",
+        "conversationId": "conv-42"
       }'
 ```
+
+The optional `conversationId` ties the call to a conversation: it is
+persisted to the audit trail and to the idempotency record, and it is what
+the agent registry's per-conversation tool budget is keyed to.
 
 The response body is the tool result verbatim
 (`{ "success": true, "data": … }` or `{ "success": false, "error": { "code",
@@ -280,7 +285,10 @@ convention.
 - `get_type_table_values` - Get valid type values
 - `describe_entity` - Describe an entity's fields and semantics
 - `get_valid_transitions` - Get valid status transitions for an entity (only entities that expose a status field AND have a transition tool are listed)
-- `search_across_entities` - Universal search across entity types
+- `search_across_entities` - Universal search across entity types. Always
+  answers with the same shape: `{ query, entity, results: { party, product } }`,
+  where `entity` names the narrowed entity type (or is `null` for a
+  universal search)
 - `explain_error` - Explain an error code and suggest recovery steps
 
 **Party**
@@ -349,7 +357,11 @@ so they are accepted on every tool:
 
 - `idempotencyKey` (string) — deduplicates retries of a write. The same key
   with the same input replays the stored result; a different input under the
-  same key is rejected with `IDEMPOTENCY_KEY_MISMATCH`.
+  same key is rejected with `IDEMPOTENCY_KEY_MISMATCH`. A key is scoped to
+  **one caller in one tenant**: another caller that reuses the key gets
+  `IDEMPOTENCY_KEY_MISMATCH` (use a new key) rather than the first caller's
+  stored result. A record expires after 24 hours, after which the key is
+  reusable.
 - `confirmation` (string, ≥ 10 characters) — required by tools whose
   confirmation gate is enabled (the high-risk write tools). It explains why
   the agent believes the operation should proceed and is persisted to the

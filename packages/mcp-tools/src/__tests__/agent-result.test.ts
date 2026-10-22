@@ -85,3 +85,28 @@ describe("capAgentErrorText", () => {
     expect(capAgentErrorText("short")).toBe("short");
   });
 });
+
+describe("capAgentErrorText — surrogate pairs are never split", () => {
+  it("does not cut a surrogate pair in half", () => {
+    // `String.prototype.slice` counts UTF-16 code units, so a cut between a
+    // high and a low surrogate produced a LONE SURROGATE in the
+    // agent-facing string — a broken character that is also invalid UTF-8
+    // when it reaches a durable sink.
+    const value = "a".repeat(1999) + "\u{1F600}";
+    const capped = capAgentErrorText(value);
+    expect(capped.endsWith("…")).toBe(true);
+    // No lone surrogate: every high surrogate is followed by its low one.
+    for (let i = 0; i < capped.length; i++) {
+      const code = capped.charCodeAt(i);
+      if (code >= 0xd800 && code <= 0xdbff) {
+        const next = capped.charCodeAt(i + 1);
+        expect(next >= 0xdc00 && next <= 0xdfff).toBe(true);
+      }
+      if (code >= 0xdc00 && code <= 0xdfff) {
+        // A low surrogate must be preceded by a high one.
+        const prev = capped.charCodeAt(i - 1);
+        expect(prev >= 0xd800 && prev <= 0xdbff).toBe(true);
+      }
+    }
+  });
+});

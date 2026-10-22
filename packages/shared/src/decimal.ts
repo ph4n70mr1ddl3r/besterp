@@ -11,6 +11,32 @@
 // mappers so the two cannot drift.
 
 /**
+ * A DECIMAL literal: an optional sign, digits with an optional fractional
+ * part, and an optional exponent.
+ *
+ * `Number()` implements the full ECMAScript `StringNumericLiteral`, so it
+ * also accepts `0x10` (16), `0b101` (5) and `0o17` (15) — a non-decimal
+ * string that was silently converted to a DIFFERENT number instead of being
+ * reported as unparseable. For a MONEY value that is a silent corruption:
+ * "0x10" became an amount of 16.
+ */
+const DECIMAL_LITERAL_PATTERN = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/;
+
+/**
+ * Parse a DECIMAL literal string into a finite number, or `null`.
+ *
+ * Rejects the non-decimal `StringNumericLiteral` forms (`0x`, `0b`, `0o`),
+ * the empty string and anything that is not a finite number.
+ */
+function parseDecimalLiteral(value: string): number | null {
+  const trimmed = value.trim();
+  if (trimmed.length === 0) return null;
+  if (!DECIMAL_LITERAL_PATTERN.test(trimmed)) return null;
+  const parsed = Number(trimmed);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+/**
  * Convert a stored decimal value into a plain JavaScript number.
  *
  * Accepts:
@@ -27,10 +53,7 @@ export function decimalToNumber(value: unknown): number | null {
   if (typeof value === "number") return Number.isFinite(value) ? value : null;
   if (value === null || value === undefined) return null;
   if (typeof value === "string") {
-    const trimmed = value.trim();
-    if (trimmed.length === 0) return null;
-    const parsed = Number(trimmed);
-    return Number.isFinite(parsed) ? parsed : null;
+    return parseDecimalLiteral(value);
   }
   if (typeof value === "object") {
     return decimalObjectToNumber(value as { toNumber?: () => number; toString?: () => string });
@@ -74,8 +97,7 @@ function decimalObjectToNumber(decimal: { toNumber?: () => number; toString?: ()
       // about the same input shape.
       const trimmed = typeof literal === "string" ? literal.trim() : "";
       if (trimmed.length === 0) return null;
-      const parsed = Number(trimmed);
-      return Number.isFinite(parsed) ? parsed : null;
+      return parseDecimalLiteral(trimmed);
     } catch {
       return null;
     }

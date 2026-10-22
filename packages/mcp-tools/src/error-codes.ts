@@ -14,6 +14,14 @@
 // The shared domain-error codes (INVALID_TYPE_VALUE, DUPLICATE_ENTITY, …)
 // are NOT listed here: they belong to @besterp/shared and are published as
 // `DOMAIN_ERROR_CODES`. A consumer that needs the full set unions the two.
+//
+// The list is asserted in BOTH directions by the test suite:
+//  - every code in this list must have an `explain_error` explanation, and
+//  - every `code: "…"` literal emitted by this package must appear in this
+//    list (or in `DOMAIN_ERROR_CODES`). The one-way assertion could only
+//    detect a code that was ADDED to the inventory, never one that was
+//    emitted without being added — which is exactly the failure the
+//    inventory exists to prevent.
 
 /** Rejected because the agent is not registered in the tenant. */
 export const AGENT_NOT_REGISTERED = "AGENT_NOT_REGISTERED";
@@ -51,6 +59,18 @@ export const INVALID_TENANT_ID = "INVALID_TENANT_ID";
 export const INVALID_USER_ID = "INVALID_USER_ID";
 /** The requested tool is not registered. */
 export const UNKNOWN_TOOL = "UNKNOWN_TOOL";
+/** The tool arguments did not satisfy the tool's schema. */
+export const INVALID_INPUT = "INVALID_INPUT";
+/** A referenced entity is missing or violates a required relation. */
+export const REFERENCE_ERROR = "REFERENCE_ERROR";
+/** The database schema does not match the request (e.g. a table is missing). */
+export const DATABASE_ERROR = "DATABASE_ERROR";
+/** The database connection failed, or the connection pool timed out. */
+export const DATABASE_CONNECTION_ERROR = "DATABASE_CONNECTION_ERROR";
+/** An unexpected server-side failure. */
+export const INTERNAL_ERROR = "INTERNAL_ERROR";
+/** A required service is temporarily unavailable. */
+export const SERVICE_UNAVAILABLE = "SERVICE_UNAVAILABLE";
 
 /**
  * Every error code the MCP framework itself can return.
@@ -77,4 +97,10 @@ export const MCP_ERROR_CODES = Object.freeze([
   INVALID_TENANT_ID,
   INVALID_USER_ID,
   UNKNOWN_TOOL,
+  INVALID_INPUT,
+  REFERENCE_ERROR,
+  DATABASE_ERROR,
+  DATABASE_CONNECTION_ERROR,
+  INTERNAL_ERROR,
+  SERVICE_UNAVAILABLE,
 ] as const);

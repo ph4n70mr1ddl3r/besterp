@@ -658,3 +658,44 @@ describe("resolveRedisTls", () => {
     expect(resolveRedisTls()).toBe(true);
   });
 });
+
+describe("parseISODateTimeAsUTC — calendar validation", () => {
+  it("rejects a calendar-invalid date instead of rolling it forward", () => {
+    // The ECMAScript parser only constrains the day to 01..31, so
+    // `new Date("2024-02-30")` is a VALID Date and silently became
+    // 2024-03-01. The NaN guard therefore never caught it: an ERP stored a
+    // birth date that was wrong by up to a month and nothing detected it.
+    expect(() => parseISODateTimeAsUTC("2024-02-30")).toThrow(InvalidTypeValueError);
+    expect(() => parseISODateTimeAsUTC("2024-02-31")).toThrow(InvalidTypeValueError);
+    expect(() => parseISODateTimeAsUTC("2023-02-29")).toThrow(InvalidTypeValueError);
+    expect(() => parseISODateTimeAsUTC("2024-04-31")).toThrow(InvalidTypeValueError);
+    expect(() => parseISODateTimeAsUTC("2024-13-01")).toThrow(InvalidTypeValueError);
+  });
+
+  it("rejects a calendar-invalid date in a date-TIME string too", () => {
+    expect(() => parseISODateTimeAsUTC("2024-02-30T10:00:00Z")).toThrow(InvalidTypeValueError);
+    expect(() => parseISODateTimeAsUTC("2024-02-30T10:00:00")).toThrow(InvalidTypeValueError);
+  });
+
+  it("still accepts a valid leap-day and a valid date-time", () => {
+    expect(parseISODateTimeAsUTC("2024-02-29").toISOString()).toBe("2024-02-29T00:00:00.000Z");
+    expect(parseISODateTimeAsUTC("2024-06-15T10:00:00Z").toISOString()).toBe("2024-06-15T10:00:00.000Z");
+  });
+});
+
+describe("DomainError.toJSON — a cause that JSON.stringify cannot represent", () => {
+  it("does not throw when the cause's toJSON() returns undefined", () => {
+    // `JSON.stringify` returns UNDEFINED (not a string) for such a value. The
+    // old code passed it straight into the sanitizer, which threw a TypeError
+    // from INSIDE the serializer — so the failure surfaced INSTEAD of the
+    // original error and the durable sink lost the record.
+    const error = new InvalidTypeValueError("boom", { cause: { toJSON: () => undefined } });
+    expect(() => error.toJSON()).not.toThrow();
+    expect(error.toJSON().cause).toBe("[Non-serializable cause]");
+  });
+
+  it("still serializes a normal object cause", () => {
+    const error = new InvalidTypeValueError("boom", { cause: { detail: "x" } });
+    expect(String(error.toJSON().cause)).toContain("detail");
+  });
+});

@@ -204,7 +204,7 @@ export class HealthService implements OnModuleInit, OnModuleDestroy {
   /**
    * Get overall health status of the application
    */
-  async getHealth(): Promise<HealthStatus> {
+  async getHealth(options?: { bypassDatabaseCache?: boolean }): Promise<HealthStatus> {
     const timestamp = new Date().toISOString();
     const uptime = Math.round(process.uptime() * 1000); // ms since process started
     const environment = normalizeEnvironmentValue(process.env.NODE_ENV) || "development";
@@ -213,7 +213,7 @@ export class HealthService implements OnModuleInit, OnModuleDestroy {
     // `SELECT 1` does not access any tenant-scoped table, so RLS policies
     // do not interfere. Using the app client avoids exercising the admin
     // (superuser) connection for a non-admin purpose.
-    const databaseStatus = await this.probeDatabase();
+    const databaseStatus = await this.probeDatabase(options?.bypassDatabaseCache === true);
 
     // Check Redis connectivity if configured
     const redisStatus = await this.probeRedis();
@@ -280,10 +280,19 @@ export class HealthService implements OnModuleInit, OnModuleDestroy {
    * dedup, so the ANONYMOUS (and deliberately rate-limit-exempt) `/api/health`
    * endpoint cannot be used to drive unbounded query load onto the Prisma
    * connection pool. Never throws — every failure maps to "disconnected".
+   *
+   * `bypassCache` is used by the READINESS probe. The cache exists to
+   * protect the anonymous liveness endpoint, but the readiness endpoint has
+   * the opposite contract: it is an AUTHORITATIVE gate that decides whether
+   * the instance receives traffic. Serving it from the cache meant a
+   * database that had just died was still reported as "connected" for up to
+   * the cache TTL — and the endpoint's own timeout could never fire on the
+   * cached path (the promise resolved instantly), so it could never report
+   * "timed out" for an already-dead database either.
    */
-  private async probeDatabase(): Promise<"connected" | "disconnected"> {
+  private async probeDatabase(bypassCache = false): Promise<"connected" | "disconnected"> {
     const now = Date.now();
-    if (this.dbProbeCache && now - this.dbProbeCache.timestamp < REDIS_PROBE_CACHE_TTL_MS) {
+    if (!bypassCache && this.dbProbeCache && now - this.dbProbeCache.timestamp < REDIS_PROBE_CACHE_TTL_MS) {
       return this.dbProbeCache.status;
     }
     // Dedupe CONCURRENT probes: a burst of N requests arriving before the

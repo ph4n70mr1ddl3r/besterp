@@ -139,6 +139,35 @@ describe("HealthService", () => {
       expect((await p2).database).toBe("connected");
     });
 
+    it("re-probes the database when the cache is BYPASSED (the readiness path)", async () => {
+      // The readiness probe is an AUTHORITATIVE gate: serving it from the
+      // 5-second result cache meant a database that had just died was still
+      // reported as "connected" for up to the cache TTL — and the endpoint's
+      // own timeout could never fire on the cached path, so it could never
+      // report "timed out" for an already-dead database either.
+      const mockPrisma = createMockPrisma();
+      const service = new HealthService(mockPrisma);
+
+      await service.getHealth();
+      expect(mockPrisma.appClient.$queryRaw).toHaveBeenCalledTimes(1);
+
+      const readiness = await service.getHealth({ bypassDatabaseCache: true });
+      expect(mockPrisma.appClient.$queryRaw).toHaveBeenCalledTimes(2);
+      expect(readiness.database).toBe("connected");
+    });
+
+    it("reports the CURRENT database state on the readiness path when it has died", async () => {
+      const mockPrisma = createMockPrisma();
+      const service = new HealthService(mockPrisma);
+
+      await service.getHealth();
+      expect((await service.getHealth()).database).toBe("connected");
+
+      mockPrisma.appClient.$queryRaw.mockRejectedValue(new Error("connection refused"));
+      const readiness = await service.getHealth({ bypassDatabaseCache: true });
+      expect(readiness.database).toBe("disconnected");
+    });
+
     it("dedupes a CONCURRENT burst to a single database query (in-flight Promise)", async () => {
       // A result cache alone does NOT bound the load under a concurrent
       // burst: N requests arriving before the first probe resolves each miss

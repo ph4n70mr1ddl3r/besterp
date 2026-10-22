@@ -289,6 +289,15 @@ export const MAX_ERROR_LOG_LINE_LENGTH = 500;
 export const MAX_ERROR_MESSAGE_LENGTH = 2000;
 
 /**
+ * The maximum length of the `tool_called` column in the durable audit row.
+ *
+ * The column is an unbounded `text`, and the audit sink records a
+ * CALLER-SUPPLIED tool name on the rejection path (a hallucinated tool
+ * name), so the value must be bounded like every other durable column.
+ */
+export const MAX_TOOL_NAME_LENGTH = 200;
+
+/**
  * Maximum number of Zod issues reported back to the agent for a single
  * invalid tool input.
  */

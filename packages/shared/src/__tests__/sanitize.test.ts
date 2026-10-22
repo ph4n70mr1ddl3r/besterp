@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { stripHtmlTags, sanitizeLogOutput, sanitizeLogMessage, sanitizeForLogOutput, safeFromCodePoint, isSensitiveFieldName, redactSensitiveFieldValues, sanitizePostalAddress, sanitizeTelecomNumber } from "../sanitize.js";
+import { stripHtmlTags, sanitizeLogOutput, sanitizeLogMessage, sanitizeForLogOutput, safeFromCodePoint, normalizeUnpairedSurrogates, isSensitiveFieldName, redactSensitiveFieldValues, sanitizePostalAddress, sanitizeTelecomNumber } from "../sanitize.js";
 import { InvalidTypeValueError } from "../errors.js";
 
 describe("stripHtmlTags", () => {
@@ -630,6 +630,9 @@ describe("sanitizeForLogOutput", () => {
     // ~7s. The scheme length is now capped ({1,31}) and the input is length-
     // bounded, so sanitization of a huge attacker-controlled message stays
     // linear and returns quickly.
+    // The PAYLOAD is a run of ONE repeated character, which carries no
+    // information and is therefore preserved (it is the shape of a padding
+    // run / a truncation preview). The point of this test is the TIMING.
     const input = "x".repeat(100_000);
     const start = performance.now();
     const result = sanitizeForLogOutput(input);
@@ -1301,5 +1304,149 @@ describe("sanitizePostalAddress / sanitizeTelecomNumber — required fields", ()
       });
     expect(sanitizeTelecomNumber({ areaCode: "212", lineNumber: "5551234", extension: null } as never))
       .toEqual({ countryCode: "+1", areaCode: "212", lineNumber: "5551234", extension: null });
+  });
+});
+
+describe("sanitizeForLogOutput — opaque tokens that are not hex/alphanumeric", () => {
+  it("redacts a long lower-case letter run (an opaque secret, not a word)", () => {
+    // Regression guard: the generic rule preserved EVERY run of 20+ lower-case
+    // letters, so a 26-letter random secret (a classic secret alphabet)
+    // survived verbatim — in free text and under a benign field name.
+    const secret = "abcdefghijklmnopqrstuvwxyz";
+    expect(sanitizeForLogOutput(`config.value: ${secret}`)).toContain("[REDACTED_TOKEN]");
+    expect(sanitizeForLogOutput(`config.value: ${secret}`)).not.toContain(secret);
+  });
+
+  it("redacts a long hex run that is NOT the 32-character UUID shape", () => {
+    // A 64-character hex run is byte-for-byte a 32-byte API key, so it must
+    // not survive — but the 32-character UUID/MD5 shape still does.
+    const secret = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+    expect(sanitizeForLogOutput(`config.value: ${secret}`)).toContain("[REDACTED_TOKEN]");
+    expect(sanitizeForLogOutput(`config.value: ${secret}`)).not.toContain(secret);
+    const uuid = "9f8d7c6b5a4e3f2d1c0b9a8e7d6c5b4a";
+    expect(sanitizeForLogOutput(`config.value: ${uuid}`)).toContain(uuid);
+  });
+
+  it("still preserves a structured identifier that carries a separator", () => {
+    const identifier = "customer_contact_mechanism";
+    expect(sanitizeForLogOutput(`field ${identifier} end`)).toContain(identifier);
+  });
+
+  it("still preserves a ULID and a dotted host", () => {
+    const ulid = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
+    expect(sanitizeForLogOutput(`id ${ulid}`)).toContain(ulid);
+    expect(sanitizeForLogOutput("host acme-trading.example.com")).toContain("acme-trading.example.com");
+  });
+});
+
+describe("sanitizeForLogOutput — free-text secret names that the splitter cannot see", () => {
+  it("redacts a CONCATENATED secret name (`mypassword=…`)", () => {
+    // `db_password` and `accessToken` are split by the camel/snake splitter
+    // and were already redacted; an ALL-LOWERCASE concatenation is a single
+    // token, so the sensitive word inside it was invisible.
+    expect(sanitizeForLogOutput("mypassword=hunter2")).toContain("[REDACTED]");
+    expect(sanitizeForLogOutput("mypassword=hunter2")).not.toContain("hunter2");
+    expect(sanitizeForLogOutput("dbpassword=hunter2")).not.toContain("hunter2");
+    expect(sanitizeForLogOutput("authtoken=abcdef")).not.toContain("abcdef");
+  });
+
+  it("does NOT redact an innocuous name that merely ends in a secret-ish word", () => {
+    // Over-redaction guard: `code`, `session`, `sign` and `pin` are common
+    // suffixes of innocuous words and must stay readable.
+    expect(sanitizeForLogOutput("design=logo")).toBe("design=logo");
+    expect(sanitizeForLogOutput("zipcode=12345")).toBe("zipcode=12345");
+    expect(sanitizeForLogOutput("usercode=abc")).toBe("usercode=abc");
+    expect(sanitizeForLogOutput("tokenizer=abc")).toBe("tokenizer=abc");
+    expect(sanitizeForLogOutput("keystroke=abc")).toBe("keystroke=abc");
+  });
+
+  it("redacts a secret wrapped in a closing delimiter", () => {
+    // The lead class used to be whitespace + opening delimiters only, so a
+    // secret wrapped in `>` / `)` / `]` / `}` leaked verbatim.
+    expect(sanitizeForLogOutput("<password=hunter2>")).not.toContain("hunter2");
+    expect(sanitizeForLogOutput("(password=hunter2)")).not.toContain("hunter2");
+    expect(sanitizeForLogOutput("[password=hunter2]")).not.toContain("hunter2");
+    expect(sanitizeForLogOutput("{password=hunter2}")).not.toContain("hunter2");
+  });
+});
+
+describe("sanitizeLogMessage — string-type ANSI sequences are stripped in linear time", () => {
+  it("removes OSC/APC/SOS/PM/DCS sequences terminated by BEL or ST", () => {
+    expect(sanitizeLogMessage("\x1b]0;window title\x07rest")).toBe("rest");
+    expect(sanitizeLogMessage("\x1b]0;window title\x1b\\rest")).toBe("rest");
+    expect(sanitizeLogMessage("\x1b_0;app\x07rest")).toBe("rest");
+    expect(sanitizeLogMessage("\x1bX sos\x1b\\rest")).toBe("rest");
+    expect(sanitizeLogMessage("\x1b^ pm\x07rest")).toBe("rest");
+    expect(sanitizeLogMessage("\x1bP dcs\x1b\\rest")).toBe("rest");
+  });
+
+  it("leaves an UNTERMINATED string-type sequence's payload alone", () => {
+    // The string-type rule requires a terminator, so it does not consume the
+    // sequence. The generic ESC rule then removes the two-byte `ESC ]`
+    // starter, exactly as it always did.
+    expect(sanitizeLogMessage("\x1b]0;window title")).toBe("0;window title");
+  });
+
+  it("does not backtrack quadratically on a run of OSC starts (ReDoS)", () => {
+    // Regression guard: the rule used to be
+    // `/\x1b[\]_X^P][\s\S]*?(?:\x1b\\|\x07)/g` — a lazy run followed by a
+    // REQUIRED trailing literal. 50 000 `ESC ]` sequences (exactly the
+    // 100 KB input cap) blocked the event loop for 1.96 SECONDS.
+    const input = "\x1b]".repeat(50_000);
+    const start = performance.now();
+    sanitizeLogMessage(input);
+    expect(performance.now() - start).toBeLessThan(200);
+  });
+
+  it("strips the same content as the previous regex-based implementation", () => {
+    /* eslint-disable no-control-regex */
+    const reference = (message: string): string =>
+      message
+        .replace(/\x1b\[[\x30-\x3F]*[\x40-\x7E]/g, "")
+        .replace(/\x1b[\]_X^P][\s\S]*?(?:\x1b\\|\x07)/g, "")
+        .replace(/\x1b[\x20-\x2F]*[\x30-\x7E]/g, "")
+        // eslint-disable-next-line no-misleading-character-class
+        .replace(/[\u200B\u200C\u200D\u200E\u200F\u2060-\u2069\u202A-\u202E\u061C\uFEFF]/g, "")
+        .replace(/[\u2028\u2029]/g, "_")
+        .replace(/[\r\n\t\x00-\x08\x0b\x0c\x0e-\x1f\x7f\x80-\x9f]/g, "_");
+    /* eslint-enable no-control-regex */
+
+    const alphabet = ["\x1b", "]", "_", "X", "^", "P", "\\", "\x07", "a", "\x1b[", "0", "m"];
+    for (let i = 0; i < 500; i++) {
+      let sample = "";
+      const length = Math.floor(Math.random() * 16);
+      for (let j = 0; j < length; j++) sample += alphabet[Math.floor(Math.random() * alphabet.length)];
+      expect(sanitizeLogMessage(sample)).toBe(reference(sample));
+    }
+  });
+});
+
+describe("normalizeUnpairedSurrogates", () => {
+  it("replaces an unpaired HIGH surrogate with U+FFFD", () => {
+    expect(normalizeUnpairedSurrogates("bad\ud800surrogate")).toBe("bad\uFFFDsurrogate");
+  });
+
+  it("replaces an unpaired LOW surrogate with U+FFFD", () => {
+    expect(normalizeUnpairedSurrogates("bad\udc00surrogate")).toBe("bad\uFFFDsurrogate");
+  });
+
+  it("leaves a VALID surrogate pair (an astral character) untouched", () => {
+    const emoji = "\u{1F600}";
+    expect(normalizeUnpairedSurrogates(`a${emoji}b`)).toBe(`a${emoji}b`);
+  });
+
+  it("leaves an ordinary string untouched", () => {
+    expect(normalizeUnpairedSurrogates("plain text")).toBe("plain text");
+    expect(normalizeUnpairedSurrogates("")).toBe("");
+  });
+
+  it("makes the string insertable into PostgreSQL jsonb", () => {
+    // PostgreSQL rejects an unpaired surrogate escape with
+    // "Unicode low surrogate must follow a high surrogate" — which made
+    // the durable audit / idempotency writes FAIL (silently dropping the
+    // audit row).
+    const payload = JSON.stringify({ name: normalizeUnpairedSurrogates("bad\ud800surrogate") });
+    expect(() => JSON.parse(payload)).not.toThrow();
+    expect(payload).not.toContain("\\ud800");
   });
 });

@@ -7,7 +7,7 @@
 //   DATABASE_ADMIN_URL="..." npx tsx packages/database/scripts/cleanup-expired-idempotency.ts
 
 import { PrismaClient, Prisma } from "@prisma/client";
-import { sanitizeForLogOutput, isDev, normalizeEnvironmentValue, ADVISORY_LOCK_KEY_CLEANUP_IDEMPOTENCY } from "@besterp/shared";
+import { sanitizeForLogOutput, isDev, normalizeEnvironmentValue, ADVISORY_LOCK_KEY_CLEANUP_IDEMPOTENCY, IDEMPOTENCY_STALE_PENDING_THRESHOLD_MS } from "@besterp/shared";
 
 if (!process.env.DATABASE_ADMIN_URL) {
   console.error("DATABASE_ADMIN_URL is required for idempotency cleanup (bypasses RLS). " +
@@ -111,6 +111,50 @@ async function main() {
         return { skipped: true as const, deleted: 0, before: 0, after: 0 };
       }
 
+      // Verify that this connection actually BYPASSES row-level security.
+      //
+      // The script's own error message states the invariant — "the app role
+      // cannot see expired records due to tenant-scoped RLS policies" — but
+      // nothing asserted it at runtime. `DATABASE_ADMIN_URL` pointing at any
+      // non-superuser role that is not the table owner (a very easy mistake:
+      // the .env.example carries both a `besterp_app` and a `besterp` URL)
+      // made every query see ZERO rows: the count, the findMany and the
+      // DELETE all matched nothing, and the script printed
+      //
+      //     Idempotency cleanup complete:
+      //        Records before: 0
+      //        Records deleted: 0
+      //        Records remaining: 0
+      //
+      // and exited 0 — a healthy-looking cron job while the table grew
+      // without bound. Fail loudly instead.
+      const rlsBypass = await tx.$queryRaw<Array<{
+        relrowsecurity: boolean;
+        relforcerowsecurity: boolean;
+        rolsuper: boolean;
+        rolbypassrls: boolean;
+        is_owner: boolean;
+      }>>`
+        SELECT
+          c.relrowsecurity,
+          c.relforcerowsecurity,
+          r.rolsuper,
+          r.rolbypassrls,
+          pg_has_role(current_user, c.relowner, 'USAGE') AS is_owner
+        FROM pg_class c
+        JOIN pg_roles r ON r.rolname = current_user
+        WHERE c.relname = 'idempotency_record'
+      `;
+      const rls = rlsBypass[0];
+      if (rls && rls.relrowsecurity && rls.relforcerowsecurity
+        && !rls.rolsuper && !rls.rolbypassrls && !rls.is_owner) {
+        throw new Error(
+          "This connection does NOT bypass row-level security on idempotency_record, " +
+          "so it cannot see (or delete) any row. Point DATABASE_ADMIN_URL at a " +
+          "superuser or the table owner."
+        );
+      }
+
       // Capture count after lock acquisition for accurate before/after comparison.
       const beforeCount = await tx.idempotencyRecord.count();
 
@@ -126,6 +170,13 @@ async function main() {
       // failed) records are reaped; a stale pending row is recovered by the
       // runtime STALE_PENDING_THRESHOLD_MS reset, not by this job.
       const cutoff = new Date();
+      // A `pending` row that is BOTH expired AND older than the stale-pending
+      // threshold has been abandoned by its request (the runtime resets a
+      // stale pending row when the same key is replayed, and the middleware
+      // now honours the TTL itself). Such a row would otherwise live FOREVER
+      // when the key is never reused, because the sweep below deliberately
+      // excludes the `pending` status.
+      const stalePendingCutoff = new Date(Date.now() - IDEMPOTENCY_STALE_PENDING_THRESHOLD_MS);
       // Captured across iterations so the while condition below can reference
       // it. Declared here (not inside the do block) so the while condition
       // can see it without a trailing-semicolon lint warning on the `let`.
@@ -134,7 +185,15 @@ async function main() {
         // orderBy ensures deterministic iteration so the oldest expired rows
         // are always cleaned first (helps with retention SLAs).
         expired = await tx.idempotencyRecord.findMany({
-          where: { expiresAt: { lt: cutoff }, status: { not: "pending" } },
+          where: {
+            expiresAt: { lt: cutoff },
+            OR: [
+              { status: { not: "pending" } },
+              // An abandoned pending row: expired AND past the stale-pending
+              // threshold, so no in-flight request can still be using it.
+              { status: "pending", createdAt: { lt: stalePendingCutoff } },
+            ],
+          },
           orderBy: { expiresAt: "asc" },
           select: { idempotencyKey: true, tenantId: true },
           take: BATCH_SIZE,

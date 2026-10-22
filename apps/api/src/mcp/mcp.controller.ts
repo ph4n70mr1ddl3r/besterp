@@ -146,6 +146,7 @@ export class McpController {
       tenantId: tenantContext.tenantId,
       userId: tenantContext.userId,
       agentId: tenantContext.agentId,
+      conversationId: body?.conversationId,
       reasoning: body?.reasoning,
     });
 

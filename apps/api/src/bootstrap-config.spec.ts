@@ -4,6 +4,8 @@ import {
   resolveHardExitTimeoutMs,
   resolveTrustProxyHops,
   resolveRequiredEnvVars,
+  resolveCorsOriginsRequirement,
+  describeUncaughtException,
   resolvePort,
   normalizeEnvironmentValue,
   normalizeCacheSize,
@@ -275,5 +277,68 @@ describe("resolveRequiredEnvVars", () => {
     const env = { ...complete, NODE_ENV: "  development  " } as NodeJS.ProcessEnv;
     delete env.DATABASE_ADMIN_URL;
     expect(resolveRequiredEnvVars(env).fatal).toBe(false);
+  });
+});
+
+describe("resolveCorsOriginsRequirement", () => {
+  it("is FATAL in a non-development environment when CORS_ORIGINS is missing", () => {
+    // The check used to live in `configureCors`, which runs AFTER the whole
+    // Nest application has been built — so a misconfigured production deploy
+    // did all that work before dying with the CORS message.
+    for (const nodeEnv of ["production", "staging", "test", undefined]) {
+      const result = resolveCorsOriginsRequirement({ NODE_ENV: nodeEnv } as NodeJS.ProcessEnv);
+      expect(result.missing, `NODE_ENV=${nodeEnv}`).toBe(true);
+      expect(result.fatal, `NODE_ENV=${nodeEnv}`).toBe(true);
+    }
+  });
+
+  it("is NOT fatal in development (the localhost allowlist is used)", () => {
+    const result = resolveCorsOriginsRequirement({ NODE_ENV: "development" } as NodeJS.ProcessEnv);
+    expect(result.missing).toBe(true);
+    expect(result.fatal).toBe(false);
+  });
+
+  it("treats an empty or separator-only value as MISSING", () => {
+    for (const value of ["", "   ", ",", " , , "]) {
+      const result = resolveCorsOriginsRequirement({
+        NODE_ENV: "production",
+        CORS_ORIGINS: value,
+      } as NodeJS.ProcessEnv);
+      expect(result.missing, `CORS_ORIGINS=${JSON.stringify(value)}`).toBe(true);
+      expect(result.fatal).toBe(true);
+    }
+  });
+
+  it("is satisfied by a real origin list", () => {
+    const result = resolveCorsOriginsRequirement({
+      NODE_ENV: "production",
+      CORS_ORIGINS: "https://app.example.com,https://admin.example.com",
+    } as NodeJS.ProcessEnv);
+    expect(result.missing).toBe(false);
+    expect(result.fatal).toBe(false);
+  });
+});
+
+describe("describeUncaughtException", () => {
+  it("returns the stack of an Error", () => {
+    const error = new Error("boom");
+    expect(describeUncaughtException(error)).toContain("boom");
+  });
+
+  it("handles a NON-Error thrown value without throwing itself", () => {
+    // `throw null` / `throw "boom"` reach the uncaughtException handler as a
+    // non-object. Reading `error.stack` there threw a TypeError from INSIDE
+    // the handler, so the original error was never logged.
+    expect(() => describeUncaughtException(null)).not.toThrow();
+    expect(describeUncaughtException(null)).toBe("null");
+    expect(describeUncaughtException(undefined)).toBe("undefined");
+    expect(describeUncaughtException("boom")).toBe("boom");
+    expect(describeUncaughtException({ code: 42 })).toContain("42");
+  });
+
+  it("handles an object whose JSON serialization throws", () => {
+    const circular: Record<string, unknown> = {};
+    circular.self = circular;
+    expect(() => describeUncaughtException(circular)).not.toThrow();
   });
 });

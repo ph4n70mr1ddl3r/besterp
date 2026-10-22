@@ -9,10 +9,11 @@
 // never break the tool).
 
 import { PrismaClient, Prisma } from "@prisma/client";
-import { getErrorCode, sanitizeLogMessage, sanitizeForLogOutput, stripHtmlTags, MAX_REASONING_LENGTH, MAX_SOFT_FAILURE_MESSAGE_SIZE, MAX_CONFIRMATION_LENGTH, redactSensitiveFieldValues, MAX_CONCURRENT_AUDIT_WRITES, MAX_AUDIT_QUEUE_SIZE, AUDIT_WRITE_QUEUE_TIMEOUT_MS, MAX_USER_ID_LENGTH, MAX_AGENT_ID_LENGTH, MAX_CONVERSATION_ID_LENGTH } from "@besterp/shared";
+import { getErrorCode, sanitizeLogMessage, sanitizeForLogOutput, stripHtmlTags, normalizeUnpairedSurrogates, MAX_REASONING_LENGTH, MAX_SOFT_FAILURE_MESSAGE_SIZE, MAX_CONFIRMATION_LENGTH, redactSensitiveFieldValues, MAX_CONCURRENT_AUDIT_WRITES, MAX_AUDIT_QUEUE_SIZE, AUDIT_WRITE_QUEUE_TIMEOUT_MS, MAX_USER_ID_LENGTH, MAX_AGENT_ID_LENGTH, MAX_CONVERSATION_ID_LENGTH, MAX_TOOL_NAME_LENGTH } from "@besterp/shared";
 import { ToolMiddleware, ToolContext, ToolResult } from "../schema/tool-definition.js";
 import { truncateValue, capString, MAX_STORED_PAYLOAD_SIZE } from "./truncate.js";
 import { sanitizeAgentFacingResult } from "../agent-result.js";
+import { sanitizeDurableIdentity } from "../identity.js";
 
 const AUDIT_DROP_WARNING =
   "Some audit log entries were dropped due to high load. The operation succeeded but the durable audit trail may be incomplete.";
@@ -197,7 +198,12 @@ function createBaseEntry(context: { agentId?: string; conversationId?: string; r
     // with the looser OPTIONAL_ID_PATTERN, so they are HTML-stripped and,
     // when they fail that validation, fully sanitized.
     tenantId: context.tenantId,
-    toolCalled: definition.name,
+    // The tool name is a plain `text` column with no length bound. The
+    // rejection path passes a CALLER-SUPPLIED name (sanitized, but the
+    // sanitizer's own cap is 100 KB), so a hallucinated tool name could
+    // write a 100 KB row. The name of a REGISTERED tool is short; the cap
+    // only bites on the rejection path.
+    toolCalled: definition.name.slice(0, MAX_TOOL_NAME_LENGTH),
     toolInput: withConfirmation(redactSensitiveFields(input), context.confirmation),
   };
 }
@@ -270,8 +276,22 @@ function sanitizeConfirmation(confirmation: string): string {
  */
 function sanitizeIdentityField(value: string, maxLength: number): string {
   try {
-    const clamped = value.slice(0, maxLength);
-    return sanitizeForLogOutput(stripHtmlTags(clamped), { keepOpaqueTokens: true }).slice(0, maxLength);
+    // The shared sanitizer is the canonical implementation for the durable
+    // identity fields — the idempotency sink uses the SAME one, so the two
+    // sinks can never disagree about who performed an operation.
+    //
+    // It returns null when the value is not stable under the sanitizer (a
+    // secret-shaped identity). The registry rejects such an identity before
+    // the pipeline runs, so reaching that branch here means the call was
+    // rejected BEFORE the identity was validated — the column is NOT NULL,
+    // so the value is recorded as the empty string.
+    const stable = sanitizeDurableIdentity(value, maxLength);
+    if (stable === null) return "";
+    // An unpaired surrogate is not a legal Unicode scalar value, and the
+    // `ai_action_log` columns are PostgreSQL `text` — which rejects it with
+    // "invalid byte sequence for encoding UTF8". The audit write is
+    // fire-and-forget, so the row was silently dropped.
+    return normalizeUnpairedSurrogates(stable);
   } catch {
     return "";
   }
@@ -293,7 +313,9 @@ function sanitizeReasoning(value: unknown): string | null {
   if (trimmed.length === 0) return null;
   try {
     const clamped = trimmed.slice(0, MAX_REASONING_LENGTH);
-    const sanitized = sanitizeForLogOutput(stripHtmlTags(clamped)).slice(0, MAX_REASONING_LENGTH);
+    const sanitized = normalizeUnpairedSurrogates(
+      sanitizeForLogOutput(stripHtmlTags(clamped)).slice(0, MAX_REASONING_LENGTH),
+    );
     return sanitized.length === 0 ? null : sanitized;
   } catch {
     // Never let the audit path break the tool call. The reasoning is
@@ -324,10 +346,10 @@ function formatSoftFailureOutput(result: ToolResult): { error: { message: string
   return {
     error: {
       message: result.error?.message
-        ? capString(sanitizeForLogOutput(result.error.message), MAX_SOFT_FAILURE_MESSAGE_SIZE)
+        ? capString(normalizeUnpairedSurrogates(sanitizeForLogOutput(result.error.message)), MAX_SOFT_FAILURE_MESSAGE_SIZE)
         : null,
       errorCode: result.error?.code
-        ? capString(sanitizeForLogOutput(result.error.code), MAX_SOFT_FAILURE_MESSAGE_SIZE) || undefined
+        ? capString(normalizeUnpairedSurrogates(sanitizeForLogOutput(result.error.code)), MAX_SOFT_FAILURE_MESSAGE_SIZE) || undefined
         : undefined,
     },
   };

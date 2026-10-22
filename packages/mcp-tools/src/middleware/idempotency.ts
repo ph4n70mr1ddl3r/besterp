@@ -17,10 +17,11 @@
 
 import { PrismaClient, Prisma, IdempotencyRecord } from "@prisma/client";
 import { createHash } from "node:crypto";
-import { hashInput, getErrorCode, sanitizeForLogOutput, stripHtmlTags, redactSensitiveFieldValues, MAX_SOFT_FAILURE_MESSAGE_SIZE, IDEMPOTENCY_TTL_MS, MAX_IDEMPOTENCY_KEY_LENGTH, SAFE_IDEMPOTENCY_KEY, IDEMPOTENCY_MAX_RETRIES, IDEMPOTENCY_RETRY_BASE_DELAY_MS, IDEMPOTENCY_STALE_PENDING_THRESHOLD_MS, MAX_USER_ID_LENGTH, MAX_AGENT_ID_LENGTH, MAX_CONVERSATION_ID_LENGTH } from "@besterp/shared";
+import { hashInput, getErrorCode, sanitizeForLogOutput, redactSensitiveFieldValues, MAX_SOFT_FAILURE_MESSAGE_SIZE, IDEMPOTENCY_TTL_MS, MAX_IDEMPOTENCY_KEY_LENGTH, SAFE_IDEMPOTENCY_KEY, IDEMPOTENCY_MAX_RETRIES, IDEMPOTENCY_RETRY_BASE_DELAY_MS, IDEMPOTENCY_STALE_PENDING_THRESHOLD_MS, MAX_USER_ID_LENGTH, MAX_AGENT_ID_LENGTH, MAX_CONVERSATION_ID_LENGTH } from "@besterp/shared";
 import { ToolMiddleware, ToolResult, ToolContext, ZodSchemaLike } from "../schema/tool-definition.js";
 import { truncateValue, MAX_STORED_PAYLOAD_SIZE, capString, isTruncationMarker } from "./truncate.js";
 import { IDEMPOTENCY_CONTENTION, IDEMPOTENCY_KEY_MISMATCH, IDEMPOTENCY_UNAVAILABLE, IDEMPOTENCY_UNKNOWN_STATUS, INVALID_IDEMPOTENCY_KEY, REQUEST_IN_PROGRESS, STALE_PENDING_RECORD } from "../error-codes.js";
+import { sanitizeDurableIdentity } from "../identity.js";
 
 const MAX_RETRY_ATTEMPT = IDEMPOTENCY_MAX_RETRIES - 1;
 
@@ -164,16 +165,29 @@ function handleRecordContention(key: string, toolName: string): ToolResult {
 
 export function idempotencyMiddleware(prisma: PrismaClient): ToolMiddleware {
   return async (input, context, definition, next) => {
-    if (!prisma?.idempotencyRecord) {
-      logIdempotencyWarn("Prisma client not available — skipping idempotency check");
-      return next(input, context);
-    }
-
     const { idempotencyKey, tenantId, userId, agentId, conversationId } = context;
 
     const keyResult = validateIdempotencyKey(idempotencyKey, definition.name);
     if (!keyResult.valid) return keyResult.error;
+    // No key → there is nothing to deduplicate, so the call is a no-op
+    // pass-through whether or not the store is reachable.
     if (!keyResult.key) return next(input, context);
+
+    // A KEY was supplied, so deduplication is part of the caller's contract.
+    // The store being unreachable must therefore FAIL CLOSED.
+    //
+    // The middleware used to pass the call through ("Prisma client not
+    // available — skipping idempotency check"), so the write executed with
+    // deduplication silently DISABLED and the agent was never told — a retry
+    // of the same request executed the side effect a second time. That is
+    // the exact failure the sibling `handleUnhashableInput` path refuses to
+    // accept, and the sibling guards in the same pipeline (agent policy,
+    // confirmation gate) are explicitly fail-closed for the same "we could
+    // not check" situation.
+    if (!prisma?.idempotencyRecord) {
+      logIdempotencyWarn("Prisma client not available — refusing the call because idempotency cannot be applied");
+      return handleRecordUnavailable(definition.name);
+    }
 
     const hashOutcome = computeInputHash(input, definition);
     if (hashOutcome.status === "invalid-input") return next(input, context);
@@ -263,12 +277,39 @@ async function readIdempotencyRecord(
   tenantId: string,
 ): Promise<IdempotencyRecord | null> {
   try {
-    return await prisma.idempotencyRecord.findUnique({
+    const record = await prisma.idempotencyRecord.findUnique({
       where: { idempotencyKey_tenantId: { idempotencyKey, tenantId } },
     });
+    // An EXPIRED record is not a deduplication record any more: the TTL is
+    // the contract that says "after this point the key may be reused". See
+    // `isExpiredRecord` for why the TTL has to be enforced HERE and not only
+    // by the out-of-band cleanup job.
+    return record && isExpiredRecord(record) ? null : record;
   } catch {
     return null;
   }
+}
+
+/**
+ * True when the record's TTL has elapsed.
+ *
+ * The 24-hour TTL used to be enforced ONLY by the out-of-band cleanup script
+ * (`npm run db:cleanup`), which nothing schedules: there is no cron, no
+ * `@nestjs/schedule`, no job in this repository. A `completed` record from
+ * months ago was therefore still found by the primary-key lookup and
+ * REPLAYED FOREVER, and a `failed` record from months ago was reset to
+ * `pending` and the side effect RE-EXECUTED — the TTL contract was not
+ * enforced by the component that owns it.
+ *
+ * The middleware now honours the TTL itself, so the guarantee does not
+ * depend on an out-of-band job ever being run.
+ */
+function isExpiredRecord(record: IdempotencyRecord): boolean {
+  const expiresAt = record.expiresAt;
+  if (!expiresAt) return false;
+  const expiry = expiresAt instanceof Date ? expiresAt.getTime() : new Date(expiresAt).getTime();
+  if (Number.isNaN(expiry)) return false;
+  return expiry <= Date.now();
 }
 
 async function acquireIdempotencyRecord(
@@ -280,6 +321,24 @@ async function acquireIdempotencyRecord(
     try {
       const { existing, created } = await prisma.$transaction(async (tx) => {
         const record = await tx.idempotencyRecord.findUnique({ where: { idempotencyKey_tenantId: { idempotencyKey, tenantId } } });
+
+        if (record && isExpiredRecord(record)) {
+          // The TTL has elapsed: the key is free again. The expired row is
+          // removed and a fresh one is created, so the key is reusable by
+          // ANY caller (not just the one that owned the expired record).
+          await tx.idempotencyRecord.delete({
+            where: { idempotencyKey_tenantId: { idempotencyKey, tenantId } },
+          });
+          await tx.idempotencyRecord.create({
+            data: {
+              idempotencyKey, toolName, tenantId, userId: safeUserId,
+              agentId: safeAgentId ?? null, conversationId: safeConversationId ?? null,
+              status: "pending", inputHash,
+              expiresAt: new Date(Date.now() + IDEMPOTENCY_TTL_MS),
+            },
+          });
+          return { existing: null, created: true };
+        }
 
         if (!record) {
           await tx.idempotencyRecord.create({
@@ -383,6 +442,17 @@ async function acquireIdempotencyRecord(
       if (code === "P2002") {
         const record = await readIdempotencyRecord(prisma, idempotencyKey, tenantId);
         if (record) return { existingRecord: record, recordCreated: false };
+        // The concurrent row is GONE — the other transaction rolled back, or
+        // the row expired (the TTL is honoured by the middleware itself, so
+        // an expired record is deleted and re-created). That is not an
+        // infrastructure outage: retry the acquire loop, which will create
+        // the record. Reporting SERVICE_UNAVAILABLE here was misleading
+        // ("the idempotency store is temporarily unavailable") for a
+        // situation that resolves on the next attempt.
+        if (attempt < MAX_RETRY_ATTEMPT) {
+          await delay(retryDelayMs(IDEMPOTENCY_RETRY_BASE_DELAY_MS, attempt));
+          continue;
+        }
         return { existingRecord: null, recordCreated: false, unavailable: true };
       }
       // Non-P2034 errors (connection failures, auth errors, schema mismatches)
@@ -443,14 +513,28 @@ async function acquireIdempotencyRecord(
 function sanitizeIdentityFields(
   userId: string, agentId: string | undefined, conversationId: string | undefined,
 ): { safeUserId: string; safeAgentId: string | undefined; safeConversationId: string | undefined } {
+  // The shared sanitizer is the canonical implementation for the durable
+  // identity fields — the audit sink uses the SAME one, so the two sinks can
+  // never disagree about who performed an operation.
+  //
+  // It returns null for an identity that is not stable under the sanitizer
+  // (a secret-shaped value, whose sanitized form is the SAME placeholder for
+  // every such value — which would make two DIFFERENT callers
+  // indistinguishable and let the second one replay the first one's stored
+  // result). The registry rejects such an identity before the pipeline runs,
+  // so the fallback here is unreachable in practice; the empty string keeps
+  // the NOT NULL column satisfiable if it ever is reached.
+  const stableUserId = sanitizeDurableIdentity(userId, MAX_USER_ID_LENGTH) ?? "";
+  const stableAgentId = agentId !== undefined
+    ? sanitizeDurableIdentity(agentId, MAX_AGENT_ID_LENGTH) ?? ""
+    : undefined;
+  const stableConversationId = conversationId !== undefined
+    ? sanitizeDurableIdentity(conversationId, MAX_CONVERSATION_ID_LENGTH) ?? ""
+    : undefined;
   return {
-    safeUserId: sanitizeForLogOutput(stripHtmlTags(userId), { keepOpaqueTokens: true }).slice(0, MAX_USER_ID_LENGTH),
-    safeAgentId: agentId !== undefined
-      ? sanitizeForLogOutput(stripHtmlTags(agentId), { keepOpaqueTokens: true }).slice(0, MAX_AGENT_ID_LENGTH)
-      : undefined,
-    safeConversationId: conversationId !== undefined
-      ? sanitizeForLogOutput(stripHtmlTags(conversationId), { keepOpaqueTokens: true }).slice(0, MAX_CONVERSATION_ID_LENGTH)
-      : undefined,
+    safeUserId: stableUserId,
+    safeAgentId: stableAgentId,
+    safeConversationId: stableConversationId,
   };
 }
 

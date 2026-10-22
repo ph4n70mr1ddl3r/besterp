@@ -15,7 +15,7 @@
 //   `{ _error: "Failed to serialize value" }` — never throw from a middleware
 //   side-effect like audit/idempotency logging.
 
-import { MAX_STORED_PAYLOAD_SIZE, sanitizeForLogOutput, TRUNCATE_PREVIEW_BYTES, MAX_NESTING_DEPTH } from "@besterp/shared";
+import { MAX_STORED_PAYLOAD_SIZE, sanitizeForLogOutput, normalizeUnpairedSurrogates, TRUNCATE_PREVIEW_BYTES, MAX_NESTING_DEPTH } from "@besterp/shared";
 export { MAX_STORED_PAYLOAD_SIZE };
 
 /** Shared TextEncoder/TextDecoder instances — avoids allocation in hot paths. */
@@ -120,18 +120,19 @@ function truncationMarker(encoded: Uint8Array, effectiveMax: number = MAX_STORED
     // documented promise ("never returns a stored form larger than the
     // requested limit") did not hold.
     //
-    // The MINIMAL marker (`{"__besterp_trunc":true}`, 24 bytes) is used next.
-    // It keeps `isTruncationMarker` working, which matters: a consumer that
-    // cannot recognise the marker would report a truncated payload as an
-    // original result.
-    if (textEncoder.encode(JSON.stringify(MINIMAL_TRUNCATION_MARKER)).byteLength <= effectiveMax) {
-      return MINIMAL_TRUNCATION_MARKER;
-    }
-    // A limit this small cannot hold even the minimal marker. The marker is
-    // returned anyway: losing the truncation signal would be a SILENT data-
-    // integrity bug (the idempotency replay path would hand a truncated
-    // payload back as if it were the original result), which is worse than
-    // overshooting a limit that no production caller uses.
+    // The MINIMAL marker (`{"__besterp_trunc":true}`, 24 bytes) is returned
+    // next — both when it fits and when it does not. It keeps
+    // `isTruncationMarker` working, which matters: a consumer that cannot
+    // recognise the marker would report a truncated payload as an original
+    // result. A limit this small cannot hold even the minimal marker; the
+    // marker is returned anyway, because losing the truncation signal would
+    // be a SILENT data-integrity bug (the idempotency replay path would hand
+    // a truncated payload back as if it were the original result), which is
+    // worse than overshooting a limit that no production caller uses.
+    //
+    // (The previous code had an `if (… <= effectiveMax)` branch that
+    // returned the SAME value as the fall-through — a no-op branch whose
+    // comment described a distinction that did not exist.)
     return MINIMAL_TRUNCATION_MARKER;
   }
   return marker;
@@ -263,6 +264,7 @@ function normaliseForTruncation(value: unknown, seen: WeakSet<object> = new Weak
   // idempotency `result`, and replayed to the agent as that garbage.
   if (typeof value === "bigint") return value.toString();
   if (typeof value === "symbol") return { _error: "Cannot serialize Symbol value" };
+  if (typeof value === "string") return normalizeUnpairedSurrogates(value);
   if (typeof value !== "object") return value;
   return normaliseContainer(value as object, seen, depth);
 }
@@ -344,7 +346,17 @@ function normalisePrimitive(value: unknown, effectiveMax: number): { normalised:
     // the intermediate JSON.stringify("string") → "\"string\"" expansion.
     // The quote bytes ARE accounted for by checkOversizedStoredString so the
     // stored JSONB form can never exceed the limit.
-    return { normalised: value, marker: checkOversizedStoredString(value, effectiveMax) };
+    //
+    // An UNPAIRED surrogate is replaced with U+FFFD first: it is a legal
+    // JavaScript string but not a legal Unicode scalar value, and PostgreSQL
+    // rejects the whole `jsonb` value with "Unicode low surrogate must
+    // follow a high surrogate". The audit write is fire-and-forget, so the
+    // row was silently DROPPED — a caller could make specific tool calls
+    // disappear from the compliance trail. The byte length is unchanged
+    // (a surrogate encodes to 3 UTF-8 bytes, exactly like U+FFFD), so the
+    // size check is unaffected.
+    const safe = normalizeUnpairedSurrogates(value);
+    return { normalised: safe, marker: checkOversizedStoredString(safe, effectiveMax) };
   }
   if (typeof value === "boolean" || typeof value === "number") {
     const serialised = JSON.stringify(value);

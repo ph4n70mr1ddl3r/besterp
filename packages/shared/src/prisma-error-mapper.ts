@@ -98,6 +98,42 @@ export function resolveConstraintName(err: { meta?: Record<string, unknown> }): 
 }
 
 /**
+ * Prisma codes that describe a request the CALLER got wrong.
+ *
+ * A value that is too long for its column, a missing required argument, a
+ * required relation that does not exist: these are NOT infrastructure
+ * failures.
+ *
+ * The MCP surface already answered them with an actionable error (the
+ * `error-handler` maps P2000 → INVALID_INPUT and P2014 → REFERENCE_ERROR),
+ * but the REST surface re-threw them unchanged, so the filter answered 500
+ * INTERNAL_ERROR for the very same failure. A client that then retried a
+ * request that can never succeed — and an operator reading a 500 log — had no
+ * way to tell that the INPUT was at fault.
+ *
+ * Mapping them here makes the two surfaces agree, which is the whole point of
+ * this shared module.
+ */
+const CALLER_INPUT_PRISMA_CODES: ReadonlySet<string> = new Set([
+  "P2000", // value too long for the column
+  "P2011", // null constraint violation
+  "P2012", // missing the required argument
+  "P2014", // required relation violated
+  "P2016", // query interpretation error
+  "P2017", // records for a relation are not connected
+  "P2019", // value out of range for the type
+  "P2020", // value too big for the column
+]);
+
+/**
+ * Prisma codes whose required record does not exist.
+ */
+const MISSING_RECORD_PRISMA_CODES: ReadonlySet<string> = new Set([
+  "P2013", // depends on records that were required but not found
+  "P2018", // required connected records were not found
+]);
+
+/**
  * Map a validated Prisma error code to a DomainError. Throws the mapped error.
  */
 export function throwMappedPrismaError(
@@ -107,6 +143,15 @@ export function throwMappedPrismaError(
   suggestTool: string,
   entityName: string,
 ): never {
+  // The CALLER-INPUT codes are handled before the switch: they are a SET
+  // (not a handful of individual cases), and adding ten `case` labels to the
+  // switch pushed it past the lint complexity cap.
+  if (CALLER_INPUT_PRISMA_CODES.has(code)) {
+    throwInvalidCallerInput(code, entityName, suggestTool);
+  }
+  if (MISSING_RECORD_PRISMA_CODES.has(code)) {
+    throwMissingRequiredRecord(code, entityName, retryTool, suggestTool);
+  }
   switch (code) {
     case "P2002": {
       const field = resolveConflictField(err);
@@ -130,6 +175,22 @@ export function throwMappedPrismaError(
         { suggestedTools: [retryTool, suggestTool], context: { prismaCode: "P2025" } }
       );
     }
+    // ── Caller-input failures ──────────────────────────────────────
+    //
+    // These Prisma codes describe a request the CALLER got wrong — a value
+    // that is too long for its column, a missing required argument, a
+    // required relation that does not exist. They are NOT infrastructure
+    // failures.
+    //
+    // The MCP surface already answered them with an actionable error (the
+    // `error-handler` maps P2000 → INVALID_INPUT and P2014 →
+    // REFERENCE_ERROR), but the REST surface re-threw them unchanged, so the
+    // filter answered 500 INTERNAL_ERROR for the very same failure. A client
+    // that then retried a request that can never succeed — and an operator
+    // reading a 500 log — had no way to tell that the INPUT was at fault.
+    //
+    // Mapping them here makes the two surfaces agree, which is the whole
+    // point of this shared module.
     case "P2028":
     case "P2034": {
       throw new ConcurrencyConflictError(
@@ -167,6 +228,33 @@ export function throwMappedPrismaError(
       );
     }
   }
+}
+
+/**
+ * Throw the mapped error for a CALLER-INPUT Prisma failure.
+ *
+ * Extracted from {@link throwMappedPrismaError} to keep that function's
+ * cyclomatic complexity under the lint cap.
+ */
+function throwInvalidCallerInput(code: string, entityName: string, suggestTool: string): never {
+  throw new InvalidTypeValueError(
+    `Invalid ${entityName} input (Prisma ${code}): the value does not satisfy the database constraint.`,
+    { suggestedTools: [suggestTool], context: { prismaCode: code } }
+  );
+}
+
+/**
+ * Throw the mapped error for a Prisma failure whose required record is
+ * missing.
+ *
+ * Extracted from {@link throwMappedPrismaError} to keep that function's
+ * cyclomatic complexity under the lint cap.
+ */
+function throwMissingRequiredRecord(code: string, entityName: string, retryTool: string, suggestTool: string): never {
+  throw new EntityNotFoundError(
+    `${entityName} not found for this operation (Prisma ${code}).`,
+    { suggestedTools: [retryTool, suggestTool], context: { prismaCode: code } }
+  );
 }
 
 /**

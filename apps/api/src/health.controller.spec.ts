@@ -139,6 +139,28 @@ describe("HealthController", () => {
       expect(result).toEqual({ status: "ready" });
     });
 
+    it("bypasses the cached database probe (the readiness gate must be authoritative)", async () => {
+      // The 5-second result cache protects the ANONYMOUS liveness endpoint
+      // from driving unbounded load onto the connection pool. The readiness
+      // endpoint has the opposite contract — it decides whether the instance
+      // receives traffic — so it must observe the CURRENT database state.
+      const getHealth = vi.fn().mockResolvedValue({
+        status: "ok",
+        timestamp: new Date().toISOString(),
+        uptime: 1000,
+        environment: "test",
+        database: "connected",
+        redis: "not_configured",
+        memory: { heapUsed: 100, heapTotal: 200, rss: 150, heapPercentage: 50 },
+      });
+      const mockHealthService = { getHealth, getVersion: vi.fn() };
+
+      const controller = new HealthController(mockHealthService as any);
+      await controller.ready();
+
+      expect(getHealth).toHaveBeenCalledWith({ bypassDatabaseCache: true });
+    });
+
     it("should throw ServiceUnavailableException when database is disconnected", async () => {
       const mockHealthService = {
         getHealth: vi.fn().mockResolvedValue({

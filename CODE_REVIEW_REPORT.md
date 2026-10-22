@@ -3,8 +3,200 @@
 ## Scope
                 Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
                  `mcp-tools`, `apps/api`, plus README/`.env.example`/docker/CI) conducted on
-                   2026-10-22. This is review 274; rounds 1–273 are documented in
+                   2026-10-22. This is review 275; rounds 1–274 are documented in
                  earlier revisions of this file and `CHANGES.md`.
+
+## Findings & Actions (round 275)
+
+Four parallel review agents covered `packages/shared`, `packages/mcp-tools`,
+`apps/api` and `packages/database`. Every candidate finding was **reproduced
+against the running code** — live probes against the built modules, a
+200 000-case differential fuzz of the rewritten ANSI scanner, and a timing
+measurement of the ReDoS — and re-verified after the fix.
+
+### Fixed this round — the ANSI escape stripper was a quadratic ReDoS
+
+- **`sanitizeLogMessage` blocked the event loop for 1.96 seconds on a
+  100 KB input.** The OSC / APC / SOS / PM / DCS rule was
+  `/\x1b[\]_X^P][\s\S]*?(?:\x1b\\|\x07)/g` — a lazy run followed by a
+  **required** trailing literal, the textbook shape for catastrophic
+  backtracking. For every `ESC ]` start position the engine expanded the
+  lazy run to the end of the string looking for the terminator, so a string
+  with *k* such starts cost **O(k·n)**.
+
+  Measured: 40 000 characters → 313 ms, 80 000 → 1.25 s, **100 KB (the
+  module's own `MAX_LOG_OUTPUT_LENGTH` cap) → 1.96 s**. The four HTML
+  scanners in the same module had already been rewritten to linear scanners
+  for exactly this reason; this rule was missed.
+
+  The call runs on every user-supplied error message, tool input and tool
+  output — one request stalled the whole process, and the 100 KB cap (the
+  module's only DoS guard) is precisely the size that made it reachable.
+
+  Replaced with a hand-written linear scanner (the pattern the module
+  already uses for the HTML scanners). A differential fuzz over **200 000**
+  random escape sequences proves it removes exactly the same spans as the
+  regex it replaced; the same 100 KB input now takes **1.1 ms**.
+
+### Fixed this round — the error mapper could itself throw
+
+- **`code: "__proto__"` made the error handler throw, and the exception
+  escaped the tool call.** `PRISMA_ERROR_HANDLERS` is a plain object
+  literal, so `PRISMA_ERROR_HANDLERS[prismaCode]` walked the **prototype
+  chain**: `"__proto__"` resolved to `Object.prototype` (truthy) and was
+  then *called* as a factory, throwing a `TypeError` from inside the
+  `catch` block of the error handler — i.e. from the last line of defence.
+  The agent received an unstructured HTTP 500 instead of the structured
+  `INTERNAL_ERROR` every other failure produces.
+
+  `code: "constructor"` was worse: it resolved to `Object`, was called, and
+  returned a **string**, so `execute()` resolved with `"entity"` and the MCP
+  controller answered **200** with the JSON string `"entity"` as the whole
+  response body.
+
+  The lookup now uses `Object.hasOwn`, and the whole mapping path is
+  wrapped in a `try/catch` that falls back to the generic handler — no
+  mapper failure can escape `execute()` again.
+
+### Fixed this round — a lone surrogate silently dropped the durable audit row
+
+- **`"\ud800"` (a lone UTF-16 surrogate) is valid JSON but invalid
+  PostgreSQL.** `jsonb` rejects the whole value with *"Unicode low
+  surrogate must follow a high surrogate"*, and nothing in the sanitisation
+  chain removed it (the control-char strip only covers U+0000–U+001F/U+007F).
+
+  The audit write is **fire-and-forget**, so the row was silently
+  **dropped** — a caller could make specific tool calls disappear from the
+  compliance trail at will. The same value defeated the idempotency record
+  write, so the deduplication guarantee was silently lost for that key and
+  a retry re-executed the write.
+
+  `normalizeUnpairedSurrogates` (shared) now replaces every unpaired
+  surrogate with U+FFFD, and is applied to every string that reaches a
+  durable sink — the JSONB payloads, the `text` columns and the
+  agent-facing caps. A valid surrogate pair is untouched.
+
+### Fixed this round — the idempotency TTL was enforced by nothing
+
+- **`expiresAt` was written but never read.** Every read of an idempotency
+  record is a primary-key lookup, so the 24-hour TTL was enforced only by
+  `npm run db:cleanup` — a manual script that **nothing schedules**
+  (no cron, no `@nestjs/schedule`, no job anywhere in the repository). A
+  `completed` record from months ago was therefore still found and
+  **replayed forever**, and a `failed` record was reset to `pending` and
+  the side effect **re-executed**.
+
+  The middleware now honours the TTL itself: an expired record is deleted
+  and re-created (so the key becomes reusable by any caller), both on the
+  acquire path and on the race-recovery re-read.
+
+### Fixed this round — the idempotency middleware failed OPEN
+
+- **A missing Prisma client disabled deduplication silently.** For the same
+  failure class — "idempotency cannot be applied" — the middleware had two
+  opposite policies: the unhashable-input path **failed closed** (with a
+  comment explaining exactly why), while the missing-Prisma branch **failed
+  open**. The write executed with deduplication disabled and the agent was
+  never told, so a retry of the same request executed the side effect a
+  second time.
+
+  A request that carries an idempotency key is now refused with
+  `SERVICE_UNAVAILABLE` when the store cannot be reached. A request
+  **without** a key is still a no-op pass-through.
+
+### Fixed this round — two different callers could be conflated
+
+- **The caller check compared a LOSSY value.** The sanitised identity is
+  what the idempotency middleware compares to decide whether a stored record
+  belongs to the same caller — but the sanitiser is lossy for secret-shaped
+  values: every one of them collapses to the *same* placeholder. Two
+  distinct users whose ids both looked like a provider key compared
+  **equal**, so the second one received the first one's stored result as a
+  `replayed` success (a cross-user disclosure), and the audit trail could
+  not attribute the action to a principal.
+
+  A new shared `sanitizeDurableIdentity` is now the **single** sanitizer for
+  the durable identity fields. It keeps an ordinary identity readable and
+  unchanged, redacts a secret-shaped one as before, and appends a digest of
+  the **raw** identity whenever the redaction changed the value — so the
+  stored value stays **injective**. The digest is long enough to be opaque
+  to the generic long-token rule, so a crafted identity that embeds another
+  caller's stored value is itself rewritten and can never collide.
+
+### Fixed this round — `packages/shared`
+
+| Finding | Fix |
+|---|---|
+| The generic long-token rule preserved **any** run of 20+ lower-case letters and **any** run of 20+ hex characters, so a 64-character hex API key and a 26-letter random secret survived verbatim — even under a benign field name (`config.value`) | Both whitelists are bounded: hex only at exactly 32 characters (the UUID/MD5 shape this codebase produces), letters only up to 24 characters. A run of ONE repeated character (the shape of a truncation preview) is preserved — it carries no information |
+| A secret whose name was **concatenated** leaked (`mypassword=hunter2`, `dbpassword=...`) — the camel/snake splitter sees one token | The name is also checked for a sensitive **suffix** (a deliberately narrow list: `password`, `secret`, `token`, `clientsecret`, ...) |
+| A secret wrapped in a **closing delimiter** leaked (`<password=hunter2>`, `(password=hunter2)`) | The boundary rule's lead class now accepts the closing delimiters as well |
+| `DomainError.toJSON()` **threw** for a cause whose `toJSON()` returns `undefined` (`JSON.stringify` returns `undefined`, not a string) — the failure surfaced *instead of* the original error and the durable sink lost the record | The serializer is guarded; `sanitizeForLogOutput` is now total (it never throws for a non-string argument) |
+| `parseISODateTimeAsUTC("2024-02-30")` silently rolled forward to 2024-03-01 (the ECMAScript parser only constrains the day to 01..31, so the NaN guard never fired) | The leading calendar date is validated (month length + leap year) before parsing |
+| `decimalToNumber("0x10")` returned **16** — `Number()` implements the full `StringNumericLiteral` | Only decimal literals are accepted; hex/binary/octal strings return `null` |
+| The REST surface answered **500** for caller-input Prisma failures (P2000, P2011, P2012, P2014, P2016, P2017, P2019, P2020) that the MCP surface already answered with an actionable error | The shared mapper now maps them, so both surfaces agree |
+
+### Fixed this round — `packages/mcp-tools`
+
+| Finding | Fix |
+|---|---|
+| The published error-code inventory omitted **six** codes the framework emits (`INVALID_INPUT`, `INTERNAL_ERROR`, `SERVICE_UNAVAILABLE`, `REFERENCE_ERROR`, `DATABASE_ERROR`, `DATABASE_CONNECTION_ERROR`), and the guard that keeps the inventory honest was **one-way** (published -> explained), so it could never detect a code that was emitted without being added | The six codes are published, and a new test scans the package's own source for the `code: "..."` literals it emits and asserts every one is published |
+| A pre-pipeline **identity** rejection (invalid tenant / user / agent / conversation id) was never audited — the registry's own contract says every pre-pipeline rejection must be recorded | The rejection is routed through the rejection auditor (attributed to the tenant when the tenant id is valid; there is no tenant to attribute it to otherwise) |
+| The confirmation gate always suggested `list_available_tools`, which the seeded default agent is **not permitted to call** — a dead end: the agent followed the suggestion and was rejected again for the very tool it was told to call | The agent policy (the outer stage that knows the capability list) filters the follow-up tools of an inner rejection; the rejected tool itself is the fallback, because the policy has just verified it is callable |
+| `ai_action_log.tool_called` is an unbounded `text` column and the rejection path records a **caller-supplied** tool name | The name is capped (200 characters) like every other durable column |
+| The agent-facing caps (`capAgentErrorText`, `capIssueText`) cut on **UTF-16 code units**, so a cut between a surrogate pair produced a lone surrogate in the agent-facing string | The caps slice on a character boundary |
+| A **non-string** context idempotency key (a hand-constructed `ToolContext`) was treated as "no key at all", so the argument key silently replaced it — inverting the documented precedence | Any non-empty context key counts as present; the conflict check rejects the mismatch and the middleware rejects the non-string key |
+| `truncate.ts` had a branch whose two arms returned the same value (a no-op `if` with a comment describing a distinction that did not exist) | The branch is collapsed and the comment states the truth |
+
+### Fixed this round — `apps/api`
+
+| Finding | Fix |
+|---|---|
+| `/api/health/ready` was served from the **cached** database probe, so a database that had just died was still reported as "connected" for up to the cache TTL — and the endpoint's own timeout could never fire on the cached path | The readiness probe bypasses the cache (the cache exists to protect the anonymous liveness endpoint) |
+| The `uncaughtException` handler read `error.stack` unconditionally, so a `throw null` / `throw "boom"` made the handler itself throw — the original error was never logged, which is the diagnostic the handler exists to produce | `describeUncaughtException` (extracted and unit-tested) handles the non-Error case |
+| `product.version` was **not** incremented by `add_product_feature` / `add_product_price`, so the documented "incremented on EVERY update" was false and the version was not a reliable optimistic-concurrency token for the aggregate the tools actually mutate | Both writes bump the version inside the same transaction |
+| The HTTP MCP transport had **no** way to supply a `conversationId`: the `conversation_id` columns were permanently NULL and the per-conversation tool budget could never be keyed | The DTOs declare it and the controller forwards it |
+| `REDIS_PORT=6380.5` was accepted by the queue module but rejected by the health probe — two diagnoses for one misconfiguration, and an opaque `ERR_SOCKET_BAD_PORT` at connect time | Both use the same predicate (an integer in range) |
+| `CORS_ORIGINS` was validated **after** the whole Nest application had been built (the dynamic import of the AppModule, the Redis validation, the Prisma construction, the discovery scan) | The requirement is checked in `validateEnvironment()`, before any of that work |
+| `search_across_entities` returned a **flat** payload when `entity` narrowed the search and a **nested** one otherwise — two shapes for the same underlying search | One shape for every case: `{ query, entity, results: { party, product } }` |
+
+### Fixed this round — `packages/database`
+
+| Finding | Fix |
+|---|---|
+| `create-roles.sql` made role **creation** idempotent, which also made **password rotation** impossible: the supplied `-v app_db_password=...` was silently discarded and the script exited 0, so the operator believed the password was set | The script now reconciles the password of an existing role with an `ALTER ROLE` |
+| The cleanup script asserted nothing about its own privilege: with a non-superuser `DATABASE_ADMIN_URL` every query saw **zero** rows and the script printed a healthy *"Records deleted: 0"* and exited 0 — a healthy-looking cron job while the table grew without bound | The script verifies that the connection bypasses RLS on `idempotency_record` and fails loudly otherwise |
+| An **abandoned pending** record was never reaped (the sweep excludes `pending`), so it lived forever when the key was never reused | The sweep now also removes a pending row that is expired **and** past the stale-pending threshold |
+
+### Verified clean (no action needed)
+
+- **RLS coverage** — all 23 tables in `schema.prisma` were enumerated; every
+  tenant-scoped table has `ENABLE` + `FORCE ROW LEVEL SECURITY` and a policy
+  with matching `USING`/`WITH CHECK`, in both `rls-setup.sql` and the
+  restore migrations. The global reference tables are correctly not
+  RLS-enforced, and `set_tenant_context` is `SECURITY INVOKER` with a
+  `format('%L')` bound argument (no injection, no privilege escalation).
+- **Tenant scoping on the write paths** — every domain query uses the
+  tenant-scoped client *and* an explicit `tenantId` filter; the five
+  `admin.*` reads target the global reference tables only.
+- **The confirmation gate's enforcement and discovery surfaces agree** — both
+  read the same `confirmation_gate` table, so `list_available_tools` cannot
+  tell an agent to skip a confirmation the server is about to demand (the
+  round 274 fix).
+- **`hashInput`** — SHA-256 over a canonicalised form is appropriate for
+  idempotency hashing (not a password KDF); no `Math.random`, no salt.
+- **The seed guard** — an environment allowlist plus an explicit
+  `ALLOW_SEED=1` opt-in, run before any write, against the admin
+  (superuser) connection; every write is an `upsert`, so it is idempotent.
+
+## Test Results
+```
+shared:    328 passed (6 files)
+mcp-tools: 282 passed (9 files)
+database:   35 passed, 10 skipped (3 files)
+api:       725 passed (24 files)
+────────────────────────────────────
+Total:    1370 passed, 10 skipped
+```
 
 ## Findings & Actions (round 274)
 

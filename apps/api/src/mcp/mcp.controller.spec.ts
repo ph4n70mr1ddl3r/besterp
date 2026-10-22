@@ -177,6 +177,21 @@ describe("McpController", () => {
     expect(context.reasoning).toBe("The customer asked for a new contact.");
   });
 
+  it("passes the conversation id through to the context", async () => {
+    // The HTTP transport had NO way to supply a conversation id: the
+    // `ai_action_log.conversation_id` and `idempotency_record.conversation_id`
+    // columns were permanently NULL for every HTTP call, and the agent
+    // registry's per-conversation tool budget could never be keyed to a
+    // conversation.
+    await controller.call(requestWithContext(), {
+      name: "create_party",
+      arguments: {},
+      conversationId: "conv-42",
+    });
+    const context = mcpService.buildContext.mock.calls[0]![0];
+    expect(context.conversationId).toBe("conv-42");
+  });
+
   it("refuses the call when the tenant context is missing", async () => {
     await expect(
       controller.call({} as ExpressRequest, { name: "create_party" }),

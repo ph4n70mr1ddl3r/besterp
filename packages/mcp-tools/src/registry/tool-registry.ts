@@ -25,7 +25,8 @@ import {
   isSensitiveFieldName,
   isValidOptionalId,
 } from "@besterp/shared";
-import { sanitizeAgentFacingResult, capAgentErrorText } from "../agent-result.js";
+import { sanitizeAgentFacingResult, capAgentErrorText, truncateAtCharacterBoundary } from "../agent-result.js";
+import { sanitizeDurableIdentity } from "../identity.js";
 import { IDEMPOTENCY_KEY_MISMATCH, INVALID_CONTEXT_ID, INVALID_TENANT_ID, INVALID_USER_ID, UNKNOWN_TOOL } from "../error-codes.js";
 
 /** Permissive pattern for optional identity fields (userId, agentId, conversationId).
@@ -143,6 +144,42 @@ export class ToolRegistry {
     } catch {
       // The audit path must never break the call it is recording.
     }
+  }
+
+  /**
+   * Record a call that was rejected because its caller identity is invalid.
+   *
+   * The rejection is only recorded when the TENANT id is valid, because the
+   * durable audit row is tenant-scoped (row-level security) and there is no
+   * tenant to attribute the attempt to when the tenant id is what failed.
+   *
+   * The invalid field is redacted: its VALUE may be attacker-controlled and
+   * may embed a secret, and the audit trail must not become a second leak
+   * path. The row records WHICH field failed, not what it contained.
+   */
+  private auditIdentityRejection(
+    toolName: string,
+    context: ToolContext,
+    auth: { error: ToolResult; rejection?: { code: string; field: string } },
+  ): void {
+    const rejection = auth.rejection;
+    if (!rejection) return;
+    let tenantId: string;
+    try {
+      tenantId = validateTenantIdEnhancedForAuth(context.tenantId);
+    } catch {
+      // No valid tenant — the row could not be attributed (and the RLS
+      // policy would deny the write anyway).
+      return;
+    }
+    const safeName = sanitizeForLogOutput(toolName).slice(0, MAX_ERROR_MESSAGE_LENGTH);
+    this.auditRejection({
+      toolName: safeName,
+      context: { ...context, tenantId },
+      code: rejection.code,
+      message: `The request ${rejection.field} is invalid.`,
+      input: undefined,
+    });
   }
 
   /**
@@ -323,7 +360,19 @@ export class ToolRegistry {
     // path. Validate here, BEFORE any middleware or handler runs, and fail
     // closed with a non-enumerating error (no tenant/id echoed to the agent).
     const auth = ToolRegistry.validateContextIdentity(context);
-    if ("error" in auth) return auth.error;
+    if ("error" in auth) {
+      // A pre-pipeline rejection, like the unknown-tool and the
+      // idempotency-key-conflict rejections below, is invisible in the
+      // durable trail unless it is routed through the auditor explicitly.
+      //
+      // It is attributed to the TENANT only when the tenant id is valid: the
+      // audit row is tenant-scoped (RLS) and there is no tenant to write it
+      // under when the tenant id itself is the thing that failed. A valid
+      // tenant with a hostile user/agent/conversation id is still worth
+      // recording — it is an attack signal.
+      this.auditIdentityRejection(name, context, auth);
+      return auth.error;
+    }
 
     const entry = this.tools.get(name);
     if (!entry) {
@@ -460,7 +509,7 @@ export class ToolRegistry {
               .map((i) => `${i.path.map((p) => String(p)).join(".")}: ${i.message}`)
               .join("; ");
             const detailRaw = issueString.length > MAX_ERROR_MESSAGE_LENGTH
-              ? `${issueString.slice(0, MAX_ERROR_MESSAGE_LENGTH)}… [${parsed.error.issues.length} issues, truncated]`
+              ? `${truncateAtCharacterBoundary(issueString, MAX_ERROR_MESSAGE_LENGTH)}… [${parsed.error.issues.length} issues, truncated]`
               : issueString;
             // Sanitize the joined summary BEFORE embedding it in the agent-facing
             // `message`. `detailRaw` is only length-capped above; a Zod issue's
@@ -582,7 +631,18 @@ export class ToolRegistry {
     // was written to treat as "no key at all". The idempotency middleware
     // itself treats "" as a pass-through no-op, so "" must mean "no key"
     // everywhere.
-    const hasContextKey = typeof context.idempotencyKey === "string" && context.idempotencyKey.length > 0;
+    //
+    // A NON-STRING context key (a hand-constructed `ToolContext` with
+    // `idempotencyKey: 12345`) counts as PRESENT: the old test required a
+    // string, so such a key was treated as "no key at all" — the conflict
+    // check was skipped and the ARGUMENT key silently replaced it, inverting
+    // the documented precedence ("the context value wins — it is the dedup
+    // identity"). The agent then deduplicated under a key it did not choose.
+    // Keeping the context key means the idempotency middleware rejects it
+    // with INVALID_IDEMPOTENCY_KEY, which is the fail-closed answer.
+    const hasContextKey = context.idempotencyKey !== undefined
+      && context.idempotencyKey !== null
+      && context.idempotencyKey !== "";
 
     if (raw?.idempotencyKey != null && hasContextKey
       && raw.idempotencyKey !== context.idempotencyKey) {
@@ -624,15 +684,22 @@ export class ToolRegistry {
    * trimmed retry missed the record and re-executed the write. Fails closed:
    * no tenant/id value is reflected to the agent on error.
    */
-  private static validateContextIdentity(context: ToolContext): { error: ToolResult } | { context: ToolContext } {
+  private static validateContextIdentity(context: ToolContext):
+    { error: ToolResult; rejection: { code: string; field: string } } | { context: ToolContext } {
     let tenantId: string;
     try {
       tenantId = validateTenantIdEnhancedForAuth(context.tenantId);
     } catch {
-      return { error: ToolRegistry.contextIdentityError(INVALID_TENANT_ID, "tenant identifier") };
+      return {
+        error: ToolRegistry.contextIdentityError(INVALID_TENANT_ID, "tenant identifier"),
+        rejection: { code: INVALID_TENANT_ID, field: "tenant identifier" },
+      };
     }
     if (typeof context.userId !== "string") {
-      return { error: ToolRegistry.contextIdentityError(INVALID_USER_ID, "user identifier") };
+      return {
+        error: ToolRegistry.contextIdentityError(INVALID_USER_ID, "user identifier"),
+        rejection: { code: INVALID_USER_ID, field: "user identifier" },
+      };
     }
     // Trim userId to match the behavior of McpService.buildContext and
     // TenantGuard — both accept whitespace-padded values by trimming them.
@@ -640,7 +707,31 @@ export class ToolRegistry {
     // the length/pattern checks below, not by the trim-equality guard.
     const userId = context.userId.trim();
     if (userId.length === 0 || userId.length > MAX_USER_ID_LENGTH || !isValidOptionalId(userId)) {
-      return { error: ToolRegistry.contextIdentityError(INVALID_USER_ID, "user identifier") };
+      return {
+        error: ToolRegistry.contextIdentityError(INVALID_USER_ID, "user identifier"),
+        rejection: { code: INVALID_USER_ID, field: "user identifier" },
+      };
+    }
+    // The identity must be STORABLE in the durable sinks, and the stored
+    // value must be INJECTIVE.
+    //
+    // The stored identity is what the idempotency middleware COMPARES to
+    // decide whether a record belongs to the same caller, and the plain
+    // sanitizer is LOSSY for secret-shaped values: every one of them
+    // collapses to the same placeholder, so two DIFFERENT callers became
+    // indistinguishable — the second one received the first one's stored
+    // result as a `replayed` success (a cross-user disclosure), and the
+    // audit trail could not attribute the action to a principal.
+    //
+    // `sanitizeDurableIdentity` (the shared durable-sink sanitizer) fixes
+    // that by appending a digest of the RAW identity whenever the redaction
+    // changed the value. The check here only asserts that the value is
+    // storable at all.
+    if (sanitizeDurableIdentity(userId, MAX_USER_ID_LENGTH) === null) {
+      return {
+        error: ToolRegistry.contextIdentityError(INVALID_USER_ID, "user identifier"),
+        rejection: { code: INVALID_USER_ID, field: "user identifier" },
+      };
     }
     // `agentId`/`conversationId` are persisted verbatim into the cross-tenant
     // durable idempotency + audit sinks, so an unvalidated/oversized/attacker-
@@ -652,9 +743,13 @@ export class ToolRegistry {
     // short-circuit semantics obvious and avoids the cognitive load of
     // reading `??` as "if-null-then-try-the-next-field".
     const agentIdError = ToolRegistry.validateOptionalIdentityField(context.agentId, "agentId", MAX_AGENT_ID_LENGTH);
-    if (agentIdError) return { error: agentIdError };
+    if (agentIdError) {
+      return { error: agentIdError, rejection: { code: INVALID_CONTEXT_ID, field: "agentId" } };
+    }
     const conversationIdError = ToolRegistry.validateOptionalIdentityField(context.conversationId, "conversationId", MAX_CONVERSATION_ID_LENGTH);
-    if (conversationIdError) return { error: conversationIdError };
+    if (conversationIdError) {
+      return { error: conversationIdError, rejection: { code: INVALID_CONTEXT_ID, field: "conversationId" } };
+    }
     const agentId = ToolRegistry.normalizedOptionalIdentityField(context.agentId);
     const conversationId = ToolRegistry.normalizedOptionalIdentityField(context.conversationId);
     // Only rebuild the context when a value actually changed — avoids
@@ -714,6 +809,17 @@ export class ToolRegistry {
     // values fall through to the length check and are rejected.
     const trimmed = value.trim();
     if (trimmed.length === 0 || trimmed.length > maxLength || !isValidOptionalId(trimmed)) {
+      return {
+        success: false,
+        error: {
+          code: INVALID_CONTEXT_ID,
+          message: `The ${field} is invalid. Contact the system administrator.`,
+          suggestedTools: ["list_available_tools"],
+        },
+      };
+    }
+    // Same storability requirement as userId — see the note there.
+    if (sanitizeDurableIdentity(trimmed, maxLength) === null) {
       return {
         success: false,
         error: {
@@ -904,8 +1010,11 @@ export class ToolRegistry {
    */
   private static capIssueText(value: unknown): unknown {
     if (typeof value === "string") {
+      // Truncate on a CHARACTER boundary — `slice` counts UTF-16 code units,
+      // so a cut between a high and a low surrogate produced a lone surrogate
+      // in the agent-facing string.
       return value.length > MAX_VALIDATION_ISSUE_MESSAGE_LENGTH
-        ? `${value.slice(0, MAX_VALIDATION_ISSUE_MESSAGE_LENGTH)}…`
+        ? `${truncateAtCharacterBoundary(value, MAX_VALIDATION_ISSUE_MESSAGE_LENGTH)}…`
         : value;
     }
     if (value === null || value === undefined) return value;
@@ -914,7 +1023,7 @@ export class ToolRegistry {
         const serialized = JSON.stringify(value);
         if (typeof serialized !== "string") return "[Unserializable]";
         return serialized.length > MAX_VALIDATION_ISSUE_MESSAGE_LENGTH
-          ? `${serialized.slice(0, MAX_VALIDATION_ISSUE_MESSAGE_LENGTH)}…`
+          ? `${truncateAtCharacterBoundary(serialized, MAX_VALIDATION_ISSUE_MESSAGE_LENGTH)}…`
           : serialized;
       } catch {
         return "[Unserializable]";

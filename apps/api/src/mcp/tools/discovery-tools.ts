@@ -10,6 +10,7 @@ import {
   ToolRegistry,
   ToolDefinition,
   ToolContext,
+  type ToolResult,
 } from "@besterp/mcp-tools";
 import {
   InvalidTypeValueError,
@@ -461,6 +462,11 @@ Use this when you don't know which specific entity type to query. Search by
 name with optional entity type filtering. Returns paginated results with a
 count of total matches per entity type.
 
+The response shape is ALWAYS the same: { query, results: { party, product } },
+where each entry holds that entity's paginated result (or null when the
+search was narrowed to the other entity, or when that entity's search
+failed). When 'entity' narrows the search, the 'entity' field names it.
+
 Example: search_across_entities({ query: "Acme" })
 Example: search_across_entities({ query: "Widget", entity: "product" })`,
 
@@ -487,30 +493,8 @@ Example: search_across_entities({ query: "Widget", entity: "product" })`,
       // product search is handled by productService. Both are available via
       // ToolContext.services.
       if (input.entity) {
-        if (input.entity === "party") {
-          const unavailable = unavailableServiceError(context, "partyService", "searchParties");
-          if (unavailable) return unavailable;
-          const result = await (context.services.partyService as { searchParties: (i: { tenantId: string; name?: string; limit?: number; offset?: number }) => Promise<unknown> }).searchParties({
-            tenantId: context.tenantId,
-            name: input.query,
-            limit: input.limit,
-            offset: input.offset,
-          });
-          return { success: true, data: { entity: "party", query: input.query, ...(result as Record<string, unknown>) } };
-        }
-
-        if (input.entity === "product") {
-          const unavailable = unavailableServiceError(context, "productService", "searchProducts");
-          if (unavailable) return unavailable;
-          const result = await (context.services.productService as { searchProducts: (i: { tenantId: string; name?: string; limit?: number; offset?: number }) => Promise<unknown> }).searchProducts({
-            tenantId: context.tenantId,
-            name: input.query,
-            limit: input.limit,
-            offset: input.offset,
-          });
-          return { success: true, data: { entity: "product", query: input.query, ...(result as Record<string, unknown>) } };
-        }
-
+        const narrowed = await searchSingleEntity(context, input.entity, input.query, input.limit, input.offset);
+        if (narrowed) return narrowed;
         return {
           success: false,
           error: {
@@ -558,6 +542,9 @@ Example: search_across_entities({ query: "Widget", entity: "product" })`,
         success: true,
         data: {
           query: input.query,
+          // The same three keys in every case: `entity` names the narrowed
+          // entity type, or is null for the universal search.
+          entity: null,
           results: {
             party: partyResult.status === "fulfilled" && partyResult.value ? partyResult.value : null,
             product: productResult.status === "fulfilled" && productResult.value ? productResult.value : null,
@@ -573,6 +560,66 @@ Example: search_across_entities({ query: "Widget", entity: "product" })`,
       };
     },
   };
+}
+
+/**
+ * Search a SINGLE entity type.
+ *
+ * Returns `null` when the entity type is not searchable (the caller then
+ * answers with the ENTITY_NOT_FOUND error).
+ *
+ * The response shape is the SAME whether or not `entity` narrows the search:
+ * `{ query, results: { party, product } }`. The tool used to return a FLAT
+ * object (`{ entity, query, items, total, … }`) for the narrowed case and a
+ * NESTED one for the universal case, so an agent that called the tool twice —
+ * once narrowed, once not — got structurally different payloads for the same
+ * underlying search, and any client-side extractor written against one shape
+ * broke on the other.
+ */
+async function searchSingleEntity(
+  context: ToolContext,
+  entity: string,
+  query: string,
+  limit: number,
+  offset: number,
+): Promise<ToolResult | null> {
+  if (entity === "party") {
+    const unavailable = unavailableServiceError(context, "partyService", "searchParties");
+    if (unavailable) return unavailable;
+    const result = await (context.services.partyService as { searchParties: (i: { tenantId: string; name?: string; limit?: number; offset?: number }) => Promise<unknown> }).searchParties({
+      tenantId: context.tenantId,
+      name: query,
+      limit,
+      offset,
+    });
+    return {
+      success: true,
+      data: {
+        query,
+        entity: "party",
+        results: { party: result ?? null, product: null },
+      },
+    };
+  }
+  if (entity === "product") {
+    const unavailable = unavailableServiceError(context, "productService", "searchProducts");
+    if (unavailable) return unavailable;
+    const result = await (context.services.productService as { searchProducts: (i: { tenantId: string; name?: string; limit?: number; offset?: number }) => Promise<unknown> }).searchProducts({
+      tenantId: context.tenantId,
+      name: query,
+      limit,
+      offset,
+    });
+    return {
+      success: true,
+      data: {
+        query,
+        entity: "product",
+        results: { party: null, product: result ?? null },
+      },
+    };
+  }
+  return null;
 }
 
 /**
@@ -817,11 +864,6 @@ const ERROR_EXPLANATIONS: Record<string, { message: string; suggestedTools: stri
     context: { tip: "Use a printable, non-whitespace user identifier." },
   },
   // ── Shared domain errors ──────────────────────────────────────
-  BUSINESS_RULE: {
-    message: "The operation violates a business rule of the domain. The request was well-formed but not allowed.",
-    suggestedTools: ["describe_entity", "list_available_tools"],
-    context: { tip: "Re-read the entity description and check the domain rules the operation must satisfy." },
-  },
   CONCURRENCY_RETRY: {
     message: "A serialization conflict was detected and the transaction is being retried.",
     suggestedTools: [],

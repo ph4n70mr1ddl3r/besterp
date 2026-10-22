@@ -118,8 +118,14 @@ export class QueueModule implements OnModuleDestroy {
   }
 
   private static validatePort(port: number): number {
-    if (!Number.isFinite(port) || port < 1 || port > 65535) {
-      throw new Error(`Invalid Redis port: ${port}. Must be a number between 1 and 65535.`);
+    // The port must be an INTEGER. A fractional port (`REDIS_PORT=6380.5`)
+    // passed the old range check, so the queue module accepted it while the
+    // health probe rejected the SAME value with `Number.isInteger` — two
+    // different diagnoses for one misconfiguration, and ioredis then failed
+    // at connect time with an opaque `ERR_SOCKET_BAD_PORT`. The health probe
+    // is the reference implementation of this rule.
+    if (!Number.isInteger(port) || port < 1 || port > 65535) {
+      throw new Error(`Invalid Redis port: ${port}. Must be an integer between 1 and 65535.`);
     }
     return port;
   }

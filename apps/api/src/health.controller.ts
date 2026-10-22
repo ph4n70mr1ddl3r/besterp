@@ -61,7 +61,13 @@ export class HealthController {
     timeoutId.unref();
 
     try {
-      const healthPromise = this.healthService.getHealth();
+      // The READINESS probe is an authoritative gate, not the cached
+      // liveness probe: it must observe the CURRENT database state. The
+      // 5-second result cache exists to protect the anonymous `/api/health`
+      // endpoint from driving unbounded load onto the connection pool, and
+      // serving the readiness answer from it meant a database that had just
+      // died was still reported as "connected" for up to the cache TTL.
+      const healthPromise = this.healthService.getHealth({ bypassDatabaseCache: true });
       const result = await Promise.race([
         healthPromise,
         new Promise<"timeout">((resolve) => controller.signal.addEventListener("abort", () => resolve("timeout"), { once: true })),

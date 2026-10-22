@@ -183,13 +183,46 @@ export function normalizeISODateTimeToUTC(value: string): string {
 }
 
 /**
+ * Days in each month. Index 0 is unused; month 1 = January.
+ * February is set to 29; a separate leap-year check catches non-leap Feb 29.
+ */
+const DAYS_IN_MONTH = Object.freeze([0, 31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]);
+
+/**
+ * The leading `YYYY-MM-DD` of an ISO date / date-time string.
+ *
+ * Only a STRICT four-digit / two-digit / two-digit prefix is matched, so a
+ * lenient non-ISO form (`2024-6-15`) is not affected by the calendar check.
+ */
+const LEADING_ISO_DATE_PATTERN = /^(\d{4})-(\d{2})-(\d{2})/;
+
+/**
+ * True when `year`/`month`/`day` is a real calendar date.
+ *
+ * The ECMAScript date parser only constrains the day to `01..31`, so
+ * `new Date("2024-02-30")` is a VALID Date — it silently rolls forward to
+ * 2024-03-01. The same is true of `2024-02-31` → 2024-03-02. The NaN guard
+ * in {@link parseISODateTimeAsUTC} therefore never caught them.
+ */
+function isRealCalendarDate(year: number, month: number, day: number): boolean {
+  if (month < 1 || month > 12) return false;
+  const limit = DAYS_IN_MONTH[month]!;
+  if (day < 1 || day > limit) return false;
+  if (month === 2 && day === 29) {
+    const isLeap = (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
+    if (!isLeap) return false;
+  }
+  return true;
+}
+
+/**
  * Parse an ISO 8601 date string to a Date with timezone-independent
  * semantics (see normalizeISODateTimeToUTC). Use this instead of
  * `new Date(value)` for any user-supplied date so storage does not depend
  * on the server's timezone.
  *
- * Belt-and-suspenders NaN guard: callers are expected to validate the input
- * via isValidISODate before invoking this function, but the guard catches
+ * Belt-and-suspenders guards: callers are expected to validate the input
+ * via isValidISODate before invoking this function, but the guards catch
  * misbehaving callers (or future regression) so an invalid Date cannot leak
  * into storage or downstream logic.
  *
@@ -213,6 +246,22 @@ export function parseISODateTimeAsUTC(value: string): Date {
       context: { received: typeof value },
     });
   }
+  // Calendar check. The ECMAScript parser accepts `2024-02-30` and silently
+  // rolls it forward to 2024-03-01 (and `2024-02-31` to 2024-03-02), so the
+  // NaN guard below never saw them: an ERP persisted a birth date that was
+  // wrong by up to a month, and nothing downstream could detect it. The
+  // leading date part is checked; the time part keeps its existing rules.
+  const leadingDate = LEADING_ISO_DATE_PATTERN.exec(value);
+  if (leadingDate) {
+    const year = Number(leadingDate[1]);
+    const month = Number(leadingDate[2]);
+    const day = Number(leadingDate[3]);
+    if (!isRealCalendarDate(year, month, day)) {
+      throw new InvalidTypeValueError("Invalid ISO date string.", {
+        context: { received: sanitizeForLogOutput(value).slice(0, MAX_DATE_STRING_LENGTH) },
+      });
+    }
+  }
   const date = new Date(normalizeISODateTimeToUTC(value));
   if (Number.isNaN(date.getTime())) {
     throw new InvalidTypeValueError("Invalid ISO date string.", {
@@ -221,12 +270,6 @@ export function parseISODateTimeAsUTC(value: string): Date {
   }
   return date;
 }
-
-/**
- * Days in each month. Index 0 is unused; month 1 = January.
- * February is set to 29; a separate leap-year check catches non-leap Feb 29.
- */
-const DAYS_IN_MONTH = Object.freeze([0, 31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]);
 
 /**
  * Validate that a string is a parseable ISO 8601 date.

@@ -49,7 +49,7 @@ export {
 } from "./validation.js";
 
 export {
-  stripHtmlTags, sanitizeLogMessage, safeFromCodePoint,
+  stripHtmlTags, sanitizeLogMessage, safeFromCodePoint, normalizeUnpairedSurrogates,
   sanitizeForLogOutput, sanitizeLogOutput, isSensitiveFieldName, redactSensitiveFieldValues,
   MAX_REDACTION_DEPTH, splitFieldNameTokens, sanitizePostalAddress,
   sanitizeTelecomNumber,
@@ -134,6 +134,7 @@ export {
   MAX_SOFT_FAILURE_MESSAGE_SIZE,
   MAX_ERROR_LOG_LINE_LENGTH,
   MAX_ERROR_MESSAGE_LENGTH,
+  MAX_TOOL_NAME_LENGTH,
   MAX_VALIDATION_ISSUES,
   MAX_VALIDATION_ISSUE_MESSAGE_LENGTH,
   DEFAULT_PHONE_COUNTRY_CODE,

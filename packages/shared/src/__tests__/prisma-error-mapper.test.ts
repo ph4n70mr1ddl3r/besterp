@@ -204,3 +204,38 @@ describe("handleTransactionError", () => {
     }
   });
 });
+
+describe("handleTransactionError — caller-input Prisma codes", () => {
+  it("maps a value-too-long / null-constraint / out-of-range failure to a 422-shaped domain error", () => {
+    // These describe a request the CALLER got wrong. The MCP surface already
+    // answered them with an actionable error; the REST surface re-threw them
+    // unchanged, so the filter answered 500 INTERNAL_ERROR for the very same
+    // failure and the client retried a request that could never succeed.
+    for (const code of ["P2000", "P2011", "P2012", "P2014", "P2016", "P2017", "P2019", "P2020"]) {
+      const err = Object.assign(new Error("boom"), { code });
+      try {
+        handleTransactionError(err, "get_party", "search_parties", "party");
+        throw new Error(`expected ${code} to be mapped`);
+      } catch (thrown) {
+        expect(thrown, `${code} was not mapped`).toBeInstanceOf(InvalidTypeValueError);
+      }
+    }
+  });
+
+  it("maps a missing-required-record failure to a not-found domain error", () => {
+    for (const code of ["P2013", "P2018"]) {
+      const err = Object.assign(new Error("boom"), { code });
+      try {
+        handleTransactionError(err, "get_party", "search_parties", "party");
+        throw new Error(`expected ${code} to be mapped`);
+      } catch (thrown) {
+        expect(thrown, `${code} was not mapped`).toBeInstanceOf(EntityNotFoundError);
+      }
+    }
+  });
+
+  it("still re-throws an infrastructure failure (P1xxx) unchanged", () => {
+    const err = Object.assign(new Error("db down"), { code: "P1001" });
+    expect(() => handleTransactionError(err, "get_party", "search_parties", "party")).toThrow(err);
+  });
+});

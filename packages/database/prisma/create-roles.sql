@@ -29,6 +29,23 @@
 SELECT format('CREATE ROLE besterp_app WITH LOGIN PASSWORD %L NOINHERIT', :'app_db_password')
 WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'besterp_app')\gexec
 
+-- Reconcile the password of an EXISTING role.
+--
+-- The `WHERE NOT EXISTS` guard above makes role CREATION idempotent, but it
+-- also makes PASSWORD ROTATION impossible: when the role already exists the
+-- SELECT returns zero rows, `\gexec` executes nothing, and the supplied
+-- `-v app_db_password=...` is silently discarded. The script exits 0, so the
+-- operator believes the password was set while the role keeps the old one
+-- and every connection fails with "password authentication failed for user
+-- \"besterp_app\"".
+--
+-- That is exactly the CI scenario the header documents ("CI overrides it
+-- with `psql -v app_db_password=besterp_app_dev ...`"): on a worker with a
+-- pre-existing volume (or any environment where the role was created by the
+-- docker-entrypoint-initdb.d mount with the default placeholder), the
+-- override was ignored.
+SELECT format('ALTER ROLE besterp_app WITH LOGIN PASSWORD %L NOINHERIT', :'app_db_password')\gexec
+
 -- Grant database access
 GRANT CONNECT ON DATABASE besterp TO besterp_app;
 

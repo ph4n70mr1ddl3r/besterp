@@ -7,7 +7,7 @@
 // flat body would have its tool arguments stripped as undeclared properties.
 
 import { IsObject, IsOptional, IsString, MaxLength } from "class-validator";
-import { MAX_REASONING_LENGTH, MAX_ENTITY_LENGTH } from "@besterp/shared";
+import { MAX_REASONING_LENGTH, MAX_ENTITY_LENGTH, MAX_CONVERSATION_ID_LENGTH } from "@besterp/shared";
 
 export class McpToolCallDto {
   /**
@@ -42,6 +42,23 @@ export class McpToolCallDto {
   @IsString()
   @MaxLength(MAX_REASONING_LENGTH)
   reasoning?: string;
+
+  /**
+   * The conversation this call belongs to.
+   *
+   * Recorded in the durable audit trail (`ai_action_log.conversation_id`) and
+   * in the idempotency record (`idempotency_record.conversation_id`).
+   *
+   * The HTTP transport had NO way to supply it — the column was permanently
+   * NULL for every HTTP call, and the agent registry's per-conversation tool
+   * budget (`maxToolCallsPerConversation`) could never be keyed to a
+   * conversation. The plumbing already existed (`McpService.buildContext`
+   * accepts a `conversationId`); it was simply unreachable over HTTP.
+   */
+  @IsOptional()
+  @IsString()
+  @MaxLength(MAX_CONVERSATION_ID_LENGTH)
+  conversationId?: string;
 }
 
 /**
@@ -89,4 +106,13 @@ export class McpToolCallPathDto {
   @IsString()
   @MaxLength(MAX_REASONING_LENGTH)
   reasoning?: string;
+
+  /**
+   * The conversation this call belongs to. Same contract as
+   * {@link McpToolCallDto.conversationId}.
+   */
+  @IsOptional()
+  @IsString()
+  @MaxLength(MAX_CONVERSATION_ID_LENGTH)
+  conversationId?: string;
 }

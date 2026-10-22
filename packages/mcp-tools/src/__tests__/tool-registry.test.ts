@@ -1163,3 +1163,109 @@ describe("ToolRegistry — register() validates the handler", () => {
     }, ["not a function" as never])).toThrow(/middleware #0 is not a function/);
   });
 });
+
+// ─── Pre-pipeline identity rejections are audited ────────────────
+
+describe("ToolRegistry — an invalid caller identity is recorded in the rejection sink", () => {
+  it("records a rejection when the USER id is invalid", async () => {
+    // The identity validation happens BEFORE the tool is looked up, so it
+    // never reaches the audit middleware. The registry's own contract says
+    // every pre-pipeline rejection must be recorded — a valid tenant with a
+    // hostile user id is an attack signal worth keeping.
+    const registry = new ToolRegistry();
+    const rejections: Array<{ toolName: string; code: string }> = [];
+    registry.setRejectionAuditor((rejection) => {
+      rejections.push({ toolName: rejection.toolName, code: rejection.code });
+    });
+    registry.register({
+      name: "known_tool",
+      description: "A tool that exists.",
+      inputSchema: z.object({}),
+      riskLevel: "none",
+      handler: async () => ({ success: true }),
+    });
+
+    const result = await registry.execute("known_tool", {}, { ...mockContext, userId: "  " });
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe("INVALID_USER_ID");
+    expect(rejections).toHaveLength(1);
+    expect(rejections[0]!.code).toBe("INVALID_USER_ID");
+  });
+
+  it("records a rejection when the AGENT id is invalid", async () => {
+    const registry = new ToolRegistry();
+    const rejections: string[] = [];
+    registry.setRejectionAuditor((rejection) => {
+      rejections.push(rejection.code);
+    });
+    registry.register({
+      name: "known_tool",
+      description: "A tool that exists.",
+      inputSchema: z.object({}),
+      riskLevel: "none",
+      handler: async () => ({ success: true }),
+    });
+
+    const result = await registry.execute("known_tool", {}, { ...mockContext, agentId: " ".repeat(3) });
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe("INVALID_CONTEXT_ID");
+    expect(rejections).toEqual(["INVALID_CONTEXT_ID"]);
+  });
+
+  it("does NOT record a rejection when the TENANT id is invalid (there is no tenant to attribute it to)", async () => {
+    const registry = new ToolRegistry();
+    const rejections: string[] = [];
+    registry.setRejectionAuditor((rejection) => {
+      rejections.push(rejection.code);
+    });
+    registry.register({
+      name: "known_tool",
+      description: "A tool that exists.",
+      inputSchema: z.object({}),
+      riskLevel: "none",
+      handler: async () => ({ success: true }),
+    });
+
+    const result = await registry.execute("known_tool", {}, { ...mockContext, tenantId: "bad tenant!" });
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe("INVALID_TENANT_ID");
+    expect(rejections).toEqual([]);
+  });
+});
+
+// ─── The context idempotency key always wins ─────────────────────
+
+describe("ToolRegistry — a NON-STRING context idempotency key", () => {
+  it("is NOT silently replaced by the argument key", async () => {
+    // The old "has a context key" test required a STRING, so a numeric
+    // context key was treated as "no key at all": the conflict check was
+    // skipped and the ARGUMENT key silently replaced it, inverting the
+    // documented precedence ("the context value wins — it is the dedup
+    // identity"). The agent then deduplicated under a key it did not choose.
+    const registry = new ToolRegistry();
+    const rejections: string[] = [];
+    registry.setRejectionAuditor((rejection) => {
+      rejections.push(rejection.code);
+    });
+    registry.register({
+      name: "known_tool",
+      description: "A tool that exists.",
+      inputSchema: z.object({}),
+      riskLevel: "none",
+      handler: async () => ({ success: true }),
+    });
+
+    const result = await registry.execute(
+      "known_tool",
+      { idempotencyKey: "from-input" },
+      { ...mockContext, idempotencyKey: 12345 as unknown as string },
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe("IDEMPOTENCY_KEY_MISMATCH");
+    expect(rejections).toEqual(["IDEMPOTENCY_KEY_MISMATCH"]);
+  });
+});

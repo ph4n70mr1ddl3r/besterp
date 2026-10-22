@@ -54,7 +54,7 @@
 // make the control bypassable by making the database unavailable.
 
 import { PrismaClient } from "@prisma/client";
-import { ToolMiddleware } from "../schema/tool-definition.js";
+import { ToolMiddleware, ToolResult } from "../schema/tool-definition.js";
 import { sanitizeForLogOutput } from "@besterp/shared";
 import { AGENT_CAPABILITY_DENIED, AGENT_INACTIVE, AGENT_NOT_REGISTERED, AGENT_POLICY_UNAVAILABLE } from "../error-codes.js";
 
@@ -92,6 +92,40 @@ function pickCallableSuggestions(capabilities: string[] | undefined, preferred: 
  * is permitted to call them.
  */
 const CAPABILITY_SUGGESTIONS = ["describe_agent", "list_available_tools"] as const;
+
+/**
+ * Drop the follow-up tools this agent is NOT permitted to call from a
+ * rejection produced by an INNER stage.
+ *
+ * The confirmation gate (and the idempotency middleware) offer follow-up
+ * tools of their own. The gate, for example, always suggests
+ * `list_available_tools` — but the seeded default agent's capabilities are
+ * `["list_agents", "describe_agent", "search_parties", "get_party"]`, so the
+ * suggestion was NOT callable: the agent followed it and was rejected again
+ * with AGENT_CAPABILITY_DENIED for the very tool it was told to call.
+ *
+ * The agent policy is the OUTER stage relative to the gate (see
+ * `PRODUCTION_PIPELINE_ORDER`), so it is the only place that knows the
+ * capability list at the moment the inner rejection is produced.
+ *
+ * When the filtered list would be EMPTY, the rejected tool itself is
+ * offered: the policy has just verified that the agent IS permitted to call
+ * it, and for a confirmation-gate rejection "call the same tool again with a
+ * confirmation" is the correct recovery step anyway.
+ */
+function filterSuggestionsForCapabilities(
+  result: ToolResult,
+  capabilities: string[],
+  callableFallback: string,
+): ToolResult {
+  if (result.success) return result;
+  const suggested = result.error?.suggestedTools;
+  if (!suggested || suggested.length === 0) return result;
+  const callable = suggested.filter((tool) => capabilities.includes(tool));
+  if (callable.length === suggested.length) return result;
+  const replacement = callable.length > 0 ? callable : [callableFallback];
+  return { ...result, error: { ...result.error!, suggestedTools: replacement } };
+}
 
 /** The subset of the agent registry row this middleware needs. */
 interface AgentPolicyRow {
@@ -207,6 +241,10 @@ export function agentPolicyMiddleware(prisma: PrismaClient): ToolMiddleware {
       };
     }
 
-    return next(input, context);
+    // The agent IS permitted to call this tool (checked above), so the call
+    // is delegated. Any rejection produced by an INNER stage may suggest
+    // follow-up tools this agent cannot call — filter them.
+    const result = await next(input, context);
+    return filterSuggestionsForCapabilities(result, capabilities, definition.name);
   };
 }

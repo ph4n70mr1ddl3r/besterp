@@ -168,6 +168,31 @@ export function resolveTrustProxyHops(env: NodeJS.ProcessEnv): number {
 export const REQUIRED_ENV_VARS = ["DATABASE_URL", "DATABASE_ADMIN_URL", "JWT_SECRET"] as const;
 
 /**
+ * Describe an UNCAUGHT exception value for the log.
+ *
+ * The thrown value is NOT necessarily an `Error`: `throw null` or
+ * `throw "boom"` reach the `uncaughtException` handler as a non-object. The
+ * handler used to read `error.stack ?? error.message` directly, which threw
+ * a TypeError from INSIDE the handler — so the original error and its stack
+ * were never logged (precisely the diagnostic the handler exists to
+ * produce) and the exit was driven by Node's fatal-exception path instead of
+ * the intended one.
+ *
+ * Extracted so the behaviour is testable without booting the process.
+ */
+export function describeUncaughtException(error: unknown): string {
+  if (error instanceof Error) return error.stack ?? error.message;
+  if (error === null) return "null";
+  if (error === undefined) return "undefined";
+  if (typeof error === "string") return error;
+  try {
+    return JSON.stringify(error) ?? String(error);
+  } catch {
+    return String(error);
+  }
+}
+
+/**
  * Determine which required environment variables are missing and whether the
  * process must refuse to start.
  *
@@ -183,6 +208,38 @@ export const REQUIRED_ENV_VARS = ["DATABASE_URL", "DATABASE_ADMIN_URL", "JWT_SEC
  * ephemeral fallback and DATABASE_ADMIN_URL is not needed by the local
  * compose stack.
  */
+/**
+ * Determine whether CORS_ORIGINS must be present, and whether its absence is
+ * fatal.
+ *
+ * In development CORS_ORIGINS is OPTIONAL: the app falls back to a
+ * restrictive localhost allowlist so a local frontend dev server can reach
+ * the API. In every other environment it is MANDATORY — without it the
+ * browser blocks every cross-origin request, so the API is unusable from a
+ * browser client.
+ *
+ * The check used to happen only AFTER the whole Nest application had been
+ * constructed (inside `configureCors`), so a production deploy with no
+ * CORS_ORIGINS built the entire app — the dynamic import of the AppModule,
+ * the QueueModule Redis validation, the PrismaService construction, the
+ * discovery scan — and only then died with the CORS message. Every other
+ * validator in `validateEnvironment()` fails with a clean one-line error
+ * BEFORE that work happens.
+ *
+ * An empty or separator-only value ("", ",", " , ") counts as MISSING: the
+ * origin parser filters the empty entries out and the app would end up with
+ * no allowed origin at all.
+ */
+export function resolveCorsOriginsRequirement(env: NodeJS.ProcessEnv): { missing: boolean; fatal: boolean } {
+  const isDevelopment = normalizeEnvironmentValueShared(env.NODE_ENV) === "development";
+  const raw = env.CORS_ORIGINS;
+  const origins = typeof raw === "string"
+    ? raw.split(",").map((origin) => origin.trim()).filter((origin) => origin.length > 0)
+    : [];
+  const missing = origins.length === 0;
+  return { missing, fatal: missing && !isDevelopment };
+}
+
 export function resolveRequiredEnvVars(env: NodeJS.ProcessEnv): { missing: string[]; fatal: boolean } {
   const missing = REQUIRED_ENV_VARS.filter((v) => !env[v]);
   const isDevelopment = normalizeEnvironmentValueShared(env.NODE_ENV) === "development";

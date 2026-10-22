@@ -530,6 +530,45 @@ describe("Discovery MCP Tools", () => {
       expect(data.results.product).toMatchObject({ total: 1 });
     });
 
+    it("returns the SAME response shape whether or not the search is narrowed", async () => {
+      // The tool used to return a FLAT object (`{ entity, query, items,
+      // total, … }`) for the narrowed case and a NESTED one
+      // (`{ query, results: { party, product } }`) for the universal case —
+      // so an agent that called it twice got structurally different payloads
+      // for the same underlying search.
+      class PartyServiceStub {
+        async searchParties(input: { tenantId: string; name?: string }) {
+          return { items: [{ partyId: "p1", name: input.name }], total: 1 };
+        }
+      }
+      class ProductServiceStub {
+        async searchProducts(input: { tenantId: string; name?: string }) {
+          return { items: [{ productId: "pr1", name: input.name }], total: 1 };
+        }
+      }
+      const context = {
+        ...mockContext,
+        services: {
+          partyService: new PartyServiceStub(),
+          productService: new ProductServiceStub(),
+        },
+      };
+
+      const narrowed = await registry.execute("search_across_entities", { query: "Acme", entity: "party" }, context);
+      const universal = await registry.execute("search_across_entities", { query: "Acme" }, context);
+
+      expect(narrowed.success).toBe(true);
+      expect(universal.success).toBe(true);
+      const narrowedData = narrowed.data as Record<string, unknown>;
+      const universalData = universal.data as Record<string, unknown>;
+      expect(Object.keys(narrowedData).sort()).toEqual(Object.keys(universalData).sort());
+      expect(narrowedData).toHaveProperty("results");
+      expect(narrowedData.results).toHaveProperty("party");
+      expect(narrowedData.results).toHaveProperty("product");
+      expect(narrowedData.entity).toBe("party");
+      expect(universalData.entity).toBeNull();
+    });
+
     it("should report a structured failure when every entity search fails", async () => {
       // A rejected branch must not be reported as "no results" — a database
       // outage or a DomainError is otherwise indistinguishable from a

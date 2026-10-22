@@ -74,6 +74,16 @@ describe("QueueModule", () => {
       expect(() => QueueModule.forRoot()).toThrow("Invalid Redis port");
     });
 
+    it("should throw on a FRACTIONAL port", () => {
+      // The old range check accepted `6380.5` while the health probe
+      // rejected the SAME value with `Number.isInteger` — two different
+      // diagnoses for one misconfiguration — and ioredis then failed at
+      // connect time with an opaque `ERR_SOCKET_BAD_PORT`.
+      process.env.REDIS_PORT = "6380.5";
+      process.env.NODE_ENV = "development";
+      expect(() => QueueModule.forRoot()).toThrow("Invalid Redis port");
+    });
+
     it("should throw on port below 1", () => {
       process.env.REDIS_PORT = "0";
       process.env.NODE_ENV = "development";

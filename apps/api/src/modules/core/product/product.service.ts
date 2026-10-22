@@ -529,10 +529,24 @@ export class ProductService {
           );
         }
 
-        return tx.productFeature.create({
+        const feature = await tx.productFeature.create({
           data: { productId, name: trimmedName, value: trimmedValue },
           select: { productFeatureId: true, productId: true, name: true, value: true, createdAt: true },
         });
+
+        // Bump the product's version. A feature IS part of the product's
+        // effective content, so a caller that read the product, then had a
+        // feature added, and then wrote back the version it read must be
+        // rejected — otherwise the version is not a reliable optimistic-
+        // concurrency token for the aggregate the tools actually mutate.
+        // (`product.types.ts` documents the version as "incremented on EVERY
+        // update".)
+        await tx.product.update({
+          where: { productId, tenantId: trimmedTenantId },
+          data: { version: { increment: 1 } },
+        });
+
+        return feature;
       }, { timeout: TX_TIMEOUT_MS });
 
       return ProductService.toFeatureResult(feature);
@@ -565,7 +579,7 @@ export class ProductService {
           );
         }
 
-        return tx.productPrice.create({
+        const price = await tx.productPrice.create({
           data: {
             productId,
             priceType: parsedDates.priceType,
@@ -576,6 +590,16 @@ export class ProductService {
           },
           select: { productPriceId: true, productId: true, priceType: true, amount: true, currencyCode: true, fromDate: true, thruDate: true, createdAt: true },
         });
+
+        // Bump the product's version — see the equivalent note in
+        // `addProductFeature`: a price is part of the product's effective
+        // content, so the version must move with it.
+        await tx.product.update({
+          where: { productId, tenantId: trimmedTenantId },
+          data: { version: { increment: 1 } },
+        });
+
+        return price;
       }, { timeout: TX_TIMEOUT_MS });
 
       return ProductService.toPriceResult(price);

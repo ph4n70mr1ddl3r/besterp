@@ -73,6 +73,86 @@ export function stripHtmlTags(input: string): string {
 }
 
 /**
+ * Replace every UNPAIRED UTF-16 surrogate with U+FFFD (the replacement
+ * character).
+ *
+ * A lone surrogate is a legal JavaScript string but NOT a legal Unicode
+ * scalar value: `"\ud800"` is accepted by `JSON.parse` and re-escaped by
+ * `JSON.stringify` as `"\ud800"`, and PostgreSQL then REJECTS the whole
+ * `json`/`jsonb` value with
+ *
+ *     ERROR: invalid input syntax for type json
+ *     DETAIL: Unicode low surrogate must follow a high surrogate.
+ *
+ * So a single agent-supplied argument (`{"name": "\ud800"}`) made the
+ * durable audit write fail — and because the audit write is fire-and-forget,
+ * the row was silently DROPPED, which is a compliance hole: a caller could
+ * make specific tool calls disappear from the audit trail at will. The same
+ * value defeated the idempotency record write, so the deduplication
+ * guarantee was silently lost for that key and a retry re-executed the
+ * write.
+ *
+ * Nothing else in the sanitisation chain removes it: the control-character
+ * strip only covers U+0000–U+001F/U+007F, and the secret redactor does not
+ * touch U+D800–U+DFFF.
+ *
+ * A VALID surrogate PAIR (an astral character such as an emoji) is left
+ * untouched.
+ */
+export function normalizeUnpairedSurrogates(value: string): string {
+  if (typeof value !== "string") return value;
+  if (!hasUnpairedSurrogate(value)) return value;
+  return replaceUnpairedSurrogates(value);
+}
+
+/** True when the string contains a surrogate that is not part of a PAIR. */
+function hasUnpairedSurrogate(value: string): boolean {
+  for (let i = 0; i < value.length; i++) {
+    const code = value.charCodeAt(i);
+    if (isHighSurrogate(code)) {
+      if (!isLowSurrogate(value.charCodeAt(i + 1))) return true;
+      i++; // A valid high+low pair — skip the low surrogate.
+    } else if (isLowSurrogate(code)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Rebuild the string with every unpaired surrogate replaced by U+FFFD.
+ *
+ * A VALID surrogate pair is emitted unchanged.
+ */
+function replaceUnpairedSurrogates(value: string): string {
+  let out = "";
+  for (let i = 0; i < value.length; i++) {
+    const code = value.charCodeAt(i);
+    if (isHighSurrogate(code)) {
+      if (isLowSurrogate(value.charCodeAt(i + 1))) {
+        out += value.charAt(i) + value.charAt(i + 1);
+        i++;
+        continue;
+      }
+      out += "\uFFFD";
+      continue;
+    }
+    out += isLowSurrogate(code) ? "\uFFFD" : value.charAt(i);
+  }
+  return out;
+}
+
+/** True for a UTF-16 HIGH surrogate (U+D800–U+DBFF). */
+function isHighSurrogate(code: number): boolean {
+  return code >= 0xd800 && code <= 0xdbff;
+}
+
+/** True for a UTF-16 LOW surrogate (U+DC00–U+DFFF). */
+function isLowSurrogate(code: number): boolean {
+  return code >= 0xdc00 && code <= 0xdfff;
+}
+
+/**
  * Safely decode a Unicode code point.
  *
  * `String.fromCodePoint()` throws RangeError for lone surrogates
@@ -447,6 +527,13 @@ export interface SanitizeForLogOutputOptions {
 }
 
 export function sanitizeForLogOutput(message: string, options?: SanitizeForLogOutputOptions): string {
+  // The sanitizer must be TOTAL: it runs on every user-supplied value and
+  // inside the error paths, so a non-string argument that made it throw
+  // would surface a TypeError INSTEAD of the value being sanitized (and, on
+  // the durable-sink path, would lose the audit / idempotency record).
+  if (typeof message !== "string") {
+    message = message === null || message === undefined ? "" : String(message);
+  }
   // Defensive length cap (mirrors the guard in stripHtmlTags). Without it, a
   // long attacker-influenced error message / tool output / validation `received`
   // value could trigger O(n²) backtracking in the URL catch-all regex below and
@@ -547,6 +634,42 @@ const FREE_TEXT_EXTRA_SECRET_NAMES: ReadonlySet<string> = Object.freeze(new Set(
 ]));
 
 /**
+ * Secret names that are also recognised as a SUFFIX of a CONCATENATED name.
+ *
+ * `splitFieldNameTokens` splits on camelCase / snake_case / kebab-case, so
+ * `db_password` and `accessToken` are correctly split and flagged. An
+ * ALL-LOWERCASE concatenation (`dbpassword`, `mypassword`, `authtoken`) is a
+ * single token, so the sensitive word inside it was invisible and the value
+ * survived verbatim: `mypassword=hunter2` leaked while `db_password=hunter2`
+ * was redacted.
+ *
+ * The list is deliberately narrower than {@link SENSITIVE_FIELD_NAMES}: it
+ * holds only words that are unambiguously secret material. Names that are
+ * commonly a SUFFIX of an innocuous word (`code` in `zipcode`/`usercode`,
+ * `session` in `sessions`, `sign` in `design`, `pin` in `spin`) are excluded —
+ * redacting them would corrupt ordinary prose.
+ */
+const SUFFIX_SECRET_NAMES: ReadonlySet<string> = Object.freeze(new Set([
+  "password", "passwd", "pwd", "secret", "passphrase", "passcode",
+  "token", "apikey", "apitoken", "authtoken", "accesstoken", "refreshtoken",
+  "clientsecret", "privatekey", "secretkey", "accesskey", "encryptionkey",
+  "credential", "credentials", "authorization", "passport", "ssn",
+]));
+
+/**
+ * True when a lower-cased name ENDS with one of the secret base names.
+ *
+ * Only the END of the name is inspected: `tokenizer` is not a token, and
+ * `keystroke` is not a key.
+ */
+function hasSensitiveSuffix(lowerName: string): boolean {
+  for (const secret of SUFFIX_SECRET_NAMES) {
+    if (lowerName.length > secret.length && lowerName.endsWith(secret)) return true;
+  }
+  return false;
+}
+
+/**
  * True when a NAME captured from free text denotes a secret.
  *
  * @param allowCodeAndSession - the query-string and quoted-value rules pass
@@ -557,7 +680,8 @@ function isFreeTextSecretName(name: string, allowCodeAndSession = false): boolea
   const lower = name.toLowerCase();
   if (!allowCodeAndSession && FREE_TEXT_PROSE_EXCLUSIONS.has(lower)) return false;
   if (FREE_TEXT_EXTRA_SECRET_NAMES.has(lower)) return true;
-  return isSensitiveFieldName(name);
+  if (isSensitiveFieldName(name)) return true;
+  return hasSensitiveSuffix(lower);
 }
 
 // A name in free text: an identifier-ish run. Kept deliberately permissive
@@ -601,8 +725,14 @@ const QUERY_SECRET_PATTERN = new RegExp(
 // name and the `:`; without this the quote defeated the separator and the
 // whole pair survived verbatim. The quote is captured so the replacement can
 // re-emit it and keep the text's shape recognisable.
+//
+// The LEAD class carries the angle and closing brackets as well as the
+// opening ones. `<password=hunter2>` and `(password=hunter2)` were not
+// matched before, because `<`/`>`/`)` were not in the lead class — the rule
+// only fired when the name was preceded by whitespace or an opening
+// delimiter, so a secret wrapped in a delimiter leaked verbatim.
 const BOUNDARY_SECRET_PATTERN = new RegExp(
-  String.raw`(^|[\s"'{([,;])(${FREE_TEXT_NAME})(['"]?)[ \t]*[:=][ \t]*([^}\]\s"'\` ,;]+)`,
+  String.raw`(^|[\s"'{\(\[,;<>)\]}])(${FREE_TEXT_NAME})(['"]?)[ \t]*[:=][ \t]*([^}\]\s"'\` ,;]+)`,
   "gi",
 );
 // The name's own quote characters AND the `:`/`=` separator are captured so
@@ -751,6 +881,57 @@ const PREFIXED_ULID_PATTERN = new RegExp(`^[a-z][a-z0-9]{0,19}_[0-9][${ULID_CHAR
 // "contact@[REDACTED_TOKEN]".
 const DOTTED_IDENTIFIER_PATTERN = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/;
 
+// The generic rule's "benign" whitelists used to be UNBOUNDED in length:
+// `/^[a-z]+$/` preserved ANY run of 20+ lower-case letters and
+// `/^[a-f0-9]+$/i` preserved ANY run of 20+ hex characters.
+//
+// An unbounded whitelist is an unbounded hole: a 64-character hex API key and
+// a 26-character lower-case random secret both survived verbatim, in free
+// text and under benign field names (`config.value`), straight into the
+// durable audit / idempotency sinks. That is the exact leak class this
+// module exists to prevent — `replaceProviderSecrets` says so explicitly:
+// these are matched "by shape/prefix rather than by key name, catching
+// secrets stored under non-sensitive field names (e.g. `config.value`)".
+//
+// The whitelists are now BOUNDED to the shapes that actually occur
+// legitimately in this system:
+//
+//   * hex: EXACTLY 32 characters — the UUID-without-dashes / MD5 shape, the
+//     one benign hex form this codebase actually produces and relies on
+//     (see the `redactSensitiveFieldValues` regression test). A 64-character
+//     hex run is byte-for-byte indistinguishable from a 32-byte API key, so it
+//     is redacted; the risk of leaking a credential is not worth keeping a
+//     digest readable.
+//   * a run of letters with no digit and no separator: at most
+//     MAX_BENIGN_LETTER_RUN characters. The longest plausible single word is
+//     well inside the bound; a random lower-case secret (26 letters is a
+//     common alphabet) is not.
+//
+// A caller that KNOWS its opaque value is safe (a validated identifier, a
+// ULID, a hash it produced itself) opts out of the generic rule entirely
+// with `keepOpaqueTokens: true` — the escape hatch that already exists for
+// exactly this purpose.
+const MAX_BENIGN_LETTER_RUN = 24;
+const BENIGN_HEX_PATTERN = /^[a-f0-9]{32}$/i;
+
+/**
+ * True when every character of the candidate is the SAME character.
+ *
+ * A run of one repeated character carries NO information — it is the shape of
+ * a truncation preview, a padding run, a placeholder row — so it can never be
+ * a secret and must not be redacted. The generic rule is applied to the
+ * truncation preview of a 64 KB payload, so without this exemption every
+ * oversized payload's preview collapsed to "[REDACTED_TOKEN]" and the
+ * operator lost the diagnostic the preview exists to provide.
+ */
+function isSingleRepeatedCharacter(candidate: string): boolean {
+  const first = candidate.charAt(0);
+  for (let i = 1; i < candidate.length; i++) {
+    if (candidate.charAt(i) !== first) return false;
+  }
+  return true;
+}
+
 function replaceGenericLongToken(input: string): string {
   // Use a state-machine scan instead of a single greedy regex to avoid
   // catastrophic backtracking on long runs of matching characters. The
@@ -799,16 +980,10 @@ function replaceGenericLongToken(input: string): string {
       result.push(candidate);
     } else if (PREFIXED_ULID_PATTERN.test(candidate)) {
       result.push(candidate);
-    } else if (/^[a-z]+$/.test(candidate)) {
-      result.push(candidate);
-    } else if (/^[a-f0-9]+$/i.test(candidate)) {
+    } else if (BENIGN_HEX_PATTERN.test(candidate)) {
       result.push(candidate);
     } else if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(candidate)) {
       result.push(candidate);
-    } else if (/^[a-zA-Z0-9_-]+$/.test(candidate)) {
-      const hasLetter = /[a-zA-Z]/.test(candidate);
-      const hasDigit = /[0-9]/.test(candidate);
-      result.push(hasLetter && hasDigit ? "[REDACTED_TOKEN]" : candidate);
     } else if (DOTTED_IDENTIFIER_PATTERN.test(candidate)) {
       // A dotted, lower-case identifier — a hostname, an email domain, a
       // package name. These are STRUCTURED values, not opaque secrets, and
@@ -817,6 +992,26 @@ function replaceGenericLongToken(input: string): string {
       // so an agent that created a contact with that address got a mangled
       // value back and could not read it.
       result.push(candidate);
+    } else if (/^[a-zA-Z0-9_-]+$/.test(candidate)) {
+      const hasLetter = /[a-zA-Z]/.test(candidate);
+      const hasDigit = /[0-9]/.test(candidate);
+      if (hasLetter && hasDigit) {
+        // Letters AND digits — the classic opaque-secret shape.
+        result.push("[REDACTED_TOKEN]");
+      } else if (hasLetter && candidate.length > MAX_BENIGN_LETTER_RUN && !/[-_]/.test(candidate) && !isSingleRepeatedCharacter(candidate)) {
+        // Letters, no digit, no separator: a word at 20-24 characters, an
+        // opaque random secret beyond that. The old rule preserved EVERY such
+        // run, so a 26-letter random secret leaked verbatim.
+        //
+        // A token that carries a separator (`_`/`-`) is a STRUCTURED
+        // identifier (`customer_contact_mechanism`) and stays readable, and a
+        // run of ONE repeated character carries no information at all.
+        result.push("[REDACTED_TOKEN]");
+      } else {
+        // Digits only (a big integer id, a nanosecond timestamp) or a
+        // structured / short token — preserved as before.
+        result.push(candidate);
+      }
     } else {
       result.push("[REDACTED_TOKEN]");
     }
@@ -864,6 +1059,84 @@ function replaceFilesystemPaths(input: string): string {
 }
 
 /**
+ * Remove the "string-type" ANSI escape sequences: OSC (`ESC ]`), APC
+ * (`ESC _`), SOS (`ESC X`), PM (`ESC ^`) and DCS (`ESC P`), each of which runs
+ * until a terminator — ST (`ESC \`) or BEL (`\x07`).
+ *
+ * This used to be the regex
+ * `/\x1b[\]_X^P][\s\S]*?(?:\x1b\\|\x07)/g`, which is the textbook shape for
+ * catastrophic backtracking: a lazy `[\s\S]*?` run followed by a REQUIRED
+ * trailing literal. For every `ESC ]` start position the engine expanded the
+ * lazy run to the end of the string looking for the terminator, so a string
+ * with *k* such starts and length *n* cost O(k·n) — QUADRATIC.
+ *
+ * Measured on the 100 KB `MAX_LOG_OUTPUT_LENGTH` cap (the exact size the
+ * module's own DoS guard allows): 50000 `ESC ]` sequences blocked the Node
+ * event loop for **1.96 seconds** in a single `sanitizeForLogOutput` call.
+ * That call runs on every user-supplied error message, tool input and tool
+ * output, so one request was enough to stall the whole process.
+ *
+ * The scanner below advances a monotonically increasing cursor and never
+ * backtracks, so the cost is O(n) for any input shape. It is semantically
+ * equivalent to the regex it replaces: the same sequences are removed, the
+ * same spans are consumed, and an unterminated sequence is left verbatim
+ * (the regex required the terminator, so it could not match one either).
+ */
+function stripStringTypeAnsiSequences(input: string): string {
+  const ESC = "\x1b";
+  const BEL = "\x07";
+  const STRING_TYPE_STARTERS = "]_X^P";
+  let result = "";
+  let pos = 0;
+  let i = 0;
+  while (i < input.length) {
+    const esc = input.indexOf(ESC, i);
+    if (esc === -1) break;
+    const starter = input.charAt(esc + 1);
+    if (!starter || STRING_TYPE_STARTERS.indexOf(starter) === -1) {
+      // Not a string-type sequence — resume the search one character later so
+      // a later ESC can still open one.
+      i = esc + 1;
+      continue;
+    }
+    // Scan forward for the FIRST terminator at or after the byte after the
+    // starter. The lazy `[\s\S]*?` in the original regex matched exactly that
+    // — the earliest terminator wins.
+    //
+    // The scan is a single forward pass and never re-reads a byte: after a
+    // match the cursor resumes at the end of the terminator, and after a
+    // failed candidate the whole rest of the string has been proved
+    // terminator-free (so no LATER ESC can match either — a later ESC's
+    // terminator would have to live in the same terminator-free region).
+    let term = -1;
+    let termLength = 0;
+    for (let j = esc + 2; j < input.length; j++) {
+      const ch = input.charAt(j);
+      if (ch === BEL) {
+        term = j;
+        termLength = 1;
+        break;
+      }
+      if (ch === ESC && input.charAt(j + 1) === "\\") {
+        term = j;
+        termLength = 2;
+        break;
+      }
+    }
+    if (term === -1) {
+      // No terminator anywhere after this starter, and therefore none after
+      // any later ESC either — the regex could not match at any of those
+      // positions either, so the remainder is left verbatim.
+      break;
+    }
+    result += input.slice(pos, esc);
+    pos = term + termLength;
+    i = pos;
+  }
+  return result + input.slice(pos);
+}
+
+/**
  * Strip newlines, carriage returns, tabs, and ANSI escape sequences from strings
  * to prevent log injection via user-controlled messages.
  */
@@ -904,10 +1177,17 @@ export function sanitizeLogMessage(message: string): string {
   // rarely interpret C1 controls over plain socket connections, but stripping
   // them eliminates the vector entirely.
   /* eslint-disable no-control-regex */
-  return message
-    // CSI: ESC [ parameter-bytes (0x30–0x3F) final-byte (0x40–0x7E)
-    .replace(/\x1b\[[\x30-\x3F]*[\x40-\x7E]/g, "")
-    .replace(/\x1b[\]_X^P][\s\S]*?(?:\x1b\\|\x07)/g, "")
+  // The order matters and MUST be preserved:
+  //   1. CSI sequences
+  //   2. string-type sequences (OSC/APC/SOS/PM/DCS)
+  //   3. every other ESC sequence
+  //
+  // Step 2 cannot be moved after step 3: rule 3 consumes `ESC ]` (the OSC
+  // starter) as a two-byte sequence, which would destroy the very sequences
+  // step 2 is responsible for removing.
+  const withoutCsi = message.replace(/\x1b\[[\x30-\x3F]*[\x40-\x7E]/g, "");
+  const withoutStringType = stripStringTypeAnsiSequences(withoutCsi);
+  return withoutStringType
     .replace(/\x1b[\x20-\x2F]*[\x30-\x7E]/g, "")
     // Unicode bidirectional override/isolate controls and zero-width characters.
     // These can manipulate terminal display to hide injected log content or

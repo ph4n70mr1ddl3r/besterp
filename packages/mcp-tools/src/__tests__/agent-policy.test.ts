@@ -230,3 +230,67 @@ describe("agentPolicyMiddleware", () => {
     expect(result.error?.suggestedTools).toEqual(["list_available_tools"]);
   });
 });
+
+describe("agentPolicyMiddleware — the follow-up tools of an INNER rejection", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("drops a suggestion the agent is NOT permitted to call", async () => {
+    // The confirmation gate always suggests `list_available_tools`, but the
+    // seeded default agent's capabilities do not include it. The agent
+    // followed the suggestion and was rejected again with
+    // AGENT_CAPABILITY_DENIED for the very tool it was told to call.
+    const prisma = createPrisma({
+      agentId: "sales-agent",
+      isActive: true,
+      capabilities: ["create_party"],
+    });
+    const next = vi.fn().mockResolvedValue({
+      success: false,
+      error: {
+        code: "CONFIRMATION_REQUIRED",
+        message: "Tool 'create_party' requires agent confirmation.",
+        suggestedTools: ["list_available_tools"],
+      },
+    });
+
+    const result = await agentPolicyMiddleware(prisma)(
+      {},
+      { ...mockContext, agentId: "sales-agent" },
+      mockDefinition,
+      next,
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error?.suggestedTools).not.toContain("list_available_tools");
+    // The rejected tool itself IS callable (the policy verified that), so it
+    // is the recovery step.
+    expect(result.error?.suggestedTools).toEqual(["create_party"]);
+  });
+
+  it("keeps a suggestion the agent IS permitted to call", async () => {
+    const prisma = createPrisma({
+      agentId: "sales-agent",
+      isActive: true,
+      capabilities: ["create_party", "list_available_tools"],
+    });
+    const next = vi.fn().mockResolvedValue({
+      success: false,
+      error: {
+        code: "CONFIRMATION_REQUIRED",
+        message: "Tool 'create_party' requires agent confirmation.",
+        suggestedTools: ["list_available_tools"],
+      },
+    });
+
+    const result = await agentPolicyMiddleware(prisma)(
+      {},
+      { ...mockContext, agentId: "sales-agent" },
+      mockDefinition,
+      next,
+    );
+
+    expect(result.error?.suggestedTools).toEqual(["list_available_tools"]);
+  });
+});

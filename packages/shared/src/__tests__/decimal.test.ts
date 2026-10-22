@@ -83,3 +83,25 @@ describe("decimalToNumber — non-finite toNumber() falls back to toString()", (
     expect(decimalToNumber(overflowing)).toBe(42);
   });
 });
+
+describe("decimalToNumber — non-decimal StringNumericLiteral forms are rejected", () => {
+  it("does not convert a hex / binary / octal literal into a DIFFERENT number", () => {
+    // `Number()` implements the full ECMAScript StringNumericLiteral, so
+    // "0x10" was silently converted to 16 — a MONEY value that was never
+    // stored. The contract is "null for any value that cannot be
+    // represented as a finite number", and "0x10" is not a decimal amount.
+    expect(decimalToNumber("0x10")).toBeNull();
+    expect(decimalToNumber("0b101")).toBeNull();
+    expect(decimalToNumber("0o17")).toBeNull();
+    expect(decimalToNumber("0X1f")).toBeNull();
+  });
+
+  it("still accepts the ordinary decimal forms", () => {
+    expect(decimalToNumber("7.25")).toBe(7.25);
+    expect(decimalToNumber("-3")).toBe(-3);
+    expect(decimalToNumber("+3")).toBe(3);
+    expect(decimalToNumber(".5")).toBe(0.5);
+    expect(decimalToNumber("1e3")).toBe(1000);
+    expect(decimalToNumber("1.5E-2")).toBe(0.015);
+  });
+});

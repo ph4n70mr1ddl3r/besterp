@@ -61,9 +61,27 @@ export function sanitizeAgentText(value: string): string {
  * agent-facing error message may be.
  */
 export function capAgentErrorText(value: string): string {
-  return value.length > MAX_ERROR_MESSAGE_LENGTH
-    ? `${value.slice(0, MAX_ERROR_MESSAGE_LENGTH)}…`
-    : value;
+  if (value.length <= MAX_ERROR_MESSAGE_LENGTH) return value;
+  // Slice on a CHARACTER boundary, not a UTF-16 code-unit boundary.
+  // `String.prototype.slice` counts UTF-16 code units, so a cut between a
+  // high and a low surrogate produced a LONE SURROGATE in the agent-facing
+  // string — a broken character that is also invalid UTF-8 when it reaches a
+  // durable sink. The shared sanitizer already solves this (it iterates
+  // `[...message]`), so the local cap must not reintroduce the problem.
+  return `${truncateAtCharacterBoundary(value, MAX_ERROR_MESSAGE_LENGTH)}…`;
+}
+
+/**
+ * Truncate a string to at most `maxLength` CHARACTERS without splitting a
+ * surrogate pair.
+ */
+export function truncateAtCharacterBoundary(value: string, maxLength: number): string {
+  if (value.length <= maxLength) return value;
+  // `[...value]` iterates by code point, so an astral character counts as
+  // one element and is never split.
+  const chars = [...value];
+  if (chars.length <= maxLength) return value;
+  return chars.slice(0, maxLength).join("");
 }
 
 /**

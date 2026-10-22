@@ -53,9 +53,20 @@ function createMockPrisma() {
  * against the supplied delegates.
  */
 function scopedClientWith(delegates: Record<string, unknown>) {
-  return {
+  // `addProductFeature` / `addProductPrice` bump the product's version inside
+  // the same transaction, so the product delegate always needs an `update`.
+  // Provide a default one when the test does not supply it.
+  const product = (delegates.product ?? {}) as Record<string, unknown>;
+  const withProductUpdate = {
     ...delegates,
-    $transaction: vi.fn(async (fn: (tx: unknown) => Promise<unknown>) => fn(delegates)),
+    product: {
+      update: vi.fn().mockResolvedValue({}),
+      ...product,
+    },
+  };
+  return {
+    ...withProductUpdate,
+    $transaction: vi.fn(async (fn: (tx: unknown) => Promise<unknown>) => fn(withProductUpdate)),
   };
 }
 
@@ -524,6 +535,27 @@ describe("ProductService", () => {
         service.addProductFeature({ tenantId: "t1", productId: "12345678-1234-1234-1234-123456789abc", name: "Color", value: "Red" })
       ).rejects.toThrow(EntityNotFoundError);
     });
+
+    it("bumps the product version", async () => {
+      // A feature IS part of the product's effective content, so the
+      // optimistic-concurrency token must move with it. Without the bump, a
+      // caller that read the product, then had a feature added, and then
+      // wrote back the version it read was ACCEPTED — the version was not a
+      // reliable token for the aggregate the tools actually mutate.
+      const update = vi.fn().mockResolvedValue({});
+      prisma.tenantScoped.mockReturnValue(scopedClientWith({
+        product: { findUnique: vi.fn().mockResolvedValue({ productId: "p1" }), update },
+        productFeature: { create: vi.fn().mockResolvedValue({
+          productFeatureId: "pf1", productId: "p1", name: "Color", value: "Red", createdAt: new Date(),
+        }) },
+      }));
+      await service.addProductFeature({
+        tenantId: "t1", productId: "12345678-1234-1234-1234-123456789abc", name: "Color", value: "Red",
+      });
+      expect(update).toHaveBeenCalledWith(expect.objectContaining({
+        data: { version: { increment: 1 } },
+      }));
+    });
   });
 
   describe("addProductPrice", () => {
@@ -599,6 +631,25 @@ describe("ProductService", () => {
       await expect(
         service.addProductPrice({ tenantId: "t1", productId: "12345678-1234-1234-1234-123456789abc", priceType: 42 as unknown as string, amount: 10 })
       ).rejects.toThrow(InvalidTypeValueError);
+    });
+
+    it("bumps the product version", async () => {
+      // A price is part of the product's effective content too — see the
+      // equivalent note in the addProductFeature test.
+      const update = vi.fn().mockResolvedValue({});
+      prisma.tenantScoped.mockReturnValue(scopedClientWith({
+        product: { findUnique: vi.fn().mockResolvedValue({ productId: "p1" }), update },
+        productPrice: { create: vi.fn().mockResolvedValue({
+          productPriceId: "pp1", productId: "p1", priceType: "LIST", amount: 10,
+          currencyCode: "USD", fromDate: new Date(), thruDate: null, createdAt: new Date(),
+        }) },
+      }));
+      await service.addProductPrice({
+        tenantId: "t1", productId: "12345678-1234-1234-1234-123456789abc", priceType: "LIST", amount: 10,
+      });
+      expect(update).toHaveBeenCalledWith(expect.objectContaining({
+        data: { version: { increment: 1 } },
+      }));
     });
 
     it("defaults a null currencyCode to the default currency", async () => {

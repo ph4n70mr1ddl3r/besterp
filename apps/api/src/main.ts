@@ -27,6 +27,8 @@ import {
   resolveRateLimitConfig,
   resolveTrustProxyHops,
   resolveRequiredEnvVars,
+  resolveCorsOriginsRequirement,
+  describeUncaughtException,
   normalizeEnvironmentValue,
   DEFAULT_HARD_EXIT_TIMEOUT_MS,
   resolvePort,
@@ -79,6 +81,21 @@ function validateRequiredEnvVars(): void {
   const { missing, fatal } = resolveRequiredEnvVars(process.env);
   if (fatal) {
     logger.error(`Missing required environment variables: ${missing.join(", ")}. Exiting.`);
+    process.exit(1);
+  }
+
+  // CORS_ORIGINS is required in every non-development environment. The check
+  // used to live in `configureCors`, which runs AFTER the whole Nest
+  // application has been built — so a misconfigured production deploy did
+  // all that work before dying with the CORS message. Fail here instead, with
+  // the same clean one-line error the other validators produce.
+  const cors = resolveCorsOriginsRequirement(process.env);
+  if (cors.fatal) {
+    logger.error(
+      "CORS_ORIGINS is required in non-development environments. " +
+      "Set it to a comma-separated list of allowed origins " +
+      "(e.g. CORS_ORIGINS=https://app.example.com,https://admin.example.com). Exiting."
+    );
     process.exit(1);
   }
 }
@@ -247,7 +264,14 @@ function setupGracefulShutdown(app: INestApplication): void {
     // Attempting graceful shutdown (app.close()) may hang or corrupt in-flight
     // requests. Log the error and exit immediately — let the process manager
     // (systemd, Docker, PM2) restart a clean instance.
-    logger.error(`Uncaught exception: ${sanitizeForLogOutput(error.stack ?? error.message)}`);
+    // The thrown value is NOT necessarily an Error: `throw null` or
+    // `throw "boom"` reach this handler as a non-object. `error.stack`
+    // then threw a TypeError INSIDE the handler, so the original error and
+    // its stack were never logged — precisely the diagnostic the handler
+    // exists to produce — and the exit was driven by Node's fatal-exception
+    // path instead of the intended one. `describeUncaughtException` handles
+    // the non-Error case (and is unit-tested).
+    logger.error(`Uncaught exception: ${sanitizeForLogOutput(describeUncaughtException(error))}`);
     process.exit(1);
   });
 
