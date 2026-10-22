@@ -110,16 +110,34 @@ describe("throwMappedPrismaError", () => {
     }
   });
 
-  it("maps P2025 to a not-found error and P2028/P2034/P2024 to a conflict", () => {
+  it("maps P2025 to a not-found error and P2028/P2034 to a conflict", () => {
     for (const code of ["P2025"]) {
       expect(() =>
         throwMappedPrismaError(code, new FakePrismaError(code) as never, "search_parties", "create_party", "party"),
       ).toThrow(EntityNotFoundError);
     }
-    for (const code of ["P2028", "P2034", "P2024"]) {
+    for (const code of ["P2028", "P2034"]) {
       expect(() =>
         throwMappedPrismaError(code, new FakePrismaError(code) as never, "search_parties", "create_party", "party"),
       ).toThrow(ConcurrencyConflictError);
+    }
+  });
+
+  it("re-throws P2024 (connection pool timeout) unchanged, like every other pool failure", () => {
+    // P2024 and P1002 describe the SAME failure — a connection that could not
+    // be taken from the pool. P1002 is re-thrown as an infrastructure
+    // failure, so the REST surface answers 500 and the MCP surface answers
+    // DATABASE_CONNECTION_ERROR. P2024 used to be mapped to
+    // ConcurrencyConflictError, so the REST surface answered 409 for one code
+    // and 500 for the other while the MCP surface answered
+    // DATABASE_CONNECTION_ERROR for both.
+    const poolTimeout = new FakePrismaError("P2024");
+    try {
+      throwMappedPrismaError("P2024", poolTimeout as never, "search_parties", "create_party", "party");
+      expect.unreachable();
+    } catch (err) {
+      expect(err).toBe(poolTimeout);
+      expect(err).not.toBeInstanceOf(DomainError);
     }
   });
 });

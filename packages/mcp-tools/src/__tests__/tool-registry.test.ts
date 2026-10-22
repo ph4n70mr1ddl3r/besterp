@@ -776,6 +776,39 @@ describe("ToolRegistry", () => {
       expect(handler).not.toHaveBeenCalled();
     });
 
+    it("should treat an EMPTY-STRING context key as 'no key' and adopt the argument key", async () => {
+      // Regression: the conflict check used `context.idempotencyKey != null`
+      // and the promotion used `!context.idempotencyKey` — two different
+      // notions of "absent". An empty-string context key was therefore
+      // simultaneously "present" (conflict check) and "absent" (promotion),
+      // so a legitimate argument key produced a hard
+      // IDEMPOTENCY_KEY_MISMATCH. The idempotency middleware itself treats
+      // "" as a pass-through no-op, so "" must mean "no key" everywhere.
+      const contextReceived: ToolContext[] = [];
+      const captureMw: ToolMiddleware = async (_input, ctx, _def, next) => {
+        contextReceived.push(ctx);
+        return next(_input, ctx);
+      };
+
+      registry.addGlobalMiddleware(captureMw);
+      registry.register({
+        name: "test_idem_empty_context_key",
+        description: "test",
+        inputSchema: z.object({}),
+        riskLevel: "low",
+        handler: async () => ({ success: true }),
+      });
+
+      const result = await registry.execute(
+        "test_idem_empty_context_key",
+        { idempotencyKey: "key-from-input" },
+        { tenantId: "t1", userId: "u1", idempotencyKey: "", services: {} },
+      );
+
+      expect(result.success).toBe(true);
+      expect(contextReceived[0].idempotencyKey).toBe("key-from-input");
+    });
+
     it("should promote an over-length idempotencyKey so the middleware fails closed", async () => {
       // Regression: the promotion guard previously dropped out-of-contract
       // keys (over-length, empty) instead of promoting them, which silently
@@ -1019,5 +1052,114 @@ describe("ToolRegistry — validation issue shape", () => {
     expect(issues).toBeDefined();
     expect(issues![0]!.issueCode).toBe("invalid_type");
     expect(JSON.stringify(issues)).not.toContain("[REDACTED]");
+  });
+});
+
+describe("ToolRegistry — pre-pipeline rejections are auditable", () => {
+  it("records an unknown tool name in the rejection sink", async () => {
+    // The pipeline is composed PER TOOL, so an unknown tool name was
+    // rejected BEFORE the audit middleware ever ran and the attempt was
+    // invisible in the durable trail. A hallucinated tool call is one of the
+    // most useful agent-behaviour signals an ERP has.
+    const registry = new ToolRegistry();
+    const rejections: Array<{ toolName: string; code: string }> = [];
+    registry.setRejectionAuditor((rejection) => {
+      rejections.push({ toolName: rejection.toolName, code: rejection.code });
+    });
+    registry.register({
+      name: "known_tool",
+      description: "A tool that exists.",
+      inputSchema: z.object({}),
+      riskLevel: "none",
+      handler: async () => ({ success: true }),
+    });
+
+    const result = await registry.execute("create_pary", { name: "Jane" }, mockContext);
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe("UNKNOWN_TOOL");
+    expect(rejections).toHaveLength(1);
+    expect(rejections[0]!.toolName).toBe("create_pary");
+    expect(rejections[0]!.code).toBe("UNKNOWN_TOOL");
+  });
+
+  it("records a conflicting idempotency key in the rejection sink", async () => {
+    const registry = new ToolRegistry();
+    const rejections: string[] = [];
+    registry.setRejectionAuditor((rejection) => {
+      rejections.push(rejection.code);
+    });
+    registry.register({
+      name: "known_tool",
+      description: "A tool that exists.",
+      inputSchema: z.object({}),
+      riskLevel: "none",
+      handler: async () => ({ success: true }),
+    });
+
+    await registry.execute(
+      "known_tool",
+      { idempotencyKey: "from-input" },
+      { ...mockContext, idempotencyKey: "from-context" },
+    );
+
+    expect(rejections).toEqual(["IDEMPOTENCY_KEY_MISMATCH"]);
+  });
+
+  it("never lets a throwing rejection sink change the outcome of the call", async () => {
+    const registry = new ToolRegistry();
+    registry.setRejectionAuditor(() => {
+      throw new Error("audit sink is down");
+    });
+    registry.register({
+      name: "known_tool",
+      description: "A tool that exists.",
+      inputSchema: z.object({}),
+      riskLevel: "none",
+      handler: async () => ({ success: true }),
+    });
+
+    const result = await registry.execute("create_pary", {}, mockContext);
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe("UNKNOWN_TOOL");
+  });
+});
+
+describe("ToolRegistry — published pipeline order", () => {
+  it("exposes the registered global middleware names in pipeline order", () => {
+    const registry = new ToolRegistry();
+    const mw: ToolMiddleware = async (_i, _c, _d, next) => next(_i, _c);
+    registry.addGlobalMiddleware(mw, "errorHandler");
+    registry.addGlobalMiddleware(mw, "auditLog");
+    registry.addGlobalMiddleware(mw, "agentPolicy");
+
+    expect(registry.globalMiddlewareOrder).toEqual(["errorHandler", "auditLog", "agentPolicy"]);
+  });
+});
+
+describe("ToolRegistry — register() validates the handler", () => {
+  it("rejects a tool without a handler at REGISTRATION time", () => {
+    // The handler is invoked as `definition.handler(...)` at execution time.
+    // A definition without one was accepted at registration and only failed
+    // at first call with a raw "definition.handler is not a function"
+    // TypeError — far from the registration site.
+    const registry = new ToolRegistry();
+    expect(() => registry.register({
+      name: "no_handler_tool",
+      description: "A tool with no handler.",
+      inputSchema: z.object({}),
+      riskLevel: "low",
+    } as never)).toThrow(/must declare a handler function/);
+  });
+
+  it("rejects a tool whose middleware is not a function", () => {
+    const registry = new ToolRegistry();
+    expect(() => registry.register({
+      name: "bad_middleware_tool",
+      description: "A tool with a broken middleware.",
+      inputSchema: z.object({}),
+      riskLevel: "low",
+      handler: async () => ({ success: true }),
+    }, ["not a function" as never])).toThrow(/middleware #0 is not a function/);
   });
 });

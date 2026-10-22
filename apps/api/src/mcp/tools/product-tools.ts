@@ -344,6 +344,11 @@ const updateProductSchema = z.strictObject({
   name: sanitizedString(1, MAX_PARTY_NAME_LENGTH).optional().describe("New product name"),
   description: optionalFilteredString(MAX_PARTY_DESCRIPTION_LENGTH).optional().describe("New product description"),
   sku: optionalFilteredString(MAX_SKU_LENGTH).optional().describe("New stock-keeping unit (must be unique within tenant)"),
+  expectedVersion: z.number()
+    .int()
+    .min(1)
+    .optional()
+    .describe("The 'version' you last read. When supplied, the update is rejected with a conflict if somebody else changed the product in the meantime; omit to force the update."),
 });
 
 type UpdateProductInput_z = z.infer<typeof updateProductSchema>;
@@ -357,6 +362,10 @@ fields you provide are changed — omitted fields keep their current value.
 
 Use 'get_product' first to see the current values, and 'search_products' to
 find the product if you do not have its productId.
+
+Pass 'expectedVersion' (the version you last read) to make the update
+conditional: if somebody else changed the product in the meantime, the
+update is rejected with a conflict instead of overwriting their change.
 
 For idempotent writes, pass an idempotencyKey along with the tool arguments.`,
 
@@ -377,6 +386,7 @@ For idempotent writes, pass an idempotencyKey along with the tool arguments.`,
       name: input.name,
       description: input.description ?? undefined,
       sku: input.sku ?? undefined,
+      expectedVersion: input.expectedVersion,
     });
     return {
       success: true,

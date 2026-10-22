@@ -6,6 +6,7 @@ import { ProductService } from "./product.service.js";
 import {
   InvalidTypeValueError,
   EntityNotFoundError,
+  ConcurrencyConflictError,
   MAX_FEATURE_NAME_LENGTH,
   MAX_FEATURE_VALUE_LENGTH,
 } from "@besterp/shared";
@@ -383,6 +384,112 @@ describe("ProductService", () => {
       await expect(
         service.updateProduct({ tenantId: "t1", productId: "12345678-1234-1234-1234-123456789abc", productType: "BAD" })
       ).rejects.toThrow(InvalidTypeValueError);
+    });
+
+    it("increments the version on every update", async () => {
+      // The `version` column existed but was never incremented, so it could
+      // never detect a concurrent write.
+      const update = vi.fn().mockResolvedValue({
+        productId: "12345678-1234-1234-1234-123456789abc",
+        productTypeId: "pt-1",
+        tenantId: "t1",
+        name: "New",
+        description: null,
+        sku: null,
+        version: 2,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+      prisma.tenantScoped.mockReturnValue({ product: { update } });
+
+      const result = await service.updateProduct({
+        tenantId: "t1",
+        productId: "12345678-1234-1234-1234-123456789abc",
+        name: "New",
+      });
+
+      expect(update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ version: { increment: 1 } }) }),
+      );
+      expect(result.version).toBe(2);
+    });
+
+    it("predicates the update on expectedVersion when one is supplied", async () => {
+      const update = vi.fn().mockResolvedValue({
+        productId: "12345678-1234-1234-1234-123456789abc",
+        productTypeId: "pt-1",
+        tenantId: "t1",
+        name: "New",
+        description: null,
+        sku: null,
+        version: 4,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+      prisma.tenantScoped.mockReturnValue({ product: { update } });
+
+      await service.updateProduct({
+        tenantId: "t1",
+        productId: "12345678-1234-1234-1234-123456789abc",
+        name: "New",
+        expectedVersion: 3,
+      });
+
+      expect(update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ version: 3 }),
+        }),
+      );
+    });
+
+    it("rejects a non-positive or fractional expectedVersion", async () => {
+      for (const expectedVersion of [0, -1, 1.5]) {
+        await expect(
+          service.updateProduct({
+            tenantId: "t1",
+            productId: "12345678-1234-1234-1234-123456789abc",
+            name: "New",
+            expectedVersion,
+          })
+        ).rejects.toThrow(InvalidTypeValueError);
+      }
+    });
+
+    it("reports a lost-update conflict when the version predicate misses", async () => {
+      // The write is predicated on the version the caller read, but somebody
+      // else changed the row first: the update misses, and the caller must be
+      // told it is a CONFLICT (not "not found" — the product is still there).
+      const update = vi.fn().mockRejectedValue(
+        Object.assign(new Error("Record to update not found."), { code: "P2025" }),
+      );
+      const findUnique = vi.fn().mockResolvedValue({ productId: "12345678-1234-1234-1234-123456789abc" });
+      prisma.tenantScoped.mockReturnValue({ product: { update, findUnique } });
+
+      await expect(
+        service.updateProduct({
+          tenantId: "t1",
+          productId: "12345678-1234-1234-1234-123456789abc",
+          name: "New",
+          expectedVersion: 3,
+        })
+      ).rejects.toThrow(ConcurrencyConflictError);
+    });
+
+    it("reports a missing product as not-found when the row does not exist", async () => {
+      const update = vi.fn().mockRejectedValue(
+        Object.assign(new Error("Record to update not found."), { code: "P2025" }),
+      );
+      const findUnique = vi.fn().mockResolvedValue(null);
+      prisma.tenantScoped.mockReturnValue({ product: { update, findUnique } });
+
+      await expect(
+        service.updateProduct({
+          tenantId: "t1",
+          productId: "12345678-1234-1234-1234-123456789abc",
+          name: "New",
+          expectedVersion: 3,
+        })
+      ).rejects.toThrow(EntityNotFoundError);
     });
   });
 

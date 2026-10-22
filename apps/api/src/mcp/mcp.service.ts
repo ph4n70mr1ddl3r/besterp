@@ -11,6 +11,8 @@ import {
   auditLogMiddleware,
   agentPolicyMiddleware,
   confirmationGateMiddleware,
+  createRejectionAuditor,
+  PRODUCTION_PIPELINE_ORDER,
   type ToolContext,
 } from "@besterp/mcp-tools";
 import { registerPartyTools } from "./tools/party-tools.js";
@@ -58,11 +60,24 @@ export class McpService implements OnModuleInit {
     //   never be executed.
     // - idempotency must be innermost of the guards so it sees the fully
     //   validated input and hashes exactly what the handler will execute.
-    this.registry.addGlobalMiddleware(errorHandlerMiddleware);
-    this.registry.addGlobalMiddleware(auditLogMiddleware(this.prisma.admin));
-    this.registry.addGlobalMiddleware(agentPolicyMiddleware(this.prisma.admin));
-    this.registry.addGlobalMiddleware(confirmationGateMiddleware(this.prisma.admin));
-    this.registry.addGlobalMiddleware(idempotencyMiddleware(this.prisma.admin));
+    this.registry.addGlobalMiddleware(errorHandlerMiddleware, "errorHandler");
+    this.registry.addGlobalMiddleware(auditLogMiddleware(this.prisma.admin), "auditLog");
+    this.registry.addGlobalMiddleware(agentPolicyMiddleware(this.prisma.admin), "agentPolicy");
+    this.registry.addGlobalMiddleware(confirmationGateMiddleware(this.prisma.admin), "confirmationGate");
+    this.registry.addGlobalMiddleware(idempotencyMiddleware(this.prisma.admin), "idempotency");
+
+    // A call rejected BEFORE the pipeline is composed (an unknown tool name,
+    // a conflicting idempotency key) never reaches the audit middleware, so
+    // the attempt was invisible in the durable trail. The identity IS
+    // validated by then, so the rejection is recorded through the same
+    // durable sink as every other attempt.
+    this.registry.setRejectionAuditor(createRejectionAuditor(this.prisma.admin));
+
+    // The pipeline order carries SECURITY meaning (the agent policy must run
+    // before the confirmation gate, the audit log must wrap every guard), so
+    // a drift between the composition and the published contract must fail
+    // loudly at boot rather than silently change which control runs first.
+    this.assertPipelineOrderMatchesContract();
 
     registerPartyTools(this.registry);
     registerDiscoveryTools(this.registry, this.prisma.admin);
@@ -74,6 +89,38 @@ export class McpService implements OnModuleInit {
       `MCP Tool Server initialized with ${this.registry.names.length} tools: ` +
       this.registry.names.join(", ")
     );
+  }
+
+  /**
+   * Assert that the composed pipeline matches the published contract.
+   *
+   * `PRODUCTION_PIPELINE_ORDER` is the single published statement of the
+   * pipeline order (see packages/mcp-tools/src/schema/tool-definition.ts).
+   * The comment in this file used to be the only statement of it, and it had
+   * already drifted — the `agentPolicy` stage was missing from the published
+   * contract together with the ordering rule that depends on it. A middleware
+   * author following the stale contract would have placed the confirmation
+   * gate OUTSIDE the agent policy and silently reopened the bypass where an
+   * agent that may not call a tool at all could "unlock" it by supplying a
+   * confirmation.
+   *
+   * The composition is therefore checked against the contract at boot, so a
+   * future change to either side fails loudly instead of changing which
+   * control runs first.
+   */
+  private assertPipelineOrderMatchesContract(): void {
+    // The contract's last entry is the handler itself, which is not a
+    // middleware and is therefore not registered on the registry.
+    const expected = PRODUCTION_PIPELINE_ORDER.filter((stage) => stage !== "handler");
+    const actual = this.registry.globalMiddlewareOrder;
+    if (actual.length !== expected.length || actual.some((stage, i) => stage !== expected[i])) {
+      const msg =
+        `MCP middleware pipeline does not match the published contract. ` +
+        `Expected [${expected.join(", ")}], got [${actual.join(", ")}]. ` +
+        `The pipeline order carries security meaning — refusing to start.`;
+      this.logger.error(msg);
+      throw new Error(msg);
+    }
   }
 
   /**

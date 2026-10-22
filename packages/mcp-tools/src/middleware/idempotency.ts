@@ -20,6 +20,7 @@ import { createHash } from "node:crypto";
 import { hashInput, getErrorCode, sanitizeForLogOutput, stripHtmlTags, redactSensitiveFieldValues, MAX_SOFT_FAILURE_MESSAGE_SIZE, IDEMPOTENCY_TTL_MS, MAX_IDEMPOTENCY_KEY_LENGTH, SAFE_IDEMPOTENCY_KEY, IDEMPOTENCY_MAX_RETRIES, IDEMPOTENCY_RETRY_BASE_DELAY_MS, IDEMPOTENCY_STALE_PENDING_THRESHOLD_MS, MAX_USER_ID_LENGTH, MAX_AGENT_ID_LENGTH, MAX_CONVERSATION_ID_LENGTH } from "@besterp/shared";
 import { ToolMiddleware, ToolResult, ToolContext, ZodSchemaLike } from "../schema/tool-definition.js";
 import { truncateValue, MAX_STORED_PAYLOAD_SIZE, capString, isTruncationMarker } from "./truncate.js";
+import { IDEMPOTENCY_CONTENTION, IDEMPOTENCY_KEY_MISMATCH, IDEMPOTENCY_UNAVAILABLE, IDEMPOTENCY_UNKNOWN_STATUS, INVALID_IDEMPOTENCY_KEY, REQUEST_IN_PROGRESS, STALE_PENDING_RECORD } from "../error-codes.js";
 
 const MAX_RETRY_ATTEMPT = IDEMPOTENCY_MAX_RETRIES - 1;
 
@@ -38,7 +39,7 @@ function validateIdempotencyKey(key: unknown, toolName: string): { valid: false;
       error: {
         success: false,
         error: {
-          code: "INVALID_IDEMPOTENCY_KEY",
+          code: INVALID_IDEMPOTENCY_KEY,
           message: typeof key !== "string" || key.length === 0
             ? "Idempotency key is required and must be a non-empty string."
             : `Idempotency key exceeds maximum length of ${MAX_IDEMPOTENCY_KEY_LENGTH} characters.`,
@@ -54,7 +55,7 @@ function validateIdempotencyKey(key: unknown, toolName: string): { valid: false;
       error: {
         success: false,
         error: {
-          code: "INVALID_IDEMPOTENCY_KEY",
+          code: INVALID_IDEMPOTENCY_KEY,
           message: "The idempotency key contains invalid characters. Keys must be printable ASCII (no control characters, newlines, or non-ASCII bytes).",
           suggestedTools: [toolName],
           context: { keyPrefix: safeKey },
@@ -118,7 +119,7 @@ function handleUnhashableInput(toolName: string): ToolResult {
   return {
     success: false,
     error: {
-      code: "IDEMPOTENCY_UNAVAILABLE",
+      code: IDEMPOTENCY_UNAVAILABLE,
       // Fail CLOSED. The previous behaviour passed the request through
       // WITHOUT creating an idempotency record, so the write executed with
       // deduplication silently disabled and the agent was never told — a
@@ -147,7 +148,7 @@ function handleRecordContention(key: string, toolName: string): ToolResult {
   return {
     success: false,
     error: {
-      code: "IDEMPOTENCY_CONTENTION",
+      code: IDEMPOTENCY_CONTENTION,
       // P2034 exhaustion means a concurrent request is racing on the SAME
       // (key, tenant) row — this is serialization contention, not an
       // infrastructure failure, so retrying with a NEW key would not help
@@ -179,8 +180,12 @@ export function idempotencyMiddleware(prisma: PrismaClient): ToolMiddleware {
     if (hashOutcome.status === "unhashable") return handleUnhashableInput(definition.name);
     const inputHash = hashOutcome.hash;
 
+    // The SANITIZED identity is what the durable record stores, so it is
+    // also what the caller-identity comparison must use.
+    const { safeUserId, safeAgentId, safeConversationId } = sanitizeIdentityFields(userId, agentId, conversationId);
+
     const { existingRecord, recordCreated, unavailable } = await acquireIdempotencyRecord(
-      prisma, keyResult.key, tenantId, userId, agentId, conversationId, definition.name, inputHash,
+      prisma, keyResult.key, tenantId, safeUserId, safeAgentId, safeConversationId, definition.name, inputHash,
     );
 
     if (!recordCreated && !existingRecord) {
@@ -190,7 +195,7 @@ export function idempotencyMiddleware(prisma: PrismaClient): ToolMiddleware {
     }
 
     if (existingRecord) {
-      return handleExistingRecord(existingRecord, inputHash, keyResult.key, definition.name);
+      return handleExistingRecord(existingRecord, inputHash, keyResult.key, definition.name, safeUserId, safeAgentId);
     }
 
     return executeAndUpdate(prisma, keyResult.key, tenantId, input, context, next);
@@ -267,8 +272,8 @@ async function readIdempotencyRecord(
 }
 
 async function acquireIdempotencyRecord(
-  prisma: PrismaClient, idempotencyKey: string, tenantId: string, userId: string,
-  agentId: string | undefined, conversationId: string | undefined,
+  prisma: PrismaClient, idempotencyKey: string, tenantId: string,
+  safeUserId: string, safeAgentId: string | undefined, safeConversationId: string | undefined,
   toolName: string, inputHash: string,
 ): Promise<{ existingRecord: IdempotencyRecord | null; recordCreated: boolean; unavailable?: boolean }> {
   for (let attempt = 0; attempt < IDEMPOTENCY_MAX_RETRIES; attempt++) {
@@ -277,30 +282,6 @@ async function acquireIdempotencyRecord(
         const record = await tx.idempotencyRecord.findUnique({ where: { idempotencyKey_tenantId: { idempotencyKey, tenantId } } });
 
         if (!record) {
-          // Sanitize identity fields before persisting to the durable
-          // idempotency_record table. `userId`/`agentId`/`conversationId` are
-          // caller-supplied and may embed secrets (connection strings,
-          // `?api_key=…`); the raw values were already format-validated by
-          // `buildContext` and `validateContextIdentity`, but sanitization is
-          // still required so the durable sink never stores a raw secret.
-          //
-          // `keepOpaqueTokens: true` matches the AUDIT sink exactly (see
-          // audit-log.ts's `sanitizeIdentityField`). Without it the generic
-          // long-token rule rewrote every 20-128 character id that mixed
-          // letters and digits to "[REDACTED_TOKEN]" — so the SAME
-          // conversationId was stored verbatim in `ai_action_log` and
-          // destroyed in `idempotency_record`. The two durable sinks
-          // disagreed about who performed the operation, and the idempotency
-          // row could no longer be correlated to the audit row, to the user
-          // or to the agent. The recognised-secret rules still apply, so a
-          // secret embedded in an identity field is still scrubbed.
-          const safeUserId = sanitizeForLogOutput(stripHtmlTags(userId), { keepOpaqueTokens: true }).slice(0, MAX_USER_ID_LENGTH);
-          const safeAgentId = agentId !== undefined
-            ? sanitizeForLogOutput(stripHtmlTags(agentId), { keepOpaqueTokens: true }).slice(0, MAX_AGENT_ID_LENGTH)
-            : undefined;
-          const safeConversationId = conversationId !== undefined
-            ? sanitizeForLogOutput(stripHtmlTags(conversationId), { keepOpaqueTokens: true }).slice(0, MAX_CONVERSATION_ID_LENGTH)
-            : undefined;
           await tx.idempotencyRecord.create({
             data: {
               idempotencyKey, toolName, tenantId, userId: safeUserId,
@@ -313,11 +294,12 @@ async function acquireIdempotencyRecord(
         }
 
         if (record.status === "failed") {
-          if (record.inputHash !== inputHash || record.toolName !== toolName) {
-            // Different input OR a different tool reusing the key: do NOT
-            // reset-and-re-execute — the caller must use a new key. Routing
-            // the existing record back surfaces the mismatch error via
-            // handleExistingRecord (which now also checks toolName).
+          if (!canClaimRecord(record, inputHash, toolName, safeUserId, safeAgentId)) {
+            // Different input, a different tool reusing the key, or a
+            // DIFFERENT CALLER: do NOT reset-and-re-execute — the caller must
+            // use a new key. Routing the existing record back surfaces the
+            // mismatch error via handleExistingRecord (which now also checks
+            // toolName and the caller identity).
             return { existing: record, created: false };
           }
           await tx.idempotencyRecord.update({
@@ -348,6 +330,11 @@ async function acquireIdempotencyRecord(
           // as a brand-new record so the caller can proceed (the next acquire
           // attempt will create a fresh row).
           if (!record.createdAt) {
+            // The same guard as the other reset branches: only claim the
+            // record when it belongs to this caller, this tool and this input.
+            if (!canClaimRecord(record, inputHash, toolName, safeUserId, safeAgentId)) {
+              return { existing: record, created: false };
+            }
             await tx.idempotencyRecord.update({
               where: { idempotencyKey_tenantId: { idempotencyKey, tenantId } },
               data: { status: "pending", inputHash, createdAt: new Date(), expiresAt: new Date(Date.now() + IDEMPOTENCY_TTL_MS), error: Prisma.DbNull },
@@ -360,8 +347,9 @@ async function acquireIdempotencyRecord(
             // before completing. Reset to pending so this request can proceed.
             // Only allow reset if the input hash matches AND the tool is the
             // same to prevent a stale record from being reset for a different
-            // operation or a different tool reusing the key.
-            if (record.inputHash !== inputHash || record.toolName !== toolName) {
+            // operation or a different tool reusing the key. The caller
+            // identity must match too, for the same reason.
+            if (!canClaimRecord(record, inputHash, toolName, safeUserId, safeAgentId)) {
               return { existing: record, created: false };
             }
             await tx.idempotencyRecord.update({
@@ -427,12 +415,110 @@ async function acquireIdempotencyRecord(
   return { existingRecord: null, recordCreated: false };
 }
 
+/**
+ * Sanitize the identity fields before they are persisted to (and compared
+ * against) the durable `idempotency_record` table.
+ *
+ * `userId`/`agentId`/`conversationId` are caller-supplied and may embed
+ * secrets (connection strings, `?api_key=…`); the raw values were already
+ * format-validated by `buildContext` and `validateContextIdentity`, but
+ * sanitization is still required so the durable sink never stores a raw
+ * secret.
+ *
+ * `keepOpaqueTokens: true` matches the AUDIT sink exactly (see
+ * audit-log.ts's `sanitizeIdentityField`). Without it the generic
+ * long-token rule rewrote every 20-128 character id that mixed letters and
+ * digits to "[REDACTED_TOKEN]" — so the SAME conversationId was stored
+ * verbatim in `ai_action_log` and destroyed in `idempotency_record`. The
+ * two durable sinks disagreed about who performed the operation, and the
+ * idempotency row could no longer be correlated to the audit row, to the
+ * user or to the agent. The recognised-secret rules still apply, so a
+ * secret embedded in an identity field is still scrubbed.
+ *
+ * The SANITIZED values are what gets stored, so they are also what the
+ * caller-identity comparison must use — comparing the raw context value
+ * against the stored sanitized value would report a mismatch for the very
+ * caller that created the record.
+ */
+function sanitizeIdentityFields(
+  userId: string, agentId: string | undefined, conversationId: string | undefined,
+): { safeUserId: string; safeAgentId: string | undefined; safeConversationId: string | undefined } {
+  return {
+    safeUserId: sanitizeForLogOutput(stripHtmlTags(userId), { keepOpaqueTokens: true }).slice(0, MAX_USER_ID_LENGTH),
+    safeAgentId: agentId !== undefined
+      ? sanitizeForLogOutput(stripHtmlTags(agentId), { keepOpaqueTokens: true }).slice(0, MAX_AGENT_ID_LENGTH)
+      : undefined,
+    safeConversationId: conversationId !== undefined
+      ? sanitizeForLogOutput(stripHtmlTags(conversationId), { keepOpaqueTokens: true }).slice(0, MAX_CONVERSATION_ID_LENGTH)
+      : undefined,
+  };
+}
+
+/**
+ * True when the stored record belongs to the same CALLER as the current
+ * request.
+ *
+ * The idempotency record's primary key is `(idempotencyKey, tenantId)` —
+ * the key is tenant-scoped, not user-scoped. Two different users in the
+ * same tenant can therefore collide on the same key, and the stored
+ * `userId`/`agentId` were never compared. The second user received the
+ * FIRST user's stored result as a `success: true` replay — a cross-user
+ * disclosure of another user's entity payload, and the second user's own
+ * operation never ran.
+ *
+ * The caller identity is part of the deduplication identity: a key is one
+ * operation by one caller, so a collision across callers is a mismatch
+ * (use a new key), not a replay.
+ */
+function isSameCaller(existing: IdempotencyRecord, userId: string, agentId: string | undefined): boolean {
+  if (existing.userId !== userId) return false;
+  const storedAgent = existing.agentId ?? null;
+  const currentAgent = agentId ?? null;
+  return storedAgent === currentAgent;
+}
+
+/**
+ * True when this request may CLAIM the stored record — that is, when it
+ * belongs to the same caller, the same tool and the same input.
+ *
+ * Every reset branch (failed → pending, stale pending → pending, and the
+ * null-createdAt recovery) uses this single predicate, so a record can never
+ * be reclaimed for a different operation, a different tool, or a different
+ * CALLER.
+ */
+function canClaimRecord(
+  record: IdempotencyRecord, inputHash: string, toolName: string,
+  safeUserId: string, safeAgentId: string | undefined,
+): boolean {
+  return record.inputHash === inputHash
+    && record.toolName === toolName
+    && isSameCaller(record, safeUserId, safeAgentId);
+}
+
+/**
+ * The error returned when a key is already owned by a different caller.
+ */
+function callerMismatchError(
+  idempotencyKey: string, toolName: string,
+): ToolResult {
+  return {
+    success: false,
+    error: {
+      code: IDEMPOTENCY_KEY_MISMATCH,
+      message: `Idempotency key '${redactKey(idempotencyKey)}' was already used by another caller in this tenant. ` +
+        `Idempotency keys are scoped to a single caller — use a new idempotency key for a different operation.`,
+      suggestedTools: [toolName],
+    },
+  };
+}
+
 function handleExistingRecord(
   existing: IdempotencyRecord, inputHash: string,
   idempotencyKey: string, toolName: string,
+  userId: string, agentId: string | undefined,
 ): ToolResult {
-  // An idempotency key identifies ONE operation. The record's PK is
-  // (idempotencyKey, tenantId) and the input hash is computed over the
+  // An idempotency key identifies ONE operation by ONE caller. The record's
+  // PK is (idempotencyKey, tenantId) and the input hash is computed over the
   // Zod-normalized input only (no tool component), so a caller that reuses a
   // key for a DIFFERENT tool with an identical input shape would otherwise
   // replay the first tool's cached result as if it were the second tool's —
@@ -445,19 +531,25 @@ function handleExistingRecord(
     return {
       success: false,
       error: {
-        code: "IDEMPOTENCY_KEY_MISMATCH",
+        code: IDEMPOTENCY_KEY_MISMATCH,
         message: `Idempotency key '${redactKey(idempotencyKey)}' was already used by tool '${sanitizeForLogOutput(existing.toolName)}'. ` +
           `Use a new idempotency key for a different operation.`,
         suggestedTools: [toolName],
       },
     };
   }
+  // The key belongs to a DIFFERENT caller. Replaying their result would
+  // disclose their entity payload and silently skip this caller's own
+  // operation, so it is a mismatch — the caller must use a fresh key.
+  if (!isSameCaller(existing, userId, agentId)) {
+    return callerMismatchError(idempotencyKey, toolName);
+  }
   if (existing.status === "completed") {
     if (existing.inputHash !== inputHash) {
       return {
         success: false,
         error: {
-          code: "IDEMPOTENCY_KEY_MISMATCH",
+          code: IDEMPOTENCY_KEY_MISMATCH,
           message: `Idempotency key '${redactKey(idempotencyKey)}' was already used with different input. Use a new idempotency key for a different operation.`,
           suggestedTools: [toolName],
           context: { originalInputHash: existing.inputHash },
@@ -491,7 +583,7 @@ function handleExistingRecord(
         return {
           success: false,
           error: {
-            code: "IDEMPOTENCY_KEY_MISMATCH",
+            code: IDEMPOTENCY_KEY_MISMATCH,
             message: `Idempotency key '${redactKey(idempotencyKey)}' has a corrupted pending record (missing createdAt). Retry with a new idempotency key.`,
             suggestedTools: [toolName],
           },
@@ -502,7 +594,7 @@ function handleExistingRecord(
         return {
           success: false,
           error: {
-            code: "STALE_PENDING_RECORD",
+            code: STALE_PENDING_RECORD,
             message: `Idempotency key '${redactKey(idempotencyKey)}' has a stale pending record (${Math.round(pendingAge / 1000)}s old) with different input. The previous request likely crashed. Retry with a new idempotency key.`,
             suggestedTools: [toolName],
           },
@@ -511,7 +603,7 @@ function handleExistingRecord(
       return {
         success: false,
         error: {
-          code: "IDEMPOTENCY_KEY_MISMATCH",
+          code: IDEMPOTENCY_KEY_MISMATCH,
           message: `Idempotency key '${redactKey(idempotencyKey)}' is in use with different input. Use a new idempotency key.`,
           suggestedTools: [toolName],
         },
@@ -520,7 +612,7 @@ function handleExistingRecord(
     return {
       success: false,
       error: {
-        code: "REQUEST_IN_PROGRESS",
+        code: REQUEST_IN_PROGRESS,
         message: `A request with idempotency key '${redactKey(idempotencyKey)}' is already in progress. Wait and retry.`,
         suggestedTools: [toolName],
       },
@@ -532,7 +624,7 @@ function handleExistingRecord(
       return {
         success: false,
         error: {
-          code: "IDEMPOTENCY_KEY_MISMATCH",
+          code: IDEMPOTENCY_KEY_MISMATCH,
           message: `Idempotency key '${redactKey(idempotencyKey)}' was previously used with different input. Use a new idempotency key.`,
           suggestedTools: [toolName],
           context: { originalInputHash: existing.inputHash },
@@ -551,7 +643,7 @@ function handleExistingRecord(
     return {
       success: false,
       error: {
-        code: "REQUEST_IN_PROGRESS",
+        code: REQUEST_IN_PROGRESS,
         message: `Idempotency key '${redactKey(idempotencyKey)}' has a failed record that is being reset. Wait and retry.`,
         suggestedTools: [toolName],
       },
@@ -561,7 +653,7 @@ function handleExistingRecord(
   return {
     success: false,
     error: {
-      code: "IDEMPOTENCY_UNKNOWN_STATUS",
+      code: IDEMPOTENCY_UNKNOWN_STATUS,
       message: `Unexpected idempotency status '${existing.status}' for key '${redactKey(idempotencyKey)}'. Retry with a new idempotency key.`,
       suggestedTools: [toolName],
       context: { status: existing.status },

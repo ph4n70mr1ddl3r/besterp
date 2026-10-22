@@ -2,7 +2,8 @@
 // Tests Zod schema validation, entity filtering, delegate access, HTML sanitization, and transition lookup
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { ToolRegistry, type ToolContext } from "@besterp/mcp-tools";
+import { ToolRegistry, MCP_ERROR_CODES, type ToolContext } from "@besterp/mcp-tools";
+import { DOMAIN_ERROR_CODES } from "@besterp/shared";
 import { registerDiscoveryTools } from "./discovery-tools.js";
 import type { PrismaClient } from "@prisma/client";
 
@@ -483,6 +484,52 @@ describe("Discovery MCP Tools", () => {
       expect(result.success !== false || result.error?.code !== "INVALID_INPUT").toBe(true);
     });
 
+    it("should search BOTH entity types when no entity is named (receiver must stay bound)", async () => {
+      // Regression: the universal path extracted the search method off the
+      // service object and invoked it as a BARE function, so `this` was
+      // undefined inside the class method and the very first statement
+      // (`this.prisma.tenantScoped(...)`) threw. Every universal search
+      // failed with "Cannot read properties of undefined (reading 'prisma')"
+      // and reported SERVICE_UNAVAILABLE — telling the agent to retry a
+      // request that could never succeed.
+      //
+      // The mocks below are CLASS INSTANCES whose methods dereference
+      // `this`, exactly like the real services. A bare `vi.fn()` mock has no
+      // `this` dependency, which is why the bug escaped the suite.
+      class PartyServiceStub {
+        readonly prisma = { tenantScoped: (_tenantId: string) => ({}) };
+        async searchParties(input: { tenantId: string; name?: string }) {
+          this.prisma.tenantScoped(input.tenantId);
+          return { items: [{ partyId: "p1", name: input.name }], total: 1 };
+        }
+      }
+      class ProductServiceStub {
+        readonly prisma = { tenantScoped: (_tenantId: string) => ({}) };
+        async searchProducts(input: { tenantId: string; name?: string }) {
+          this.prisma.tenantScoped(input.tenantId);
+          return { items: [{ productId: "pr1", name: input.name }], total: 1 };
+        }
+      }
+
+      const result = await registry.execute(
+        "search_across_entities",
+        { query: "Acme" },
+        {
+          ...mockContext,
+          services: {
+            partyService: new PartyServiceStub(),
+            productService: new ProductServiceStub(),
+          },
+        },
+      );
+
+      expect(result.success).toBe(true);
+      const data = result.data as { results: { party: unknown; product: unknown }; partialFailure?: boolean };
+      expect(data.partialFailure).toBeUndefined();
+      expect(data.results.party).toMatchObject({ total: 1 });
+      expect(data.results.product).toMatchObject({ total: 1 });
+    });
+
     it("should report a structured failure when every entity search fails", async () => {
       // A rejected branch must not be reported as "no results" — a database
       // outage or a DomainError is otherwise indistinguishable from a
@@ -578,6 +625,26 @@ describe("Discovery MCP Tools", () => {
         "INTERNAL_ERROR",
         "UNKNOWN_TOOL",
       ]) {
+        const result = await registry.execute("explain_error", { errorCode: code }, mockContext);
+        expect(result.success, `expected an explanation for ${code}`).toBe(true);
+        const data = result.data as { errorCode: string; message: string };
+        expect(data.errorCode).toBe(code);
+        expect(data.message.length).toBeGreaterThan(0);
+      }
+    });
+
+    it("should explain EVERY error code the MCP framework can emit", async () => {
+      // `explain_error` is the documented recovery surface for an agent that
+      // meets an unfamiliar code. The inventory of codes was implicit — they
+      // were scattered across the middleware as string literals — so the
+      // explanation table silently fell behind: `explain_error({errorCode:
+      // "AGENT_CAPABILITY_DENIED"})` — the single most frequent agent-policy
+      // rejection — answered UNKNOWN_ERROR_CODE.
+      //
+      // The inventory is now published (`MCP_ERROR_CODES` /
+      // `DOMAIN_ERROR_CODES`), so the table cannot fall behind again.
+      const codes = [...MCP_ERROR_CODES, ...DOMAIN_ERROR_CODES];
+      for (const code of codes) {
         const result = await registry.execute("explain_error", { errorCode: code }, mockContext);
         expect(result.success, `expected an explanation for ${code}`).toBe(true);
         const data = result.data as { errorCode: string; message: string };

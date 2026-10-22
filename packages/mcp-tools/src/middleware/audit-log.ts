@@ -72,6 +72,63 @@ export function auditLogMiddleware(prisma: PrismaClient): ToolMiddleware {
   return (input, context, definition, next) => executeAndLog(prisma, backpressure, input, context, definition, next);
 }
 
+/**
+ * A tool call that was rejected BEFORE the middleware pipeline ran.
+ *
+ * The pipeline is composed PER TOOL, so a rejection that happens before the
+ * tool is even looked up (an unknown tool name, a conflicting idempotency
+ * key) never reaches the audit middleware — the attempt was invisible in the
+ * durable trail. A hallucinated tool call is one of the most useful
+ * agent-behaviour signals an ERP has, so it must be recorded.
+ */
+export interface RejectedToolCall {
+  /** The tool name the caller asked for. */
+  toolName: string;
+  /** The validated caller identity. */
+  context: ToolContext;
+  /** The machine-readable rejection code (e.g. "UNKNOWN_TOOL"). */
+  code: string;
+  /** The human-readable rejection message. */
+  message: string;
+  /** The raw tool arguments, when they are available. */
+  input?: unknown;
+}
+
+/**
+ * Create a callback that records a pre-pipeline rejection in the durable
+ * audit trail.
+ *
+ * The write goes through the SAME backpressure manager and the SAME entry
+ * builder as the audit middleware, so a rejection row is shaped identically
+ * to any other audit row (sanitized identity, redacted input, capped
+ * output). Fire-and-forget: a failure to write the audit row must never
+ * change the outcome of the call.
+ */
+export function createRejectionAuditor(prisma: PrismaClient): (rejection: RejectedToolCall) => void {
+  const backpressure = createBackpressureManager(prisma);
+
+  return (rejection: RejectedToolCall): void => {
+    if (!prisma?.aiActionLog) return;
+    try {
+      const base = createBaseEntry(rejection.context, { name: rejection.toolName }, rejection.input ?? {});
+      backpressure.log({
+        ...base,
+        toolOutput: {
+          error: {
+            message: capString(sanitizeForLogOutput(rejection.message), MAX_SOFT_FAILURE_MESSAGE_SIZE),
+            // Stored under `errorCode` (not `code`) so the shared redactor does
+            // not rewrite the machine-readable failure code to "[REDACTED]" —
+            // see formatSoftFailureOutput for the full rationale.
+            errorCode: capString(sanitizeForLogOutput(rejection.code), MAX_SOFT_FAILURE_MESSAGE_SIZE) || undefined,
+          },
+        },
+      });
+    } catch {
+      // The audit path must never break the call it is recording.
+    }
+  };
+}
+
 function createBaseEntry(context: { agentId?: string; conversationId?: string; reasoning?: string; confirmation?: string; userId: string; tenantId: string }, definition: { name: string }, input: unknown): Omit<AuditLogEntry, "toolOutput"> {
   // `reasoning` originates from the AI agent / tool-call context, which is
   // attacker-influenceable (any string may be supplied in the MCP request
@@ -250,9 +307,10 @@ function sanitizeReasoning(value: unknown): string | null {
  *
  * Extracted so `executeAndLog` stays within the lint complexity cap. Mirrors
  * the throw branch (sanitized + capped message and code) so the ai_action_log
- * row captures failure detail on the path that ACTUALLY fires in production —
- * the OUTERMOST errorHandlerMiddleware converts every thrown error into a
- * non-thrown ToolResult, so the throw branch never runs for real failures.
+ * row captures the failure detail either way: this branch handles a failure
+ * the handler RETURNED, the catch branch handles a failure the handler
+ * THREW. (The errorHandler middleware is OUTSIDE the audit middleware, so the
+ * audit middleware's catch runs first — both branches are live.)
  *
  * The machine-readable code is stored under `errorCode`, NOT `code`: the
  * shared redactor treats the exact key `code` as a sensitive field name and
@@ -309,14 +367,19 @@ async function executeAndLog(prisma: PrismaClient, backpressure: BackpressureMan
     throw error;
   }
 
-  // Soft-failure results (success:false) are the path that ACTUALLY fires in
-  // production: the OUTERMEST errorHandlerMiddleware converts every thrown
-  // error into a non-thrown ToolResult before the throw branch above could run,
-  // so real failures (validation, domain, Prisma) never reach it and would be
-  // persisted with `toolOutput: null` — losing every failure's error from the
-  // durable ai_action_log trail. Persist the sanitized error detail instead,
-  // mirroring the throw branch (the machine-readable code is kept under
-  // `errorCode` so the shared redactor does not blank it out).
+  // A RETURNED soft-failure result (success:false) is one of the two paths
+  // that records a failure in the durable trail. The other is the catch
+  // branch above, which handles a THROWN error.
+  //
+  // The comment that used to sit here claimed the catch branch was dead code
+  // ("the OUTERMEST errorHandlerMiddleware converts every thrown error into a
+  // non-thrown ToolResult before the throw branch above could run"). That is
+  // backwards: the errorHandler is OUTSIDE the audit middleware, so the
+  // audit middleware's catch runs FIRST and is the LIVE path for a thrown
+  // error. The catch branch records every thrown DomainError/Prisma error;
+  // this branch records every failure the handler RETURNED. Deleting the
+  // catch branch on the strength of the old comment would have silently lost
+  // every thrown-error audit row.
   const auditWrite = backpressure.log({
     ...base,
     toolOutput: result.success ? result.data ?? null : formatSoftFailureOutput(result),

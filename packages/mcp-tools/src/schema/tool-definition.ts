@@ -185,6 +185,42 @@ export interface ToolDefinition<TResult = unknown> {
 // ─── Middleware ────────────────────────────────────────────────────
 
 /**
+ * The production middleware pipeline, outermost → innermost.
+ *
+ * This is the SINGLE published contract for the pipeline order. It used to
+ * live only as a comment in this file and had already drifted from the
+ * implementation: the `agentPolicy` stage was missing, together with the
+ * ordering rule that DEPENDS on it (an agent that may not call a tool at all
+ * must not be able to "unlock" it by supplying a confirmation). A middleware
+ * author following the published contract would have placed the
+ * confirmation gate outside the agent policy and silently reopened that
+ * bypass.
+ *
+ * The order and the rules that depend on it:
+ *
+ *   1. `errorHandler` — outermost, so it converts EVERY thrown error (from
+ *      any middleware or the handler) into a structured result.
+ *   2. `auditLog` — wraps every guard, so a rejection at any inner layer is
+ *      recorded in the durable audit trail.
+ *   3. `agentPolicy` — after `auditLog` (a rejected agent call must still be
+ *      recorded) and before `confirmationGate` (an agent that may not call
+ *      the tool at all must not be able to unlock it with a confirmation).
+ *   4. `confirmationGate` — before `idempotency`, so a request rejected for a
+ *      missing confirmation does not consume the caller's idempotency key.
+ *   5. `idempotency` — innermost of the guards, so it hashes exactly what
+ *      the handler will execute.
+ *   6. `handler` — the tool itself.
+ */
+export const PRODUCTION_PIPELINE_ORDER = [
+  "errorHandler",
+  "auditLog",
+  "agentPolicy",
+  "confirmationGate",
+  "idempotency",
+  "handler",
+] as const;
+
+/**
  * Middleware function that wraps tool execution.
  *
  * Middlewares form a pipeline. Each middleware receives the input, context,
@@ -192,14 +228,10 @@ export interface ToolDefinition<TResult = unknown> {
  * final handler).
  *
  * The production pipeline (see apps/api/src/mcp/mcp.service.ts) is:
- *   errorHandler → audit → confirmationGate → idempotency → handler
+ *   errorHandler → auditLog → agentPolicy → confirmationGate → idempotency → handler
  *
- * `errorHandler` must be outermost so it converts every thrown error into a
- * structured result; `audit` wraps the rest so failures at any inner layer
- * are recorded; `confirmationGate` runs BEFORE `idempotency` so a request
- * rejected for a missing confirmation does not consume the caller's
- * idempotency key; `idempotency` is innermost of the guards so it hashes
- * exactly what the handler will execute.
+ * See {@link PRODUCTION_PIPELINE_ORDER} for the rules each position
+ * depends on.
  */
 export type ToolMiddleware = (
   input: unknown,

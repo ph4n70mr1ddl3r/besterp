@@ -13,6 +13,7 @@ export {
   ConcurrencyRetryError,
   InvalidTenantIdError,
   TenantContextFailedError,
+  DOMAIN_ERROR_CODES,
   isDomainError,
   getErrorCode,
 } from "./errors.js";

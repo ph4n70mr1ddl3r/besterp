@@ -787,6 +787,37 @@ describe("redactSensitiveFieldValues", () => {
     expect((out.note as string)).toContain("[DATABASE_URL]");
   });
 
+  it("leaves an ABSENT value under a sensitive key absent", () => {
+    // Absence is not secrecy. Replacing `null` with "[REDACTED]" made "no
+    // birth date on file" indistinguishable from "a birth date we refuse to
+    // disclose", so every party without one reported one, and an agent
+    // could not tell whether the field it wrote was actually stored.
+    const out = redactSensitiveFieldValues({
+      person: { firstName: "Jane", birthDate: null, taxId: null },
+      middleName: null,
+    }) as { person: Record<string, unknown>; middleName: unknown };
+    expect(out.person.birthDate).toBeNull();
+    expect(out.person.taxId).toBeNull();
+    expect(out.person.firstName).toBe("Jane");
+    expect(out.middleName).toBeNull();
+  });
+
+  it("still redacts a PRESENT value under a sensitive key", () => {
+    const out = redactSensitiveFieldValues({
+      person: { birthDate: "1990-06-15" },
+      password: "",
+    }) as { person: Record<string, unknown>; password: unknown };
+    expect(out.person.birthDate).toBe("[REDACTED]");
+    // An empty string is still a value; it must not become "absent".
+    expect(out.password).toBe("[REDACTED]");
+  });
+
+  it("leaves an absent value under a sensitive Map key absent", () => {
+    const input = new Map<string, unknown>([["password", null]]);
+    const out = redactSensitiveFieldValues(input) as Array<[unknown, unknown]>;
+    expect(out[0][1]).toBeNull();
+  });
+
   it("guards against circular references", () => {
     const obj: Record<string, unknown> = {};
     obj.self = obj;
@@ -1176,6 +1207,50 @@ describe("free-text secret rules agree with the field-name rules", () => {
     const bearer = sanitizeForLogOutput("Authorization: Bearer sk_live_abc123xyz");
     expect(bearer).toContain("Bearer [REDACTED]");
     expect(bearer).not.toContain("sk_live_abc123xyz");
+  });
+});
+
+describe("free-text secret rules — single-quoted keys and digit-leading names", () => {
+  it("redacts a secret under a SINGLE-quoted key", () => {
+    // The quoted-value rule accepted a single-quoted VALUE but only a
+    // double-quoted NAME, so a single-quoted map (a Python `repr`, a JS
+    // object literal, a YAML-ish dump) leaked the secret verbatim while the
+    // identical double-quoted map was redacted.
+    const cases: Array<[string, string]> = [
+      ["{'api_key':'sk_live_abc123'}", "sk_live_abc123"],
+      ["{'password':'hunter2'}", "hunter2"],
+      ["{'client_secret':'abc123xyz789'}", "abc123xyz789"],
+      ["{'api_key': 'sk_live_abc123'}", "sk_live_abc123"],
+      ["{'api_key': sk_live_abc123}", "sk_live_abc123"],
+    ];
+    for (const [input, secret] of cases) {
+      const out = sanitizeForLogOutput(input);
+      expect(out).not.toContain(secret);
+      expect(out).toContain("[REDACTED]");
+    }
+  });
+
+  it("keeps a single-quoted map parseable enough to stay recognisable", () => {
+    const out = sanitizeForLogOutput("{'api_key':'sk_live_abc123'}");
+    expect(out).toBe("{'api_key':'[REDACTED]'}");
+  });
+
+  it("redacts a secret whose name starts with a digit", () => {
+    // `isSensitiveFieldName("2fa_secret")` is true (token fallback: `2fa` +
+    // `secret`), so the SAME name was redacted as an object key but leaked
+    // verbatim in free text. The generic long-token rule could not save it
+    // either: the run is 19 characters, one below that rule's minimum.
+    for (const input of ["2fa_secret=abc123", "3ds_secret=abc123"]) {
+      const out = sanitizeForLogOutput(input);
+      expect(out).not.toContain("abc123");
+      expect(out).toContain("[REDACTED]");
+    }
+  });
+
+  it("still leaves numeric and benign assignments untouched", () => {
+    for (const input of ["2=2", "1234=5678", "status code=200 ok", "primary_key=abc"]) {
+      expect(sanitizeForLogOutput(input)).toBe(input);
+    }
   });
 });
 

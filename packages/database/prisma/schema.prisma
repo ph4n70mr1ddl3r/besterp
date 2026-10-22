@@ -170,6 +170,9 @@ model ContactMechanism {
   emailAddress         EmailAddress?
 
   @@index([tenantId])
+  // Every other foreign-key column in the schema has a supporting index;
+  // this one was missed (see migration 20261022000000).
+  @@index([contactMechanismTypeId])
   @@map("contact_mechanism")
 }
 

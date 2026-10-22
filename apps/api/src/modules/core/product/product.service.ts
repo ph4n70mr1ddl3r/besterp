@@ -10,6 +10,8 @@ import type { TenantScopedClient } from "@besterp/database";
 import {
   InvalidTypeValueError,
   EntityNotFoundError,
+  ConcurrencyConflictError,
+  getPrismaErrorCode,
   UUID_REGEX,
   sanitizeForLogOutput,
   stripHtmlTags,
@@ -316,7 +318,7 @@ export class ProductService {
   // ─── Update Product ───────────────────────────────────────────
 
   async updateProduct(input: UpdateProductInput): Promise<ProductResult> {
-    const { tenantId, productId: rawProductId, ...updates } = input;
+    const { tenantId, productId: rawProductId, expectedVersion, ...updates } = input;
 
     const trimmedTenantId = ProductService.requireStringField(tenantId, "tenantId", MAX_TENANT_ID_LENGTH, "update_product");
     const productId = ProductService.requireUuid(rawProductId, "productId", ["update_product"]);
@@ -330,15 +332,94 @@ export class ProductService {
       throw new InvalidTypeValueError("No update fields provided.", { suggestedTools: ["update_product"] });
     }
 
+    // OPTIMISTIC CONCURRENCY
+    // The `version` column existed but was never read, never checked and
+    // never incremented, so two concurrent updates were plain
+    // last-write-wins: the first write was silently lost and the README's
+    // "optimistic concurrency prevents lost updates" was not implemented.
+    //
+    // The version is now incremented on EVERY update, and when the caller
+    // supplies `expectedVersion` the write is PREDICATED on it. A caller
+    // that reads a product, edits it and writes back the version it read is
+    // protected against a concurrent writer; a caller that does not supply
+    // the version keeps the last-write-wins behaviour (and still sees the
+    // new version in the response).
+    const version = ProductService.validateExpectedVersion(expectedVersion);
+    updateData.version = { increment: 1 };
+
     try {
       const product = await db.product.update({
-        where: { productId, tenantId: trimmedTenantId },
+        where: {
+          productId,
+          tenantId: trimmedTenantId,
+          ...(version !== undefined ? { version } : {}),
+        },
         data: updateData,
         select: { productId: true, productTypeId: true, tenantId: true, name: true, description: true, sku: true, version: true, createdAt: true, updatedAt: true },
       });
       return ProductService.toProductResult(product);
     } catch (err: unknown) {
+      // A P2025 under the version predicate means "the row no longer
+      // matches" — which is either "it does not exist" or "somebody else
+      // updated it first". The two mean different things to the caller, so
+      // they are distinguished by re-reading the row.
+      if (version !== undefined && getPrismaErrorCode(err) === "P2025") {
+        const stillThere = await ProductService.productExists(this.prisma, trimmedTenantId, productId);
+        if (stillThere) {
+          throw new ConcurrencyConflictError(
+            "The product was modified by another operation since you read it. " +
+            "Re-read the product and retry the update with the current version.",
+            { suggestedTools: ["get_product", "update_product"], context: { expectedVersion: version } },
+          );
+        }
+      }
       throw mapPrismaError(err, "update_product", "update_product", "product");
+    }
+  }
+
+  /**
+   * Validate the optional `expectedVersion` field.
+   *
+   * It must be a positive integer: a negative or fractional version can
+   * never match a stored version, so it is rejected up front with an
+   * actionable error instead of silently turning every update into a
+   * conflict.
+   */
+  private static validateExpectedVersion(expectedVersion: number | undefined): number | undefined {
+    if (expectedVersion === undefined) return undefined;
+    if (typeof expectedVersion !== "number" || !Number.isInteger(expectedVersion) || expectedVersion < 1) {
+      throw new InvalidTypeValueError(
+        "expectedVersion must be a positive integer.",
+        { suggestedTools: ["update_product"], context: { field: "expectedVersion" } },
+      );
+    }
+    return expectedVersion;
+  }
+
+  /**
+   * True when the product still exists in the tenant.
+   *
+   * Used to tell a lost-update conflict apart from a genuinely missing
+   * product after a version-predicated update missed.
+   */
+  private static async productExists(
+    prisma: PrismaService,
+    tenantId: string,
+    productId: string,
+  ): Promise<boolean> {
+    try {
+      const db: TenantScopedClient = prisma.tenantScoped(tenantId);
+      const existing = await db.product.findUnique({
+        where: { productId },
+        select: { productId: true },
+      });
+      return existing !== null;
+    } catch {
+      // If the re-read itself fails, the conflict cannot be confirmed —
+      // report it as a conflict rather than as "not found", because a
+      // misleading 404 would send the caller looking for a product that
+      // exists.
+      return true;
     }
   }
 

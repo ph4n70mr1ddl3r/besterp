@@ -260,6 +260,26 @@ export class TenantContextFailedError extends DomainError {
 }
 
 /**
+ * Every machine-readable code the shared domain errors can carry.
+ *
+ * Exported so a consumer that explains error codes to an AI agent (the MCP
+ * `explain_error` tool) can assert that EVERY code it can receive has an
+ * explanation. The list was previously implicit — the codes were scattered
+ * across the class bodies — so a new error class silently produced an
+ * "unknown error code" answer for the agent that hit it.
+ */
+export const DOMAIN_ERROR_CODES = Object.freeze([
+  MissingSubtypeDataError.CODE,
+  InvalidTypeValueError.CODE,
+  DuplicateEntityError.CODE,
+  EntityNotFoundError.CODE,
+  ConcurrencyConflictError.CODE,
+  ConcurrencyRetryError.CODE,
+  InvalidTenantIdError.CODE,
+  TenantContextFailedError.CODE,
+] as const);
+
+/**
  * Type guard — check if an error is a DomainError (or any subclass).
  */
 export function isDomainError(error: unknown): error is DomainError {

@@ -780,9 +780,9 @@ describe("McpService.onModuleInit — the production tool registration", () => {
     const registry = service.getRegistry();
     const captured: any[] = [];
     const originalAdd = registry.addGlobalMiddleware.bind(registry);
-    vi.spyOn(registry, "addGlobalMiddleware").mockImplementation((mw: any) => {
+    vi.spyOn(registry, "addGlobalMiddleware").mockImplementation((mw: any, name?: string) => {
       captured.push(mw);
-      return originalAdd(mw);
+      return originalAdd(mw, name);
     });
 
     await service.onModuleInit();

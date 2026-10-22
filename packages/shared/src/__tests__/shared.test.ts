@@ -541,6 +541,18 @@ describe("isValidISODate", () => {
     // NaT (Not-a-Time) value.
     expect(() => parseISODateTimeAsUTC("2024-13-45")).toThrow("Invalid ISO date");
   });
+
+  it("rejects a non-string instead of silently returning the UNIX epoch", () => {
+    // `new Date(null)` is the epoch — a perfectly valid Date — so a null
+    // reached the numeric branch of the Date constructor and was persisted
+    // as 1970-01-01. The NaN guard cannot catch it, because the epoch is not
+    // NaN. And `undefined` reached the error path, where
+    // `sanitizeForLogOutput(undefined)` threw a raw TypeError and replaced
+    // the structured InvalidTypeValueError with an opaque 500.
+    for (const bad of [null, undefined, 0, 1700000000000, {}]) {
+      expect(() => parseISODateTimeAsUTC(bad as never)).toThrow("Invalid ISO date");
+    }
+  });
 });
 
 describe("validateOptionalString", () => {

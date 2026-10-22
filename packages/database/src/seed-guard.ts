@@ -28,10 +28,22 @@ export function assertSeedAllowed(rawNodeEnv: string | undefined, allowSeed: str
   const env = normalizeEnvironmentValue(rawNodeEnv);
   const isSafeSeedEnv = env === undefined || env === "" || env === "development" || env === "test";
   if (!isSafeSeedEnv) {
+    // The message is printed through `sanitizeForLogOutput` (the seed
+    // scrubs every error it prints, because a Prisma connection error embeds
+    // the datasource URL — credentials and all — verbatim).
+    //
+    // The previous wording — "Refusing to seed in NODE_ENV=production" —
+    // was destroyed by that sanitizer: "NODE_ENV=production" is exactly 20
+    // characters of `[A-Za-z0-9_./=+-]`, so the generic long-token rule
+    // matched it and replaced it with "[REDACTED_TOKEN]" — the rejected
+    // environment AND the remediation both disappeared, and the operator
+    // was left with "Refusing to seed in [REDACTED_TOKEN]". The wording
+    // below keeps every run under the 20-character threshold and avoids the
+    // `name=value` shape entirely, so the message survives sanitization.
     throw new Error(
-      "Refusing to seed in NODE_ENV=" + (rawNodeEnv ?? "") + ". " +
-      "Seed is for local/dev/test databases only — use NODE_ENV=development or unset NODE_ENV " +
-      "(with ALLOW_SEED=1) to run the seed."
+      'Refusing to seed: the environment is set to "' + (rawNodeEnv ?? "") + '". ' +
+      "Seed is for local/dev/test databases only — set NODE_ENV to development, " +
+      "or unset it, together with ALLOW_SEED=1, to run the seed."
     );
   }
   if (!allowSeed || allowSeed !== "1") {

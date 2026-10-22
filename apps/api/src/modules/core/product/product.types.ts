@@ -69,6 +69,17 @@ export interface UpdateProductInput {
    * valid" error. The name now matches what it holds.
    */
   productType?: string;
+  /**
+   * The `version` the caller last read. When supplied, the update is
+   * PREDICATED on it: if the stored version has moved on, the write is
+   * rejected with a CONCURRENCY_CONFLICT instead of silently overwriting a
+   * concurrent change (the classic lost-update).
+   *
+   * The version is incremented on EVERY update, so a caller that reads,
+   * edits and writes back the version it read is protected against a
+   * concurrent writer.
+   */
+  expectedVersion?: number;
 }
 
 // ─── Add Feature ─────────────────────────────────────────────────

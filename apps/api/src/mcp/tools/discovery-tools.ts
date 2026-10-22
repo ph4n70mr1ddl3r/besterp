@@ -59,12 +59,17 @@ interface PrismaModelDelegate {
  * The gate configuration lives in the `confirmation_gate` table, so the
  * discovery surface reads it from the database instead of hardcoding a risk
  * level heuristic — the gate can be enabled or disabled per tool at
- * runtime. A database failure degrades to an EMPTY set (no tool is reported
- * as gated) rather than failing the whole discovery call: the gate itself
- * also fails open when the database is unreachable, so the two surfaces
- * agree.
+ * runtime.
+ *
+ * Returns `null` when the lookup FAILED. The caller must then treat every
+ * high/critical-risk tool as gated, because that is what the enforcement
+ * path does: the confirmation gate fails CLOSED, so an unverifiable gate
+ * blocks the call. Reporting "no tool is gated" while the gate actually
+ * blocks every high-risk write would be the same class of drift the
+ * discovery surface was rebuilt to eliminate — and it would tell an agent
+ * to skip the confirmation the server is about to demand.
  */
-async function listGatedToolNames(prisma: PrismaClient): Promise<Set<string>> {
+async function listGatedToolNames(prisma: PrismaClient): Promise<Set<string> | null> {
   try {
     const gates = await prisma.confirmationGate.findMany({
       where: { enabled: true },
@@ -72,7 +77,7 @@ async function listGatedToolNames(prisma: PrismaClient): Promise<Set<string>> {
     });
     return new Set(gates.map((g) => g.toolName));
   } catch {
-    return new Set<string>();
+    return null;
   }
 }
 
@@ -107,10 +112,9 @@ export interface ToolDiscoveryPayload {
  * The gate configuration lives in the `confirmation_gate` table, so the
  * discovery surface reads it from the database instead of hardcoding a risk
  * level heuristic — the gate can be enabled or disabled per tool at
- * runtime. A database failure degrades to an EMPTY set (no tool is reported
- * as gated) rather than failing the whole discovery call: the gate itself
- * also fails open when the database is unreachable, so the two surfaces
- * agree.
+ * runtime. A database failure is reported conservatively: every high/critical
+ * tool is marked as requiring a confirmation, which is exactly what the
+ * enforcement path does when the gate cannot be verified (it fails closed).
  */
 export async function buildToolDiscoveryPayload(
   registry: ToolRegistry,
@@ -123,15 +127,18 @@ export async function buildToolDiscoveryPayload(
     tools = tools.filter((t) => (t.entity ?? "").toLowerCase() === filter);
   }
   const gatedTools = await listGatedToolNames(prisma);
-  const withConfirmation = tools.map((t) => ({
-    ...t,
+  const withConfirmation = tools.map((t) => {
     // The gate middleware only enforces tools whose risk level is "high" or
     // "critical" (see confirmation-gate.ts), so a gate row for a
     // medium/low-risk tool is NOT enforced. Reporting it as
     // `confirmationRequired` would advertise a requirement the pipeline
     // does not apply — the same class of drift as a stale type table.
-    confirmationRequired: gatedTools.has(t.name) && (t.riskLevel === "high" || t.riskLevel === "critical"),
-  }));
+    const enforced = t.riskLevel === "high" || t.riskLevel === "critical";
+    return {
+      ...t,
+      confirmationRequired: enforced && (gatedTools === null || gatedTools.has(t.name)),
+    };
+  });
   return {
     tools: withConfirmation as ToolDiscoveryEntry[],
     totalAvailable: withConfirmation.length,
@@ -591,12 +598,25 @@ async function searchOneEntity(
   if (typeof search !== "function") {
     throw new Error(`${serviceKey === "partyService" ? "Party" : "Product"} search service is not available.`);
   }
-  return search({
-    tenantId: context.tenantId,
-    name: input.query,
-    limit: input.limit,
-    offset: input.offset,
-  });
+  // Invoke the method ON THE SERVICE so `this` stays bound. `PartyService
+  // .searchParties` and `ProductService.searchProducts` are class methods
+  // that use `this.prisma`; calling the extracted reference as a bare
+  // function made `this` undefined, so EVERY universal search (the path
+  // that does NOT name an entity) failed with
+  // "Cannot read properties of undefined (reading 'prisma')" and reported
+  // SERVICE_UNAVAILABLE — telling the agent to retry a request that could
+  // never succeed. The sibling branch that names an entity calls the
+  // service as a member expression, which is why only the universal path
+  // was broken.
+  return (search as (i: { tenantId: string; name?: string; limit?: number; offset?: number }) => Promise<unknown>).call(
+    svc,
+    {
+      tenantId: context.tenantId,
+      name: input.query,
+      limit: input.limit,
+      offset: input.offset,
+    },
+  );
 }
 
 /**
@@ -731,6 +751,86 @@ const ERROR_EXPLANATIONS: Record<string, { message: string; suggestedTools: stri
     message: "A concurrent modification was detected. Another operation modified the same record between your read and write.",
     suggestedTools: [],
     context: { tip: "Re-query the entity and retry the operation with a new idempotency key." },
+  },
+  // ── Agent registry ────────────────────────────────────────────
+  AGENT_NOT_REGISTERED: {
+    message: "The agent identity on this request is not registered in this tenant, so no agent permissions could be applied.",
+    suggestedTools: ["list_available_tools", "describe_agent"],
+    context: { tip: "Register the agent with register_agent, or call the tool without an agent identity." },
+  },
+  AGENT_INACTIVE: {
+    message: "The agent identity on this request has been deactivated and cannot call tools.",
+    suggestedTools: ["describe_agent", "list_agents"],
+    context: { tip: "Reactivate the agent, or have the request performed without the deactivated agent identity." },
+  },
+  AGENT_CAPABILITY_DENIED: {
+    message: "The agent is not permitted to call this tool. The agent's capability list does not contain it.",
+    suggestedTools: ["describe_agent", "list_available_tools"],
+    context: { tip: "Call describe_agent to review the agent's capabilities, then register the missing tool." },
+  },
+  AGENT_POLICY_UNAVAILABLE: {
+    message: "The agent registry could not be read, so the agent's permissions could not be verified. The call was rejected.",
+    suggestedTools: ["list_available_tools"],
+    context: { tip: "This is a server-side failure. Retry when the service is healthy — the call did not run." },
+  },
+  // ── Confirmation gate ─────────────────────────────────────────
+  CONFIRMATION_GATE_UNAVAILABLE: {
+    message: "The confirmation gate could not be verified, so the gated operation was rejected. The operation did not run.",
+    suggestedTools: ["list_available_tools"],
+    context: { tip: "This is a server-side failure. Retry when the service is healthy." },
+  },
+  // ── Idempotency ───────────────────────────────────────────────
+  IDEMPOTENCY_UNAVAILABLE: {
+    message: "The idempotency store could not be reached, so the call could not be deduplicated. The operation did not run.",
+    suggestedTools: ["list_available_tools"],
+    context: { tip: "This is a server-side failure. Retry the same request later with the same idempotency key." },
+  },
+  IDEMPOTENCY_UNKNOWN_STATUS: {
+    message: "The stored idempotency record carries a status this server does not recognise, so the call cannot be safely deduplicated.",
+    suggestedTools: ["list_available_tools"],
+    context: { tip: "Use a fresh idempotency key, and report the error code to support." },
+  },
+  INVALID_IDEMPOTENCY_KEY: {
+    message: "The idempotency key was rejected — it was empty, too long, or contained characters that are not allowed.",
+    suggestedTools: ["list_available_tools"],
+    context: { tip: "Supply a printable, non-empty key of at most 128 characters." },
+  },
+  STALE_PENDING_RECORD: {
+    message: "A stale in-progress idempotency record was found for this key. The earlier request most likely crashed before completing.",
+    suggestedTools: ["list_available_tools"],
+    context: { tip: "Retry with a NEW idempotency key — the outcome of the earlier attempt is unknown." },
+  },
+  // ── Context identity ──────────────────────────────────────────
+  INVALID_CONTEXT_ID: {
+    message: "The request identity is not valid, so the call could not be attributed to a caller.",
+    suggestedTools: ["list_available_tools"],
+    context: { tip: "Check the identity fields on the request and retry." },
+  },
+  INVALID_TENANT_ID: {
+    message: "The tenant identifier on this request is not valid, so the call could not be scoped to a tenant.",
+    suggestedTools: ["list_available_tools"],
+    context: { tip: "Use a tenant id made of letters, digits, hyphens and underscores." },
+  },
+  INVALID_USER_ID: {
+    message: "The user identifier on this request is not valid, so the call could not be attributed to a caller.",
+    suggestedTools: ["list_available_tools"],
+    context: { tip: "Use a printable, non-whitespace user identifier." },
+  },
+  // ── Shared domain errors ──────────────────────────────────────
+  BUSINESS_RULE: {
+    message: "The operation violates a business rule of the domain. The request was well-formed but not allowed.",
+    suggestedTools: ["describe_entity", "list_available_tools"],
+    context: { tip: "Re-read the entity description and check the domain rules the operation must satisfy." },
+  },
+  CONCURRENCY_RETRY: {
+    message: "A serialization conflict was detected and the transaction is being retried.",
+    suggestedTools: [],
+    context: { tip: "No action needed — the server retries the transaction automatically." },
+  },
+  TENANT_CONTEXT_FAILED: {
+    message: "The tenant context could not be established on the database connection, so the operation could not be scoped to a tenant.",
+    suggestedTools: ["list_available_tools"],
+    context: { tip: "This is a server-side failure — the row-level security setup may be incomplete. Report the error code to support." },
   },
   P2002: {
     message: "Database unique constraint violation — a record with the same unique field(s) already exists.",

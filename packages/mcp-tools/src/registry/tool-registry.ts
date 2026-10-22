@@ -26,6 +26,7 @@ import {
   isValidOptionalId,
 } from "@besterp/shared";
 import { sanitizeAgentFacingResult, capAgentErrorText } from "../agent-result.js";
+import { IDEMPOTENCY_KEY_MISMATCH, INVALID_CONTEXT_ID, INVALID_TENANT_ID, INVALID_USER_ID, UNKNOWN_TOOL } from "../error-codes.js";
 
 /** Permissive pattern for optional identity fields (userId, agentId, conversationId).
  *  More lenient than TENANT_ID_PATTERN to accommodate real-world identifiers
@@ -46,19 +47,102 @@ const VALID_RISK_LEVELS: readonly RiskLevel[] = ["none", "low", "medium", "high"
  */
 const ENVELOPE_KEYS = ["idempotencyKey", "confirmation"] as const;
 
+/**
+ * A rejection that happens BEFORE the middleware pipeline runs.
+ *
+ * The pipeline is composed per tool, so a rejection that happens before the
+ * tool is even looked up (an unknown tool name, a conflicting idempotency
+ * key) never reaches the audit middleware — the attempt was invisible in the
+ * durable trail. A hallucinated tool call is one of the most useful
+ * agent-behaviour signals an ERP has, so it must be recorded.
+ */
+export interface ToolCallRejection {
+  /** The tool name the caller asked for. */
+  toolName: string;
+  /** The validated caller identity. */
+  context: ToolContext;
+  /** The machine-readable rejection code (e.g. "UNKNOWN_TOOL"). */
+  code: string;
+  /** The human-readable rejection message. */
+  message: string;
+  /** The raw tool arguments, when they are available. */
+  input?: unknown;
+}
+
+/**
+ * A callback that records a pre-pipeline rejection in a durable sink.
+ *
+ * It is invoked at most once per rejected call and MUST NOT throw — the
+ * registry swallows any error it raises so an audit sink can never change
+ * the outcome of a call.
+ */
+export type RejectionAuditor = (rejection: ToolCallRejection) => void;
+
 export class ToolRegistry {
   private readonly tools = new Map<string, RegistryEntry>();
   private readonly globalMiddlewares: ToolMiddleware[] = [];
+  /** The NAMES of the registered global middlewares, in pipeline order. */
+  private readonly globalMiddlewareNames: string[] = [];
+  /** Optional sink for calls rejected before the pipeline was composed. */
+  private rejectionAuditor?: RejectionAuditor;
   /** Cached compiled pipelines per tool name, invalidated on register/addGlobalMiddleware. */
   private readonly pipelineCache = new Map<string, (input: unknown, ctx: ToolContext) => Promise<ToolResult>>();
 
   /**
    * Register a global middleware that runs for ALL tools.
    * Global middlewares run BEFORE tool-specific middlewares.
+   *
+   * @param middleware the middleware function
+   * @param name a short stage name (e.g. "auditLog"). The names are exposed
+   *   through {@link ToolRegistry.globalMiddlewareOrder} so the composition
+   *   can be ASSERTED against the published pipeline contract
+   *   (`PRODUCTION_PIPELINE_ORDER`) instead of being asserted only in a
+   *   comment that can drift from the code.
    */
-  addGlobalMiddleware(middleware: ToolMiddleware): void {
+  addGlobalMiddleware(middleware: ToolMiddleware, name?: string): void {
     this.globalMiddlewares.push(middleware);
+    this.globalMiddlewareNames.push(name ?? `middleware-${this.globalMiddlewareNames.length + 1}`);
     this.pipelineCache.clear();
+  }
+
+  /**
+   * The stage names of the registered global middlewares, outermost first.
+   *
+   * The published contract is `PRODUCTION_PIPELINE_ORDER`; this list is the
+   * implementation's actual composition. A consumer can compare the two and
+   * fail loudly when they diverge — the pipeline order carries SECURITY
+   * meaning (the agent policy must run before the confirmation gate, the
+   * audit log must wrap every guard), so a silent drift is not acceptable.
+   */
+  get globalMiddlewareOrder(): readonly string[] {
+    return [...this.globalMiddlewareNames];
+  }
+
+  /**
+   * Register the callback that records a call rejected BEFORE the pipeline
+   * ran (an unknown tool name, a conflicting idempotency key).
+   *
+   * Those rejections are returned before the pipeline is composed, so the
+   * audit middleware — which wraps every guard — never sees them and the
+   * attempt was invisible in the durable trail. Wiring the auditor here
+   * closes the gap for every caller of `execute`, not just the HTTP
+   * controller.
+   */
+  setRejectionAuditor(auditor: RejectionAuditor): void {
+    this.rejectionAuditor = auditor;
+  }
+
+  /**
+   * Record a pre-pipeline rejection. Never throws: an audit sink failure
+   * must not change the outcome of the call.
+   */
+  private auditRejection(rejection: ToolCallRejection): void {
+    if (!this.rejectionAuditor) return;
+    try {
+      this.rejectionAuditor(rejection);
+    } catch {
+      // The audit path must never break the call it is recording.
+    }
   }
 
   /**
@@ -119,6 +203,30 @@ export class ToolRegistry {
         `Must be one of: ${VALID_RISK_LEVELS.join(", ")}.`
       );
     }
+
+    // Runtime check: the handler is invoked as `definition.handler(...)` at
+    // execution time. A definition without one was accepted at registration
+    // and only failed at first call, with a raw
+    // "definition.handler is not a function" TypeError — far from the
+    // registration site and impossible to diagnose from the stack trace.
+    // The same "fail fast at registration" argument this file already makes
+    // for `inputSchema` applies here.
+    if (typeof definition.handler !== "function") {
+      throw new Error(
+        `Tool '${definition.name}' must declare a handler function. ` +
+        `Got ${typeof definition.handler}.`
+      );
+    }
+
+    // The per-tool middlewares are composed into the pipeline the same way.
+    middlewares.forEach((middleware, index) => {
+      if (typeof middleware !== "function") {
+        throw new Error(
+          `Tool '${definition.name}' middleware #${index} is not a function. ` +
+          `Got ${typeof middleware}.`
+        );
+      }
+    });
 
     ToolRegistry.validateInputSchemaShape(definition.name, definition.inputSchema);
     ToolRegistry.rejectEnvelopeKeyCollision(definition.name, definition.inputSchema);
@@ -198,7 +306,7 @@ export class ToolRegistry {
       return {
         success: false,
         error: {
-          code: "UNKNOWN_TOOL",
+          code: UNKNOWN_TOOL,
           message: "A tool name must be a string.",
           suggestedTools: ["list_available_tools"],
           context: { received: name === null ? "null" : typeof name },
@@ -240,10 +348,21 @@ export class ToolRegistry {
       const message =
         `Tool '${safeName}' does not exist.${safeSimilar.length > 0 ? ` Similar tools: [${safeSimilar.map((s) => `'${s}'`).join(", ")}].` : ""} ` +
         `Use 'list_available_tools' to see all available tools.`;
+      // The pipeline is composed PER TOOL, so this rejection never reaches
+      // the audit middleware — the attempt was invisible in the durable
+      // trail. The identity IS validated at this point (the auth-boundary
+      // guard above ran first), so the attempt can and must be attributed.
+      this.auditRejection({
+        toolName: safeName,
+        context,
+        code: UNKNOWN_TOOL,
+        message,
+        input: rawInput,
+      });
       return {
         success: false,
         error: {
-          code: "UNKNOWN_TOOL",
+          code: UNKNOWN_TOOL,
           message: capAgentErrorText(message),
           suggestedTools: ["list_available_tools", ...safeSimilar],
           context: { requestedTool: capAgentErrorText(safeName), similarTools: safeSimilar },
@@ -275,7 +394,19 @@ export class ToolRegistry {
 
     // Promote the envelope keys and detect conflicting idempotency keys.
     const promotion = ToolRegistry.promoteEnvelopeKeys(auth.context, raw);
-    if ("error" in promotion) return promotion.error;
+    if ("error" in promotion) {
+      // Same as the unknown-tool rejection: this happens BEFORE the pipeline
+      // is composed, so the audit middleware never sees it — but the identity
+      // is validated, so the attempt can and must be attributed.
+      this.auditRejection({
+        toolName: name,
+        context: auth.context,
+        code: promotion.error.error?.code ?? "INVALID_INPUT",
+        message: promotion.error.error?.message ?? "The request was rejected before execution.",
+        input: rawInput,
+      });
+      return promotion.error;
+    }
     const effectiveContext = promotion.context;
 
     // Strip the envelope keys ONCE, BEFORE any middleware runs.
@@ -442,13 +573,24 @@ export class ToolRegistry {
     context: ToolContext,
     raw: Record<string, unknown> | null,
   ): { error: ToolResult } | { context: ToolContext } {
-    if (raw?.idempotencyKey != null && context.idempotencyKey != null
+    // ONE definition of "the context carries a key". The conflict check and
+    // the promotion used two different tests — `context.idempotencyKey !=
+    // null` for the conflict and `!context.idempotencyKey` for the promotion
+    // — so an EMPTY-STRING context key was simultaneously "present" (for the
+    // conflict check) and "absent" (for the promotion). The result was a hard
+    // IDEMPOTENCY_KEY_MISMATCH for a context key that the promotion branch
+    // was written to treat as "no key at all". The idempotency middleware
+    // itself treats "" as a pass-through no-op, so "" must mean "no key"
+    // everywhere.
+    const hasContextKey = typeof context.idempotencyKey === "string" && context.idempotencyKey.length > 0;
+
+    if (raw?.idempotencyKey != null && hasContextKey
       && raw.idempotencyKey !== context.idempotencyKey) {
       return {
         error: {
           success: false,
           error: {
-            code: "IDEMPOTENCY_KEY_MISMATCH",
+            code: IDEMPOTENCY_KEY_MISMATCH,
             message: "Two different idempotency keys were supplied (one in the request context, one in the tool arguments). Use a single idempotency key.",
             suggestedTools: ["list_available_tools"],
           },
@@ -458,7 +600,7 @@ export class ToolRegistry {
     return {
       context: {
         ...context,
-        ...(raw?.idempotencyKey != null && !context.idempotencyKey
+        ...(raw?.idempotencyKey != null && !hasContextKey
           ? { idempotencyKey: raw.idempotencyKey as string }
           : {}),
         ...(raw?.confirmation != null
@@ -487,10 +629,10 @@ export class ToolRegistry {
     try {
       tenantId = validateTenantIdEnhancedForAuth(context.tenantId);
     } catch {
-      return { error: ToolRegistry.contextIdentityError("INVALID_TENANT_ID", "tenant identifier") };
+      return { error: ToolRegistry.contextIdentityError(INVALID_TENANT_ID, "tenant identifier") };
     }
     if (typeof context.userId !== "string") {
-      return { error: ToolRegistry.contextIdentityError("INVALID_USER_ID", "user identifier") };
+      return { error: ToolRegistry.contextIdentityError(INVALID_USER_ID, "user identifier") };
     }
     // Trim userId to match the behavior of McpService.buildContext and
     // TenantGuard — both accept whitespace-padded values by trimming them.
@@ -498,7 +640,7 @@ export class ToolRegistry {
     // the length/pattern checks below, not by the trim-equality guard.
     const userId = context.userId.trim();
     if (userId.length === 0 || userId.length > MAX_USER_ID_LENGTH || !isValidOptionalId(userId)) {
-      return { error: ToolRegistry.contextIdentityError("INVALID_USER_ID", "user identifier") };
+      return { error: ToolRegistry.contextIdentityError(INVALID_USER_ID, "user identifier") };
     }
     // `agentId`/`conversationId` are persisted verbatim into the cross-tenant
     // durable idempotency + audit sinks, so an unvalidated/oversized/attacker-
@@ -560,7 +702,7 @@ export class ToolRegistry {
       return {
         success: false,
         error: {
-          code: "INVALID_CONTEXT_ID",
+          code: INVALID_CONTEXT_ID,
           message: `The ${field} is invalid. Contact the system administrator.`,
           suggestedTools: ["list_available_tools"],
         },
@@ -575,7 +717,7 @@ export class ToolRegistry {
       return {
         success: false,
         error: {
-          code: "INVALID_CONTEXT_ID",
+          code: INVALID_CONTEXT_ID,
           message: `The ${field} is invalid. Contact the system administrator.`,
           suggestedTools: ["list_available_tools"],
         },

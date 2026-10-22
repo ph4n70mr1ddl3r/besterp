@@ -200,6 +200,19 @@ export function normalizeISODateTimeToUTC(value: string): string {
  * sanitized value is carried in the error context instead.
  */
 export function parseISODateTimeAsUTC(value: string): Date {
+  // A non-string is a caller error, not a date. `new Date(null)` is the UNIX
+  // EPOCH (a perfectly valid Date), so a null reached this function through
+  // the numeric branch of the Date constructor and was persisted as
+  // "1970-01-01" — the NaN guard below cannot catch it, because the epoch is
+  // not NaN. And `undefined` reached the error path below, where
+  // `sanitizeForLogOutput(undefined)` threw a raw TypeError — so the
+  // structured InvalidTypeValueError the doc promises was replaced by an
+  // opaque 500 INTERNAL_ERROR. Reject the type up front.
+  if (typeof value !== "string") {
+    throw new InvalidTypeValueError("Invalid ISO date string.", {
+      context: { received: typeof value },
+    });
+  }
   const date = new Date(normalizeISODateTimeToUTC(value));
   if (Number.isNaN(date.getTime())) {
     throw new InvalidTypeValueError("Invalid ISO date string.", {

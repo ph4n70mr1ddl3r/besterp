@@ -4,6 +4,7 @@
 // non-local environment AND require an explicit ALLOW_SEED=1 opt-in.
 
 import { describe, it, expect } from "vitest";
+import { sanitizeForLogOutput } from "@besterp/shared";
 import { assertSeedAllowed } from "../seed-guard.js";
 
 describe("assertSeedAllowed", () => {
@@ -32,8 +33,8 @@ describe("assertSeedAllowed", () => {
   });
 
   it("refuses production/staging", () => {
-    expect(() => assertSeedAllowed("production", "1")).toThrow(/Refusing to seed in NODE_ENV=production/);
-    expect(() => assertSeedAllowed("staging", "1")).toThrow(/Refusing to seed in NODE_ENV=staging/);
+    expect(() => assertSeedAllowed("production", "1")).toThrow(/Refusing to seed/);
+    expect(() => assertSeedAllowed("staging", "1")).toThrow(/Refusing to seed/);
   });
 
   it("refuses production aliases that previously bypassed the denylist", () => {
@@ -47,6 +48,26 @@ describe("assertSeedAllowed", () => {
   });
 
   it("reports the exact offending NODE_ENV value", () => {
-    expect(() => assertSeedAllowed("production", "1")).toThrow("Refusing to seed in NODE_ENV=production");
+    expect(() => assertSeedAllowed("production", "1")).toThrow('the environment is set to "production"');
+  });
+
+  it("keeps the refusal message readable after log sanitization", () => {
+    // The seed prints every error through `sanitizeForLogOutput`, because a
+    // Prisma connection error embeds the datasource URL (credentials and all)
+    // verbatim. The old wording — "Refusing to seed in NODE_ENV=production" —
+    // was 20 characters of `[A-Za-z0-9_./=+-]`, so the generic long-token
+    // rule replaced it with "[REDACTED_TOKEN]" and the operator was left
+    // with "Refusing to seed in [REDACTED_TOKEN]" — neither the rejected
+    // environment nor the remediation survived.
+    let message = "";
+    try {
+      assertSeedAllowed("production", "1");
+    } catch (e) {
+      message = e instanceof Error ? e.message : String(e);
+    }
+    const sanitized = sanitizeForLogOutput(message);
+    expect(sanitized).not.toContain("[REDACTED_TOKEN]");
+    expect(sanitized).toContain("production");
+    expect(sanitized).toContain("ALLOW_SEED");
   });
 });

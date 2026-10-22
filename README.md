@@ -136,7 +136,10 @@ npm run db:seed
 
 ### Data Protection
 - **Row-level security** prevents cross-tenant data access
-- **Optimistic concurrency** prevents lost updates
+- **Optimistic concurrency** prevents lost updates — every update increments the
+  record's `version`, and an update that carries `expectedVersion` (the
+  version the caller last read) is rejected with `CONCURRENCY_CONFLICT`
+  instead of overwriting a concurrent change
 - **Audit logging** tracks all data modifications
 - **Idempotency keys** prevent duplicate operations
 
@@ -179,10 +182,21 @@ npm run db:seed
    RLS on tables that migrations create. The seed inserts hard-coded test
    tenants and refuses to run without an explicit opt-in (`ALLOW_SEED=1`):
    ```bash
-   npm run db:migrate
+   # Migrations need DDL rights, so they must run as the ADMIN role.
+   DATABASE_URL="$DATABASE_ADMIN_URL" npm run db:migrate
    docker exec -i besterp-postgres psql -v ON_ERROR_STOP=1 -U besterp -d besterp -f /setup/rls-setup.sql
    ALLOW_SEED=1 npm run db:seed
    ```
+
+   **`DATABASE_URL="$DATABASE_ADMIN_URL"` is required.** The Prisma datasource
+   reads `DATABASE_URL`, which `.env.example` points at the **non-superuser
+   `besterp_app` role** — and that role is granted only `USAGE` on the schema
+   `public`, so it cannot create the `_prisma_migrations` table (or any
+   migrated table) and `prisma migrate` fails with *"permission denied for
+   schema public"*. The application keeps using the app role at runtime; only
+   the migration step needs the admin connection. CI does the same thing
+   (`.github/workflows/ci.yml` overrides `DATABASE_URL` for the migration
+   step).
 
    `ON_ERROR_STOP=1` is required: without it `psql` exits `0` even when a
    statement fails, so a malformed policy leaves the database without RLS
@@ -280,7 +294,8 @@ convention.
 - `create_product` - Create a product
 - `get_product` - Retrieve a product with features and prices
 - `search_products` - Search products with filters and pagination
-- `update_product` - Update a product's name, description, SKU or type
+- `update_product` - Update a product's name, description, SKU or type (pass
+  `expectedVersion` to make the update conditional on the version you read)
 - `add_product_feature` - Add a key/value feature to a product
 - `add_product_price` - Add a price to a product
 
@@ -298,10 +313,26 @@ tenant, is active, and lists the tool in its `capabilities` (the schema
 documents that field as "List of tool names this agent is allowed to call").
 A rejected call is still recorded in the durable audit trail.
 
+The rejection names only tools the rejected agent may actually call — a
+suggestion the agent cannot call would be a dead end.
+
 The per-minute rate limit, the per-conversation tool-call cap and the
 per-operation transaction amount are RECORDED on the agent but are not yet
 enforced — they need a durable per-agent usage counter that the schema does
 not have yet.
+
+#### Field redaction on the MCP surface
+
+The MCP surface redacts values whose FIELD NAME denotes sensitive data
+(`password`, `token`, `apiKey`, `birthDate`, `taxId`, …) in every tool result,
+so a tool can never echo a credential back to an agent. The REST surface
+returns the same fields verbatim to the authenticated caller — both surfaces
+are tenant-scoped and authorised identically, but the agent-facing payload is
+scrubbed as defence in depth.
+
+An ABSENT value is reported as absent (`null`), not as a redaction marker:
+`birthDate: null` means "no birth date on file", while a stored value is
+replaced with `"[REDACTED]"`.
 
 **User**
 - `get_user` - Read the user account linked to a party (never returns the password hash)

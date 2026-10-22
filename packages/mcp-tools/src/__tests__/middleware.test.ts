@@ -77,10 +77,24 @@ describe("Idempotency Middleware", () => {
 
   /** Setup $transaction mock: when tx has a record, return it; when null, create it. */
   function mockFindInTransaction(record: any | null) {
+    // The durable record ALWAYS carries the caller's identity (the columns
+    // are NOT NULL in the schema). Fill them in from the context so the
+    // fixture matches what the database really holds — the middleware
+    // compares the stored userId/agentId against the incoming caller, and a
+    // fixture without them would report a caller mismatch for the very
+    // caller that created the record.
+    const stored = record
+      ? {
+          userId: mockContext.userId,
+          agentId: mockContext.agentId ?? null,
+          conversationId: mockContext.conversationId ?? null,
+          ...record,
+        }
+      : record;
     mockPrisma.$transaction.mockImplementation(async (fn: (tx: any) => Promise<any>, _opts?: any) => {
       const tx = {
         idempotencyRecord: {
-          findUnique: vi.fn().mockResolvedValue(record),
+          findUnique: vi.fn().mockResolvedValue(stored),
           create: mockPrisma.idempotencyRecord.create,
         },
       };
@@ -207,6 +221,44 @@ describe("Idempotency Middleware", () => {
     expect(result.replayed).toBeUndefined();
     // The second tool must never receive the first tool's cached data as a replay.
     expect(result.data).toBeUndefined();
+  });
+
+  it("should reject a key already owned by ANOTHER caller in the same tenant", async () => {
+    // Regression: the idempotency record's primary key is
+    // (idempotencyKey, tenantId) — the key is tenant-scoped, NOT
+    // user-scoped — and the stored userId/agentId were never compared. A
+    // second user in the same tenant who happened to reuse the same key
+    // received the FIRST user's stored result as a `success: true` replay:
+    // a cross-user disclosure of another user's entity payload, and the
+    // second user's own operation never ran.
+    const input = { test: "value" };
+    const idempotencyKey = "shared-key";
+    const contextWithKey = { ...mockContext, idempotencyKey };
+
+    const { hashInput } = await import("@besterp/shared");
+    const inputHash = hashInput(input);
+
+    mockFindInTransaction({
+      idempotencyKey,
+      status: "completed",
+      toolName: "test_tool",
+      inputHash, // identical input → identical hash
+      userId: "another-user", // a DIFFERENT caller owns this key
+      agentId: null,
+      result: { success: true, data: "the other user's result" },
+    });
+
+    const middleware = idempotencyMiddleware(mockPrisma as any);
+    const next = vi.fn(async () => ({ success: true, data: "must NOT be skipped" }));
+    const result = await middleware(input, contextWithKey, mockDefinition, next);
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe("IDEMPOTENCY_KEY_MISMATCH");
+    // The other caller's payload must never be handed to this caller.
+    expect(result.data).toBeUndefined();
+    expect(result.replayed).toBeUndefined();
+    // And this caller's own operation must still be able to run.
+    expect(next).not.toHaveBeenCalled();
   });
 
   it("should reject input hash mismatch for completed record", async () => {
@@ -358,6 +410,8 @@ describe("Idempotency Middleware", () => {
             status: "failed",
             toolName: "test_tool",
             inputHash, // Matching hash allows re-execution
+            userId: mockContext.userId,
+            agentId: mockContext.agentId ?? null,
           }),
           // The reset-to-pending update
           update: vi.fn().mockResolvedValue({}),
@@ -397,6 +451,8 @@ describe("Idempotency Middleware", () => {
             toolName: "test_tool",
             inputHash,
             createdAt: staleCreatedAt,
+            userId: mockContext.userId,
+            agentId: mockContext.agentId ?? null,
           }),
           update: vi.fn().mockResolvedValue({}),
           create: mockPrisma.idempotencyRecord.create,
@@ -2499,14 +2555,22 @@ describe("Confirmation Gate Middleware", () => {
     expect(capturedContext?.confirmation).toBe("Creating a customer for invoice follow-up");
   });
 
-  it("should pass through when DB is unavailable (does not block execution)", async () => {
+  it("should BLOCK the call when the gate lookup fails (fails closed)", async () => {
+    // The gate used to pass through when the database was unreachable, which
+    // made the control bypassable by making the database unavailable: a
+    // high-risk write executed with NO confirmation and no justification
+    // recorded in the audit trail. The sibling agentPolicy middleware in the
+    // same pipeline already fails closed, and the two must not disagree.
     (mockPrismaForGate.confirmationGate.findUnique as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("DB down"));
 
     const middleware = confirmationGateMiddleware(mockPrismaForGate as any);
-    const result = await middleware({}, mockContext, highRiskDefinition, successNext({ success: true, data: "ok" }));
+    const next = vi.fn(async () => ({ success: true, data: "ok" }));
+    const result = await middleware({}, mockContext, highRiskDefinition, next);
 
-    // Should pass through, not error out.
-    expect(result.success).toBe(true);
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe("CONFIRMATION_GATE_UNAVAILABLE");
+    // The handler must NOT have run.
+    expect(next).not.toHaveBeenCalled();
   });
 
   it("should reject null/undefined input object", async () => {
@@ -2735,6 +2799,8 @@ describe("Regression: idempotency P2002 is contention, not an outage", () => {
       status: "pending",
       inputHash: hashInput({ test: "value" }),
       createdAt: new Date(),
+      userId: mockContext.userId,
+      agentId: mockContext.agentId ?? null,
     });
 
     const middleware = idempotencyMiddleware(mockPrisma as any);

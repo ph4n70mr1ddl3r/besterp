@@ -137,21 +137,28 @@ export function throwMappedPrismaError(
         { suggestedTools: [retryTool], context: { prismaCode: code } }
       );
     }
-    case "P2024": {
-      throw new ConcurrencyConflictError(
-        `Connection pool timeout on ${entityName} — the service is under heavy load.`,
-        { suggestedTools: [retryTool], context: { prismaCode: "P2024" } }
-      );
-    }
     default: {
       // Re-throw unknown Prisma codes (e.g. future P3xxx, P4xxx) as the
       // original error so the filter returns 500 instead of misreporting
       // a transient infrastructure failure as a caller-input 422.
       //
+      // P2024 ("timed out fetching a connection from the pool") falls into
+      // this branch deliberately. It used to be mapped to
+      // ConcurrencyConflictError, but a pool timeout is a CONNECTION
+      // failure, exactly like P1002 ("timed out fetching a new connection
+      // from the connection pool") — and P1002 is re-thrown as an
+      // infrastructure failure. The two codes describe the SAME failure,
+      // yet the REST surface answered 409 for one and 500 for the other,
+      // while the MCP surface answered DATABASE_CONNECTION_ERROR for BOTH.
+      // Re-throwing makes every surface agree: a pool timeout is a
+      // retryable server-side failure, not a conflict with the caller's
+      // input.
+      //
       // The original error is re-thrown only when it really is an Error.
       // The parameter is typed as `Error & { code }`, but a caller could
       // still pass a plain object; throwing a non-Error breaks every
-      // downstream `instanceof Error` check (the REST filter and
+      // downstream `instanceof Error` check (the REST filter's
+      // `isDomainError` / `instanceof HttpException` dispatch and
       // `DomainError` handling both rely on it), so a non-Error is wrapped.
       if (err instanceof Error) throw err;
       throw new InvalidTypeValueError(

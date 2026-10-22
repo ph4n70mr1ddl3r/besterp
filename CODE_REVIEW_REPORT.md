@@ -3,6 +3,322 @@
 ## Scope
                 Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
                  `mcp-tools`, `apps/api`, plus README/`.env.example`/docker/CI) conducted on
+                   2026-10-22. This is review 274; rounds 1–273 are documented in
+                 earlier revisions of this file and `CHANGES.md`.
+
+## Findings & Actions (round 274)
+
+Four parallel review agents covered `packages/shared`, `packages/mcp-tools`,
+`apps/api` and `packages/database` + the infrastructure/docs. Every candidate
+finding was reproduced against a **live PostgreSQL 16 instance** (migrations,
+the RLS script, the seed) with the API **BOOTED** and driven end-to-end
+through the MCP HTTP surface, exactly as rounds 272–273 established. The
+findings below were each reproduced BEFORE they were accepted and re-verified
+AFTER the fix; several candidates were rejected as false positives once
+traced.
+
+### Fixed this round — the universal search could never succeed
+
+- **`search_across_entities` failed on EVERY call that did not name an
+  entity.** The tool's primary purpose — search every entity type at once —
+  was dead: it returned `SERVICE_UNAVAILABLE` with *"Cannot read properties
+  of undefined (reading 'prisma')"* and told the agent to *"retry the same
+  request later"*, which could never succeed.
+
+  The helper extracted the search method off the service object and invoked
+  it as a **bare function**, so `this` was `undefined` inside the class
+  method and the first statement (`this.prisma.tenantScoped(...)`) threw.
+  The sibling branch that DOES name an entity calls the service as a member
+  expression, which is why only the universal path was broken.
+
+  The unit tests missed it because the services were mocked with bare
+  `vi.fn()`s, which have no `this` dependency. The regression test now uses
+  **class instances** whose methods dereference `this`, exactly like the
+  real services — and it fails without the fix.
+
+### Fixed this round — the confirmation gate failed OPEN (a bypass)
+
+- **A high-risk write executed with NO confirmation whenever the gate lookup
+  failed.** The gate swallowed every error from
+  `prisma.confirmationGate.findUnique` and passed the call through, which
+  made the control bypassable by making the database unavailable.
+
+  Reproduced live: with the `confirmation_gate` table renamed away,
+  `create_party` **succeeded** and wrote a party row; with the table
+  restored, the same call was correctly rejected with
+  `CONFIRMATION_REQUIRED`. The gate now **fails closed** with
+  `CONFIRMATION_GATE_UNAVAILABLE` — the same policy the sibling
+  `agentPolicy` middleware already follows — and the call does not run.
+
+  The **discovery surface was corrected to match**: `listGatedToolNames` used
+  to degrade to "no tool is gated" on a database failure, which contradicted
+  the enforcement path. It now reports every high/critical tool as gated
+  when the lookup fails, so `list_available_tools` and `GET /api/mcp/tools`
+  cannot tell an agent to skip a confirmation the server is about to demand.
+
+### Fixed this round — an idempotency key was tenant-global, not caller-scoped
+
+- **A second user in the same tenant received the FIRST user's stored
+  result.** The idempotency record's primary key is
+  `(idempotencyKey, tenantId)` — tenant-scoped, not user-scoped — and the
+  stored `userId`/`agentId` were never compared. Two users in one tenant who
+  happened to reuse the same key received each other's data.
+
+  Reproduced live: user-1 added a product feature under key `K1`; user-2
+  replayed `K1` with the identical input and got **user-1's entity payload**
+  back with `"replayed": true`, while user-2's own operation never ran. The
+  caller identity is now part of the deduplication identity: a cross-caller
+  collision is `IDEMPOTENCY_KEY_MISMATCH` ("use a new idempotency key"), and
+  the reset branches (failed → pending, stale pending → pending) can no
+  longer be claimed by a different caller.
+
+  The comparison runs against the **sanitised** identity, because that is
+  what the durable row stores — comparing the raw context value against the
+  stored sanitised value would have reported a mismatch for the very caller
+  that created the record.
+
+### Fixed this round — `packages/shared`
+
+- **A secret under a SINGLE-quoted key survived `sanitizeForLogOutput`
+  verbatim.** The quoted-value rule accepted a single-quoted *value* but only
+  a double-quoted *name*, so `{'api_key':'sk_live_abc123'}` — a Python
+  `repr`, a JS object literal, a YAML-ish dump — leaked while the identical
+  double-quoted map was redacted. The rule now accepts either quote
+  character around the name, and the boundary rule tolerates a quote
+  between the name and the `:` so `{'api_key': sk_live_abc}` is caught too.
+  Verified live: the reasoning field of an MCP call that carried
+  `{'api_key':'sk_live_LEAKME123'}` is now stored as
+  `{'api_key':'[REDACTED]'}`.
+
+- **A secret whose name starts with a DIGIT leaked.** `FREE_TEXT_NAME`
+  required a leading letter, so `2fa_secret=abc123` survived — even though
+  `isSensitiveFieldName("2fa_secret")` is true (the token fallback splits it
+  into `2fa` + `secret`), so the same name WAS redacted as an object key.
+  The generic long-token rule could not save it either: the run is 19
+  characters, one below that rule's 20-character minimum.
+
+- **The canonical redactor replaced a `null` with `"[REDACTED]"`.** Absence
+  is not secrecy: every party without a birth date reported one, and an
+  agent could not tell whether the field it wrote was actually stored. An
+  absent value is now left absent, on both surfaces (the MCP agent payload
+  and the durable sinks). Verified live: `get_party` on a party with no
+  birth date returns `"birthDate": null` instead of `"[REDACTED]"`.
+
+- **P2024 and P1002 — the same failure — produced two different client
+  outcomes.** P1002 ("timed out fetching a new connection from the
+  connection pool") is re-thrown as an infrastructure failure (REST 500),
+  but P2024 ("timed out fetching a connection from the pool") was mapped to
+  `ConcurrencyConflictError` (REST **409**), while the MCP surface answered
+  `DATABASE_CONNECTION_ERROR` for BOTH. P2024 is now re-thrown like every
+  other pool timeout, so all surfaces agree.
+
+- **`parseISODateTimeAsUTC` accepted a non-string.** `new Date(null)` is the
+  UNIX **epoch** — a perfectly valid Date — so the NaN guard could not catch
+  it, and a `null` that reached the function was persisted as
+  `1970-01-01`. `undefined` reached the error path, where
+  `sanitizeForLogOutput(undefined)` threw a raw `TypeError` and replaced the
+  structured `InvalidTypeValueError` with an opaque 500. The type is now
+  checked up front.
+
+### Fixed this round — `packages/mcp-tools`
+
+- **The published pipeline contract had drifted.** The only statement of the
+  pipeline order was a comment in `tool-definition.ts`, and it was missing
+  the `agentPolicy` stage **together with the ordering rule that depends on
+  it** ("an agent that may not call a tool at all must not be able to
+  'unlock' it by supplying a confirmation"). A middleware author following
+  the stale contract would have placed the confirmation gate OUTSIDE the
+  agent policy and silently reopened that bypass.
+
+  The contract is now a published constant (`PRODUCTION_PIPELINE_ORDER`),
+  the registry exposes the composed stage names
+  (`registry.globalMiddlewareOrder`), and the API **asserts at boot** that
+  the composition still matches — a drift fails loudly instead of silently
+  changing which control runs first.
+
+- **A hallucinated tool call was invisible in the durable trail.** The
+  pipeline is composed PER TOOL, so an unknown tool name was rejected
+  *before* the audit middleware ever ran. The rationale for this
+  ("these rejections carry no validated identity") was factually wrong: the
+  tenant and user HAVE been validated by that point. Verified live: the
+  `ai_action_log` row count was unchanged across an unknown-tool call.
+
+  The registry now takes a **rejection auditor**; the API wires it to the
+  same durable sink (same entry builder, same redaction, same
+  backpressure) as every other attempt. Verified live: the count now
+  increases and the row carries the requested tool name and the
+  `UNKNOWN_TOOL` code.
+
+- **An agent-policy rejection suggested a tool the agent may not call.**
+  Every rejection suggested `list_available_tools`, which the seeded default
+  agent does not have in its `capabilities` — so an agent that followed the
+  advice was rejected again with `AGENT_CAPABILITY_DENIED` for the very tool
+  it was told to call. The suggestions are now drawn from the agent's own
+  capability list. Verified live: the rejection now suggests
+  `describe_agent` (which the seeded agent DOES have), and following it
+  succeeds.
+
+- **`register()` accepted a tool with no handler.** The failure surfaced at
+  first execution as a raw `definition.handler is not a function`
+  TypeError, far from the registration site. The same "fail fast at
+  registration" argument the file already makes for `inputSchema` now
+  applies to the handler and to the per-tool middlewares.
+
+- **The audit middleware's comment claimed its throw branch was dead code.**
+  It is the opposite: the error handler is OUTSIDE the audit middleware, so
+  the audit catch runs FIRST and is the live path for every thrown error.
+  A maintainer who believed the comment could have deleted the branch and
+  silently lost every thrown-error audit row. The comment now states what
+  is actually true.
+
+### Fixed this round — `apps/api`
+
+- **`explain_error` could not explain 15 of the codes the framework itself
+  emits.** The inventory of codes was implicit — scattered across the
+  middleware as string literals — so the explanation table fell behind.
+  `explain_error({errorCode: "AGENT_CAPABILITY_DENIED"})` — the single most
+  frequent agent-policy rejection — answered `UNKNOWN_ERROR_CODE`.
+
+  The inventory is now published (`MCP_ERROR_CODES` from `@besterp/mcp-tools`,
+  `DOMAIN_ERROR_CODES` from `@besterp/shared`), the middleware uses the
+  published constants instead of string literals, and a test asserts that
+  EVERY code in both lists has an explanation.
+
+- **Optimistic concurrency was not implemented.** The README claimed
+  *"Optimistic concurrency prevents lost updates"*, and both `Party` and
+  `Product` carry a `version` column — but it was never read, never checked
+  and never incremented, so two concurrent updates were plain
+  last-write-wins. Verified live before the fix: two consecutive
+  `update_product` calls both succeeded, the version stayed `1`, and the
+  second silently overwrote the first.
+
+  The version is now incremented on EVERY update, and `update_product`
+  accepts an optional `expectedVersion`: the write is predicated on it, and
+  a miss is reported as `CONCURRENCY_CONFLICT` (not "not found" — the
+  re-read distinguishes the two). Verified live: a blind write moved the
+  version 1 → 2, a stale `expectedVersion: 1` was rejected with
+  `CONCURRENCY_CONFLICT`, and the correct `expectedVersion: 2` succeeded
+  (version → 3).
+
+- **An empty-string context idempotency key produced a spurious
+  mismatch.** The conflict check used `context.idempotencyKey != null` and
+  the promotion used `!context.idempotencyKey` — two different notions of
+  "absent". An empty-string context key was therefore simultaneously
+  "present" (for the conflict check) and "absent" (for the promotion), so a
+  legitimate argument key was rejected with `IDEMPOTENCY_KEY_MISMATCH`.
+  There is now ONE predicate.
+
+### Fixed this round — `packages/database`
+
+- **No migration protected the `user` table or the four product tables.**
+  The RLS configuration lives in `rls-setup.sql`, which `prisma migrate
+  deploy` does NOT execute. A deployment that applied the RLS script
+  *before* the migrations that created these tables ended up with `user`
+  (the table that stores `password_hash` — the most sensitive table in the
+  schema) and the product tables carrying **no row-level security at all**,
+  silently. Round 272 fixed exactly this for `agent_registry`
+  (`20261021000002`); the tables introduced by the same wave of migrations
+  were left unprotected.
+
+  A new migration (`20261022000000_restore_remaining_tenant_rls`) restores
+  the flags and the policies for `user`, `product`, `product_category`,
+  `product_feature` and `product_price`, with policy bodies byte-identical
+  to `rls-setup.sql` so the two paths cannot disagree. Verified live: all
+  five tables report `relrowsecurity = t`, `relforcerowsecurity = t` and at
+  least one policy after a plain `migrate deploy`.
+
+- **`contact_mechanism.contact_mechanism_type_id` had no index.** Every
+  other foreign-key column in the schema has one (the repo did that sweep
+  in `20260819000000`); this one was missed, so deleting or updating a
+  `contact_mechanism_type` row performed a sequential scan of
+  `contact_mechanism`. The index is now declared in the schema and created
+  by the same migration. `prisma migrate diff` reports **no drift**.
+
+- **The seed guard's refusal message was destroyed by log sanitization.**
+  The seed prints every error through `sanitizeForLogOutput` (a Prisma
+  connection error embeds the datasource URL — credentials and all). The
+  message said `Refusing to seed in NODE_ENV=production` — exactly 20
+  characters of `[A-Za-z0-9_./=+-]` — so the generic long-token rule
+  replaced it with `[REDACTED_TOKEN]` and the operator was left with
+  *"Refusing to seed in [REDACTED_TOKEN]"*: neither the rejected
+  environment nor the remediation survived. The message is reworded so that
+  it survives sanitization.
+
+### Fixed this round — the documented setup could not work
+
+- **`npm run db:migrate` (README step 5) fails on a fresh database.** The
+  Prisma datasource reads `DATABASE_URL`, which `.env.example` points at
+  the **non-superuser `besterp_app` role** — and `create-roles.sql` grants
+  that role only `USAGE` on the schema `public` (on PostgreSQL 15+ the
+  `public` schema gives PUBLIC usage but no CREATE). The migration engine
+  therefore cannot create the `_prisma_migrations` table and fails with
+  *"permission denied for schema public"*. CI hid the bug by overriding
+  `DATABASE_URL` with the admin URL for the migration step.
+
+  The README now runs the migration with the admin connection
+  (`DATABASE_URL="$DATABASE_ADMIN_URL" npm run db:migrate`) and explains
+  why; the application keeps using the app role at runtime.
+
+### Verified clean (no action needed)
+
+- **The schema ↔ migration chain still agrees.** After the new migration,
+  `prisma migrate diff --from-url <db> --to-schema-datamodel` reports
+  **"No difference detected"** in both directions. All 22 migrations apply
+  cleanly to a fresh database.
+- **The RLS surface is still complete.** All 17 tenant-scoped tables carry
+  ENABLE + FORCE ROW LEVEL SECURITY and at least one policy, and the six
+  global reference tables carry none. The API's boot check still passes.
+- **Multi-tenant isolation** — re-verified against the live database: a
+  `tenant-globex` JWT sees only globex rows, and the live RLS-isolation
+  suite passes with the app role.
+- **The tenant id is never taken from a request body** — unchanged; the
+  REST controllers place `tenantId` after the body spread and the MCP
+  controller reads it only from `req.tenantContext`.
+- **The auth boundary** — unchanged; every route except `/api/health` is
+  covered by the global `JwtAuthGuard` + `TenantGuard`.
+- **The idempotency input hash** is taken over the Zod-normalised data (so
+  a trailing-whitespace difference replays rather than mismatches) and the
+  `confirmation` is deliberately NOT part of it.
+
+## Test Results (round 274)
+```
+shared:    302 passed (6 files)
+mcp-tools: 259 passed (7 files)
+database:   45 passed (3 files)   ← 10 integration tests ran against the live DB
+api:       710 passed (24 files)
+────────────────────────────────
+Total:     1316 passed
+```
+
+The database suite ran against the live PostgreSQL 16 instance. The API was
+BOOTED against that instance and the MCP HTTP surface driven end-to-end
+before and after every fix:
+
+- `search_across_entities` without an entity returned
+  `SERVICE_UNAVAILABLE` before and now returns both result sets.
+- `create_party` with the gate lookup broken **executed** before and is now
+  rejected with `CONFIRMATION_GATE_UNAVAILABLE` (no party row written).
+- A second user's replay of another user's idempotency key returned the
+  first user's payload before and is now rejected with
+  `IDEMPOTENCY_KEY_MISMATCH`.
+- `get_party` on a party with no birth date returned
+  `"birthDate": "[REDACTED]"` before and now returns `"birthDate": null`.
+- The `ai_action_log` row count was unchanged across an unknown-tool call
+  before and now increases by one, with the requested tool name and the
+  `UNKNOWN_TOOL` code.
+- `explain_error({errorCode: "AGENT_CAPABILITY_DENIED"})` returned
+  `UNKNOWN_ERROR_CODE` before and now returns the explanation.
+- Two concurrent `update_product` calls both succeeded with the version
+  stuck at `1` before; the version now increments on every update and a
+  stale `expectedVersion` is rejected with `CONCURRENCY_CONFLICT`.
+- The reasoning field of an MCP call that carried
+  `{'api_key':'sk_live_LEAKME123'}` was stored verbatim before and is now
+  stored as `{'api_key':'[REDACTED]'}`.
+
+
+## Scope
+                Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
+                 `mcp-tools`, `apps/api`, plus README/`.env.example`/docker/CI) conducted on
                    2026-10-22. This is review 273; rounds 1–272 are documented in
                  earlier revisions of this file and `CHANGES.md`.
 

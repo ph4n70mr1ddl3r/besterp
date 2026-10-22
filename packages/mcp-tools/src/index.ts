@@ -10,6 +10,14 @@ export type {
   RegistryEntry,
 } from "./schema/tool-definition.js";
 
+// The published production pipeline contract (outermost → innermost).
+export { PRODUCTION_PIPELINE_ORDER } from "./schema/tool-definition.js";
+
+// The machine-readable codes the MCP framework can return. A consumer that
+// explains error codes to an agent should assert that its explanation table
+// covers every code in this list.
+export { MCP_ERROR_CODES } from "./error-codes.js";
+
 // Schema builders (re-exported for tool authors)
 export {
   sanitizedString,
@@ -21,6 +29,7 @@ export {
 
 // Registry
 export { ToolRegistry } from "./registry/tool-registry.js";
+export type { RejectionAuditor, ToolCallRejection } from "./registry/tool-registry.js";
 
 // Middleware
 export {
@@ -30,6 +39,10 @@ export {
   confirmationGateMiddleware,
   agentPolicyMiddleware,
 } from "./middleware/index.js";
+
+// Durable recording of a call rejected before the pipeline ran.
+export { createRejectionAuditor } from "./middleware/audit-log.js";
+export type { RejectedToolCall } from "./middleware/audit-log.js";
 
 // Truncation utilities (re-exported for custom middleware authors)
 export { truncateValue, capString, MAX_STORED_PAYLOAD_SIZE, isTruncationMarker } from "./middleware/truncate.js";

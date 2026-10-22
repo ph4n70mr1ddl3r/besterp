@@ -564,7 +564,17 @@ function isFreeTextSecretName(name: string, allowCodeAndSession = false): boolea
 // (letters, digits, `_`, `-`, `.`) so `clientSecret`, `x-api-key` and
 // `db_private_key` are all captured whole and the sensitivity decision is
 // made on the complete name.
-const FREE_TEXT_NAME = "[A-Za-z][A-Za-z0-9_.-]{0,63}";
+//
+// The first character may be a DIGIT. The name used to require a leading
+// letter, which created an asymmetry with the object-key redactor:
+// `isSensitiveFieldName("2fa_secret")` is true (the token fallback splits it
+// into `2fa` + `secret`), so the SAME name was redacted as an object key but
+// survived verbatim in free text — `2fa_secret=abc123` leaked, and the
+// generic long-token rule could not save it because the whole run is 19
+// characters, one below that rule's 20-character minimum. A leading digit is
+// harmless: the sensitivity decision is still made by
+// `isFreeTextSecretName`, so `2=2` and `1234=5678` stay untouched.
+const FREE_TEXT_NAME = "[A-Za-z0-9][A-Za-z0-9_.-]{0,63}";
 
 // `String.raw` preserves regex backslash escapes verbatim, so each pattern
 // below is byte-for-byte the intended regex source.
@@ -585,8 +595,14 @@ const QUERY_SECRET_PATTERN = new RegExp(
 // whitespace. The quoted-value rule (QUOTED_SECRET_PATTERN) still owns
 // quoted values: its `"…"` value class is excluded here, so `password:
 // "hunter2"` continues to flow to that rule unchanged.
+//
+// The name may be followed by a CLOSING quote before the separator. A
+// single-quoted map (`{'api_key': sk_live_abc}`) puts a quote between the
+// name and the `:`; without this the quote defeated the separator and the
+// whole pair survived verbatim. The quote is captured so the replacement can
+// re-emit it and keep the text's shape recognisable.
 const BOUNDARY_SECRET_PATTERN = new RegExp(
-  String.raw`(^|[\s"'{([,;])([A-Za-z][A-Za-z0-9_.-]{0,63})[ \t]*[:=][ \t]*([^}\]\s"'\` ,;]+)`,
+  String.raw`(^|[\s"'{([,;])(${FREE_TEXT_NAME})(['"]?)[ \t]*[:=][ \t]*([^}\]\s"'\` ,;]+)`,
   "gi",
 );
 // The name's own quote characters AND the `:`/`=` separator are captured so
@@ -595,8 +611,14 @@ const BOUNDARY_SECRET_PATTERN = new RegExp(
 // string was no longer valid JSON, so a consumer that parses a JSON-in-text
 // payload after redaction (audit rows, idempotency records, agent-facing
 // errors) could no longer parse it.
+//
+// The name's quotes may be SINGLE as well as double. The value alternative
+// already accepted both quote characters, so only the name did not — and a
+// single-quoted map (`{'api_key':'sk_live_abc'}`, a Python `repr`, a JS
+// object literal, a YAML-ish dump) leaked the secret verbatim while the
+// identical double-quoted map was redacted.
 const QUOTED_SECRET_PATTERN = new RegExp(
-  String.raw`(^|[\s"'{([;,?])("?)(${FREE_TEXT_NAME})("?)[ \t]*([:=])[ \t]*("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')`,
+  String.raw`(^|[\s"'{([;,?])(['"]?)(${FREE_TEXT_NAME})(['"]?)[ \t]*([:=])[ \t]*("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')`,
   "gi",
 );
 
@@ -636,12 +658,15 @@ function replaceQuerySecrets(input: string): string {
 function replaceBoundarySecrets(input: string): string {
   return input.replace(
     BOUNDARY_SECRET_PATTERN,
-    (match, lead: string, name: string, value: string) => {
+    (match, lead: string, name: string, nameClose: string, value: string) => {
       if (!isFreeTextSecretName(name)) return match;
       // Leave `Authorization: Bearer …` / `Authorization: Basic …` to the
       // dedicated auth rules (see AUTH_SCHEME_VALUE).
       if (AUTH_SCHEME_VALUE.test(value)) return match;
-      return `${lead}${name}=[REDACTED]`;
+      // The closing quote captured between the name and the separator is
+      // re-emitted so a single-quoted map keeps its shape:
+      // `{'api_key': sk_live}` → `{'api_key'=[REDACTED]}`.
+      return `${lead}${name}${nameClose}=[REDACTED]`;
     },
   );
 }
@@ -1088,6 +1113,12 @@ export const MAX_REDACTION_DEPTH = 20;
  * cap) and container cycles (WeakSet) — the exact properties the MCP
  * `redactSensitiveFields` carries, so the two surfaces cannot diverge.
  *
+ * A NULL/UNDEFINED value under a sensitive-named key is LEFT ALONE. Absence
+ * is not secrecy: replacing `null` with `"[REDACTED]"` made "no value on
+ * file" indistinguishable from "a value we refuse to disclose", so every
+ * party without a birth date reported one, and an agent could not tell
+ * whether the field it wrote was actually stored.
+ *
  * @param value value to redact (object, array, Map, Set, string, or primitive)
  * @param depth internal recursion depth; do not pass from callers
  * @param seen  internal cycle-tracking set; do not pass from callers
@@ -1113,9 +1144,12 @@ function redactMap(value: Map<unknown, unknown>, depth: number, seen: WeakSet<ob
     // Map key is not reflected verbatim on any surface.
     return [...value.entries()].map(([k, v]) => {
       const keyStr = typeof k === "string" ? k : String(k);
+      const sensitive = isSensitiveFieldName(keyStr);
       return [
-        isSensitiveFieldName(keyStr) ? "[REDACTED]" : redactSensitiveFieldValues(k, depth + 1, seen),
-        isSensitiveFieldName(keyStr) ? "[REDACTED]" : redactSensitiveFieldValues(v, depth + 1, seen),
+        sensitive ? "[REDACTED]" : redactSensitiveFieldValues(k, depth + 1, seen),
+        sensitive && v !== null && v !== undefined
+          ? "[REDACTED]"
+          : redactSensitiveFieldValues(v, depth + 1, seen),
       ];
     });
   } finally {
@@ -1146,7 +1180,12 @@ function redactPlainObject(value: Record<string, unknown>, depth: number, seen: 
     // Mirrors the prototype-safe construction in crypto.ts's sortPlainObject.
     const out: Record<string, unknown> = Object.create(null) as Record<string, unknown>;
     for (const [key, child] of Object.entries(value)) {
-      out[key] = isSensitiveFieldName(key)
+      // A NULL/UNDEFINED value is ABSENT, not withheld: redacting it to
+      // "[REDACTED]" made "no birth date on file" indistinguishable from
+      // "a birth date we refuse to show", and an agent could not tell
+      // whether the field it wrote was stored. Only a value that actually
+      // carries something is replaced.
+      out[key] = isSensitiveFieldName(key) && child !== null && child !== undefined
         ? "[REDACTED]"
         : redactSensitiveFieldValues(child, depth + 1, seen);
     }

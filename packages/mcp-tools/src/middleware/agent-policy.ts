@@ -56,9 +56,42 @@
 import { PrismaClient } from "@prisma/client";
 import { ToolMiddleware } from "../schema/tool-definition.js";
 import { sanitizeForLogOutput } from "@besterp/shared";
+import { AGENT_CAPABILITY_DENIED, AGENT_INACTIVE, AGENT_NOT_REGISTERED, AGENT_POLICY_UNAVAILABLE } from "../error-codes.js";
 
 /** Suggested tools returned when an agent is not permitted to make the call. */
 const SUGGESTED_TOOLS = ["list_available_tools"] as const;
+
+/**
+ * Pick the follow-up tools the rejected agent can ACTUALLY call.
+ *
+ * A suggestion that the agent is not permitted to call is a dead end: the
+ * agent follows it and is rejected again with the same code. The seeded
+ * default agent lists `["list_agents", "describe_agent", "search_parties",
+ * "get_party"]` — so the fixed `list_available_tools` suggestion was not
+ * callable, and an agent that followed it got AGENT_CAPABILITY_DENIED for
+ * the very tool it was told to call. The rest of the framework maintains the
+ * invariant explicitly ("every suggestion must be callable", see
+ * error-handler.ts's `resolveRelatedTools`), and the permission path has to
+ * honour it too.
+ *
+ * When the capability list is KNOWN, only the permitted tools are offered.
+ * When it is NOT known (the registry could not be read, or the agent is not
+ * registered), there is nothing to check against and the generic suggestion
+ * is returned unchanged.
+ */
+function pickCallableSuggestions(capabilities: string[] | undefined, preferred: readonly string[]): string[] {
+  if (capabilities === undefined) return [...preferred];
+  return preferred.filter((tool) => capabilities.includes(tool));
+}
+
+/**
+ * The follow-up tools offered with a capability rejection.
+ *
+ * `describe_agent` is the tool the error message itself points at, and
+ * `list_available_tools` is the generic fallback — but only when the agent
+ * is permitted to call them.
+ */
+const CAPABILITY_SUGGESTIONS = ["describe_agent", "list_available_tools"] as const;
 
 /** The subset of the agent registry row this middleware needs. */
 interface AgentPolicyRow {
@@ -103,9 +136,9 @@ export function agentPolicyMiddleware(prisma: PrismaClient): ToolMiddleware {
       return {
         success: false,
         error: {
-          code: "AGENT_POLICY_UNAVAILABLE",
+          code: AGENT_POLICY_UNAVAILABLE,
           message: "The agent registry is unavailable, so the agent's permissions cannot be verified.",
-          suggestedTools: [...SUGGESTED_TOOLS],
+          suggestedTools: pickCallableSuggestions(undefined, SUGGESTED_TOOLS),
           context: { agentId: sanitizeForLogOutput(agentId) },
         },
       };
@@ -122,9 +155,9 @@ export function agentPolicyMiddleware(prisma: PrismaClient): ToolMiddleware {
       return {
         success: false,
         error: {
-          code: "AGENT_POLICY_UNAVAILABLE",
+          code: AGENT_POLICY_UNAVAILABLE,
           message: "The agent registry could not be read, so the agent's permissions could not be verified.",
-          suggestedTools: [...SUGGESTED_TOOLS],
+          suggestedTools: pickCallableSuggestions(undefined, SUGGESTED_TOOLS),
           context: { agentId: sanitizeForLogOutput(agentId) },
         },
       };
@@ -134,36 +167,41 @@ export function agentPolicyMiddleware(prisma: PrismaClient): ToolMiddleware {
       return {
         success: false,
         error: {
-          code: "AGENT_NOT_REGISTERED",
+          code: AGENT_NOT_REGISTERED,
           message: `Agent '${sanitizeForLogOutput(agentId)}' is not registered in this tenant.`,
-          suggestedTools: [...SUGGESTED_TOOLS],
-          context: { agentId: sanitizeForLogOutput(agentId) },
-        },
-      };
-    }
-
-    if (!agent.isActive) {
-      return {
-        success: false,
-        error: {
-          code: "AGENT_INACTIVE",
-          message: `Agent '${sanitizeForLogOutput(agentId)}' is deactivated and cannot call tools.`,
-          suggestedTools: [...SUGGESTED_TOOLS],
+          suggestedTools: pickCallableSuggestions(undefined, SUGGESTED_TOOLS),
           context: { agentId: sanitizeForLogOutput(agentId) },
         },
       };
     }
 
     const capabilities = readCapabilities(agent.capabilities);
+
+    if (!agent.isActive) {
+      return {
+        success: false,
+        error: {
+          code: AGENT_INACTIVE,
+          message: `Agent '${sanitizeForLogOutput(agentId)}' is deactivated and cannot call tools.`,
+          // A deactivated agent can call NOTHING, so every suggestion would
+          // be a dead end. Offer only the tools it would be permitted to
+          // call once it is reactivated.
+          suggestedTools: pickCallableSuggestions(capabilities, SUGGESTED_TOOLS),
+          context: { agentId: sanitizeForLogOutput(agentId) },
+        },
+      };
+    }
+
     if (!capabilities.includes(definition.name)) {
       return {
         success: false,
         error: {
-          code: "AGENT_CAPABILITY_DENIED",
+          code: AGENT_CAPABILITY_DENIED,
           message:
             `Agent '${sanitizeForLogOutput(agentId)}' is not permitted to call '${sanitizeForLogOutput(definition.name)}'. ` +
             `Use 'describe_agent' to review the agent's capabilities.`,
-          suggestedTools: [...SUGGESTED_TOOLS],
+          // Only the tools this agent is actually permitted to call.
+          suggestedTools: pickCallableSuggestions(capabilities, CAPABILITY_SUGGESTIONS),
           context: { agentId: sanitizeForLogOutput(agentId), tool: definition.name },
         },
       };

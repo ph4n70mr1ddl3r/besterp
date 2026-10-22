@@ -8,7 +8,15 @@
 // so operators can audit agent reasoning.
 //
 // This is a global middleware — registered once in McpService.onModuleInit().
-// It never blocks; if the DB is unavailable it logs and passes through.
+//
+// FAIL CLOSED
+// A lookup failure (the database is unreachable, the query throws) REJECTS
+// the call. The middleware cannot distinguish "this tool is not gated" from
+// "we could not check", and allowing the call on an unknown state would make
+// the control bypassable by making the database unavailable: a high-risk
+// write would execute with no confirmation and no recorded justification.
+// The sibling `agentPolicy` middleware in the same pipeline already fails
+// closed for exactly this reason, and the two must not disagree.
 //
 // ENVELOPE CONTRACT: the `confirmation` value travels on the ToolContext
 // (promoted from the tool arguments by ToolRegistry.execute), NOT on the
@@ -27,6 +35,7 @@ import {
   MIN_CONFIRMATION_LENGTH,
   MAX_CONFIRMATION_LENGTH,
 } from "@besterp/shared";
+import { CONFIRMATION_GATE_UNAVAILABLE, CONFIRMATION_REQUIRED, INVALID_CONFIRMATION } from "../error-codes.js";
 
 /** Suggested tools returned when confirmation is missing or invalid. */
 const SUGGESTED_TOOLS = ["list_available_tools"] as const;
@@ -38,7 +47,7 @@ function confirmationRequiredError(toolName: string): { success: false; error: {
   return {
     success: false,
     error: {
-      code: "CONFIRMATION_REQUIRED",
+      code: CONFIRMATION_REQUIRED,
       message: `Tool '${toolName}' requires agent confirmation. Pass a 'confirmation' field explaining why this operation should proceed.`,
       suggestedTools: [...SUGGESTED_TOOLS],
     },
@@ -52,7 +61,7 @@ function invalidConfirmationError(message: string): { success: false; error: { c
   return {
     success: false,
     error: {
-      code: "INVALID_CONFIRMATION",
+      code: INVALID_CONFIRMATION,
       message,
       suggestedTools: [...SUGGESTED_TOOLS],
     },
@@ -138,6 +147,24 @@ function validateConfirmation(rawConfirmation: unknown, toolName: string):
 }
 
 /**
+ * Build the error result for a gate lookup that could not be completed.
+ *
+ * The gate is a security control on high/critical-risk tools, so an
+ * unverifiable gate must BLOCK the call rather than wave it through. The
+ * agent can retry once the database is healthy.
+ */
+function gateUnavailableError(toolName: string): { success: false; error: { code: string; message: string; suggestedTools: string[] } } {
+  return {
+    success: false,
+    error: {
+      code: CONFIRMATION_GATE_UNAVAILABLE,
+      message: `Tool '${toolName}' requires an agent confirmation, but the confirmation gate could not be verified. The operation did NOT run. Retry when the service is healthy.`,
+      suggestedTools: [...SUGGESTED_TOOLS],
+    },
+  };
+}
+
+/**
  * Create a confirmation-gate middleware backed by PostgreSQL.
  *
  * Tools registered with riskLevel "high" or "critical" are checked against
@@ -163,7 +190,12 @@ export function confirmationGateMiddleware(prisma: PrismaClient): ToolMiddleware
     }
 
     // Check whether this tool has a confirmation gate configured.
-    // If the DB is unavailable, pass through (confirmation must never block).
+    //
+    // A lookup failure BLOCKS the call (see the FAIL CLOSED note at the top
+    // of this file). It used to pass through, which made the control
+    // bypassable by making the database unavailable: with the gate table
+    // unreachable, a high-risk write executed with no confirmation and no
+    // justification recorded in the audit trail.
     try {
       const gate = await prisma.confirmationGate.findUnique({
         where: { toolName: definition.name },
@@ -175,12 +207,12 @@ export function confirmationGateMiddleware(prisma: PrismaClient): ToolMiddleware
     } catch {
       try {
         process.stderr.write(
-          `[ConfirmationGate] Unable to check gate for '${definition.name}' — proceeding without gate\n`,
+          `[ConfirmationGate] Unable to check gate for '${definition.name}' — blocking the call\n`,
         );
       } catch {
         // stderr may be closed.
       }
-      return next(input, context);
+      return gateUnavailableError(definition.name);
     }
 
     const validation = validateConfirmation(readConfirmation(input, context), definition.name);
