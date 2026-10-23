@@ -3,8 +3,35 @@
 ## Scope
                 Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
                  `mcp-tools`, `apps/api`, plus README/`.env.example`/docker/CI). This file
-                 documents reviews 276–280 (newest first) and review 275; rounds 1–274 are
+                 documents reviews 276–282 (newest first) and review 275; rounds 1–274 are
                  documented in earlier revisions of this file and `CHANGES.md`.
+
+## Findings & Actions (round 282)
+
+### Fixed this round — residual magic strings and stale fixtures closed out the round 281 constant migration
+
+- **`apps/api/src/mcp/tools/discovery-tools.ts` still emitted the `SERVICE_UNAVAILABLE` literal.** Round 281 migrated the idempotency middleware to the `SERVICE_UNAVAILABLE` constant from `packages/mcp-tools/src/error-codes.ts` but left the same magic string in the sibling tool file (three error payloads plus the `ERROR_EXPLANATIONS` table key). `@besterp/mcp-tools` is already a dependency of `apps/api`, so the constant is importable; all four sites now use it, completing the migration.
+
+- **`security.service.spec.ts` seeded a capability-less agent through the RLS-enforced-client regression guard.** The fixture at the `agent_registry`-create mock still returned `capabilities: []` — the exact shape round 278 corrected elsewhere and which the register path now rejects. Corrected to `capabilities: ["list_agents"]` so the sibling fixtures in the same describe block agree on the "every registered agent declares at least one capability" policy.
+
+## Test Results (rounds 276–282)
+```
+Full suite (current HEAD):
+shared:    328 passed (6 files)
+mcp-tools: 282 passed (9 files)
+database:   35 passed, 10 skipped (3 files)
+api:       726 passed (24 files)
+────────────────────────────────────
+Total:    1371 passed, 10 skipped
+lint: clean
+typecheck: clean
+```
+
+## Findings & Actions (round 281)
+
+### Fixed this round — use the SERVICE_UNAVAILABLE constant in the idempotency middleware
+
+- **`handleRecordUnavailable` emitted the magic string `code: "SERVICE_UNAVAILABLE"`** instead of the `SERVICE_UNAVAILABLE` constant published by `packages/mcp-tools/src/error-codes.ts`. A future rename of the constant would have left the middleware behind, breaking the one-way assertion that every code emitted by the framework appears in the published inventory. Now imported and used.
 
 ## Findings & Actions (round 280)
 
@@ -14,7 +41,7 @@
 
 ## Test Results (rounds 276–280)
 ```
-Full suite (current HEAD):
+Full suite (as of round 280):
 shared:    328 passed (6 files)
 mcp-tools: 282 passed (9 files)
 database:   35 passed, 10 skipped (3 files)

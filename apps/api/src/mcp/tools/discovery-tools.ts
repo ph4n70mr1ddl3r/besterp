@@ -11,6 +11,7 @@ import {
   ToolDefinition,
   ToolContext,
   type ToolResult,
+  SERVICE_UNAVAILABLE,
 } from "@besterp/mcp-tools";
 import {
   InvalidTypeValueError,
@@ -322,8 +323,8 @@ Returns the entity's description, AI prompt hint, and key fields.`,
         return {
           success: false,
           error: {
-            code: "SERVICE_UNAVAILABLE",
-            message: "Entity descriptor table not available.",
+          code: SERVICE_UNAVAILABLE,
+          message: "Entity descriptor table not available.",
             suggestedTools: ["list_available_tools"],
             context: { reason: "entityDescriptor delegate missing or malformed" },
           },
@@ -530,7 +531,7 @@ Example: search_across_entities({ query: "Widget", entity: "product" })`,
         return {
           success: false,
           error: {
-            code: "SERVICE_UNAVAILABLE",
+            code: SERVICE_UNAVAILABLE,
             message: `Universal search failed for every entity type (${failures.map((f) => f.entity).join(", ")}). The operation did not complete — retry the same request later.`,
             suggestedTools: ["list_available_tools"],
             context: { failures },
@@ -684,7 +685,7 @@ function unavailableServiceError(
   return {
     success: false,
     error: {
-      code: "SERVICE_UNAVAILABLE",
+      code: SERVICE_UNAVAILABLE,
       message: `${serviceKey === "partyService" ? "Party" : "Product"} search service is not available.`,
       suggestedTools: ["list_available_tools"],
       context: { service: serviceKey },
@@ -744,7 +745,7 @@ const ERROR_EXPLANATIONS: Record<string, { message: string; suggestedTools: stri
     suggestedTools: ["list_available_tools"],
     context: { tip: "Wait briefly and retry the same request with the same idempotency key (do not use a new key)." },
   },
-  SERVICE_UNAVAILABLE: {
+  [SERVICE_UNAVAILABLE]: {
     message: "A dependency required for this operation is unavailable. The operation did not complete.",
     suggestedTools: ["list_available_tools"],
     context: { tip: "Retry the same request later with the same idempotency key." },

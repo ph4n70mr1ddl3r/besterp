@@ -15,7 +15,34 @@ export { PRODUCTION_PIPELINE_ORDER } from "./schema/tool-definition.js";
 
 // The machine-readable codes the MCP framework can return. A consumer that
 // explains error codes to an agent should assert that its explanation table
-// covers every code in this list.
+// covers every code in this list. The individual constants are exported so a
+// consumer can emit a code without hardcoding the string.
+export {
+  AGENT_NOT_REGISTERED,
+  AGENT_INACTIVE,
+  AGENT_CAPABILITY_DENIED,
+  AGENT_POLICY_UNAVAILABLE,
+  CONFIRMATION_REQUIRED,
+  INVALID_CONFIRMATION,
+  CONFIRMATION_GATE_UNAVAILABLE,
+  IDEMPOTENCY_KEY_MISMATCH,
+  REQUEST_IN_PROGRESS,
+  IDEMPOTENCY_CONTENTION,
+  IDEMPOTENCY_UNAVAILABLE,
+  IDEMPOTENCY_UNKNOWN_STATUS,
+  INVALID_IDEMPOTENCY_KEY,
+  STALE_PENDING_RECORD,
+  INVALID_CONTEXT_ID,
+  INVALID_TENANT_ID,
+  INVALID_USER_ID,
+  UNKNOWN_TOOL,
+  INVALID_INPUT,
+  REFERENCE_ERROR,
+  DATABASE_ERROR,
+  DATABASE_CONNECTION_ERROR,
+  INTERNAL_ERROR,
+  SERVICE_UNAVAILABLE,
+} from "./error-codes.js";
 export { MCP_ERROR_CODES } from "./error-codes.js";
 
 // Schema builders (re-exported for tool authors)

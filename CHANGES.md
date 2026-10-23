@@ -1,5 +1,16 @@
 # BestERP — Security & Architecture Fixes
 
+## Changes Applied (2026-10-24) — Code Review Round 282
+**Complete the round 281 constant migration; close the residual empty-capabilities fixture**
+
+- `apps/api/src/mcp/tools/discovery-tools.ts`: the three `SERVICE_UNAVAILABLE` magic strings (entity-descriptor delegate missing, universal-search total failure, missing search service) and the `ERROR_EXPLANATIONS` table key now use the `SERVICE_UNAVAILABLE` constant from `@besterp/mcp-tools` (`packages/mcp-tools/src/error-codes.ts`), finishing the migration round 281 started in the idempotency middleware.
+- `apps/api/src/modules/core/security/security.service.spec.ts`: the RLS-enforced-client regression guard seeded a capability-less agent (`capabilities: []`) through the `agent_registry`-create mock — the exact shape the register path now rejects. Corrected to `capabilities: ["list_agents"]` to agree with the sibling fixture corrected in round 278.
+
+## Changes Applied (2026-10-23) — Code Review Round 281
+**Use the SERVICE_UNAVAILABLE constant in the idempotency middleware**
+
+- `packages/mcp-tools/src/middleware/idempotency.ts`: `handleRecordUnavailable` emitted the magic string `code: "SERVICE_UNAVAILABLE"`. It now uses the `SERVICE_UNAVAILABLE` constant from `packages/mcp-tools/src/error-codes.ts`, so a future rename of the constant cannot leave the middleware behind and break the published-code inventory assertion.
+
 ## Changes Applied (2026-10-23) — Code Review Round 280
 **Align the published middleware-pipeline comment with the composed order**
 

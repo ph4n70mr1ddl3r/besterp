@@ -746,7 +746,7 @@ describe("SecurityService — agent registry uses the RLS-enforced client", () =
       agentRegistry: {
         create: vi.fn().mockResolvedValue({
           agentId: "a1", tenantId: "t1", displayName: "Agent", description: "An agent",
-          capabilities: [], maxToolCallsPerConversation: 100, maxConcurrentConversations: 5,
+          capabilities: ["list_agents"], maxToolCallsPerConversation: 100, maxConcurrentConversations: 5,
           maxTransactionAmount: 0, allowedEntityTypes: [], rateLimitPerMinute: 30,
           version: "1", isActive: true, createdAt: new Date("2026-01-01"),
         }),
