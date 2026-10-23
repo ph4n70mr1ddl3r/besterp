@@ -2,9 +2,42 @@
 
 ## Scope
                 Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
-                 `mcp-tools`, `apps/api`, plus README/`.env.example`/docker/CI) conducted on
-                   2026-10-22. This is review 275; rounds 1–274 are documented in
-                 earlier revisions of this file and `CHANGES.md`.
+                 `mcp-tools`, `apps/api`, plus README/`.env.example`/docker/CI). This file
+                 documents reviews 276–278 (newest first) and review 275; rounds 1–274 are
+                 documented in earlier revisions of this file and `CHANGES.md`.
+
+## Findings & Actions (round 278)
+
+### Fixed this round — align service capabilities boundary with MCP min-length
+
+- **`register_agent` / `update_agent` accepted an empty `capabilities` array at the service boundary.** The MCP Zod schemas already declared `.min(1)` on the `capabilities` array, but `SecurityService.validateAgentArrays` (the shared register path) only capped the maximum and let `[]` through to the durable `agent_registry` row — an agent registered with no capabilities would then fail every call, and `update_agent` could strip an agent's last capability without complaint. The service boundary now rejects an empty array with `INVALID_TYPE_VALUE` (`'capabilities' must contain at least one entry.`), matching the MCP schema's `min(1)`. The same guard exists in `update_agent`'s `sanitizeUpdateCapabilities`.
+
+- **The agent-registry test fixture was capability-less.** `security.service.spec.ts` registered a seeded agent with `capabilities: []`, contradicting the policy that every registered agent must declare at least one callable tool. Corrected to `capabilities: ["list_agents"]`.
+
+### Fixed this round — centralize surrogate normalization and close update_agent validation gaps
+
+- **Surrogate normalization was applied at some durable sinks but not others.** `stripHtmlTags`, `sanitizeForLogOutput` and `sanitizeLogMessage` each ended by calling `normalizeUnpairedSurrogates`, but the normalization lived in three places; a future sink could forget it and let a lone UTF-16 surrogate reach PostgreSQL `jsonb` (which rejects the whole value) or be echoed to an agent as a broken character. Normalization is now the single terminating step of `stripHtmlTags`/`sanitizeForLogOutput`/`sanitizeLogMessage`, so every caller inherits it.
+
+- **`update_agent` validated `capabilities`/`allowedEntityTypes` inline and inconsistently.** The register path used `validateAgentArrays` (per-entry HTML strip, non-empty after sanitize, length caps, reject-empty-array) while `update_agent` mapped raw entries with only `stripHtmlTags(c.trim())` — so an update could persist a whitespace-only or over-long capability/entity type, or an empty array, bypassing the register path's guards. Extracted `sanitizeUpdateCapabilities` and `sanitizeUpdateAllowedEntityTypes` (same contract as `validateAgentArrays`) and routed both `update_agent` fields through them.
+
+### Fixed this round — close empty-after-sanitization and surrogate normalization gaps
+
+- **`sanitizePostalAddress` / `sanitizeTelecomNumber` persisted fields that were empty after HTML sanitization.** `addressLine1`, `city`, `country`, `areaCode` and `lineNumber` were passed through `stripHtmlTags` but never checked for the all-HTML/empty case, so a value like `<br>` was stored as an empty string in a required column. Each required field is now validated for visible characters after sanitization and throws `INVALID_TYPE_VALUE` otherwise.
+
+- **Durable and agent-facing strings could still carry a lone surrogate.** `audit-log.ts`, `confirmation-gate.ts`, `idempotency.ts` and `agent-result.ts` now wrap every `sanitizeForLogOutput(...)` result that reaches the `ai_action_log` row, the `idempotency_record` row, or the agent-facing caps (`capAgentErrorText`) with `normalizeUnpairedSurrogates`, so a lone UTF-16 surrogate can no longer reach a durable sink or break an agent-facing string at a UTF-16 cut.
+
+## Test Results (rounds 276–278)
+```
+Full suite (current HEAD):
+shared:    328 passed (6 files)
+mcp-tools: 282 passed (9 files)
+database:   35 passed, 10 skipped (3 files)
+api:       725 passed (24 files)
+────────────────────────────────────
+Total:    1370 passed, 10 skipped
+lint: clean
+typecheck: clean
+```
 
 ## Findings & Actions (round 275)
 

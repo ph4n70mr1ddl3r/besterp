@@ -1,5 +1,25 @@
 # BestERP — Security & Architecture Fixes
 
+## Changes Applied (2026-10-23) — Code Review Round 278
+**Align service capabilities boundary with MCP min-length; correct agent registry fixture**
+
+- `apps/api/src/modules/core/security/security.service.ts`: `validateAgentArrays` (register path) now rejects an empty `capabilities` array, matching the MCP Zod schema's `.min(1)`; `update_agent` routes `capabilities`/`allowedEntityTypes` through the same per-entry validation (non-empty after HTML strip, length caps, reject-empty-array) via `sanitizeUpdateCapabilities` / `sanitizeUpdateAllowedEntityTypes`.
+- `apps/api/src/modules/core/security/security.service.spec.ts`: corrected the agent-registry fixture from `capabilities: []` to `capabilities: ["list_agents"]`.
+
+## Changes Applied (2026-10-23) — Code Review Round 277
+**Centralize surrogate normalization; close update_agent validation gaps**
+
+- `packages/shared/src/sanitize.ts`: `stripHtmlTags`, `sanitizeForLogOutput` and `sanitizeLogMessage` now all terminate with `normalizeUnpairedSurrogates`, so no durable sink or agent-facing string can receive a lone UTF-16 surrogate.
+- `apps/api/src/modules/core/security/security.service.ts`: extracted `sanitizeUpdateCapabilities` and `sanitizeUpdateAllowedEntityTypes` for `update_agent`, closing the validation gaps between the register and update agent paths.
+
+## Changes Applied (2026-10-23) — Code Review Round 276
+**Close empty-after-sanitization and surrogate normalization gaps**
+
+- `packages/shared/src/sanitize.ts`: `sanitizePostalAddress` / `sanitizeTelecomNumber` reject fields (`addressLine1`, `city`, `country`, `areaCode`, `lineNumber`) that are empty after HTML sanitization.
+- `packages/mcp-tools/src/middleware/audit-log.ts`, `confirmation-gate.ts`, `idempotency.ts`, `agent-result.ts`: durable/agent-facing strings now pass through `normalizeUnpairedSurrogates` after `sanitizeForLogOutput`.
+
+---
+
 ## Changes Applied (2026-10-22) — Code Review Round 275
 
 Four parallel review agents covered `packages/shared`, `packages/mcp-tools`,
