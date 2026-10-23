@@ -17,7 +17,7 @@
 
 import { PrismaClient, Prisma, IdempotencyRecord } from "@prisma/client";
 import { createHash } from "node:crypto";
-import { hashInput, getErrorCode, sanitizeForLogOutput, redactSensitiveFieldValues, MAX_SOFT_FAILURE_MESSAGE_SIZE, IDEMPOTENCY_TTL_MS, MAX_IDEMPOTENCY_KEY_LENGTH, SAFE_IDEMPOTENCY_KEY, IDEMPOTENCY_MAX_RETRIES, IDEMPOTENCY_RETRY_BASE_DELAY_MS, IDEMPOTENCY_STALE_PENDING_THRESHOLD_MS, MAX_USER_ID_LENGTH, MAX_AGENT_ID_LENGTH, MAX_CONVERSATION_ID_LENGTH } from "@besterp/shared";
+import { hashInput, getErrorCode, sanitizeForLogOutput, redactSensitiveFieldValues, normalizeUnpairedSurrogates, MAX_SOFT_FAILURE_MESSAGE_SIZE, IDEMPOTENCY_TTL_MS, MAX_IDEMPOTENCY_KEY_LENGTH, SAFE_IDEMPOTENCY_KEY, IDEMPOTENCY_MAX_RETRIES, IDEMPOTENCY_RETRY_BASE_DELAY_MS, IDEMPOTENCY_STALE_PENDING_THRESHOLD_MS, MAX_USER_ID_LENGTH, MAX_AGENT_ID_LENGTH, MAX_CONVERSATION_ID_LENGTH } from "@besterp/shared";
 import { ToolMiddleware, ToolResult, ToolContext, ZodSchemaLike } from "../schema/tool-definition.js";
 import { truncateValue, MAX_STORED_PAYLOAD_SIZE, capString, isTruncationMarker } from "./truncate.js";
 import { IDEMPOTENCY_CONTENTION, IDEMPOTENCY_KEY_MISMATCH, IDEMPOTENCY_UNAVAILABLE, IDEMPOTENCY_UNKNOWN_STATUS, INVALID_IDEMPOTENCY_KEY, REQUEST_IN_PROGRESS, STALE_PENDING_RECORD } from "../error-codes.js";
@@ -766,7 +766,7 @@ async function executeAndUpdate(
     // (→ [DATABASE_URL], [HOST]) before persisting to the durable
     // idempotency_record table — mirroring the audit-log error path.
     const message = capString(
-      sanitizeForLogOutput(error instanceof Error ? error.message : String(error)),
+      normalizeUnpairedSurrogates(sanitizeForLogOutput(error instanceof Error ? error.message : String(error))),
       MAX_SOFT_FAILURE_MESSAGE_SIZE,
     );
     const failedResult: ToolResult = {
@@ -777,7 +777,7 @@ async function executeAndUpdate(
         // thrown custom error whose .code carries a long/secret-shaped value is
         // not persisted verbatim into the durable 24h-TTL idempotency_record.
         code: capString(
-          sanitizeForLogOutput(getErrorCode(error) ?? "EXECUTION_ERROR"),
+          normalizeUnpairedSurrogates(sanitizeForLogOutput(getErrorCode(error) ?? "EXECUTION_ERROR")),
           MAX_SOFT_FAILURE_MESSAGE_SIZE,
         ),
         message,
@@ -889,13 +889,13 @@ async function updateIdempotencyRecordWithRetry(
                 // would otherwise persist its message verbatim into the durable
                 // 24h-TTL idempotency_record, leaking any embedded
                 // connection string / secret that the thrown-error path scrubs.
-                message: capString(sanitizeForLogOutput(toolResult.error?.message ?? ""), MAX_SOFT_FAILURE_MESSAGE_SIZE),
+                message: capString(normalizeUnpairedSurrogates(sanitizeForLogOutput(toolResult.error?.message ?? "")), MAX_SOFT_FAILURE_MESSAGE_SIZE),
                 // error.code is typed as a free-form string and is not validated
                 // against an allowlist (it comes from getErrorCode), so cap it to
                 // the same bound as the message and sanitize embedded URLs/paths.
                 // A tool returning a multi-KB `code` would otherwise be persisted
                 // verbatim in idempotency_record.error.code.
-                code: capString(sanitizeForLogOutput(toolResult.error?.code ?? ""), MAX_SOFT_FAILURE_MESSAGE_SIZE),
+                code: capString(normalizeUnpairedSurrogates(sanitizeForLogOutput(toolResult.error?.code ?? "")), MAX_SOFT_FAILURE_MESSAGE_SIZE),
               }
             : Prisma.DbNull,
           completedAt: new Date(),

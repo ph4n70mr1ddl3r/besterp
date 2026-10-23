@@ -31,6 +31,7 @@ import { PrismaClient } from "@prisma/client";
 import { ToolMiddleware, ToolContext } from "../schema/tool-definition.js";
 import {
   sanitizeForLogOutput,
+  normalizeUnpairedSurrogates,
   stripHtmlTags,
   MIN_CONFIRMATION_LENGTH,
   MAX_CONFIRMATION_LENGTH,
@@ -125,7 +126,7 @@ function validateConfirmation(rawConfirmation: unknown, toolName: string):
 
   // Sanitize before propagating: a confirmation can carry connection-string
   // / API-key payloads if the agent echoes attacker-supplied text back.
-  const sanitized = sanitizeForLogOutput(stripHtmlTags(confirmation)).slice(0, MAX_CONFIRMATION_LENGTH);
+  const sanitized = normalizeUnpairedSurrogates(sanitizeForLogOutput(stripHtmlTags(confirmation))).slice(0, MAX_CONFIRMATION_LENGTH);
 
   // Validate the SANITIZED value, not the raw one. The value that is
   // propagated on the context and persisted to `ai_action_log.toolInput` is

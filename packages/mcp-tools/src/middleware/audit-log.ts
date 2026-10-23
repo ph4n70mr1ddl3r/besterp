@@ -116,11 +116,11 @@ export function createRejectionAuditor(prisma: PrismaClient): (rejection: Reject
         ...base,
         toolOutput: {
           error: {
-            message: capString(sanitizeForLogOutput(rejection.message), MAX_SOFT_FAILURE_MESSAGE_SIZE),
+            message: capString(normalizeUnpairedSurrogates(sanitizeForLogOutput(rejection.message)), MAX_SOFT_FAILURE_MESSAGE_SIZE),
             // Stored under `errorCode` (not `code`) so the shared redactor does
             // not rewrite the machine-readable failure code to "[REDACTED]" —
             // see formatSoftFailureOutput for the full rationale.
-            errorCode: capString(sanitizeForLogOutput(rejection.code), MAX_SOFT_FAILURE_MESSAGE_SIZE) || undefined,
+            errorCode: capString(normalizeUnpairedSurrogates(sanitizeForLogOutput(rejection.code)), MAX_SOFT_FAILURE_MESSAGE_SIZE) || undefined,
           },
         },
       });
@@ -378,11 +378,11 @@ async function executeAndLog(prisma: PrismaClient, backpressure: BackpressureMan
       ...base,
       toolOutput: {
         error: {
-          message: capString(sanitizeForLogOutput(error instanceof Error ? error.message : String(error)), MAX_SOFT_FAILURE_MESSAGE_SIZE),
+          message: capString(normalizeUnpairedSurrogates(sanitizeForLogOutput(error instanceof Error ? error.message : String(error))), MAX_SOFT_FAILURE_MESSAGE_SIZE),
           // Stored under `errorCode` (not `code`) so the shared redactor does
           // not rewrite the machine-readable failure code to "[REDACTED]" —
           // see formatSoftFailureOutput for the full rationale.
-          errorCode: capString(sanitizeForLogOutput(getErrorCode(error) ?? ""), MAX_SOFT_FAILURE_MESSAGE_SIZE) || undefined,
+          errorCode: capString(normalizeUnpairedSurrogates(sanitizeForLogOutput(getErrorCode(error) ?? "")), MAX_SOFT_FAILURE_MESSAGE_SIZE) || undefined,
         },
       },
     });

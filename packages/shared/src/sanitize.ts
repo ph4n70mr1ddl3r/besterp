@@ -1557,13 +1557,25 @@ export function sanitizePostalAddress(addr: {
   const addressLine2 = optionalStringField(addr.addressLine2, "addressLine2");
   const stateProvince = optionalStringField(addr.stateProvince, "stateProvince");
   const postalCode = optionalStringField(addr.postalCode, "postalCode");
+  const sanitizedAddressLine1 = stripHtmlTags(addressLine1);
+  const sanitizedCity = stripHtmlTags(city);
+  const sanitizedCountry = stripHtmlTags(country.toUpperCase());
+  if (sanitizedAddressLine1.length === 0) {
+    throw new InvalidTypeValueError("'addressLine1' must contain visible characters after HTML sanitization.", { context: { field: "addressLine1" } });
+  }
+  if (sanitizedCity.length === 0) {
+    throw new InvalidTypeValueError("'city' must contain visible characters after HTML sanitization.", { context: { field: "city" } });
+  }
+  if (sanitizedCountry.length === 0) {
+    throw new InvalidTypeValueError("'country' must contain visible characters after HTML sanitization.", { context: { field: "country" } });
+  }
   return {
-    addressLine1: stripHtmlTags(addressLine1),
+    addressLine1: sanitizedAddressLine1,
     addressLine2: addressLine2 ? (stripHtmlTags(addressLine2) || null) : null,
-    city: stripHtmlTags(city),
+    city: sanitizedCity,
     stateProvince: stateProvince ? (stripHtmlTags(stateProvince) || null) : null,
     postalCode: postalCode ? (stripHtmlTags(postalCode) || null) : null,
-    country: stripHtmlTags(country.toUpperCase()),
+    country: sanitizedCountry,
   };
 }
 
@@ -1593,14 +1605,22 @@ export function sanitizeTelecomNumber(tel: {
   const lineNumber = requireStringField(tel.lineNumber, "lineNumber");
   const countryCode = optionalStringField(tel.countryCode, "countryCode");
   const extension = optionalStringField(tel.extension, "extension");
+  const sanitizedAreaCode = stripHtmlTags(areaCode);
+  const sanitizedLineNumber = stripHtmlTags(lineNumber);
+  if (sanitizedAreaCode.length === 0) {
+    throw new InvalidTypeValueError("'areaCode' must contain visible characters after HTML sanitization.", { context: { field: "areaCode" } });
+  }
+  if (sanitizedLineNumber.length === 0) {
+    throw new InvalidTypeValueError("'lineNumber' must contain visible characters after HTML sanitization.", { context: { field: "lineNumber" } });
+  }
   return {
     // The default country code is sanitized as well, so a caller-supplied
     // default cannot smuggle HTML into the persisted row.
     countryCode: countryCode
       ? (stripHtmlTags(countryCode) || stripHtmlTags(defaultCountryCode))
       : stripHtmlTags(defaultCountryCode),
-    areaCode: stripHtmlTags(areaCode),
-    lineNumber: stripHtmlTags(lineNumber),
+    areaCode: sanitizedAreaCode,
+    lineNumber: sanitizedLineNumber,
     extension: extension ? (stripHtmlTags(extension) || null) : null,
   };
 }

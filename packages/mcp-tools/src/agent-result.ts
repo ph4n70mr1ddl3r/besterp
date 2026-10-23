@@ -26,6 +26,7 @@ import {
   redactSensitiveFieldValues,
   sanitizeForLogOutput,
   stripHtmlTags,
+  normalizeUnpairedSurrogates,
   MAX_ERROR_MESSAGE_LENGTH,
 } from "@besterp/shared";
 import type { ToolResult } from "./schema/tool-definition.js";
@@ -39,13 +40,13 @@ import type { ToolResult } from "./schema/tool-definition.js";
  */
 export function sanitizeAgentText(value: string): string {
   try {
-    return sanitizeForLogOutput(stripHtmlTags(value));
+    return normalizeUnpairedSurrogates(sanitizeForLogOutput(stripHtmlTags(value)));
   } catch {
     // Never let a redactor break the tool call. The value is returned
     // sanitized (control chars / ANSI / secrets) even if the HTML strip
     // could not run.
     try {
-      return sanitizeForLogOutput(value);
+      return normalizeUnpairedSurrogates(sanitizeForLogOutput(value));
     } catch {
       return "";
     }
@@ -61,14 +62,15 @@ export function sanitizeAgentText(value: string): string {
  * agent-facing error message may be.
  */
 export function capAgentErrorText(value: string): string {
-  if (value.length <= MAX_ERROR_MESSAGE_LENGTH) return value;
+  const safe = normalizeUnpairedSurrogates(value);
+  if (safe.length <= MAX_ERROR_MESSAGE_LENGTH) return safe;
   // Slice on a CHARACTER boundary, not a UTF-16 code-unit boundary.
   // `String.prototype.slice` counts UTF-16 code units, so a cut between a
   // high and a low surrogate produced a LONE SURROGATE in the agent-facing
   // string — a broken character that is also invalid UTF-8 when it reaches a
   // durable sink. The shared sanitizer already solves this (it iterates
   // `[...message]`), so the local cap must not reintroduce the problem.
-  return `${truncateAtCharacterBoundary(value, MAX_ERROR_MESSAGE_LENGTH)}…`;
+  return `${truncateAtCharacterBoundary(safe, MAX_ERROR_MESSAGE_LENGTH)}…`;
 }
 
 /**
