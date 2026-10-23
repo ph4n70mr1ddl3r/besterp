@@ -736,7 +736,7 @@ describe("SecurityService — agent registry uses the RLS-enforced client", () =
       tenantId: "t1",
       displayName: "Agent",
       description: "An agent",
-      capabilities: [],
+      capabilities: ["list_agents"],
       version: "1",
     });
 

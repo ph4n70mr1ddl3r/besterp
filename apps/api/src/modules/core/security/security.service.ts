@@ -277,6 +277,12 @@ export class SecurityService {
         context: { field: "capabilities", length: (capabilities as unknown[]).length },
       });
     }
+    if (capabilities.length === 0) {
+      throw new InvalidTypeValueError(`'capabilities' must contain at least one entry.`, {
+        suggestedTools: [tool],
+        context: { field: "capabilities" },
+      });
+    }
     for (const item of capabilities) {
       if (typeof item !== "string") {
         throw new InvalidTypeValueError(`'capability' must be a non-empty string.`, {
@@ -464,6 +470,9 @@ export class SecurityService {
     }
     if (sanitized.length > MAX_CAPABILITIES_LENGTH) {
       throw new InvalidTypeValueError(`'capabilities' must have at most ${MAX_CAPABILITIES_LENGTH} entries.`, { suggestedTools: ["update_agent"], context: { field: "capabilities", length: sanitized.length } });
+    }
+    if (sanitized.length === 0) {
+      throw new InvalidTypeValueError(`'capabilities' must contain at least one entry.`, { suggestedTools: ["update_agent"], context: { field: "capabilities" } });
     }
     return sanitized;
   }
