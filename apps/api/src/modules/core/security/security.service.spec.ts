@@ -543,6 +543,33 @@ describe("SecurityService", () => {
       ).resolves.toBeDefined();
     });
 
+    it("allows updating allowedEntityTypes without providing capabilities", async () => {
+      // Regression guard: `validateAgentArrays` used to be called with
+      // `capabilities ?? []` for BOTH fields, so an `allowedEntityTypes`-only
+      // update threw "'capabilities' must contain at least one entry" before
+      // reaching the per-field validator. Each field is now validated
+      // independently in `buildUpdateData`.
+      prisma.admin.agentRegistry.update.mockResolvedValue({
+        agentId: "a1", tenantId: "t1", displayName: "Agent", description: "Desc",
+        capabilities: ["read"], maxToolCallsPerConversation: 100,
+        maxConcurrentConversations: 5, maxTransactionAmount: 0,
+        allowedEntityTypes: ["party", "product"], rateLimitPerMinute: 30,
+        version: "1.0.0", isActive: true, createdAt: new Date(),
+      });
+
+      await expect(
+        service.updateAgent({
+          agentId: "a1", tenantId: "t1", allowedEntityTypes: ["party", "product"],
+        })
+      ).resolves.toBeDefined();
+
+      expect(prisma.admin.agentRegistry.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ allowedEntityTypes: ["party", "product"] }),
+        })
+      );
+    });
+
     it("rejects out-of-range maxConcurrentConversations on update", async () => {
       await expect(
         service.updateAgent({

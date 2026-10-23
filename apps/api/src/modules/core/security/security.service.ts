@@ -396,16 +396,6 @@ export class SecurityService {
       throw new InvalidTypeValueError("'agentId' must contain visible characters after HTML sanitization.", { suggestedTools: ["update_agent"], context: { field: "agentId" } });
     }
 
-    // Validate array fields when provided — mirrors registerAgent so the
-    // service layer remains the last line of defense for direct/internal
-    // callers that bypass the Zod boundary (round 206).
-    if (updates.capabilities !== undefined || updates.allowedEntityTypes !== undefined) {
-      SecurityService.validateAgentArrays(
-        updates.capabilities ?? [],
-        updates.allowedEntityTypes ?? [],
-        "update_agent",
-      );
-    }
     // Validate numeric limits when provided — mirrors registerAgent so the
     // service layer rejects out-of-range values before they reach the DB
     // (round 206). A single conditional covers both fields so the combined
