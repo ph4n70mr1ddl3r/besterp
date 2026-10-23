@@ -1,14 +1,17 @@
 // MCP Module — Tool server with middleware pipeline.
 //
-// Registers the MCP tool registry with the full middleware stack:
+// Registers the MCP tool registry with the full middleware stack
+// (outermost → innermost, matching PRODUCTION_PIPELINE_ORDER):
 //   1. errorHandlerMiddleware (outermost — catches all exceptions)
 //   2. auditLogMiddleware (fire-and-forget durable audit writes)
-//   3. confirmationGateMiddleware (high/critical-risk confirmation)
-//   4. idempotencyMiddleware (deduplication via DB-backed records)
-//   5. Tool-specific middlewares (registered per-tool)
+//   3. agentPolicyMiddleware (registration / activity / capabilities — fails closed)
+//   4. confirmationGateMiddleware (high/critical-risk confirmation)
+//   5. idempotencyMiddleware (deduplication via DB-backed records)
 //   6. Handler (Zod validation → service call)
 //
-// The confirmation gate MUST sit between the audit log and the idempotency
+// The agent policy MUST run before the confirmation gate: an agent that may
+// not call a tool at all must not be able to "unlock" it by supplying a
+// confirmation. The confirmation gate MUST sit before the idempotency
 // middleware: a request rejected for a missing/invalid confirmation must not
 // consume the caller's idempotency key. See McpService.onModuleInit for the
 // full rationale.

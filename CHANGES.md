@@ -1,5 +1,10 @@
 # BestERP — Security & Architecture Fixes
 
+## Changes Applied (2026-10-23) — Code Review Round 280
+**Align the published middleware-pipeline comment with the composed order**
+
+- `apps/api/src/mcp/mcp.module.ts`: corrected the header comment so the documented middleware stack matches the production composition registered in `McpService.onModuleInit()` (`errorHandler → auditLog → agentPolicy → confirmationGate → idempotency → handler`), including the ordering rationale (agent policy before confirmation gate; audit log wrapping every guard). The stale comment omitted `agentPolicy`, which could mislead a maintainer into placing the confirmation gate outside the agent policy and reopening the "unlock with a confirmation" bypass.
+
 ## Changes Applied (2026-10-23) — Code Review Round 278
 **Align service capabilities boundary with MCP min-length; correct agent registry fixture**
 

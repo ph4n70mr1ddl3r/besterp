@@ -3,8 +3,27 @@
 ## Scope
                 Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
                  `mcp-tools`, `apps/api`, plus README/`.env.example`/docker/CI). This file
-                 documents reviews 276–278 (newest first) and review 275; rounds 1–274 are
+                 documents reviews 276–280 (newest first) and review 275; rounds 1–274 are
                  documented in earlier revisions of this file and `CHANGES.md`.
+
+## Findings & Actions (round 280)
+
+### Fixed this round — align the published middleware-pipeline comment with the composed order
+
+- **`apps/api/src/mcp/mcp.module.ts` documented the wrong middleware stack.** Its header comment listed `errorHandler → auditLog → confirmationGate → idempotency → handler`, omitting `agentPolicy` and placing confirmation gate directly after audit log. `McpService.onModuleInit()` actually composes `errorHandler → auditLog → agentPolicy → confirmationGate → idempotency → handler`, and the pipeline order carries SECURITY meaning (the agent policy must run before the confirmation gate so an agent that may not call a tool at all cannot "unlock" it by supplying a confirmation; the audit log must wrap every guard). A maintainer following the stale comment could place the confirmation gate outside the agent policy and silently reopen that bypass. The comment now states the true composition with the ordering rationale, matching `PRODUCTION_PIPELINE_ORDER` in `packages/mcp-tools/src/schema/tool-definition.ts` and the boot-time assertion in `McpService.assertPipelineOrderMatchesContract()`.
+
+## Test Results (rounds 276–280)
+```
+Full suite (current HEAD):
+shared:    328 passed (6 files)
+mcp-tools: 282 passed (9 files)
+database:   35 passed, 10 skipped (3 files)
+api:       725 passed (24 files)
+────────────────────────────────────
+Total:    1370 passed, 10 skipped
+lint: clean
+typecheck: clean
+```
 
 ## Findings & Actions (round 278)
 
