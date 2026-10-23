@@ -444,6 +444,54 @@ export class SecurityService {
     }
   }
 
+  private static sanitizeUpdateCapabilities(values: unknown): string[] {
+    if (!Array.isArray(values)) {
+      throw new InvalidTypeValueError("'capabilities' must be a string array.", { suggestedTools: ["update_agent"], context: { field: "capabilities", received: typeof values } });
+    }
+    const sanitized: string[] = [];
+    for (const c of values) {
+      if (typeof c !== "string") {
+        throw new InvalidTypeValueError("'capability' must be a non-empty string.", { suggestedTools: ["update_agent"], context: { field: "capabilities", received: typeof c } });
+      }
+      const stripped = stripHtmlTags(c.trim());
+      if (stripped.length === 0) {
+        throw new InvalidTypeValueError("'capability' must contain visible characters after HTML sanitization.", { suggestedTools: ["update_agent"], context: { field: "capabilities" } });
+      }
+      if (stripped.length > MAX_CAPABILITY_STRING_LENGTH) {
+        throw new InvalidTypeValueError(`'capability' exceeds maximum length of ${MAX_CAPABILITY_STRING_LENGTH} characters.`, { suggestedTools: ["update_agent"], context: { field: "capabilities", length: stripped.length } });
+      }
+      sanitized.push(stripped);
+    }
+    if (sanitized.length > MAX_CAPABILITIES_LENGTH) {
+      throw new InvalidTypeValueError(`'capabilities' must have at most ${MAX_CAPABILITIES_LENGTH} entries.`, { suggestedTools: ["update_agent"], context: { field: "capabilities", length: sanitized.length } });
+    }
+    return sanitized;
+  }
+
+  private static sanitizeUpdateAllowedEntityTypes(values: unknown): string[] {
+    if (!Array.isArray(values)) {
+      throw new InvalidTypeValueError("'allowedEntityTypes' must be a string array.", { suggestedTools: ["update_agent"], context: { field: "allowedEntityTypes", received: typeof values } });
+    }
+    const sanitized: string[] = [];
+    for (const e of values) {
+      if (typeof e !== "string") {
+        throw new InvalidTypeValueError("'allowedEntityType' must be a non-empty string.", { suggestedTools: ["update_agent"], context: { field: "allowedEntityTypes", received: typeof e } });
+      }
+      const stripped = stripHtmlTags(e.trim());
+      if (stripped.length === 0) {
+        throw new InvalidTypeValueError("'allowedEntityType' must contain visible characters after HTML sanitization.", { suggestedTools: ["update_agent"], context: { field: "allowedEntityTypes" } });
+      }
+      if (stripped.length > MAX_ENTITY_LENGTH) {
+        throw new InvalidTypeValueError(`'allowedEntityType' exceeds maximum length of ${MAX_ENTITY_LENGTH} characters.`, { suggestedTools: ["update_agent"], context: { field: "allowedEntityTypes", length: stripped.length } });
+      }
+      sanitized.push(stripped);
+    }
+    if (sanitized.length > MAX_ALLOWED_ENTITY_TYPES_LENGTH) {
+      throw new InvalidTypeValueError(`'allowedEntityTypes' must have at most ${MAX_ALLOWED_ENTITY_TYPES_LENGTH} entries.`, { suggestedTools: ["update_agent"], context: { field: "allowedEntityTypes", length: sanitized.length } });
+    }
+    return sanitized;
+  }
+
   /** Build the Prisma updateData object from partial UpdateAgentInput.
    *  Extracted from updateAgent to keep its complexity under the lint cap
    *  (round 208). Each branch validates and sanitizes one optional field. */
@@ -459,14 +507,18 @@ export class SecurityService {
       if (stripHtmlTags(v).length === 0) throw new InvalidTypeValueError("'description' must contain visible characters after HTML sanitization.", { suggestedTools: ["update_agent"], context: { field: "description" } });
       updateData.description = stripHtmlTags(v);
     }
-    if (updates.capabilities !== undefined) updateData.capabilities = updates.capabilities.map((c: string) => stripHtmlTags(c.trim()));
+    if (updates.capabilities !== undefined) {
+      updateData.capabilities = SecurityService.sanitizeUpdateCapabilities(updates.capabilities);
+    }
     if (updates.maxToolCallsPerConversation !== undefined)
       updateData.maxToolCallsPerConversation = updates.maxToolCallsPerConversation;
     if (updates.maxConcurrentConversations !== undefined)
       updateData.maxConcurrentConversations = updates.maxConcurrentConversations;
     if (updates.maxTransactionAmount !== undefined)
       updateData.maxTransactionAmount = updates.maxTransactionAmount;
-    if (updates.allowedEntityTypes !== undefined) updateData.allowedEntityTypes = updates.allowedEntityTypes.map((e: string) => stripHtmlTags(e.trim()));
+    if (updates.allowedEntityTypes !== undefined) {
+      updateData.allowedEntityTypes = SecurityService.sanitizeUpdateAllowedEntityTypes(updates.allowedEntityTypes);
+    }
     if (updates.rateLimitPerMinute !== undefined)
       updateData.rateLimitPerMinute = updates.rateLimitPerMinute;
     if (updates.version !== undefined) {

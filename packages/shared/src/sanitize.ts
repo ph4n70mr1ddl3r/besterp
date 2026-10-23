@@ -69,7 +69,7 @@ export function stripHtmlTags(input: string): string {
     }
   } while (sanitized !== prev && iterations < MAX_SANITIZE_ITERATIONS);
 
-  return sanitized;
+  return normalizeUnpairedSurrogates(sanitized);
 }
 
 /**
@@ -579,7 +579,7 @@ export function sanitizeForLogOutput(message: string, options?: SanitizeForLogOu
   if (options?.keepOpaqueTokens !== true) {
     pipeline.push(replaceGenericLongToken);
   }
-  return pipeline.reduce((acc, fn) => fn(acc), result);
+  return normalizeUnpairedSurrogates(pipeline.reduce((acc, fn) => fn(acc), result));
 }
 
 /** Replace database connection strings (postgres, redis, mongodb, mysql, amqp). */
@@ -1187,7 +1187,7 @@ export function sanitizeLogMessage(message: string): string {
   // step 2 is responsible for removing.
   const withoutCsi = message.replace(/\x1b\[[\x30-\x3F]*[\x40-\x7E]/g, "");
   const withoutStringType = stripStringTypeAnsiSequences(withoutCsi);
-  return withoutStringType
+  const __sanitized = withoutStringType
     .replace(/\x1b[\x20-\x2F]*[\x30-\x7E]/g, "")
     // Unicode bidirectional override/isolate controls and zero-width characters.
     // These can manipulate terminal display to hide injected log content or
@@ -1204,6 +1204,7 @@ export function sanitizeLogMessage(message: string): string {
     .replace(/[\u2028\u2029]/g, "_")
     .replace(/[\r\n\t\x00-\x08\x0b\x0c\x0e-\x1f\x7f\x80-\x9f]/g, "_");
   /* eslint-enable no-control-regex */
+  return normalizeUnpairedSurrogates(__sanitized);
 }
 
 /** @deprecated Use {@link sanitizeForLogOutput} instead. */
