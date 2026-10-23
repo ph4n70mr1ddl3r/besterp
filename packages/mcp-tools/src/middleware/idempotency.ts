@@ -20,7 +20,7 @@ import { createHash } from "node:crypto";
 import { hashInput, getErrorCode, sanitizeForLogOutput, redactSensitiveFieldValues, normalizeUnpairedSurrogates, MAX_SOFT_FAILURE_MESSAGE_SIZE, IDEMPOTENCY_TTL_MS, MAX_IDEMPOTENCY_KEY_LENGTH, SAFE_IDEMPOTENCY_KEY, IDEMPOTENCY_MAX_RETRIES, IDEMPOTENCY_RETRY_BASE_DELAY_MS, IDEMPOTENCY_STALE_PENDING_THRESHOLD_MS, MAX_USER_ID_LENGTH, MAX_AGENT_ID_LENGTH, MAX_CONVERSATION_ID_LENGTH } from "@besterp/shared";
 import { ToolMiddleware, ToolResult, ToolContext, ZodSchemaLike } from "../schema/tool-definition.js";
 import { truncateValue, MAX_STORED_PAYLOAD_SIZE, capString, isTruncationMarker } from "./truncate.js";
-import { IDEMPOTENCY_CONTENTION, IDEMPOTENCY_KEY_MISMATCH, IDEMPOTENCY_UNAVAILABLE, IDEMPOTENCY_UNKNOWN_STATUS, INVALID_IDEMPOTENCY_KEY, REQUEST_IN_PROGRESS, STALE_PENDING_RECORD } from "../error-codes.js";
+import { IDEMPOTENCY_CONTENTION, IDEMPOTENCY_KEY_MISMATCH, IDEMPOTENCY_UNAVAILABLE, IDEMPOTENCY_UNKNOWN_STATUS, INVALID_IDEMPOTENCY_KEY, REQUEST_IN_PROGRESS, SERVICE_UNAVAILABLE, STALE_PENDING_RECORD } from "../error-codes.js";
 import { sanitizeDurableIdentity } from "../identity.js";
 
 const MAX_RETRY_ATTEMPT = IDEMPOTENCY_MAX_RETRIES - 1;
@@ -137,7 +137,7 @@ function handleRecordUnavailable(toolName: string): ToolResult {
   return {
     success: false,
     error: {
-      code: "SERVICE_UNAVAILABLE",
+      code: SERVICE_UNAVAILABLE,
       message: "Idempotency service is temporarily unavailable. The operation cannot be retried at this time — retry the same request later (not with a new key).",
       suggestedTools: [toolName],
     },
