@@ -3,8 +3,16 @@
 ## Scope
                 Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
                  `mcp-tools`, `apps/api`, plus README/`.env.example`/docker/CI). This file
-                 documents reviews 276–283 (newest first) and review 275; rounds 1–274 are
+                 documents reviews 276–284 (newest first) and review 275; rounds 1–274 are
                  documented in earlier revisions of this file and `CHANGES.md`.
+
+## Findings & Actions (round 284)
+
+### Fixed this round — stop the `optionalIsoDate` doc from drifting off `MAX_DATE_STRING_LENGTH`
+
+- **`optionalIsoDate` hardcoded "(30 chars)" in its doc comment.** The default is `MAX_DATE_STRING_LENGTH` from `@besterp/shared`, so a future change to that constant would have left the comment stale — exactly the class of drift the rounds-279–283 pipeline-order guards exist to prevent. The comment now names the constant without a number and points at `packages/shared/src/constants.ts` so the value cannot diverge from the implementation.
+
+- **Test Results (round 284):** unchanged from round 283 — shared: 328 passed (6 files), mcp-tools: 283 passed (9 files), database: 35 passed, 10 skipped (3 files), api: 729 passed (25 files); lint clean; typecheck clean; build clean.
 
 ## Findings & Actions (round 283)
 
