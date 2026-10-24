@@ -61,7 +61,9 @@ export function optionalSearchFilterString(max: number) {
 
 /**
  * Optional ISO 8601 date: trims, validates format, enforces max length.
- * Defaults to MAX_DATE_STRING_LENGTH (30 chars); pass a smaller value for constrained fields.
+ * Defaults to MAX_DATE_STRING_LENGTH; pass a smaller value for constrained fields.
+ * (The number is intentionally not hardcoded here so it cannot drift from the
+ * shared constant — see packages/shared/src/constants.ts.)
  */
 export function optionalIsoDate(max: number = MAX_DATE_STRING_LENGTH) {
   return z.string()
