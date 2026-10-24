@@ -3,8 +3,18 @@
 ## Scope
                 Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
                  `mcp-tools`, `apps/api`, plus README/`.env.example`/docker/CI). This file
-                 documents reviews 276–285 (newest first) and review 275; rounds 1–274 are
+                 documents reviews 276–287 (newest first) and review 275; rounds 1–274 are
                   documented in earlier revisions of this file and `CHANGES.md`.
+
+## Findings & Actions (round 287)
+
+### Fixed this round — close out the round 286 doc-alignment follow-up
+
+- **`packages/mcp-tools/src/registry/tool-registry.ts` and `packages/mcp-tools/src/__tests__/tool-registry.test.ts` still carried the stale "invisible in the durable trail" wording.** Round 283 reworded the two `auditRejection`/`createRejectionAuditor` sites and round 286 aligned the report/changelog, but the unknown-tool rejection's comment (and its test comment) kept the phrase — the source as a double-negative ("instead of being invisible in the durable trail") and the test as "is not invisible in the durable trail". Both are reworded so the phrase is gone: the unknown-tool pre-pipeline rejection is attributed and audited through the rejection auditor (except the invalid-tenant case, which has no tenant to write under). No production behaviour changed; only comments.
+
+- **`apps/api/src/modules/core/party/party.service.ts` doc drift.** `requireValidDate` documented a "30-char max" / `.max(30)` on birthDate/registrationDate, but the actual cap is `MAX_DATE_STRING_LENGTH` (32) — shared with the Zod `optionalIsoDate(MAX_DATE_STRING_LENGTH)` default. The comment now names the constant instead of a hardcoded number, closing the drift class rounds 279–283 exist to prevent.
+
+- **Test Results (round 287):** unchanged from round 286 — shared: 328 passed (6 files), mcp-tools: 283 passed (9 files), database: 35 passed, 10 skipped (3 files), api: 729 passed (25 files); lint clean; typecheck clean; build clean.
 
 ## Findings & Actions (round 285)
 

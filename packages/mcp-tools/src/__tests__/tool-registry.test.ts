@@ -1060,8 +1060,8 @@ describe("ToolRegistry — pre-pipeline rejections are auditable", () => {
     // The pipeline is composed PER TOOL, so an unknown tool name is
     // rejected BEFORE the audit middleware ever ran — but it is still
     // recorded through the rejection auditor, so a hallucinated tool call
-    // (one of the most useful agent-behaviour signals an ERP has) is not
-    // invisible in the durable trail.
+    // (one of the most useful agent-behaviour signals an ERP has) is
+    // attributed in the durable trail instead of being lost.
     const registry = new ToolRegistry();
     const rejections: Array<{ toolName: string; code: string }> = [];
     registry.setRejectionAuditor((rejection) => {

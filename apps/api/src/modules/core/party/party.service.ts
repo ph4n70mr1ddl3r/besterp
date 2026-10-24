@@ -1468,9 +1468,9 @@ export class PartyService {
    *  the last line of defense and is called from contexts (MCP, future
    *  internal callers) that may skip the boundary validation.
    *
-   *  Also enforces a 30-char max length (matching the Zod schema's
-   *  .max(30) on birthDate/registrationDate) so an oversized
-   *  string that bypasses Zod still gets caught here.
+   *  Also enforces the MAX_DATE_STRING_LENGTH cap (matching the Zod
+   *  schema's `.max(MAX_DATE_STRING_LENGTH)` on birthDate/registrationDate)
+   *  so an oversized string that bypasses Zod still gets caught here.
    *
    *  HTML is stripped BEFORE validation, matching both boundary layers
    *  (the REST DTO transform and the MCP `optionalIsoDate` schema both strip

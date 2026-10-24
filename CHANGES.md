@@ -1,5 +1,11 @@
 # BestERP — Security & Architecture Fixes
 
+## Changes Applied (2026-10-24) — Code Review Round 287
+**Close out the round 286 doc-alignment follow-up**
+
+- `packages/mcp-tools/src/registry/tool-registry.ts`, `packages/mcp-tools/src/__tests__/tool-registry.test.ts`: removed the remaining "invisible in the durable trail" wording from the unknown-tool pre-pipeline rejection comment and its test comment (round 283 reworded the sibling sites; round 286 aligned the report/changelog but left this one). Pre-pipeline rejections are attributed and audited through the rejection auditor (except the invalid-tenant case, which has no tenant to write under). No production behaviour changed; only comments.
+- `apps/api/src/modules/core/party/party.service.ts`: `requireValidDate` documented a hardcoded "30-char max" / `.max(30)` on birthDate/registrationDate, but the actual cap is `MAX_DATE_STRING_LENGTH` (32), shared with the Zod `optionalIsoDate(MAX_DATE_STRING_LENGTH)` default. The comment now names the constant so it cannot drift again — the same class of drift the rounds 279–283 pipeline-order guards prevent.
+
 ## Changes Applied (2026-10-24) — Code Review Round 285
 **Document round 284 in the review report and close the scope gap**
 
