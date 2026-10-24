@@ -399,9 +399,11 @@ export class ToolRegistry {
         `Tool '${safeName}' does not exist.${safeSimilar.length > 0 ? ` Similar tools: [${safeSimilar.map((s) => `'${s}'`).join(", ")}].` : ""} ` +
         `Use 'list_available_tools' to see all available tools.`;
       // The pipeline is composed PER TOOL, so this rejection never reaches
-      // the audit middleware — the attempt was invisible in the durable
-      // trail. The identity IS validated at this point (the auth-boundary
-      // guard above ran first), so the attempt can and must be attributed.
+      // the audit middleware itself. It is therefore recorded explicitly
+      // through the rejection auditor below — the identity IS validated at
+      // this point (the auth-boundary guard above ran first), so the attempt
+      // can and must be attributed instead of being invisible in the durable
+      // trail.
       this.auditRejection({
         toolName: safeName,
         context,

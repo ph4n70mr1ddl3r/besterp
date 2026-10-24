@@ -1057,10 +1057,11 @@ describe("ToolRegistry — validation issue shape", () => {
 
 describe("ToolRegistry — pre-pipeline rejections are auditable", () => {
   it("records an unknown tool name in the rejection sink", async () => {
-    // The pipeline is composed PER TOOL, so an unknown tool name was
-    // rejected BEFORE the audit middleware ever ran and the attempt was
-    // invisible in the durable trail. A hallucinated tool call is one of the
-    // most useful agent-behaviour signals an ERP has.
+    // The pipeline is composed PER TOOL, so an unknown tool name is
+    // rejected BEFORE the audit middleware ever ran — but it is still
+    // recorded through the rejection auditor, so a hallucinated tool call
+    // (one of the most useful agent-behaviour signals an ERP has) is not
+    // invisible in the durable trail.
     const registry = new ToolRegistry();
     const rejections: Array<{ toolName: string; code: string }> = [];
     registry.setRejectionAuditor((rejection) => {
