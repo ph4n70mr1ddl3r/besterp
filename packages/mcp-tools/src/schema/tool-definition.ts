@@ -227,12 +227,13 @@ export const PRODUCTION_PIPELINE_ORDER = [
  * definition, and a `next` function to call the next middleware (or the
  * final handler).
  *
- * The production pipeline (see apps/api/src/mcp/mcp.service.ts) is:
- *   errorHandler → auditLog → agentPolicy → confirmationGate → idempotency → handler
- *
- * See {@link PRODUCTION_PIPELINE_ORDER} for the rules each position
- * depends on.
- */
+  * The production pipeline is {@link PRODUCTION_PIPELINE_ORDER} — the single
+  * published contract, which the production server composes against at boot
+  * (McpService.assertPipelineOrderMatchesContract in apps/api) and refuses to
+  * start on any drift. Do not restate the order here: this comment used to
+  * be the only statement of it and had already gone stale (the `agentPolicy`
+  * stage was missing from it).
+  */
 export type ToolMiddleware = (
   input: unknown,
   context: ToolContext,

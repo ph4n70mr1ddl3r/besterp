@@ -33,6 +33,13 @@ services:
   # default in every non-development environment (resolveRedisTls), so a
   # deployment on this stack must set REDIS_TLS=0 (or front the instance with
   # a TLS terminator) — see .env.example.
+  #
+  # REDIS_PASSWORD is read from the environment (.env, copied from
+  # .env.example): the compose stack always runs Redis with a password, and
+  # the application only enforces one in non-development environments
+  # (queue.module.ts refuses to connect without authentication there), so
+  # the same secret must be present in both places — set it explicitly
+  # rather than relying on a default.
   redis:
     image: redis:7-alpine
     container_name: besterp-redis

@@ -42,11 +42,12 @@ export class McpService implements OnModuleInit {
     //   (from any middleware or the handler) into a structured ToolResult.
     // - auditLog wraps the rest so failures AT ANY INNER LAYER (the agent
     //   policy, the confirmation gate, the idempotency middleware, the
-    //   handler) are recorded in the durable audit trail. The registry's own
-    //   PRE-pipeline rejections (an unknown tool name, an invalid tenant/user
-    //   identity, a conflicting idempotency key) are returned before the
-    //   pipeline is built and are therefore NOT audited — they carry no
-    //   validated identity to attribute the attempt to.
+    //   handler) are recorded in the durable audit trail. Pre-pipeline
+    //   rejections (an unknown tool, an invalid tenant/user identity, a
+    //   conflicting idempotency key) are attributed by the registry's
+    //   rejection auditor when the identity is validated — the invalid
+    //   tenant-id case has no valid tenant to write the row under, so it
+    //   is not auditable.
     // - agentPolicy runs after auditLog so a REJECTED agent call is still
     //   recorded: the attempt has a validated identity, so it must be
     //   auditable. It runs before the confirmation gate because an agent
@@ -66,11 +67,12 @@ export class McpService implements OnModuleInit {
     this.registry.addGlobalMiddleware(confirmationGateMiddleware(this.prisma.admin), "confirmationGate");
     this.registry.addGlobalMiddleware(idempotencyMiddleware(this.prisma.admin), "idempotency");
 
-    // A call rejected BEFORE the pipeline is composed (an unknown tool name,
-    // a conflicting idempotency key) never reaches the audit middleware, so
-    // the attempt was invisible in the durable trail. The identity IS
-    // validated by then, so the rejection is recorded through the same
-    // durable sink as every other attempt.
+    // Pre-pipeline rejections (an unknown tool, a conflicting idempotency
+    // key) never reach the audit middleware. The identity IS validated by
+    // then, so the rejection is recorded through the same durable sink as
+    // every other attempt — except when the tenant id itself is the field
+    // that failed: the audit row is tenant-scoped (RLS), so there is no
+    // valid tenant to write it under.
     this.registry.setRejectionAuditor(createRejectionAuditor(this.prisma.admin));
 
     // The pipeline order carries SECURITY meaning (the agent policy must run

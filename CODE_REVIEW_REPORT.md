@@ -3,8 +3,40 @@
 ## Scope
                 Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
                  `mcp-tools`, `apps/api`, plus README/`.env.example`/docker/CI). This file
-                 documents reviews 276–282 (newest first) and review 275; rounds 1–274 are
+                 documents reviews 276–283 (newest first) and review 275; rounds 1–274 are
                  documented in earlier revisions of this file and `CHANGES.md`.
+
+## Findings & Actions (round 283)
+
+### Fixed this round — close the residual magic strings, make the `UNKNOWN_ERROR_CODE` explainable, and keep the pipeline-order docs from drifting again
+
+- **`discovery-tools.ts` still emitted `ENTITY_NOT_FOUND` and `UNKNOWN_ERROR_CODE` as raw literals.** The constant migration of rounds 281–282 had covered `SERVICE_UNAVAILABLE` but not the two sibling codes in the same file. `ENTITY_NOT_FOUND` now uses `EntityNotFoundError.CODE` from `@besterp/shared` (three emission sites); `UNKNOWN_ERROR_CODE` is defined as a named local constant and — the key fix — is itself a key in the `ERROR_EXPLANATIONS` table, so the `explain_error` tool's own failure code is explainable and an agent that hits it gets guidance instead of a second unexplained `UNKNOWN_ERROR_CODE`.
+
+- **No app-level guard kept the error-code inventory honest against `apps/api`.** The package-level `error-codes.test.ts` only scanned `packages/mcp-tools`. A new `apps/api/src/mcp/error-codes.spec.ts` applies the same scan to the MCP tool surface (`apps/api/src/mcp`), asserting every `code: "…"` literal there is published (`MCP_ERROR_CODES` ∪ `DOMAIN_ERROR_CODES`) or one of two documented app-local codes (`UNKNOWN_ERROR_CODE`, the Zod issue code `"custom"`), and asserting the self-referential `UNKNOWN_ERROR_CODE` explanation entry stays in the table.
+
+- **Stale audit-rejection wording: "the attempt was invisible in the durable trail."** Since round 274, pre-pipeline rejections ARE audited through `setRejectionAuditor` (unknown tool, key conflict, invalid identity). The doc comments in `tool-registry.ts` (two sites), `audit-log.ts`, and `mcp.service.ts` still described the pre-auditor world; reworded, and the tenant-scope caveat (the row is RLS-scoped, so an invalid-tenant rejection has no tenant to write under) is now stated explicitly.
+
+- **The pipeline-order contract was duplicated in four comment blocks that could all drift from `PRODUCTION_PIPELINE_ORDER`.** `tool-definition.ts`'s `ToolMiddleware` doc, `pipeline-integration.test.ts`'s header and `createRegistry` comment, and `mcp.module.ts`'s header each restated the order. `tool-definition.ts` now points at the published contract instead of restating it; the integration test's composition is documented as the production order minus the agent policy (which it intentionally omits) and a new test asserts that composition against `PRODUCTION_PIPELINE_ORDER` — the same drift the production server's boot-time assertion guards against.
+
+- **CI security audit hid HIGH-severity findings.** The gate used `npm audit --audit-level=low` (critical-only) with a comment saying high findings were "documented." The step now fails the build on critical findings, reports high-severity findings as a non-failing table (so they stay visible and cannot accumulate unnoticed), and still tolerates the known deepmerge-ts transitive advisory until a prisma patch resolves it.
+
+- **`docker-compose.yml`'s `redis` service silently required `REDIS_PASSWORD` from the environment, which `.env.example` does not wire into the compose stack by default.** Documented the expectation (the secret must be set explicitly; the app enforces it in non-development) rather than changing the security posture.
+
+- **Test count delta: api 726 → 729 (new spec + two new tests), mcp-tools 282 → 283 (new pipeline-order test).**
+
+## Test Results (round 283)
+```
+Full suite (current HEAD):
+shared:    328 passed (6 files)
+mcp-tools: 283 passed (9 files)
+database:   35 passed, 10 skipped (3 files)
+api:       729 passed (25 files)
+────────────────────────────────────
+Total:    1375 passed, 10 skipped
+lint: clean
+typecheck: clean
+build: clean
+```
 
 ## Findings & Actions (round 282)
 
@@ -16,7 +48,7 @@
 
 ## Test Results (rounds 276–282)
 ```
-Full suite (current HEAD):
+Full suite (as of round 282):
 shared:    328 passed (6 files)
 mcp-tools: 282 passed (9 files)
 database:   35 passed, 10 skipped (3 files)

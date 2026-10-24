@@ -1,5 +1,16 @@
 # BestERP — Security & Architecture Fixes
 
+## Changes Applied (2026-10-24) — Code Review Round 283
+**Close the residual magic strings, make `UNKNOWN_ERROR_CODE` explainable, and stop the pipeline-order docs from drifting**
+
+- `apps/api/src/mcp/tools/discovery-tools.ts`: the three `ENTITY_NOT_FOUND` literals now use `EntityNotFoundError.CODE` from `@besterp/shared`, completing the constant migration for the file. The `UNKNOWN_ERROR_CODE` literal is now a named local constant, and it is itself a key in the `ERROR_EXPLANATIONS` table (a new self-referential entry), so `explain_error`'s own failure code is explainable instead of answering `UNKNOWN_ERROR_CODE` with no guidance.
+- `apps/api/src/mcp/error-codes.spec.ts` (new): app-level guard that scans the MCP tool surface (`apps/api/src/mcp`) for `code: "…"` literals and asserts every one is published in `MCP_ERROR_CODES` ∪ `DOMAIN_ERROR_CODES` (or one of two documented app-local codes: `UNKNOWN_ERROR_CODE`, the Zod issue code `"custom"`); also asserts the `UNKNOWN_ERROR_CODE` explanation entry stays in the table.
+- `packages/mcp-tools/src/registry/tool-registry.ts`, `packages/mcp-tools/src/middleware/audit-log.ts`, `apps/api/src/mcp/mcp.service.ts`: reworded the pre-pipeline-rejection doc comments that still said "the attempt was invisible in the durable trail" — since round 274 those rejections ARE audited through the rejection auditor; the comments now say so, with the tenant-scope caveat (the row is RLS-scoped, so an invalid-tenant rejection has no tenant to write under).
+- `packages/mcp-tools/src/schema/tool-definition.ts`: the `ToolMiddleware` doc no longer restates the pipeline order inline; it points at `PRODUCTION_PIPELINE_ORDER` (the published contract) and the boot-time assertion, removing the last duplicated copy that could drift.
+- `packages/mcp-tools/src/__tests__/pipeline-integration.test.ts`: the header and `createRegistry` comment no longer claim the test composition "mirrors" the production composition (it intentionally omits the agent policy stage); a new test asserts the test composition equals `PRODUCTION_PIPELINE_ORDER` minus `agentPolicy`/`handler`, so a contract change forces the harness to be updated in the same commit.
+- `.github/workflows/ci.yml`: the security audit step no longer runs at `--audit-level=low` (critical-only, which silently dropped every high-severity finding). It now fails the build on critical findings, reports high-severity findings as a non-failing table so they stay visible, and tolerates the known deepmerge-ts transitive advisory until a prisma patch resolves it.
+- `docker/docker-compose.yml`: documented that the `redis` service requires `REDIS_PASSWORD` from the environment and that the application enforces the same secret in non-development — the expectation is now stated rather than implicit.
+
 ## Changes Applied (2026-10-24) — Code Review Round 282
 **Complete the round 281 constant migration; close the residual empty-capabilities fixture**
 

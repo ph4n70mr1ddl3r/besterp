@@ -15,6 +15,7 @@ import {
 } from "@besterp/mcp-tools";
 import {
   InvalidTypeValueError,
+  EntityNotFoundError,
   redactSensitiveFieldValues,
   sanitizeForLogOutput,
   stripHtmlTags,
@@ -27,6 +28,13 @@ import {
   MIN_SEARCH_OFFSET,
   MAX_SEARCH_OFFSET,
 } from "@besterp/shared";
+
+// The code `explain_error` itself emits when a requested code has no entry in
+// the explanation table. Defined here (not in either published inventory)
+// because it is a self-referential, app-local code — but it MUST stay in the
+// `ERROR_EXPLANATIONS` table, which it does, so an agent that hits it gets
+// guidance instead of looping on a code with none.
+const UNKNOWN_ERROR_CODE = "UNKNOWN_ERROR_CODE";
 
 // Mapping from type table names to Prisma model delegate keys and ID fields.
 const TYPE_TABLE_MAP = {
@@ -337,7 +345,7 @@ Returns the entity's description, AI prompt hint, and key fields.`,
         return {
           success: false,
           error: {
-            code: "ENTITY_NOT_FOUND",
+            code: EntityNotFoundError.CODE,
             message: `No descriptor found for entity '${stripHtmlTags(sanitizeForLogOutput(input.entityName))}'. Use 'list_available_tools' to see available entities, or 'get_type_table_values' for classification vocabularies.`,
             suggestedTools: ["list_available_tools"],
             context: { entityName: stripHtmlTags(sanitizeForLogOutput(input.entityName)) },
@@ -430,7 +438,7 @@ no status transition can be performed.`,
         return {
           success: false,
           error: {
-            code: "ENTITY_NOT_FOUND",
+            code: EntityNotFoundError.CODE,
             message: registeredEntities.length > 0
               ? `No status transitions registered for entity '${stripHtmlTags(sanitizeForLogOutput(input.entity))}'. Available entities: ${registered}.`
               : `No status transitions are registered for entity '${stripHtmlTags(sanitizeForLogOutput(input.entity))}'. ` +
@@ -499,7 +507,7 @@ Example: search_across_entities({ query: "Widget", entity: "product" })`,
         return {
           success: false,
           error: {
-            code: "ENTITY_NOT_FOUND",
+            code: EntityNotFoundError.CODE,
             message: `Entity type '${stripHtmlTags(sanitizeForLogOutput(input.entity))}' is not searchable. Available: party, product.`,
             suggestedTools: ["list_available_tools", "describe_entity"],
             context: { entity: stripHtmlTags(sanitizeForLogOutput(input.entity)) },
@@ -715,6 +723,15 @@ function describeSearchFailure(reason: unknown): string {
  * a plain-English explanation and suggested next steps instead of guessing.
  */
 const ERROR_EXPLANATIONS: Record<string, { message: string; suggestedTools: string[]; context?: Record<string, string> }> = {
+  // Self-referential entry: when `explain_error` answers that the requested
+  // code has no explanation, the `UNKNOWN_ERROR_CODE` it emits is itself
+  // explainable — an agent that hits it knows to check the exact code it saw
+  // (or to contact support) instead of looping on a code with no guidance.
+  [UNKNOWN_ERROR_CODE]: {
+    message: "The requested error code has no entry in this server's explanation table — it was not recognised by the `explain_error` tool.",
+    suggestedTools: ["list_available_tools"],
+    context: { tip: "Check the exact error code returned by the failing tool (case-sensitive), or contact support with the code." },
+  },
   INVALID_INPUT: {
     message: "The tool arguments failed schema validation. A required field is missing, has the wrong type, or exceeds its length limit.",
     suggestedTools: ["list_available_tools", "describe_entity"],
@@ -941,7 +958,7 @@ Example: explain_error({ errorCode: "INVALID_TYPE_VALUE" })`,
         return {
           success: false,
           error: {
-            code: "UNKNOWN_ERROR_CODE",
+            code: UNKNOWN_ERROR_CODE,
             message: `No explanation found for error code '${stripHtmlTags(sanitizeForLogOutput(input.errorCode))}'. Check the tool output for the exact error code, or contact support.`,
             suggestedTools: ["list_available_tools"],
             context: { errorCode: stripHtmlTags(sanitizeForLogOutput(input.errorCode)) },

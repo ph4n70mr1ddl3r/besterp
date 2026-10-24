@@ -51,11 +51,12 @@ const ENVELOPE_KEYS = ["idempotencyKey", "confirmation"] as const;
 /**
  * A rejection that happens BEFORE the middleware pipeline runs.
  *
- * The pipeline is composed per tool, so a rejection that happens before the
- * tool is even looked up (an unknown tool name, a conflicting idempotency
- * key) never reaches the audit middleware — the attempt was invisible in the
- * durable trail. A hallucinated tool call is one of the most useful
- * agent-behaviour signals an ERP has, so it must be recorded.
+  * The pipeline is composed per tool, so a rejection that happens before the
+  * tool is even looked up (an unknown tool name, a conflicting idempotency
+  * key) never reaches the audit middleware. A hallucinated tool call is one
+  * of the most useful agent-behaviour signals an ERP has, so it must be
+  * recorded; the audit row is tenant-scoped (RLS), so it is only written
+  * when the tenant id validated.
  */
 export interface ToolCallRejection {
   /** The tool name the caller asked for. */
@@ -123,11 +124,11 @@ export class ToolRegistry {
    * Register the callback that records a call rejected BEFORE the pipeline
    * ran (an unknown tool name, a conflicting idempotency key).
    *
-   * Those rejections are returned before the pipeline is composed, so the
-   * audit middleware — which wraps every guard — never sees them and the
-   * attempt was invisible in the durable trail. Wiring the auditor here
-   * closes the gap for every caller of `execute`, not just the HTTP
-   * controller.
+   * Those rejections happen before the pipeline is composed, so the audit
+   * middleware — which wraps every guard — never sees them. Wiring the
+   * auditor here closes the gap for every caller of `execute`, not just the
+   * HTTP controller. The audit row is tenant-scoped (RLS), so it is only
+   * written when the tenant id validated.
    */
   setRejectionAuditor(auditor: RejectionAuditor): void {
     this.rejectionAuditor = auditor;

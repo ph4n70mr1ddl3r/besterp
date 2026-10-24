@@ -1,10 +1,10 @@
 // Integration tests for the full MCP middleware pipeline.
 //
-// These tests exercise the REAL production composition — ToolRegistry +
-// errorHandler → auditLog → confirmationGate → idempotency → handler — with
-// a strict Zod schema, because the individual middlewares are unit-tested in
-// isolation elsewhere and that isolation is exactly what let the
-// confirmation-gate dead end ship:
+// These tests exercise the production composition — the stages wired in
+// `createRegistry` (errorHandler → auditLog → confirmationGate →
+// idempotency → handler) — with a strict Zod schema, because the individual
+// middlewares are unit-tested in isolation elsewhere and that isolation is
+// exactly what let the confirmation-gate dead end ship:
 //
 //   - the confirmation gate injected `confirmation` into the tool INPUT,
 //   - every tool schema is a `z.strictObject` that rejects undeclared keys,
@@ -13,17 +13,22 @@
 //   - and because the idempotency middleware hashes the input through the
 //     same strict schema, the parse failed there too and idempotency was
 //     silently skipped — no dedup, no record, for every gated write.
+//
+// The package-local composition intentionally omits the agent policy stage
+// (it needs no registry rows for these tests); the FULL production order is
+// `PRODUCTION_PIPELINE_ORDER` and is asserted at boot by the production
+// server, so a drift cannot ship silently.
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { z } from "zod";
 import { ToolRegistry } from "../registry/tool-registry.js";
+import { ToolContext, PRODUCTION_PIPELINE_ORDER } from "../schema/tool-definition.js";
 import {
   auditLogMiddleware,
   confirmationGateMiddleware,
   errorHandlerMiddleware,
   idempotencyMiddleware,
 } from "../middleware/index.js";
-import { ToolContext } from "../schema/tool-definition.js";
 
 interface MockPrisma {
   idempotencyRecord: { findUnique: ReturnType<typeof vi.fn>; create: ReturnType<typeof vi.fn>; update: ReturnType<typeof vi.fn> };
@@ -59,8 +64,10 @@ const baseContext: ToolContext = {
 };
 
 /**
- * Build a registry wired with the production middleware order.
- * Mirrors McpService.onModuleInit().
+ * Build a registry wired with the production middleware order minus the
+ * agent policy (which needs registry rows these tests do not seed).
+ * The full production order is PRODUCTION_PIPELINE_ORDER, asserted at boot
+ * by McpService.assertPipelineOrderMatchesContract().
  */
 function createRegistry(prisma: MockPrisma, handler: (input: unknown, ctx: ToolContext) => Promise<{ success: boolean; data?: unknown }>) {
   const registry = new ToolRegistry();
@@ -232,5 +239,25 @@ describe("MCP pipeline integration — confirmation gate", () => {
 
     expect(result.success).toBe(true);
     expect(result.data).toEqual({ name: "Jane" });
+  });
+});
+
+describe("MCP pipeline order — the published contract stays honest", () => {
+  // The package-local test composition (createRegistry) intentionally omits
+  // the agent policy stage; it must still agree with the published
+  // PRODUCTION_PIPELINE_ORDER on every stage it DOES wire. If the published
+  // contract ever changes (a stage added or reordered), this test forces the
+  // test harness to be updated in the same commit — the same drift the
+  // boot-time assertion in the production server guards against.
+  it("matches PRODUCTION_PIPELINE_ORDER with the agent policy stage removed", () => {
+    const expected = PRODUCTION_PIPELINE_ORDER.filter(
+      (stage) => stage !== "agentPolicy" && stage !== "handler",
+    );
+    const registry = new ToolRegistry();
+    registry.addGlobalMiddleware(errorHandlerMiddleware, "errorHandler");
+    registry.addGlobalMiddleware(auditLogMiddleware(undefined as never), "auditLog");
+    registry.addGlobalMiddleware(confirmationGateMiddleware(undefined as never), "confirmationGate");
+    registry.addGlobalMiddleware(idempotencyMiddleware(undefined as never), "idempotency");
+    expect([...registry.globalMiddlewareOrder]).toEqual([...expected]);
   });
 });

@@ -77,10 +77,11 @@ export function auditLogMiddleware(prisma: PrismaClient): ToolMiddleware {
  * A tool call that was rejected BEFORE the middleware pipeline ran.
  *
  * The pipeline is composed PER TOOL, so a rejection that happens before the
- * tool is even looked up (an unknown tool name, a conflicting idempotency
- * key) never reaches the audit middleware — the attempt was invisible in the
- * durable trail. A hallucinated tool call is one of the most useful
- * agent-behaviour signals an ERP has, so it must be recorded.
+ * tool is even looked up (an unknown tool, a conflicting idempotency key)
+ * never reaches the audit middleware. A hallucinated tool call is one of the
+ * most useful agent-behaviour signals an ERP has, so it must be recorded;
+ * the audit row is tenant-scoped (RLS), so it is only written when the
+ * tenant id validated.
  */
 export interface RejectedToolCall {
   /** The tool name the caller asked for. */

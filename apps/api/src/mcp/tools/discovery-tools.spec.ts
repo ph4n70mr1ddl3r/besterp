@@ -705,7 +705,24 @@ describe("Discovery MCP Tools", () => {
       expect(data.message).toContain("unique constraint");
     });
 
-    it("should return ENTITY_NOT_FOUND for unknown error code", async () => {
+    it("should explain its own UNKNOWN_ERROR_CODE so the table cannot fall behind itself", async () => {
+      // `explain_error` emits UNKNOWN_ERROR_CODE when a requested code has no
+      // entry. If that code were itself missing from the table, an agent that
+      // hit it would get a second UNKNOWN_ERROR_CODE with no guidance — the
+      // tool's recovery loop would terminate with no actionable advice.
+      const result = await registry.execute(
+        "explain_error",
+        { errorCode: "UNKNOWN_ERROR_CODE" },
+        mockContext,
+      );
+
+      expect(result.success).toBe(true);
+      const data = result.data as { errorCode: string; message: string };
+      expect(data.errorCode).toBe("UNKNOWN_ERROR_CODE");
+      expect(data.message.length).toBeGreaterThan(0);
+    });
+
+    it("should return UNKNOWN_ERROR_CODE for an unexplained error code", async () => {
       const result = await registry.execute(
         "explain_error",
         { errorCode: "NONEXISTENT_CODE" },
