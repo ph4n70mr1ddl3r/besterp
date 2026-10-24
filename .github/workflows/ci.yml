@@ -33,11 +33,11 @@ jobs:
         # Only critical issues fail CI. `npm audit` reports every advisory
         # against the transitive deepmerge-ts (GHSA-ggr8-5vv4-36mx) that
         # lives in a nested private node_modules the workspace overrides map
-        # cannot reach, so the gate is relaxed to low. The HIGH-severity
-        # findings (including the deepmerge-ts advisory) are kept visible in
-        # CI as a non-failing report so they cannot accumulate unnoticed;
-        # a patch-level prisma upgrade is the clean resolution (tracked in
-        # CODE_REVIEW_REPORT.md).
+        # cannot reach, so the gate only fails on CRITICAL — HIGH findings are
+        # reported as a non-failing table so they stay visible and cannot
+        # accumulate unnoticed. The HIGH-severity findings (including the
+        # deepmerge-ts advisory) are therefore still shown in CI; a patch-level
+        # prisma upgrade is the clean resolution (tracked in CODE_REVIEW_REPORT.md).
         run: |
           set +e
           npm audit --audit-level=high
