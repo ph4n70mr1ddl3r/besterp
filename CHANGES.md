@@ -1,5 +1,15 @@
 # BestERP — Security & Architecture Fixes
 
+## Changes Applied (2026-10-24) — Code Review Round 285
+**Document round 284 in the review report and close the scope gap**
+
+- `CODE_REVIEW_REPORT.md`: added the "Findings & Actions (round 284)" section (the `optionalIsoDate` doc fix and its unchanged test results) and advanced the documented scope from 276–283 to 276–284. No production code changed; test counts, lint, typecheck and build are unchanged from round 284.
+
+## Changes Applied (2026-10-24) — Code Review Round 284
+**Stop the `optionalIsoDate` doc from drifting off `MAX_DATE_STRING_LENGTH`**
+
+- `packages/mcp-tools/src/schema/schema-builders.ts`: the `optionalIsoDate` JSDoc no longer hardcodes a character count ("(30 chars)"). It now names `MAX_DATE_STRING_LENGTH` and points at `packages/shared/src/constants.ts`, so a future change to the constant cannot leave the comment stale — the same class of drift the rounds-279–283 pipeline-order guards prevent.
+
 ## Changes Applied (2026-10-24) — Code Review Round 283
 **Close the residual magic strings, make `UNKNOWN_ERROR_CODE` explainable, and stop the pipeline-order docs from drifting**
 

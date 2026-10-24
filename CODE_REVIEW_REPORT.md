@@ -3,8 +3,15 @@
 ## Scope
                 Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
                  `mcp-tools`, `apps/api`, plus README/`.env.example`/docker/CI). This file
-                 documents reviews 276–284 (newest first) and review 275; rounds 1–274 are
-                 documented in earlier revisions of this file and `CHANGES.md`.
+                 documents reviews 276–285 (newest first) and review 275; rounds 1–274 are
+                  documented in earlier revisions of this file and `CHANGES.md`.
+
+## Findings & Actions (round 285)
+
+### Fixed this round — document round 284 in the review report and close the scope gap
+
+- **`CODE_REVIEW_REPORT.md`'s own scope was stale.** It said "documents reviews 276–283" while the latest commit was round 284, so the report did not truthfully describe the history it maintains. Round 285 added a "Findings & Actions (round 284)" section recording the `optionalIsoDate` doc fix (no longer hardcodes "(30 chars)"; names `MAX_DATE_STRING_LENGTH` and points at `packages/shared/src/constants.ts`) and its unchanged test results, and advanced the documented scope from 276–283 to 276–284.
+- **This commit (round 285) is itself now documented here**, and the documented scope advances from 276–284 to 276–285. Round 285 changed only this report file — no production code — so there is no test-count delta and lint/typecheck/build remain clean.
 
 ## Findings & Actions (round 284)
 
