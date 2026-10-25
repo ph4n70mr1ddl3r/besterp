@@ -643,13 +643,6 @@ before and after every fix:
   `{'api_key':'sk_live_LEAKME123'}` was stored verbatim before and is now
   stored as `{'api_key':'[REDACTED]'}`.
 
-
-## Scope
-                Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
-                 `mcp-tools`, `apps/api`, plus README/`.env.example`/docker/CI) conducted on
-                   2026-10-22. This is review 273; rounds 1–272 are documented in
-                 earlier revisions of this file and `CHANGES.md`.
-
 ## Findings & Actions (round 273)
 
 The review was run against a live PostgreSQL 16 instance (migrations, the RLS
