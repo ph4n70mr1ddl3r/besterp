@@ -1269,8 +1269,8 @@ describe("Audit Log Middleware", () => {
   it("should redact sensitive fields from the LIVE tool result returned to the agent", async () => {
     // Regression guard for the live-vs-replay redaction asymmetry: the success
     // payload returned to the AI agent must be redacted the SAME way the
-    // durable audit row (redactSensitiveFields) and idempotency replay
-    // (redactSensitiveFields) are. A tool returning a credential under a
+    // durable audit row (redactSensitiveFieldValues) and idempotency replay
+    // (redactSensitiveFieldValues) are. A tool returning a credential under a
     // sensitive-named key must never leak to the agent on the first (live) call.
     const input = { name: "Jane Doe" };
     const toolResult: ToolResult = { success: true, data: { password: "hunter2", name: "Jane Doe" } };
@@ -1289,7 +1289,7 @@ describe("Audit Log Middleware", () => {
   it("should redact a Map whose key is a non-string object toString()-ing to a sensitive name", async () => {
     // Regression (round 50): the MCP audit-log redactMap only redacted
     // when `typeof k === "string" && isSensitiveField(k)`. The canonical
-    // shared redactSensitiveFields coerces the key via String(k), so a Map
+    // shared redactSensitiveFieldValues coerces the key via String(k), so a Map
     // keyed by an object whose toString() yields e.g. "password" was
     // redacted on the REST surface but NOT on the MCP/durable surface —
     // a divergence between the two "must-match" redactors. redactMap now
@@ -1314,7 +1314,7 @@ describe("Audit Log Middleware", () => {
   });
 
   it("should sanitize secret-bearing string values under NON-sensitive keys (live + durable)", async () => {
-    // Regression guard (round 48): redactSensitiveFields returned terminal
+    // Regression guard (round 48): redactSensitiveFieldValues returned terminal
     // string values verbatim, so a connection string / JWT / `?api_key=…`
     // embedded in a tool result value under a benign key (e.g. `url`, `note`)
     // survived the MCP redactor even though the canonical REST redactor
@@ -1474,7 +1474,7 @@ describe("Audit Log Middleware", () => {
   });
 
   it("should not leak sensitive fields nested beyond MAX_REDACTION_DEPTH", async () => {
-    // Regression guard: redactSensitiveFields previously returned the RAW
+    // Regression guard: redactSensitiveFieldValues previously returned the RAW
     // (unredacted) value once depth exceeded the cap, because isTerminal
     // short-circuited on the depth check BEFORE the key-name redaction loop
     // ran. A sensitive field buried deeper than the cap was therefore

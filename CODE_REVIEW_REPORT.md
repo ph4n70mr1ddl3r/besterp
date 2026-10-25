@@ -3,8 +3,36 @@
 ## Scope
                 Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
                  `mcp-tools`, `apps/api`, plus README/`.env.example`/docker/CI). This file
-                 documents reviews 276–288 (newest first) and review 275; rounds 1–274 are
+                 documents reviews 276–289 (newest first) and review 275; rounds 1–274 are
                   documented in earlier revisions of this file and `CHANGES.md`.
+
+## Findings & Actions (round 289)
+
+### Fixed this round — unify sensitive-field redaction to a single canonical name, correct ADR-001 tool-location claim
+
+- **`packages/mcp-tools/src/middleware/audit-log.ts` — local alias `redactSensitiveFields` removed; all redaction now uses the canonical shared `redactSensitiveFieldValues`.** The middleware defined a thin local alias `redactSensitiveFields` (a one-line delegate to `redactSensitiveFieldValues`) and used it at the `toolInput` redaction site while the `toolOutput` site and every other file in the package (agent-result, idempotency, error-handler) used the canonical shared import directly. Two names for one function was drift waiting to diverge. The alias is removed, `toolInput` now calls `redactSensitiveFieldValues` (already imported), and the affected comments name the canonical function. No behaviour change.
+- **`packages/mcp-tools/src/__tests__/sensitive-fields.test.ts` — import the canonical redactor from `@besterp/shared`.** The test imported `redactSensitiveFields` from the local audit-log module even though its own prologue stated "No local shim is needed ... both import from @besterp/shared". It now imports `redactSensitiveFieldValues` from `@besterp/shared` (the exact code path every consumer uses), and the describe block/usages are renamed. No behaviour change.
+- **`packages/mcp-tools/src/middleware/idempotency.ts`, `packages/mcp-tools/src/registry/tool-registry.ts`, `packages/mcp-tools/src/__tests__/middleware.test.ts` — comment references renamed.** Comments that named the removed alias now name `redactSensitiveFieldValues` so documentation matches the canonical function. Comments only.
+- **`docs/architecture/adr-001-mcp-tool-protocol.md` — tool-location claim corrected.** ADR-001 stated "Tool definitions live in `packages/mcp-tools/`", but the business tool definitions (party, product, agent, user, discovery) live in `apps/api/src/mcp/tools/`; `packages/mcp-tools/` holds the MCP framework (registry, schema, middleware). The bullet now states both locations accurately. No behaviour change.
+
+### Verified clean (no action needed)
+
+- **Public API surface** — `packages/mcp-tools/src/index.ts` does not re-export `redactSensitiveFields` (it was never part of the public barrel), so removing it is not a breaking change; `@besterp/database` barrel stays complete (round 288).
+- **`e2e-workflow.spec.ts` orphaned spec** — retained; standalone Phase 0d end-to-end agent-workflow test, passes and adds regression value.
+- **vitest include/timeout conventions** — shared/database use `.test.ts`, api uses `.spec.ts`; each workspace has its own `vitest.config.ts` so the globs never overlap and no test is missed or double-run. Left as-is.
+
+### Test Results (round 289)
+```
+shared:    pass
+mcp-tools: pass
+database:  pass
+api:       729 passed (25 files)
+────────────────────────────────────
+Total:     729 passed
+lint:      clean (0 errors, 0 warnings)
+typecheck: clean across all workspaces
+build:     clean
+```
 
 ## Findings & Actions (round 288)
 

@@ -8,6 +8,15 @@
 - `apps/api/src/mcp/mcp.controller.ts`: header comment no longer claims README lists the 25 registered tools (README states no tool count); the count (5 party + 6 product + 6 discovery + 6 agent + 2 user = 25) is accurate in code only.
 - Lint clean, typecheck clean, all 729 tests pass (25 files).
 
+## Changes Applied (2026-10-25) — Code Review Round 289
+**Unify sensitive-field redaction to a single canonical name, correct ADR-001 tool-location claim**
+
+- `packages/mcp-tools/src/middleware/audit-log.ts`: removed the local `redactSensitiveFields` alias (a one-line delegate to `redactSensitiveFieldValues`); the `toolInput` redaction site now calls the canonical shared `redactSensitiveFieldValues` directly, matching `toolOutput` and every other file in the package (agent-result, idempotency, error-handler). One name for one function; comments renamed to match. No behaviour change.
+- `packages/mcp-tools/src/__tests__/sensitive-fields.test.ts`: imports `redactSensitiveFieldValues` from `@besterp/shared` (the exact code path every consumer uses) instead of the removed local alias; describe block and usages renamed. No behaviour change.
+- `packages/mcp-tools/src/middleware/idempotency.ts`, `packages/mcp-tools/src/registry/tool-registry.ts`, `packages/mcp-tools/src/__tests__/middleware.test.ts`: comment references to the removed alias renamed to `redactSensitiveFieldValues`. Comments only.
+- `docs/architecture/adr-001-mcp-tool-protocol.md`: corrected the claim that tool definitions live in `packages/mcp-tools/` — business tool definitions live in `apps/api/src/mcp/tools/`; `packages/mcp-tools/` holds the MCP framework (registry, schema, middleware). No behaviour change.
+- Lint clean, typecheck clean, all 729 tests pass (25 files).
+
 ## Changes Applied (2026-10-24) — Code Review Round 287
 **Close out the round 286 doc-alignment follow-up**
 

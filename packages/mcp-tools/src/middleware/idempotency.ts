@@ -648,7 +648,7 @@ function handleExistingRecord(
       // rows persisted before this fix may contain unredacted values, and a
       // record persisted by a code path that skipped redaction must never be
       // replayed to the agent verbatim. The audit log uses the same
-      // redactSensitiveFields, so the two sinks stay consistent.
+      // redactSensitiveFieldValues, so the two sinks stay consistent.
       data: redactSensitiveFieldValues(data) as Record<string, unknown> | undefined,
       replayed: true,
       nextActions: [

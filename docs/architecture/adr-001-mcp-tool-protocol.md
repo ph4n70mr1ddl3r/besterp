@@ -32,7 +32,7 @@ The spike validated stdio transport. For production, we'll add Streamable HTTP s
 ### What this means concretely:
 
 1. **Every business operation is an MCP tool** — not a REST endpoint or GraphQL mutation
-2. **Tool definitions live in `packages/mcp-tools/`** (canonical source, imported by the API server)
+2. **Tool definitions live in `apps/api/src/mcp/tools/`** (business operations — party, product, agent, user, discovery), built on the MCP framework in `packages/mcp-tools/` (registry, schema, middleware) — both are imported by the API server
 3. **REST and GraphQL are secondary interfaces** — they consume the same domain services but are not the primary design surface
 4. **The MCP server handles**:
    - Input validation (JSON Schema)

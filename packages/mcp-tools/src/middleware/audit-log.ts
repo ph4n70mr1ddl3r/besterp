@@ -205,7 +205,7 @@ function createBaseEntry(context: { agentId?: string; conversationId?: string; r
     // write a 100 KB row. The name of a REGISTERED tool is short; the cap
     // only bites on the rejection path.
     toolCalled: definition.name.slice(0, MAX_TOOL_NAME_LENGTH),
-    toolInput: withConfirmation(redactSensitiveFields(input), context.confirmation),
+    toolInput: withConfirmation(redactSensitiveFieldValues(input), context.confirmation),
   };
 }
 
@@ -422,8 +422,8 @@ async function executeAndLog(prisma: PrismaClient, backpressure: BackpressureMan
   }
 
   // The success payload returned to the AI agent must be redacted the SAME
-  // way the durable sinks (audit row via truncateValue(redactSensitiveFields…)
-  // and idempotency replay via redactSensitiveFields) are. Without this, a
+  // way the durable sinks (audit row via truncateValue(redactSensitiveFieldValues…)
+  // and idempotency replay via redactSensitiveFieldValues) are. Without this, a
   // tool returning a value under a sensitive-named key (e.g. a credential)
   // leaks to the agent live on the first call, while the identical value is
   // redacted when persisted or replayed — an asymmetric secret-leak path.
@@ -628,7 +628,7 @@ interface AuditLogEntry {
 
 async function logAction(prisma: PrismaClient, entry: AuditLogEntry): Promise<void> {
   // toolInput is already redacted by createBaseEntry() before it reaches the
-  // backpressure queue, so re-running redactSensitiveFields here would traverse
+  // backpressure queue, so re-running redactSensitiveFieldValues here would traverse
   // the (potentially large) object graph a second time for no effect. Only
   // toolOutput needs redaction — it is added raw in executeAndLog().
   const toolInput = truncateValue(entry.toolInput, MAX_STORED_PAYLOAD_SIZE);
@@ -644,7 +644,7 @@ async function logAction(prisma: PrismaClient, entry: AuditLogEntry): Promise<vo
       // Prisma's Json columns reject a bare JS null/undefined ("Provided Json
       // null, expected JsonNull or DbNull") — without these guards, a
       // successful tool with no data (result.data ?? null) or a tool invoked
-      // with no input (redactSensitiveFields(undefined) → undefined) made the
+      // with no input (redactSensitiveFieldValues(undefined) → undefined) made the
       // create() call itself throw, and the fire-and-forget catch meant the
       // durable audit row was silently dropped for every such call. Mirror
       // idempotency.ts: JSON null for the REQUIRED toolInput column (DbNull
@@ -655,16 +655,4 @@ async function logAction(prisma: PrismaClient, entry: AuditLogEntry): Promise<vo
       reasoning: entry.reasoning ?? null,
     },
   });
-}
-
-/**
- * Redact sensitive fields in audit-log payloads.
- *
- * Delegates to the canonical shared `redactSensitiveFieldValues` so the MCP
- * audit surface cannot diverge from the REST canonical redactor. The shared
- * redactor handles Map/Set conversion, cycle detection, depth capping, and
- * key-based redaction — keeping this middleware a thin passthrough.
- */
-export function redactSensitiveFields(value: unknown): unknown {
-  return redactSensitiveFieldValues(value);
 }

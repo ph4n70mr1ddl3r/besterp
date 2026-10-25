@@ -1,12 +1,11 @@
 // Unit tests for sensitive-field detection (shared by audit-log + error-handler)
 
 import { describe, it, expect } from "vitest";
-import { isSensitiveFieldName, splitFieldNameTokens } from "@besterp/shared";
-import { redactSensitiveFields } from "../middleware/audit-log.js";
+import { isSensitiveFieldName, splitFieldNameTokens, redactSensitiveFieldValues } from "@besterp/shared";
 
-// The tests below exercise the canonical @besterp/shared implementation directly.
-// No local shim is needed — tool-registry.ts and audit-log.ts both import from
-// @besterp/shared, so this file tests the exact code path every consumer uses.
+// Exercises the canonical @besterp/shared implementation directly — the exact
+// code path every consumer (agent-result, idempotency, error-handler,
+// audit-log) uses. No local shim exists anymore.
 
 describe("isSensitiveFieldName", () => {
   it("should catch explicit sensitive field names", () => {
@@ -184,18 +183,18 @@ describe("canonical shared implementation (single source of truth)", () => {
   });
 });
 
-describe("redactSensitiveFields (shared by audit-log + idempotency)", () => {
-  // Imported from audit-log.ts so the SAME implementation redacts both the
-  // persisted ai_action_log.toolOutput row and the idempotency_record.result
-  // column. The idempotency sink previously applied NO redaction, leaking
-  // values under sensitive-named keys; this guards the shared function.
+describe("redactSensitiveFieldValues (canonical @besterp/shared redactor)", () => {
+  // The canonical redactor redacts both the persisted ai_action_log.toolOutput
+  // row and the idempotency_record.result column. The idempotency sink
+  // previously applied NO redaction, leaking values under sensitive-named
+  // keys; this guards the shared function.
 
   it("redacts values under sensitive-named keys at any nesting depth", () => {
     const input = {
       partyId: "p1",
       result: { apiKey: "sk_live_secret123", nested: { password: "hunter2" } },
     };
-    const out = redactSensitiveFields(input) as Record<string, unknown>;
+    const out = redactSensitiveFieldValues(input) as Record<string, unknown>;
     expect(out.partyId).toBe("p1");
     expect((out.result as Record<string, unknown>).apiKey).toBe("[REDACTED]");
     expect(
@@ -206,7 +205,7 @@ describe("redactSensitiveFields (shared by audit-log + idempotency)", () => {
   it("replaces deep subgraphs with a placeholder when the redaction depth cap is exceeded", () => {
     let deep: Record<string, unknown> = { leaf: "v" };
     for (let i = 0; i < 15; i++) deep = { child: deep };
-    const out = redactSensitiveFields({ secret: deep }) as Record<string, unknown>;
+    const out = redactSensitiveFieldValues({ secret: deep }) as Record<string, unknown>;
     expect(out.secret).toBe("[REDACTED]");
   });
 });

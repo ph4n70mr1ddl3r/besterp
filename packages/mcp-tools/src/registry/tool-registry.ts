@@ -956,7 +956,7 @@ export class ToolRegistry {
    * Sanitize and redact Zod validation issues before returning them to the
    * AI agent in `context.issues`. Mirrors the redaction (sensitive-named
    * paths) and log-output sanitization (URLs/paths/ANSI) applied by
-   * `redactSensitiveFields` / `sanitizeContextValue` to every other
+   * `redactSensitiveFieldValues` / `sanitizeContextValue` to every other
    * agent-facing surface, so a failed-validation response cannot leak a
    * secret carried under a sensitive-named field or an embedded connection
    * string. Caps to the first `maxIssues` issues for memory safety.
