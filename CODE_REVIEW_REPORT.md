@@ -3,8 +3,37 @@
 ## Scope
                 Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
                  `mcp-tools`, `apps/api`, plus README/`.env.example`/docker/CI). This file
-                 documents reviews 276–289 (newest first) and review 275; rounds 1–274 are
+                 documents reviews 276–290 (newest first) and review 275; rounds 1–274 are
                   documented in earlier revisions of this file and `CHANGES.md`.
+
+## Findings & Actions (round 290)
+
+### Fixed this round — align agent-facing length hints and envelope-key guidance with the implementation
+
+- **`apps/api/src/mcp/tools/discovery-tools.ts` — the `INVALID_IDEMPOTENCY_KEY` hint contradicted the framework.** The `explain_error` table told an agent the key limit was "at most 128 characters", but the idempotency middleware validates against `MAX_IDEMPOTENCY_KEY_LENGTH` (500, `packages/shared/src/constants.ts`): an agent told to keep keys under 128 was fine, but one that sent 300 characters was told by the recovery surface that its key was malformed when it was perfectly valid. The hint now names the 500 limit without hardcoding it.
+- **`apps/api/src/mcp/tools/discovery-tools.ts` — the `STALE_PENDING_RECORD` hint contradicted the middleware.** The hint said "Retry with a NEW idempotency key — the outcome of the earlier attempt is unknown", but the idempotency middleware's stale-pending branch RECLAIMS the record: the same key with the same input resets the record to pending and re-executes (the dedicated test "should re-execute for stale pending record (crash recovery)" asserts exactly this path). The hint now tells the agent to retry the SAME request with the SAME key, and to use a new key only when the key now holds different input (the `IDEMPOTENCY_KEY_MISMATCH` case that path actually returns).
+- **`apps/api/src/mcp/tools/party-tools.ts` — three description claims drifted off the shared constants.** The `create_party` description hardcoded "1-500 characters" for `name` and "max 1000 characters" for `description`, and the idempotency hint hardcoded "max 500 chars" for `idempotencyKey` in three tool descriptions. Each is now a template literal referencing `MAX_PARTY_NAME_LENGTH`, `MAX_PARTY_DESCRIPTION_LENGTH`, and `MAX_IDEMPOTENCY_KEY_LENGTH`, so a future change to the constant can no longer leave the agent-facing docs stale — the same drift class the rounds-279–284 constant-naming fixes prevent.
+- **`apps/api/src/mcp/tools/product-tools.ts` — same class in the sibling file.** The `create_product` description hardcoded "1-500 characters" for `name`; it now references `MAX_PARTY_NAME_LENGTH` (the constant the schema already uses for the bound).
+- **`README.md` — the `idempotencyKey` envelope entry did not say how to pass it.** The tool descriptions say "pass an idempotencyKey … along with the tool arguments", and the registry strips the key from the arguments object before the tool schema runs, but the README's envelope section only documented the key's semantics. It now states the key travels with the arguments and is stripped by the framework (including the 500-character cap).
+
+### Verified clean (no action needed)
+
+- **`CONCURRENCY_CONFLICT` tip alignment (round 290 predecessor commit)** — the `explain_error` tip now matches the MCP error-handler's same-key guidance for P2034/P2028; verified `error-handler.ts` (P2034, P2028, P2024, and the connection-error branch) all direct agents to the same key.
+- **`REQUEST_IN_PROGRESS` / `IDEMPOTENCY_CONTENTION` / `SERVICE_UNAVAILABLE` tips** — all consistent with the middleware's same-key-retry guidance; the only contradictory hints were the two fixed above.
+- **Tool counts (README vs. code)** — the README's tool lists (5 party, 6 product, 6 discovery, 6 agent, 2 user = 25) match the registered tools; no count claimed in the README.
+- **`agent-policy.ts` "recorded but not enforced" claims** — the header comment and the tool descriptions both state the rate/limit/transaction fields are RECORDED and not yet enforced, consistent with each other and with the README.
+
+### Test Results (round 290)
+```
+shared:    328 passed (6 files)
+mcp-tools: 283 passed (9 files)
+database:  pass (unchanged)
+api:       729 passed (25 files)
+────────────────────────────────────
+lint:      clean (0 errors, 0 warnings)
+typecheck: clean across all workspaces
+build:     clean
+```
 
 ## Findings & Actions (round 289)
 

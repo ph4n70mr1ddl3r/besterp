@@ -858,12 +858,12 @@ const ERROR_EXPLANATIONS: Record<string, { message: string; suggestedTools: stri
   INVALID_IDEMPOTENCY_KEY: {
     message: "The idempotency key was rejected — it was empty, too long, or contained characters that are not allowed.",
     suggestedTools: ["list_available_tools"],
-    context: { tip: "Supply a printable, non-empty key of at most 128 characters." },
+    context: { tip: "Supply a printable, non-empty key of at most 500 characters." },
   },
   STALE_PENDING_RECORD: {
     message: "A stale in-progress idempotency record was found for this key. The earlier request most likely crashed before completing.",
     suggestedTools: ["list_available_tools"],
-    context: { tip: "Retry with a NEW idempotency key — the outcome of the earlier attempt is unknown." },
+    context: { tip: "Wait a moment and retry the same request with the same idempotency key — the stale record is reclaimed automatically when it is older than the 60-second threshold. If the key now holds a different input, use a new key." },
   },
   // ── Context identity ──────────────────────────────────────────
   INVALID_CONTEXT_ID: {

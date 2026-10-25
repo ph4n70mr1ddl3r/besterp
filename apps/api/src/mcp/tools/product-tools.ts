@@ -86,7 +86,7 @@ const createProductSchema = z.strictObject({
     .transform((s) => stripHtmlTags(s.trim()).toUpperCase())
     .pipe(z.string().min(1).max(MAX_PRODUCT_TYPE_LENGTH))
     .describe("Product type (e.g., 'GOOD', 'SERVICE', 'RAW_MATERIAL')"),
-  name: sanitizedString(1, MAX_PARTY_NAME_LENGTH).describe("Product name (1-500 characters)"),
+  name: sanitizedString(1, MAX_PARTY_NAME_LENGTH).describe(`Product name (1-${MAX_PARTY_NAME_LENGTH} characters)`),
   description: optionalFilteredString(MAX_PARTY_DESCRIPTION_LENGTH).describe("Optional product description"),
   sku: optionalFilteredString(MAX_SKU_LENGTH).describe("Optional stock-keeping unit (must be unique within tenant)"),
   categoryId: uuidParam("Optional category ID to associate with this product").optional(),

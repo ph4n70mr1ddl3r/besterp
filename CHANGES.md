@@ -1,5 +1,14 @@
 # BestERP — Security & Architecture Fixes
 
+## Changes Applied (2026-10-25) — Code Review Round 290
+**Align agent-facing length hints and envelope-key guidance with the implementation**
+
+- `apps/api/src/mcp/tools/discovery-tools.ts`: the `INVALID_IDEMPOTENCY_KEY` `explain_error` hint said the key limit was "at most 128 characters" — the framework enforces `MAX_IDEMPOTENCY_KEY_LENGTH` (500), so the recovery surface told an agent with a 300-char key its input was malformed when it was valid. The hint now states the 500 limit without hardcoding it. The `STALE_PENDING_RECORD` hint said "retry with a NEW idempotency key", but the idempotency middleware's stale-pending branch RECLAIMS the record: the same key with the same input resets it to pending and re-executes (the dedicated crash-recovery test asserts exactly this). The hint now says retry the same request with the same key, and use a new key only when the key now holds different input.
+- `apps/api/src/mcp/tools/party-tools.ts`: three description claims drifted off the shared constants — `create_party` hardcoded "1-500 characters" (name) and "max 1000 characters" (description), and the idempotency hint hardcoded "max 500 chars" in three tool descriptions. Each now references `MAX_PARTY_NAME_LENGTH` / `MAX_PARTY_DESCRIPTION_LENGTH` / `MAX_IDEMPOTENCY_KEY_LENGTH` in a template literal, so a future constant change cannot leave the agent-facing docs stale.
+- `apps/api/src/mcp/tools/product-tools.ts`: same class — the `create_product` description hardcoded "1-500 characters" for `name`; it now references `MAX_PARTY_NAME_LENGTH` (the constant the schema already uses for the bound).
+- `README.md`: the `idempotencyKey` envelope entry documented the key's semantics but not how to pass it — the tool descriptions say "pass an idempotencyKey … along with the tool arguments" and the registry strips the key from the arguments before the tool schema runs. The entry now states the key travels with the arguments and is stripped by the framework (500-character cap), matching the tool descriptions.
+- Lint clean, typecheck clean, all 729 tests pass (25 files); mcp-tools 283, shared 328.
+
 ## Changes Applied (2026-10-25) — Code Review Round 288
 **Close residual error-code magic strings, complete the database barrel, correct a doc claim**
 

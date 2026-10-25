@@ -48,6 +48,7 @@ import {
   MAX_EXTENSION_LENGTH,
   MAX_PHONE_COUNTRY_CODE_LENGTH,
   MAX_EMAIL_LENGTH,
+  MAX_IDEMPOTENCY_KEY_LENGTH,
   EMAIL_REGEX,
   DEFAULT_SEARCH_LIMIT,
   MIN_SEARCH_LIMIT,
@@ -253,8 +254,8 @@ const createPartySchema = z.strictObject({
     .transform((s) => stripHtmlTags(s.trim()).toUpperCase())
     .pipe(z.enum(["PERSON", "ORGANIZATION"]))
     .describe("Type of party to create (PERSON or ORGANIZATION; case-insensitive)"),
-  name: sanitizedString(1, MAX_PARTY_NAME_LENGTH).describe("Display name for the party (1-500 characters)"),
-  description: optionalFilteredString(MAX_PARTY_DESCRIPTION_LENGTH).describe("Optional description (max 1000 characters)"),
+  name: sanitizedString(1, MAX_PARTY_NAME_LENGTH).describe(`Display name for the party (1-${MAX_PARTY_NAME_LENGTH} characters)`),
+  description: optionalFilteredString(MAX_PARTY_DESCRIPTION_LENGTH).describe(`Optional description (max ${MAX_PARTY_DESCRIPTION_LENGTH} characters)`),
   person: personSchema.optional().describe("Person details (required when partyType is PERSON)"),
   organization: organizationSchema.optional().describe("Organization details (required when partyType is ORGANIZATION)"),
 }).superRefine((data, ctx) => {
@@ -281,7 +282,7 @@ Example: Create a customer person named "Jane Doe"
 Example: Create a supplier organization
   create_party({ partyType: "ORGANIZATION", name: "Acme Corp", organization: { legalName: "Acme Corporation Ltd." } })
 
-For idempotent writes, pass an idempotencyKey (string, max 500 chars) along with the tool arguments. If the same key is used again, the operation will be safely replayed or deduplicated.`,
+For idempotent writes, pass an idempotencyKey (string, max ${MAX_IDEMPOTENCY_KEY_LENGTH} chars) along with the tool arguments. If the same key is used again, the operation will be safely replayed or deduplicated.`,
 
   inputSchema: createPartySchema,
 
@@ -416,7 +417,7 @@ A party can have multiple roles. Use 'get_type_table_values' with typeName "ROLE
 Example: Make a party a customer
   add_party_role({ partyId: "550e8400-e29b-41d4-a716-446655440000", roleType: "Customer" })
 
-For idempotent writes, pass an idempotencyKey (string, max 500 chars) along with the tool arguments. If the same key is used again, the operation will be safely replayed or deduplicated.`,
+For idempotent writes, pass an idempotencyKey (string, max ${MAX_IDEMPOTENCY_KEY_LENGTH} chars) along with the tool arguments. If the same key is used again, the operation will be safely replayed or deduplicated.`,
 
   inputSchema: addPartyRoleSchema,
 
@@ -480,7 +481,7 @@ A party can have multiple contacts of each type.
 
 Use 'get_type_table_values' with typeName "CONTACT_MECHANISM_TYPE" to see available types.
 
-For idempotent writes, pass an idempotencyKey (string, max 500 chars) along with the tool arguments. If the same key is used again, the operation will be safely replayed or deduplicated.`,
+For idempotent writes, pass an idempotencyKey (string, max ${MAX_IDEMPOTENCY_KEY_LENGTH} chars) along with the tool arguments. If the same key is used again, the operation will be safely replayed or deduplicated.`,
 
   inputSchema: addContactMechanismSchema,
 

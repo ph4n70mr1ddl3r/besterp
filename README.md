@@ -355,7 +355,10 @@ is a **bcrypt or argon2 digest**. A plaintext password is rejected.
 Two arguments are handled by the framework rather than by the tool schemas,
 so they are accepted on every tool:
 
-- `idempotencyKey` (string) — deduplicates retries of a write. The same key
+- `idempotencyKey` (string) — deduplicates retries of a write. Pass it
+  alongside the tool arguments (it is one of the envelope keys the framework
+  strips from the arguments object before the tool's own schema runs, so the
+  tool schemas do not declare it; a 500-character cap applies). The same key
   with the same input replays the stored result; a different input under the
   same key is rejected with `IDEMPOTENCY_KEY_MISMATCH`. A key is scoped to
   **one caller in one tenant**: another caller that reuses the key gets
