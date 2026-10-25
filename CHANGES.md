@@ -1,5 +1,13 @@
 # BestERP — Security & Architecture Fixes
 
+## Changes Applied (2026-10-25) — Code Review Round 288
+**Close residual error-code magic strings, complete the database barrel, correct a doc claim**
+
+- `packages/mcp-tools/src/middleware/error-handler.ts`: the 11 raw error-code string literals in `PRISMA_ERROR_HANDLERS` and `handleGenericError` now use published constants (`DuplicateEntityError.CODE`/`EntityNotFoundError.CODE`/`ConcurrencyConflictError.CODE` from `@besterp/shared`; `REFERENCE_ERROR`/`INVALID_INPUT`/`DATABASE_ERROR`/`DATABASE_CONNECTION_ERROR`/`INTERNAL_ERROR` from `packages/mcp-tools/src/error-codes.ts`). Renaming a constant can no longer leave the middleware emitting an unpublished code that `explain_error` cannot explain — the drift class rounds 281–283's constant migration exists to prevent. No behaviour change; values are identical.
+- `packages/database/src/index.ts`: barrel now also re-exports `validateTenantIdEnhanced`, `validatePrismaClientForRls` (`rls-extension.ts`) and `assertSeedAllowed` (`seed-guard.ts`), matching its "Public API" header.
+- `apps/api/src/mcp/mcp.controller.ts`: header comment no longer claims README lists the 25 registered tools (README states no tool count); the count (5 party + 6 product + 6 discovery + 6 agent + 2 user = 25) is accurate in code only.
+- Lint clean, typecheck clean, all 729 tests pass (25 files).
+
 ## Changes Applied (2026-10-24) — Code Review Round 287
 **Close out the round 286 doc-alignment follow-up**
 

@@ -4,3 +4,5 @@
 
 export { createTenantClient } from "./rls-extension.js";
 export type { CreateTenantClientOptions, TenantScopedClient } from "./rls-extension.js";
+export { validateTenantIdEnhanced, validatePrismaClientForRls } from "./rls-extension.js";
+export { assertSeedAllowed } from "./seed-guard.js";

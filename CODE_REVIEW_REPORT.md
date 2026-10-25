@@ -3,8 +3,35 @@
 ## Scope
                 Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
                  `mcp-tools`, `apps/api`, plus README/`.env.example`/docker/CI). This file
-                 documents reviews 276–287 (newest first) and review 275; rounds 1–274 are
+                 documents reviews 276–288 (newest first) and review 275; rounds 1–274 are
                   documented in earlier revisions of this file and `CHANGES.md`.
+
+## Findings & Actions (round 288)
+
+### Fixed this round — close residual error-code magic strings, complete the database barrel, correct a doc claim
+
+- **`packages/mcp-tools/src/middleware/error-handler.ts` — raw error-code literals migrated to published constants.** The `PRISMA_ERROR_HANDLERS` table and `handleGenericError` emitted 11 codes as string literals (`DUPLICATE_ENTITY`, `ENTITY_NOT_FOUND`, `CONCURRENCY_CONFLICT` ×2, `REFERENCE_ERROR` ×2, `INVALID_INPUT`, `DATABASE_ERROR`, `DATABASE_CONNECTION_ERROR` ×2, `INTERNAL_ERROR`). Round 281–283's constant migration explicitly exists to prevent exactly this drift: renaming a constant in `error-codes.ts` or `DOMAIN_ERROR_CODES` would silently leave the middleware emitting a now-unpublished code, breaking the published-code inventory assertion and leaving `explain_error` with no guidance. The literals now use `DuplicateEntityError.CODE` / `EntityNotFoundError.CODE` / `ConcurrencyConflictError.CODE` from `@besterp/shared` and `REFERENCE_ERROR` / `INVALID_INPUT` / `DATABASE_ERROR` / `DATABASE_CONNECTION_ERROR` / `INTERNAL_ERROR` from `../error-codes.js`. No behaviour change (values are identical); test counts unchanged.
+- **`packages/database/src/index.ts` — incomplete barrel completed.** The barrel exported only `createTenantClient` (+ types) from `rls-extension.ts`, contradicting its own "Public API" header while `validateTenantIdEnhanced`, `validatePrismaClientForRls` (rls-extension.ts) and `assertSeedAllowed` (seed-guard.ts) were reachable only by direct module path. All three are now re-exported so `@besterp/database` exposes what the package actually provides.
+- **`apps/api/src/mcp/mcp.controller.ts` — inaccurate header comment corrected.** The header claimed "the README lists the 25 registered tools"; README states no tool count. The count (5 party + 6 product + 6 discovery + 6 agent + 2 user = 25) is accurate in code only; the comment now states that without attributing it to README.
+
+### Verified clean (no action needed)
+
+- **`e2e-workflow.spec.ts` orphaned spec** — it is a legitimate standalone Phase 0d end-to-end agent-workflow test (registers all 25 tools against mocked services); it passes and adds regression value, so it is retained.
+- **vitest include/timeout conventions** — shared/database use `.test.ts`, api uses `.spec.ts`; each workspace has its own `vitest.config.ts` so the globs never overlap and no test is missed or double-run. Timeouts differ (api 10s, database 30s, shared default) without a shared failure mode; left as-is.
+- **`mcp-tools` middleware barrel / error-code naming** — re-verified after this round's change: every `code:` emission in `error-handler.ts` is now a published constant, and `packages/mcp-tools/src/index.ts` still matches its source exports exactly.
+
+### Test Results (round 288)
+```
+shared:    pass
+mcp-tools: pass
+database:  pass
+api:       729 passed (25 files)
+────────────────────────────────────
+Total:     729 passed
+lint:      clean (0 errors, 0 warnings)
+typecheck: clean across all workspaces
+build:     clean
+```
 
 ## Findings & Actions (round 287)
 

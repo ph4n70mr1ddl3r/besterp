@@ -14,9 +14,19 @@ import {
   pluralize,
   MAX_ERROR_LOG_LINE_LENGTH,
   type DomainError,
+  DuplicateEntityError,
+  EntityNotFoundError,
+  ConcurrencyConflictError,
 } from "@besterp/shared";
 import { ToolMiddleware, ToolResult } from "../schema/tool-definition.js";
 import { sanitizeAgentFacingResult } from "../agent-result.js";
+import {
+  REFERENCE_ERROR,
+  INVALID_INPUT,
+  DATABASE_ERROR,
+  DATABASE_CONNECTION_ERROR,
+  INTERNAL_ERROR,
+} from "../error-codes.js";
 
 // All redaction in this file (sensitive-named keys, string-leaf sanitization,
 // and recursion-depth bounding) is delegated entirely to the shared
@@ -133,7 +143,7 @@ const PRISMA_ERROR_HANDLERS: Record<string, ErrorFactory> = {
     return {
       success: false,
       error: {
-        code: "DUPLICATE_ENTITY",
+        code: DuplicateEntityError.CODE,
         message: `A duplicate entity already exists.${target ? ` Conflicting field(s): ${target}.` : ""}${searchHint}`,
         suggestedTools: [related.search, definition.name].filter((t): t is string => t !== undefined),
         context: target ? { conflictingFields: target } : undefined,
@@ -146,7 +156,7 @@ const PRISMA_ERROR_HANDLERS: Record<string, ErrorFactory> = {
     return {
       success: false,
       error: {
-        code: "ENTITY_NOT_FOUND",
+        code: EntityNotFoundError.CODE,
         message: `The '${entityName}' entity was not found.${searchHint}`,
         suggestedTools: [related.search, related.get, definition.name].filter((t): t is string => t !== undefined),
       },
@@ -157,7 +167,7 @@ const PRISMA_ERROR_HANDLERS: Record<string, ErrorFactory> = {
     return {
       success: false,
       error: {
-        code: "CONCURRENCY_CONFLICT",
+        code: ConcurrencyConflictError.CODE,
         message: `The '${definition.name}' operation conflicted with a concurrent update. Re-fetch the entity and retry with the same idempotency key (do not use a new key).`,
         suggestedTools: [related.get, definition.name].filter((t): t is string => t !== undefined),
       },
@@ -168,7 +178,7 @@ const PRISMA_ERROR_HANDLERS: Record<string, ErrorFactory> = {
     return {
       success: false,
       error: {
-        code: "REFERENCE_ERROR",
+        code: REFERENCE_ERROR,
         message: `A referenced entity was not found. Check foreign key values and ensure all referenced ${entityPlural} exist.`,
         suggestedTools: [related.search, definition.name].filter((t): t is string => t !== undefined),
       },
@@ -178,7 +188,7 @@ const PRISMA_ERROR_HANDLERS: Record<string, ErrorFactory> = {
     return {
       success: false,
       error: {
-        code: "INVALID_INPUT",
+        code: INVALID_INPUT,
         message: `A field value is too long for the column. Check field length limits and retry with shorter values.`,
         suggestedTools: [definition.name],
       },
@@ -189,7 +199,7 @@ const PRISMA_ERROR_HANDLERS: Record<string, ErrorFactory> = {
     return {
       success: false,
       error: {
-        code: "REFERENCE_ERROR",
+        code: REFERENCE_ERROR,
         message: `A required relation is missing or violates a constraint. Check that all required related ${entityPlural} exist and are properly linked.`,
         suggestedTools: [related.search, definition.name].filter((t): t is string => t !== undefined),
       },
@@ -199,7 +209,7 @@ const PRISMA_ERROR_HANDLERS: Record<string, ErrorFactory> = {
     return {
       success: false,
       error: {
-        code: "DATABASE_ERROR",
+        code: DATABASE_ERROR,
         message: `A database table is missing. The schema may need to be migrated. Try again after running migrations.`,
         suggestedTools: ["list_available_tools"],
       },
@@ -210,7 +220,7 @@ const PRISMA_ERROR_HANDLERS: Record<string, ErrorFactory> = {
     return {
       success: false,
       error: {
-        code: "CONCURRENCY_CONFLICT",
+        code: ConcurrencyConflictError.CODE,
         message: `The '${definition.name}' operation on ${entityName} timed out. Re-fetch the entity and retry with the same idempotency key (do not use a new key).`,
         suggestedTools: [related.get, definition.name].filter((t): t is string => t !== undefined),
       },
@@ -220,7 +230,7 @@ const PRISMA_ERROR_HANDLERS: Record<string, ErrorFactory> = {
     return {
       success: false,
       error: {
-        code: "DATABASE_CONNECTION_ERROR",
+        code: DATABASE_CONNECTION_ERROR,
         message: `The '${definition.name}' operation timed out waiting for a database connection from the pool. The service may be under heavy load. Retry the same request with the same idempotency key (do not use a new key — the first attempt's outcome is unknown).`,
         suggestedTools: [definition.name, "list_available_tools"],
       },
@@ -235,7 +245,7 @@ function handlePrismaError(prismaCode: string, prismaMeta: { target?: string | s
     return {
       success: false,
       error: {
-        code: "DATABASE_CONNECTION_ERROR",
+        code: DATABASE_CONNECTION_ERROR,
         // Same-key guidance: P1017 (connection dropped mid-flight) is the
         // ambiguous-outcome case where a new key defeats idempotency — the
         // original write may have committed, and the first attempt's
@@ -274,7 +284,7 @@ function handleGenericError(error: unknown, definition: { name: string }, tenant
   return {
     success: false,
     error: {
-      code: "INTERNAL_ERROR",
+      code: INTERNAL_ERROR,
       message: `Unexpected error in '${definition.name}'. Check server logs for details. If this was a write, retry the same request with the same idempotency key (do not use a new key).`,
       suggestedTools: [definition.name, "list_available_tools"],
     },

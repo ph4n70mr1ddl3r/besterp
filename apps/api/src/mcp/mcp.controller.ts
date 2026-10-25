@@ -1,8 +1,9 @@
 // MCP Controller — HTTP transport for the MCP tool registry.
 //
 // The MCP tool registry is the documented PRIMARY agent interface
-// (ADR-001: "Every business operation is an MCP tool"), and the README
-// lists the 25 registered tools as the way an agent talks to the system.
+// (ADR-001: "Every business operation is an MCP tool"). Twenty-five tools
+// are registered (5 party + 6 product + 6 discovery + 6 agent + 2 user) and
+// are the way an agent talks to the system over HTTP.
 //
 // Until now NOTHING could invoke them: `McpModule` provided and exported
 // the `TOOL_REGISTRY` token and nothing ever injected it, and
