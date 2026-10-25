@@ -815,7 +815,7 @@ const ERROR_EXPLANATIONS: Record<string, { message: string; suggestedTools: stri
   CONCURRENCY_CONFLICT: {
     message: "A concurrent modification was detected. Another operation modified the same record between your read and write.",
     suggestedTools: [],
-    context: { tip: "Re-query the entity and retry the operation with a new idempotency key." },
+    context: { tip: "Re-query the entity and retry with the SAME idempotency key (do not use a new key) — the durable idempotency record already holds the outcome." },
   },
   // ── Agent registry ────────────────────────────────────────────
   AGENT_NOT_REGISTERED: {
