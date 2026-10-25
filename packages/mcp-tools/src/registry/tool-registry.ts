@@ -363,8 +363,9 @@ export class ToolRegistry {
     const auth = ToolRegistry.validateContextIdentity(context);
     if ("error" in auth) {
       // A pre-pipeline rejection, like the unknown-tool and the
-      // idempotency-key-conflict rejections below, is invisible in the
-      // durable trail unless it is routed through the auditor explicitly.
+      // idempotency-key-conflict rejections below, happens before the
+      // pipeline is composed, so the audit middleware never sees it — it
+      // is recorded explicitly through the rejection auditor instead.
       //
       // It is attributed to the TENANT only when the tenant id is valid: the
       // audit row is tenant-scoped (RLS) and there is no tenant to write it
@@ -402,8 +403,7 @@ export class ToolRegistry {
       // the audit middleware itself. It is therefore recorded explicitly
       // through the rejection auditor below — the identity IS validated at
       // this point (the auth-boundary guard above ran first), so the attempt
-      // can and must be attributed instead of being invisible in the durable
-      // trail.
+      // is attributed rather than dropped without a durable record.
       this.auditRejection({
         toolName: safeName,
         context,
