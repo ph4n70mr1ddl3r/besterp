@@ -30,20 +30,24 @@ jobs:
         run: npm ci
 
       - name: Security audit
-        # Only critical issues fail CI. `npm audit` reports every advisory
-        # against the transitive deepmerge-ts (GHSA-ggr8-5vv4-36mx) that
-        # lives in a nested private node_modules the workspace overrides map
-        # cannot reach, so the gate only fails on CRITICAL — HIGH findings are
-        # reported as a non-failing table so they stay visible and cannot
-        # accumulate unnoticed. The HIGH-severity findings (including the
-        # deepmerge-ts advisory) are therefore still shown in CI; a patch-level
-        # prisma upgrade is the clean resolution (tracked in CODE_REVIEW_REPORT.md).
+        # The gate FAILS the build only on CRITICAL findings (the final
+        # `npm audit --audit-level=critical` line). The HIGH-severity audit
+        # (`npm audit --audit-level=high`) runs under `set +e` purely to keep
+        # the HIGH findings visible in the log — it is not an enforcement
+        # boundary. That split exists because `npm audit` reports advisories
+        # against transitive dependencies the workspace overrides map cannot
+        # reach: a nested private deepmerge-ts (GHSA-ggr8-5vv4-36mx) behind
+        # `@prisma/config`, a `tinypool`/`proxy-addr` pair, and a set of
+        # HIGH-severity findings across dev dependencies. A patch-level
+        # prisma/vitest upgrade is the clean resolution (tracked in
+        # CODE_REVIEW_REPORT.md).
         run: |
           set +e
           npm audit --audit-level=high
           high_failed=$?
-          # Keep the HIGH-severity findings visible in CI without failing the
-          # build on the known deepmerge-ts advisory.
+          # Surface the full advisory table when the high-level audit reports
+          # findings, so HIGH-severity issues stay visible in CI without
+          # failing the build on the known advisories.
           if [ "$high_failed" -ne 0 ]; then
             npm audit
           fi

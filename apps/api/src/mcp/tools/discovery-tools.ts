@@ -22,6 +22,7 @@ import {
   MAX_ENTITY_LENGTH,
   MAX_SEARCH_QUERY_LENGTH,
   MAX_ERROR_CODE_LENGTH,
+  MAX_IDEMPOTENCY_KEY_LENGTH,
   DEFAULT_SEARCH_LIMIT,
   MIN_SEARCH_LIMIT,
   MAX_SEARCH_LIMIT,
@@ -858,12 +859,12 @@ const ERROR_EXPLANATIONS: Record<string, { message: string; suggestedTools: stri
   INVALID_IDEMPOTENCY_KEY: {
     message: "The idempotency key was rejected — it was empty, too long, or contained characters that are not allowed.",
     suggestedTools: ["list_available_tools"],
-    context: { tip: "Supply a printable, non-empty key of at most 500 characters." },
+    context: { tip: `Supply a printable, non-empty key of at most ${MAX_IDEMPOTENCY_KEY_LENGTH} characters.` },
   },
   STALE_PENDING_RECORD: {
-    message: "A stale in-progress idempotency record was found for this key. The earlier request most likely crashed before completing.",
+    message: "A stale in-progress idempotency record was found for this key, holding different input. The earlier request most likely crashed before completing.",
     suggestedTools: ["list_available_tools"],
-    context: { tip: "Wait a moment and retry the same request with the same idempotency key — the stale record is reclaimed automatically when it is older than the 60-second threshold. If the key now holds a different input, use a new key." },
+    context: { tip: "The stale record is reclaimed automatically (re-executed with the SAME key) only while the key holds the SAME input as the earlier attempt — retry that exact request. Because this error means the key now holds DIFFERENT input, the record cannot be reclaimed: use a new idempotency key for the new operation." },
   },
   // ── Context identity ──────────────────────────────────────────
   INVALID_CONTEXT_ID: {

@@ -18,6 +18,7 @@ import {
   InvalidTypeValueError,
   MAX_PARTY_NAME_LENGTH,
   MAX_PARTY_DESCRIPTION_LENGTH,
+  MAX_IDEMPOTENCY_KEY_LENGTH,
   MAX_PRODUCT_TYPE_LENGTH,
   MAX_PRICE_TYPE_LENGTH,
   MAX_SKU_LENGTH,
@@ -114,7 +115,7 @@ Example: Create a physical good
 Example: Create a service
   create_product({ productType: "SERVICE", name: "Consulting", description: "Hourly consulting" })
 
-For idempotent writes, pass an idempotencyKey along with the tool arguments.`,
+For idempotent writes, pass an idempotencyKey (string, max ${MAX_IDEMPOTENCY_KEY_LENGTH} chars) along with the tool arguments. If the same key is used again, the operation will be safely replayed or deduplicated.`,
 
   inputSchema: createProductSchema,
 
@@ -237,10 +238,12 @@ type AddProductFeatureInput_z = z.infer<typeof addProductFeatureSchema>;
 
 const addProductFeature: ToolDefinition = {
   name: "add_product_feature",
-  description: `Add a feature (attribute) to a product.
+   description: `Add a feature (attribute) to a product.
 
-Features are key-value pairs that describe product characteristics
-(e.g., color: "red", size: "Large", weight: "2.5kg").`,
+   Features are key-value pairs that describe product characteristics
+   (e.g., color: "red", size: "Large", weight: "2.5kg").
+
+   For idempotent writes, pass an idempotencyKey (string, max ${MAX_IDEMPOTENCY_KEY_LENGTH} chars) along with the tool arguments. If the same key is used again, the operation will be safely replayed or deduplicated.`,
 
   inputSchema: addProductFeatureSchema,
 
@@ -297,10 +300,12 @@ type AddProductPriceInput_z = z.infer<typeof addProductPriceSchema>;
 
 const addProductPrice: ToolDefinition = {
   name: "add_product_price",
-  description: `Add a price to a product.
+   description: `Add a price to a product.
 
-Products can have multiple prices of different types (LIST, WHOLESALE, DISCOUNT, etc.).
-Prices support effective dating via fromDate/thruDate for price changes over time.`,
+   Products can have multiple prices of different types (LIST, WHOLESALE, DISCOUNT, etc.).
+   Prices support effective dating via fromDate/thruDate for price changes over time.
+
+   For idempotent writes, pass an idempotencyKey (string, max ${MAX_IDEMPOTENCY_KEY_LENGTH} chars) along with the tool arguments. If the same key is used again, the operation will be safely replayed or deduplicated.`,
 
   inputSchema: addProductPriceSchema,
 
@@ -367,7 +372,7 @@ Pass 'expectedVersion' (the version you last read) to make the update
 conditional: if somebody else changed the product in the meantime, the
 update is rejected with a conflict instead of overwriting their change.
 
-For idempotent writes, pass an idempotencyKey along with the tool arguments.`,
+For idempotent writes, pass an idempotencyKey (string, max ${MAX_IDEMPOTENCY_KEY_LENGTH} chars) along with the tool arguments. If the same key is used again, the operation will be safely replayed or deduplicated.`,
 
   inputSchema: updateProductSchema,
 

@@ -20,6 +20,7 @@ import {
   MAX_CAPABILITY_STRING_LENGTH,
   MAX_ALLOWED_ENTITY_TYPES_LENGTH,
   MAX_ENTITY_LENGTH,
+  MAX_IDEMPOTENCY_KEY_LENGTH,
   DEFAULT_SEARCH_LIMIT,
   MIN_SEARCH_LIMIT,
   MAX_SEARCH_LIMIT,
@@ -142,7 +143,9 @@ Example: Register a sales assistant agent
     description: "Helps sales team create quotes and orders",
     capabilities: ["create_party", "search_parties", "get_party"],
     version: "1.0.0"
-  })`,
+  })
+
+  For idempotent writes, pass an idempotencyKey (string, max ${MAX_IDEMPOTENCY_KEY_LENGTH} chars) along with the tool arguments. If the same key is used again, the operation will be safely replayed or deduplicated.`,
 
   inputSchema: registerAgentSchema,
 
@@ -307,10 +310,12 @@ type UpdateAgentInput_z = z.infer<typeof updateAgentSchema>;
 
 const updateAgent: ToolDefinition = {
   name: "update_agent",
-  description: `Update an existing agent's configuration.
+   description: `Update an existing agent's configuration.
 
-Use this to modify agent capabilities, rate limits, or status.
-Only specified fields are updated; omitting a field leaves it unchanged.`,
+   Use this to modify agent capabilities, rate limits, or status.
+   Only specified fields are updated; omitting a field leaves it unchanged.
+
+   For idempotent writes, pass an idempotencyKey (string, max ${MAX_IDEMPOTENCY_KEY_LENGTH} chars) along with the tool arguments. If the same key is used again, the operation will be safely replayed or deduplicated.`,
 
   inputSchema: updateAgentSchema,
 
@@ -360,13 +365,15 @@ type DeactivateAgentInput_z = z.infer<typeof deactivateAgentSchema>;
 
 const deactivateAgent: ToolDefinition = {
   name: "deactivate_agent",
-  description: `Deactivate an agent, preventing it from making tool calls.
+   description: `Deactivate an agent, preventing it from making tool calls.
 
-The agent record is preserved (soft delete) so it can be reactivated later.
-Use this instead of delete_agent when you want to temporarily disable an agent.
+   The agent record is preserved (soft delete) so it can be reactivated later.
+   Use this instead of delete_agent when you want to temporarily disable an agent.
 
-Once deactivated, any request whose JWT carries this agent's id is rejected
-with AGENT_INACTIVE before the tool runs.`,
+   Once deactivated, any request whose JWT carries this agent's id is rejected
+   with AGENT_INACTIVE before the tool runs.
+
+   For idempotent writes, pass an idempotencyKey (string, max ${MAX_IDEMPOTENCY_KEY_LENGTH} chars) along with the tool arguments. If the same key is used again, the operation will be safely replayed or deduplicated.`,
 
   inputSchema: deactivateAgentSchema,
 
@@ -404,11 +411,13 @@ type DeleteAgentInput_z = z.infer<typeof deleteAgentSchema>;
 
 const deleteAgent: ToolDefinition = {
   name: "delete_agent",
-  description: `Permanently delete a registered AI agent from the tenant.
+   description: `Permanently delete a registered AI agent from the tenant.
 
-Unlike deactivate_agent (which soft-disables), this removes the agent record entirely.
-This operation is irreversible — use deactivate_agent if you want to temporarily
-disable an agent instead.`,
+   Unlike deactivate_agent (which soft-disables), this removes the agent record entirely.
+   This operation is irreversible — use deactivate_agent if you want to temporarily
+   disable an agent instead.
+
+   For idempotent writes, pass an idempotencyKey (string, max ${MAX_IDEMPOTENCY_KEY_LENGTH} chars) along with the tool arguments. If the same key is used again, the operation will be safely replayed or deduplicated.`,
 
   inputSchema: deleteAgentSchema,
 

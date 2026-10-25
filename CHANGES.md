@@ -1,5 +1,16 @@
 # BestERP — Security & Architecture Fixes
 
+## Changes Applied (2026-10-25) — Code Review Round 291
+**Align remaining idempotency-key hints, error-explanation drift, and the CI audit comment with the implementation**
+
+- `apps/api/src/mcp/tools/product-tools.ts`: `add_product_feature` and `add_product_price` (and the two write tools' existing hints) now carry the standard idempotency-key sentence with the `MAX_IDEMPOTENCY_KEY_LENGTH` cap, matching the party-tools convention; the key is framework-level and accepted on every tool, so every write tool documents it.
+- `apps/api/src/mcp/tools/agent-tools.ts`: the four agent write tools (`register_agent`, `update_agent`, `deactivate_agent`, `delete_agent`) now carry the same standard idempotency-key hint.
+- `apps/api/src/mcp/tools/user-tools.ts`: `create_user` (the only write path to the credential table) now carries the standard idempotency-key hint.
+- `apps/api/src/mcp/tools/discovery-tools.ts`: the round 290 `INVALID_IDEMPOTENCY_KEY` hint still hardcoded "at most 500 characters" despite the round 290 report claiming the number was removed — it now references `MAX_IDEMPOTENCY_KEY_LENGTH` in a template literal. The `STALE_PENDING_RECORD` hint was also corrected: the middleware emits that code only when the stored record's input hash DIFFERS from the incoming one; a same-key same-input retry is silently reclaimed in the acquire path and never reaches the error. The hint now says the reclaim applies to same-input retries only and that this error means a new key is required for the new input.
+- `README.md`: the `idempotencyKey` envelope entry now names `MAX_IDEMPOTENCY_KEY_LENGTH` (500) and points at `packages/shared/src/constants.ts`, so the cap cannot drift off the implementation.
+- `.github/workflows/ci.yml`: the security-audit step's comment now states the actual gate behaviour (the high-level audit reports, only the critical-level audit fails the build) instead of claiming HIGH findings are "reported as a non-failing table" while a high-level gate was still in the script.
+- Lint clean, typecheck clean, all 729 tests pass (25 files); mcp-tools 283, shared 328 unchanged.
+
 ## Changes Applied (2026-10-25) — Code Review Round 290
 **Align agent-facing length hints and envelope-key guidance with the implementation**
 

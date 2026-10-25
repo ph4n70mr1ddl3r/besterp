@@ -21,6 +21,7 @@ import {
   InvalidTypeValueError,
   MAX_PASSWORD_HASH_LENGTH,
   isSupportedPasswordHash,
+  MAX_IDEMPOTENCY_KEY_LENGTH,
 } from "@besterp/shared";
 import type {
   CreateUserInput,
@@ -95,15 +96,17 @@ Use 'search_parties' to find the party's partyId first.`,
 
 const createUser: ToolDefinition = {
   name: "create_user",
-  description: `Create a user account for an existing party.
+   description: `Create a user account for an existing party.
 
-The party must already exist — use 'search_parties' and 'get_party' first.
-The passwordHash must be a HASH (e.g. a bcrypt or argon2 digest) produced by
-the authentication service, never a plaintext password: this tool does not
-hash, and a plaintext password would be persisted as the hash.
+   The party must already exist — use 'search_parties' and 'get_party' first.
+   The passwordHash must be a HASH (e.g. a bcrypt or argon2 digest) produced by
+   the authentication service, never a plaintext password: this tool does not
+   hash, and a plaintext password would be persisted as the hash.
 
-The password hash is never returned by this tool, and it is redacted from the
-durable audit trail.`,
+   The password hash is never returned by this tool, and it is redacted from the
+   durable audit trail.
+
+   For idempotent writes, pass an idempotencyKey (string, max ${MAX_IDEMPOTENCY_KEY_LENGTH} chars) along with the tool arguments. If the same key is used again, the operation will be safely replayed or deduplicated.`,
 
   inputSchema: z.strictObject({
     partyId: uuidParam("The UUID of the party to create the user account for"),

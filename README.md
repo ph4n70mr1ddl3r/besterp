@@ -358,7 +358,8 @@ so they are accepted on every tool:
 - `idempotencyKey` (string) — deduplicates retries of a write. Pass it
   alongside the tool arguments (it is one of the envelope keys the framework
   strips from the arguments object before the tool's own schema runs, so the
-  tool schemas do not declare it; a 500-character cap applies). The same key
+  tool schemas do not declare it; keys are capped at 500 printable ASCII
+  characters — `MAX_IDEMPOTENCY_KEY_LENGTH` in `packages/shared/src/constants.ts`). The same key
   with the same input replays the stored result; a different input under the
   same key is rejected with `IDEMPOTENCY_KEY_MISMATCH`. A key is scoped to
   **one caller in one tenant**: another caller that reuses the key gets

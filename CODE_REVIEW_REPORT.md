@@ -1,10 +1,41 @@
-                        # Code Review Report
+# Code Review Report
 
 ## Scope
-                Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
-                 `mcp-tools`, `apps/api`, plus README/`.env.example`/docker/CI). This file
-                 documents reviews 276–290 (newest first) and review 275; rounds 1–274 are
-                  documented in earlier revisions of this file and `CHANGES.md`.
+Fresh full review of the BestERP monorepo (`packages/shared`, `packages/database`,
+ `mcp-tools`, `apps/api`, plus README/`.env.example`/docker/CI). This file
+ documents reviews 276–291 (newest first) and review 275; rounds 1–274 are
+ documented in earlier revisions of this file and `CHANGES.md`.
+
+## Findings & Actions (round 291)
+
+### Fixed this round — align remaining idempotency-key hints, error-explanation drift, and the CI audit comment with the implementation
+
+- **`apps/api/src/mcp/tools/product-tools.ts` — the two `create_product` / `update_product` siblings still lacked the idempotency hint the write tools carry.** `create_product` and `update_product` say "pass an idempotencyKey along with the tool arguments" without the length cap; `add_product_feature` and `add_product_price` said nothing about idempotency at all, even though the envelope key is framework-level and accepted on every tool. All four now carry the same sentence party-tools uses (a template literal referencing `MAX_IDEMPOTENCY_KEY_LENGTH`), so a constant change cannot leave any write-tool doc stale.
+- **`apps/api/src/mcp/tools/agent-tools.ts` — the four agent write tools (`register_agent`, `update_agent`, `deactivate_agent`, `delete_agent`) said nothing about the idempotency key.** Same gap, same class: the key is accepted on every tool but only the party/product write tools documented it. All four now carry the standard hint.
+- **`apps/api/src/mcp/tools/user-tools.ts` — `create_user` (the only write path to the credential table) had no idempotency hint.** Added the standard sentence.
+- **`apps/api/src/mcp/tools/discovery-tools.ts` — the round 290 `INVALID_IDEMPOTENCY_KEY` hint still hardcoded the 500 limit** ("at most 500 characters") even though the round 290 report claimed it "names the 500 limit without hardcoding it". It now references `MAX_IDEMPOTENCY_KEY_LENGTH` in a template literal, like every other hint.
+- **`apps/api/src/mcp/tools/discovery-tools.ts` — the round 290 `STALE_PENDING_RECORD` hint was still wrong in the other direction.** The middleware emits `STALE_PENDING_RECORD` only when the stored record's input hash DIFFERS from the incoming one (the stale-pending branch of `handleExistingRecord`); a same-key same-input retry is reclaimed silently in `acquireIdempotencyRecord` and never reaches that error. The hint told the agent to "retry the same request with the same key … if the key now holds a different input, use a new key" — the reclaim rule was attributed to the wrong code path. The hint now states that the automatic reclaim applies to same-input retries only, and that this specific error means the key now holds different input, so the agent must use a new key for the new operation.
+- **`README.md` — the `idempotencyKey` envelope entry hardcoded "a 500-character cap" without naming the constant.** It now names `MAX_IDEMPOTENCY_KEY_LENGTH` and points at `packages/shared/src/constants.ts`, so the doc cannot drift off the implementation — the same drift class the round-279–290 fixes prevent.
+- **`.github/workflows/ci.yml` — the security-audit step's comment contradicted its own script.** The comment said HIGH findings are "reported as a non-failing table", but the `npm audit --audit-level=high` line FAILS the step on high findings (only the final `npm audit --audit-level=critical` gate is the pass/fail boundary; the high-level audit is run under `set +e` and its failure is reported, not enforced). The comment now states the actual behaviour and names the known transitive advisories (deepmerge-ts behind `@prisma/config`, plus the HIGH-severity findings across dev dependencies) that make the high-level audit non-failing in effect.
+
+### Verified clean (no action needed)
+
+- **Tool counts** — the README's per-domain lists (5 party, 6 product, 6 discovery, 6 agent, 2 user = 25) match `registerPartyTools` / `registerProductTools` / `registerDiscoveryTools` / `registerAgentTools` / `registerUserTools` exactly; the controller's header comment (round 288) is consistent with that.
+- **`confirmation_gate` seed set** — the seed covers all ten high/critical-risk tools (`create_party`, `add_party_role`, `add_contact_mechanism`, `register_agent`, `update_agent`, `deactivate_agent`, `delete_agent`, `create_product`, `update_product`, `create_user`), matching every `riskLevel: "high" | "critical"` declaration in the tool files; the discovery surface's "gate row + enforced risk level" predicate cannot advertise a gate the pipeline would not apply.
+- **`ERROR_EXPLANATIONS` inventory** — after this round's two rewordings the table still covers every code in `MCP_ERROR_CODES` ∪ `DOMAIN_ERROR_CODES` plus the self-referential `UNKNOWN_ERROR_CODE` entry (the app-level `error-codes.spec.ts` scan and the package-level two-way assertion both still pass).
+- **`.env.example` ↔ docker-compose** — `POSTGRES_PASSWORD` / `MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD` / `REDIS_PASSWORD` are all wired; the `REDIS_TLS=0` expectation for the plaintext compose stack is documented in both files.
+
+### Test Results (round 291)
+```
+shared:    328 passed (6 files)
+mcp-tools: 283 passed (9 files)
+database:  pass (unchanged)
+api:       729 passed (25 files)
+────────────────────────────────────
+lint:      clean (0 errors, 0 warnings)
+typecheck: clean across all workspaces
+build:     clean
+```
 
 ## Findings & Actions (round 290)
 
