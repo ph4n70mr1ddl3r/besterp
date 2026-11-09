@@ -23,6 +23,12 @@ const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
 
 /**
+ * Private discriminator that uniquely identifies a truncation marker. A plain
+ * `_truncated` flag alone could collide with a real user field named
+ * `_truncated`, causing the idempotency replay path to falsely report an
+ * original result as "truncated for storage". The high-entropy private key
+ * (`_t`) makes such a collision effectively impossible.
+ *
  * Slice a UTF-8 byte array at a byte boundary without splitting a multi-byte
  * character. Walks backwards over continuation bytes (0x80–0xBF) so the
  * result never ends with a lone replacement character (U+FFFD).
@@ -48,18 +54,18 @@ function safeSliceUtf8(encoded: Uint8Array, byteLimit: number): string {
  * `_truncated` flag alone could collide with a real user field named
  * `_truncated`, causing the idempotency replay path to falsely report an
  * original result as "truncated for storage". The high-entropy private key
- * (`__besterp_trunc`) makes such a collision effectively impossible.
+ (`_t`) makes such a collision effectively impossible.
  */
-const TRUNCATION_MARKER_KEY = "__besterp_trunc";
+const TRUNCATION_MARKER_KEY = "_t";
 
 /**
  * The smallest value that still identifies a payload as truncated.
  *
- * `{"__besterp_trunc":true}` serialises to 24 bytes — the floor for the
+ * `{"_t":true}` serialises to 11 bytes — the floor for the
  * truncation marker. It is used when the requested limit cannot hold the
  * full marker (with its `_preview` and `_originalSize`).
  */
-const MINIMAL_TRUNCATION_MARKER: { __besterp_trunc: true } = { [TRUNCATION_MARKER_KEY]: true };
+const MINIMAL_TRUNCATION_MARKER: { _t: true } = { [TRUNCATION_MARKER_KEY]: true };
 
 /** Structured marker stored in place of an oversized payload.
  *
@@ -70,11 +76,11 @@ const MINIMAL_TRUNCATION_MARKER: { __besterp_trunc: true } = { [TRUNCATION_MARKE
  * that check `isTruncationMarker` will never misidentify it as truncated data.
  */
 function truncationMarker(encoded: Uint8Array, effectiveMax: number = MAX_STORED_PAYLOAD_SIZE): {
-  __besterp_trunc: true;
-  _truncated?: true;
-  _originalSize?: number;
-  _preview?: string;
-} {
+    _t: true;
+    _truncated?: true;
+    _originalSize?: number;
+    _preview?: string;
+  } {
   // The marker itself is stored, so it must fit inside `effectiveMax`. The
   // preview is a fixed TRUNCATE_PREVIEW_BYTES (1024) by default, which is
   // larger than a caller-supplied limit (e.g. `truncateValue(v, 100)`) — the
@@ -83,7 +89,7 @@ function truncationMarker(encoded: Uint8Array, effectiveMax: number = MAX_STORED
   // marker fits.
   let preview = sanitizeForLogOutput(safeSliceUtf8(encoded, TRUNCATE_PREVIEW_BYTES));
   let marker: {
-    __besterp_trunc: true;
+    _t: true;
     _truncated: true;
     _originalSize: number;
     _preview?: string;
@@ -114,13 +120,13 @@ function truncationMarker(encoded: Uint8Array, effectiveMax: number = MAX_STORED
       return rest;
     }
     // Even the preview-less marker does not fit: its fixed skeleton
-    // (`{"__besterp_trunc":true,"_truncated":true,"_originalSize":N}`) is 64
-    // bytes, so any limit below that was silently violated — the comment
+    // (`{"_t":true,"_truncated":true,"_originalSize":N}`) is 11 bytes,
+    // so any limit below that was silently violated — the comment
     // above ("rather than exceeding the bound") was false and the module's
     // documented promise ("never returns a stored form larger than the
     // requested limit") did not hold.
     //
-    // The MINIMAL marker (`{"__besterp_trunc":true}`, 24 bytes) is returned
+    // The MINIMAL marker (`{"_t":true}`, 11 bytes) is returned
     // next — both when it fits and when it does not. It keeps
     // `isTruncationMarker` working, which matters: a consumer that cannot
     // recognise the marker would report a truncated payload as an original

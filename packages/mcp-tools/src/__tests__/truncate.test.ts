@@ -297,6 +297,20 @@ describe("truncateValue respects a caller-supplied limit", () => {
     const out = truncateValue({ data: "z".repeat(10_000) }, 100) as { _originalSize: number };
     expect(out._originalSize).toBeGreaterThan(100);
   });
+
+  it("never returns a stored form larger than the requested limit even below marker size", () => {
+    // The MINIMAL_TRUNCATION_MARKER is `{"_t":true}` which is 11 bytes.
+    // Limits below 11 bytes cannot fit even the minimal marker while keeping
+    // the truncation signal recognizable via isTruncationMarker — the code
+    // already acknowledges this as a documented exception ("A limit this
+    // small cannot hold even the minimal marker"). Production callers use
+    // limits far above this floor.
+    for (const limit of [11, 15, 20, 23, 24]) {
+      const out = truncateValue({ data: "z".repeat(10_000) }, limit);
+      const stored = new TextEncoder().encode(JSON.stringify(out)).length;
+      expect(stored, `limit ${limit} produced a ${stored}-byte payload`).toBeLessThanOrEqual(limit);
+    }
+  });
 });
 
 describe("capString respects its own byte cap", () => {
