@@ -77,6 +77,12 @@ export function validateOptionalString(
       { context: { field: fieldName, length: trimmed.length } }
     );
   }
+  if (!OPTIONAL_ID_PATTERN.test(trimmed)) {
+    throw new InvalidTypeValueError(
+      `'${fieldName}' contains invalid characters (control characters, whitespace, or zero-width/bidi sequences).`,
+      { context: { field: fieldName } }
+    );
+  }
   return trimmed;
 }
 
