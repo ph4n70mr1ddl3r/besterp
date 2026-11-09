@@ -77,7 +77,15 @@ export function validateOptionalString(
       { context: { field: fieldName, length: trimmed.length } }
     );
   }
-  if (!OPTIONAL_ID_PATTERN.test(trimmed)) {
+  // The OPTIONAL_ID_PATTERN has a max length of MAX_USER_ID_LENGTH (200),
+  // but validateOptionalString can be called with larger maxLength values
+  // (e.g., MAX_IDEMPOTENCY_KEY_LENGTH = 500). When maxLength exceeds the
+  // pattern's hardcoded limit, only validate the character set — the function's
+  // own length check above already enforces the correct max.
+  const pattern = maxLength > MAX_USER_ID_LENGTH
+    ? /^[^\s\x00-\x1f\x7f-\x9f\u00ad\u061c\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufeff]+$/ // eslint-disable-line no-control-regex
+    : OPTIONAL_ID_PATTERN;
+  if (!pattern.test(trimmed)) {
     throw new InvalidTypeValueError(
       `'${fieldName}' contains invalid characters (control characters, whitespace, or zero-width/bidi sequences).`,
       { context: { field: fieldName } }
