@@ -179,9 +179,9 @@ export class SecurityService {
         where: { tenantId_partyId: { tenantId: trimmedTenantId, partyId: validatedPartyId } },
         data: { lastLoginAt: new Date() },
       });
-    } catch {
+    } catch (err) {
       // Non-fatal — login tracking failure should not block authentication.
-      this.logger.debug(`Could not update lastLoginAt for party ${sanitizeForLogOutput(validatedPartyId)}`);
+      this.logger.warn(`Could not update lastLoginAt for party ${sanitizeForLogOutput(validatedPartyId)}: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
