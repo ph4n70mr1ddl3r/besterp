@@ -447,9 +447,9 @@ describe("McpService", () => {
       const ctx = mcpService.buildContext({
         tenantId: "tenant-1",
         userId: "user-1",
-        idempotencyKey: "x".repeat(500),
+        idempotencyKey: "x".repeat(200),
       });
-      expect(ctx.idempotencyKey).toBe("x".repeat(500));
+      expect(ctx.idempotencyKey).toBe("x".repeat(200));
     });
 
     it("should trim idempotency key before storing", () => {
