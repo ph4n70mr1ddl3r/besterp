@@ -240,9 +240,30 @@ export class McpService implements OnModuleInit {
   }
 
   private static validateReasoning(value: string | undefined): string | undefined {
-    const reasoning = validateOptionalString("reasoning", value, MAX_REASONING_LENGTH);
-    if (reasoning === undefined) return undefined;
-    const stripped = sanitizeForLogOutput(stripHtmlTags(reasoning));
+    if (value === undefined || value === null) return undefined;
+    if (typeof value !== "string") {
+      throw new InvalidTypeValueError(
+        "'reasoning' must be a string.",
+        { context: { field: "reasoning", received: typeof value } }
+      );
+    }
+    const trimmed = value.trim();
+    if (trimmed.length === 0) {
+      if (value.length > 0) {
+        throw new InvalidTypeValueError(
+          "'reasoning' cannot be whitespace-only.",
+          { context: { field: "reasoning" } }
+        );
+      }
+      return undefined;
+    }
+    if (trimmed.length > MAX_REASONING_LENGTH) {
+      throw new InvalidTypeValueError(
+        "'reasoning' exceeds maximum length of 2000 characters.",
+        { context: { field: "reasoning", length: trimmed.length, maxLength: MAX_REASONING_LENGTH } }
+      );
+    }
+    const stripped = sanitizeForLogOutput(stripHtmlTags(trimmed));
     return stripped.length === 0 ? undefined : stripped;
   }
 
