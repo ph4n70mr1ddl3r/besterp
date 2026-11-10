@@ -820,6 +820,12 @@ async function executeAndUpdate(
         );
       }
     }
+    // Sanitize the original error before re-throwing, so the agent
+    // receives a sanitized message rather than raw DB connection strings,
+    // hostnames, or other secrets that may be embedded in the error.
+    if (error instanceof Error) {
+      error.message = message;
+    }
     throw error;
   }
 
