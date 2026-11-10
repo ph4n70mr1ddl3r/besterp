@@ -992,6 +992,37 @@ describe("Idempotency Middleware", () => {
     expect(caughtError?.message).toContain("[DATABASE_URL]");
   });
 
+  it("the thrown error from audit-log middleware is sanitized", async () => {
+    // Bug: audit-log middleware re-throws the original unsanitized error at line 390,
+    // even though it has already sanitized the message for the durable ai_action_log
+    // record. The agent receives the raw error message which may contain DB connection
+    // strings, hostnames, etc. This test verifies the thrown error is sanitized.
+    const input = { test: "value" };
+    const idempotencyKey = "test-audit-thrown-msg-sanitize";
+    const contextWithKey = { ...mockContext, idempotencyKey };
+    const error = new Error(
+      "Connection failed: postgres://besterp:s3cret-pw@10.0.0.5:5432/besterp (ECONNREFUSED)"
+    );
+
+    mockFindInTransaction(null);
+    mockPrisma.aiActionLog.create.mockResolvedValue({ id: "log-id" });
+
+    const middleware = auditLogMiddleware(mockPrisma as any);
+    let caughtError: Error | undefined;
+    try {
+      await middleware(input, contextWithKey, mockDefinition, throwingNext(error));
+    } catch (e) {
+      caughtError = e as Error;
+    }
+
+    // The thrown error should NOT contain the raw connection string,
+    // even though the durable record below it is sanitized.
+    expect(caughtError).toBeInstanceOf(Error);
+    expect(caughtError?.message).not.toContain("s3cret-pw");
+    expect(caughtError?.message).not.toContain("postgres://");
+    expect(caughtError?.message).toContain("[DATABASE_URL]");
+  });
+
   it("should cap and sanitize the thrown-error (hard-failure) error.code", async () => {
     // Regression guard for an asymmetric-leak path: the soft-failure branch
     // capped + scrubbed error.code, but the hard-throw branch stored it verbatim

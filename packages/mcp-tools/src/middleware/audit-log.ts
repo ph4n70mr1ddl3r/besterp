@@ -387,6 +387,16 @@ async function executeAndLog(prisma: PrismaClient, backpressure: BackpressureMan
         },
       },
     });
+    // Sanitize the original error message before re-throwing, so the agent
+    // receives a sanitized message rather than raw DB connection strings,
+    // hostnames, or other secrets that may be embedded in the error.
+    const message = capString(
+      normalizeUnpairedSurrogates(sanitizeForLogOutput(error instanceof Error ? error.message : String(error))),
+      MAX_SOFT_FAILURE_MESSAGE_SIZE,
+    );
+    if (error instanceof Error) {
+      error.message = message;
+    }
     throw error;
   }
 
