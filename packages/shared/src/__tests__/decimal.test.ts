@@ -105,3 +105,29 @@ describe("decimalToNumber — non-decimal StringNumericLiteral forms are rejecte
     expect(decimalToNumber("1.5E-2")).toBe(0.015);
   });
 });
+
+describe("decimalToNumber — edge cases", () => {
+  it("returns null when toString() returns undefined", () => {
+    expect(decimalToNumber({ toString: () => undefined })).toBeNull();
+  });
+
+  it("returns null when toString() returns NaN", () => {
+    expect(decimalToNumber({ toString: () => NaN })).toBeNull();
+  });
+
+  it("returns null when toString() returns object", () => {
+    expect(decimalToNumber({ toString: () => ({}) })).toBeNull();
+  });
+
+  it("returns 0 when toString() returns the string '0'", () => {
+    expect(decimalToNumber({ toString: () => "0" })).toBe(0);
+  });
+
+  it("returns null for object with toNumber throwing and toString returning undefined", () => {
+    const broken = {
+      toNumber: () => { throw new Error("boom"); },
+      toString: () => undefined,
+    };
+    expect(decimalToNumber(broken)).toBeNull();
+  });
+});
