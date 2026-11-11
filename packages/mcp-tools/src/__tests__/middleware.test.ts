@@ -325,6 +325,39 @@ describe("Idempotency Middleware", () => {
     expect(result.error?.code).toBe("IDEMPOTENCY_KEY_MISMATCH");
   });
 
+  it("should treat null-createdAt pending record as brand-new (consistent with acquireIdempotencyRecord)", async () => {
+    // Bug hunt: This test documents the inconsistency between
+    // acquireIdempotencyRecord and handleExistingRecord regarding null
+    // createdAt handling. acquireIdempotencyRecord treats null-createdAt
+    // pending records as brand-new (reset and proceed), but handleExistingRecord
+    // previously returned IDEMPOTENCY_KEY_MISMATCH for the same scenario.
+    // The fix in handleExistingRecord now makes both paths consistent.
+    const input = { test: "different value" };
+    const idempotencyKey = "test-key";
+    const contextWithKey = { ...mockContext, idempotencyKey };
+
+    const { hashInput } = await import("@besterp/shared");
+    const inputHash = hashInput(input);
+
+    mockFindInTransaction({
+      idempotencyKey,
+      status: "pending",
+      toolName: "test_tool",
+      inputHash,
+      // createdAt is intentionally omitted / null — this is the bug scenario:
+      // acquireIdempotencyRecord treats this as brand-new (reset and proceeds),
+      // and now handleExistingRecord also treats it consistently.
+    });
+
+    const middleware = idempotencyMiddleware(mockPrisma as any);
+    const result = await middleware(input, contextWithKey, mockDefinition, successNext());
+
+    // After the fix, both code paths behave consistently:
+    // acquireIdempotencyRecord treats null-createdAt as brand-new (proceed),
+    // and handleExistingRecord also treats it as brand-new (success: true).
+    expect(result.success).toBe(true);
+  });
+
   it("should pass through when no idempotency key", async () => {
     const input = { test: "value" };
 

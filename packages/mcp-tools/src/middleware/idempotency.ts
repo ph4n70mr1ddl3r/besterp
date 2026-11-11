@@ -659,20 +659,15 @@ function handleExistingRecord(
   }
 
   if (existing.status === "pending") {
+    // Guard against null createdAt — the Prisma schema allows it, and a
+    // null value would throw TypeError on .getTime(). Treat it as a brand-new
+    // record so the caller can proceed. This is consistent with the
+    // acquireIdempotencyRecord path which resets and proceeds for the
+    // same scenario.
+    if (!existing.createdAt) {
+      return { success: true };
+    }
     if (existing.inputHash !== inputHash) {
-      // Guard against null createdAt — the Prisma schema allows it, and a
-      // null value would throw TypeError on .getTime(). Treat it as a stale
-      // record so the caller gets KEY_MISMATCH and can retry with a new key.
-      if (!existing.createdAt) {
-        return {
-          success: false,
-          error: {
-            code: IDEMPOTENCY_KEY_MISMATCH,
-            message: `Idempotency key '${redactKey(idempotencyKey)}' has a corrupted pending record (missing createdAt). Retry with a new idempotency key.`,
-            suggestedTools: [toolName],
-          },
-        };
-      }
       const pendingAge = Date.now() - existing.createdAt.getTime();
       if (pendingAge > IDEMPOTENCY_STALE_PENDING_THRESHOLD_MS) {
         return {
