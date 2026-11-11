@@ -32,7 +32,7 @@ import {
  * leak into client-facing responses. When class-validator adds a new prefix,
  * add it here and run the regression tests to confirm the new shape is handled.
  */
-const CLASS_VALIDATOR_PREFIX_REGEX = /^(is\w+|mustBe\w+|must be [a-z ]+|should be [a-z ]+|should not be [a-z ]+|is not [a-z ]+|must contain|must not contain|should contain|should not contain|is optional|must be optional|is required|must be required|minAllowed|maxAllowed|notIn|min|max|length|equals|matches|isArray|minDecimalValue|isNotEmpty|isEmpty|isBoolean|isDate|isNumber|isString|isEnum|isInstanceOf|arrayMinSize|arrayMaxSize|isTrue|isFalse|isNull|isNotNull)[^a-zA-Z]*/i;
+const CLASS_VALIDATOR_PREFIX_REGEX = /^(is\w+|mustBe\w+|must be [a-z ]+|should be [a-z ]+|should not be [a-z ]+|is not [a-z ]+|must contain|must not contain|should contain|should not contain|is optional|must be optional|is required|must be required|minAllowed|maxAllowed|notIn|min|max|length|equals|matches|isArray|minDecimalValue|isNotEmpty|isEmpty|isBoolean|isDate|isNumber|isString|isEnum|isInstanceOf|arrayMinSize|arrayMaxSize|isTrue|isFalse|isNull|isNotNull|\w+\()[^a-zA-Z]*/i;
 
 /**
  * Recursively strip HTML from every string leaf of an already-redacted

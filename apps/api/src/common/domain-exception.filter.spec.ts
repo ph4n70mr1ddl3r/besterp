@@ -226,7 +226,34 @@ describe("DomainExceptionFilter", () => {
       expect(Array.isArray(messages)).toBe(true);
     });
 
-    it("strips HTML tags from array validation messages in production (round 172)", () => {
+    it("strips previously-unknown class-validator prefix from validation messages (round NEW)", () => {
+    // Regression: if class-validator adds a new constraint prefix not in
+    // CLASS_VALIDATOR_PREFIX_REGEX, the raw validator internals would leak
+    // into the client response. The regex must have a catch-all to strip
+    // any word-prefix followed by '('.
+    process.env.NODE_ENV = "production";
+    const ctx = createMockHost();
+    const error = new HttpException(
+      {
+        statusCode: 400,
+        error: "Bad Request",
+        message: [
+          "customConstraint(value) must be a valid value",
+        ],
+      },
+      HttpStatus.BAD_REQUEST,
+    );
+
+    filter.catch(error, ctx.host);
+
+    const body = ctx.captured.body as Record<string, unknown>;
+    const messages = body.message as string[];
+    // The prefix should be stripped, leaving only the actionable message.
+    expect(messages[0]).not.toContain("customConstraint");
+    expect(messages[0]).toContain("must be a valid value");
+  });
+
+  it("strips HTML tags from array validation messages in production (round 172)", () => {
       // Regression: the array path (ValidationPipe shape) only ran
       // sanitizeForLogOutput, which does NOT strip HTML, while the string
       // path applied stripHtmlTags — so a validation message echoing markup
