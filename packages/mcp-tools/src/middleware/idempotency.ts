@@ -665,6 +665,16 @@ function handleExistingRecord(
     // acquireIdempotencyRecord path which resets and proceeds for the
     // same scenario.
     if (!existing.createdAt) {
+      if (!canClaimRecord(existing, inputHash, toolName, safeUserId, safeAgentId)) {
+        return {
+          success: false,
+          error: {
+            code: IDEMPOTENCY_KEY_MISMATCH,
+            message: `Idempotency key '${redactKey(idempotencyKey)}' has a pending record that does not match the current caller, tool, or input. Use a new idempotency key.`,
+            suggestedTools: [toolName],
+          },
+        };
+      }
       return { success: true };
     }
     if (existing.inputHash !== inputHash) {
