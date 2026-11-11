@@ -36,7 +36,9 @@ export const OPTIONAL_ID_PATTERN: RegExp = new RegExp(`^[^\\s\\x00-\\x1f\\x7f-\\
  * @returns true when `value` is a string that satisfies the pattern.
  */
 export function isValidOptionalId(value: unknown): value is string {
-  return typeof value === "string" && OPTIONAL_ID_PATTERN.test(value);
+  return (
+    typeof value === "string" && OPTIONAL_ID_PATTERN.test(value.trim())
+  );
 }
 
 /**
