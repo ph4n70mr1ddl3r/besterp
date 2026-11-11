@@ -96,6 +96,8 @@ describe("Idempotency Middleware", () => {
         idempotencyRecord: {
           findUnique: vi.fn().mockResolvedValue(stored),
           create: mockPrisma.idempotencyRecord.create,
+          update: vi.fn().mockResolvedValue({}),
+          delete: vi.fn().mockResolvedValue({}),
         },
       };
       return fn(tx);
