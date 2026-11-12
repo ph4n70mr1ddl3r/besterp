@@ -665,7 +665,7 @@ function handleExistingRecord(
     // acquireIdempotencyRecord path which resets and proceeds for the
     // same scenario.
     if (!existing.createdAt) {
-      if (!canClaimRecord(existing, inputHash, toolName, safeUserId, safeAgentId)) {
+      if (!canClaimRecord(existing, inputHash, toolName, userId, agentId)) {
         return {
           success: false,
           error: {
