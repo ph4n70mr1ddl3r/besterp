@@ -58,8 +58,20 @@ import { ToolMiddleware, ToolResult } from "../schema/tool-definition.js";
 import { sanitizeForLogOutput } from "@besterp/shared";
 import { AGENT_CAPABILITY_DENIED, AGENT_INACTIVE, AGENT_NOT_REGISTERED, AGENT_POLICY_UNAVAILABLE } from "../error-codes.js";
 
-/** Suggested tools returned when an agent is not permitted to make the call. */
-const SUGGESTED_TOOLS = ["list_available_tools"] as const;
+/**
+ * Suggested tools returned when an agent is not permitted to make the call,
+ * or when the agent's identity/registration cannot be verified.
+ *
+ * Offered as operator guidance for the agent's next action. When the agent
+ * is not registered or is inactive (SUGGESTED_TOOLS usage), the suggestions
+ * provide a full picture of available tools even though the agent cannot
+ * execute them. When the agent IS registered and active but lacks capability
+ * for a specific tool (CAPABILITY_SUGGESTIONS usage), the agent CAN call
+ * describe_agent but not the requested tool.
+ *
+ * See CAPABILITY_SUGGESTIONS for the capability-denied case distinction.
+ */
+const SUGGESTED_TOOLS = ["describe_agent", "list_available_tools"] as const;
 
 /**
  * Pick the follow-up tools the rejected agent can ACTUALLY call.

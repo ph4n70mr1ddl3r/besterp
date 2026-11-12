@@ -216,7 +216,8 @@ describe("agentPolicyMiddleware", () => {
   it("keeps the generic suggestion when the capability list is unknown", async () => {
     // The agent is not registered at all — there is no capability list to
     // check against, so the generic suggestion is the best the middleware
-    // can do.
+    // can do. The suggestions now include describe_agent for completeness
+    // even though the agent cannot execute it.
     const prisma = createPrisma(null);
     const result = await agentPolicyMiddleware(prisma)(
       {},
@@ -227,7 +228,7 @@ describe("agentPolicyMiddleware", () => {
 
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe("AGENT_NOT_REGISTERED");
-    expect(result.error?.suggestedTools).toEqual(["list_available_tools"]);
+    expect(result.error?.suggestedTools).toEqual(["describe_agent", "list_available_tools"]);
   });
 });
 

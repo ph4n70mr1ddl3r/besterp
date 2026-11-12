@@ -76,6 +76,12 @@ function invalidConfirmationError(message: string): { success: false; error: { c
  * the value out of the tool arguments and strips it from the validated
  * input). The tool input is only consulted as a fallback so the middleware
  * still works when it is composed outside the registry.
+ *
+ * The confirmation is promoted from the raw tool arguments into the context
+ * by ToolRegistry.execute() BEFORE the middleware pipeline runs. This function
+ * first checks the context (which is the normal path), then falls back to the
+ * raw input as a safety net for callers that invoke the middleware outside
+ * of the execute() framework (e.g. direct testing or custom pipeline composition).
  */
 function readConfirmation(input: unknown, context: ToolContext): unknown {
   if (context.confirmation !== undefined) return context.confirmation;
